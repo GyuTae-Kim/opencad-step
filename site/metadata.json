@@ -1,0 +1,61 @@
+{
+  "title": "OpenCAD 무료 STEP 뷰어 | STP·STEP 3D 모델 열기",
+  "description": "STEP·STP 3D CAD 파일을 설치 없이 여는 무료 STEP 뷰어입니다. AP203·AP214·AP242 모델의 조립 구조·부품 색·단위를 확인하고 거리를 측정하거나 PNG로 저장하세요. 파일은 브라우저에서 처리합니다.",
+  "url": "https://gyutae-kim.github.io/opencad-step/",
+  "siteName": "OpenCAD STEP 뷰어",
+  "language": "ko",
+  "locale": "ko_KR",
+  "image": {
+    "url": "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg",
+    "type": "image/jpeg",
+    "width": 1200,
+    "height": 630,
+    "alt": "OpenCAD의 DWG·DXF, STEP, SketchUp, NC 무료 뷰어 화면"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "김규태 · Sean Kim",
+    "url": "https://gyutae-kim.github.io/"
+  },
+  "application": {
+    "name": "OpenCAD STEP 뷰어",
+    "alternateName": "OpenCAD 무료 STEP 뷰어",
+    "applicationCategory": "DesignApplication",
+    "operatingSystem": "Web browser",
+    "browserRequirements": "JavaScript와 WebGL2 지원 브라우저",
+    "isAccessibleForFree": true,
+    "license": "https://github.com/GyuTae-Kim/opencad-step/blob/main/LICENSE",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "KRW"
+    },
+    "featureList": [
+      "STEP AP203·AP214·AP242 B-rep 보기",
+      "조립 제품 나무와 부품 선택·숨기기",
+      "부품 색과 단위 확인",
+      "두 점 측정과 PNG 저장"
+    ],
+    "sameAs": "https://github.com/GyuTae-Kim/opencad-step"
+  },
+  "breadcrumbs": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "김규태 · Sean Kim",
+      "item": "https://gyutae-kim.github.io/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "OpenCAD",
+      "item": "https://gyutae-kim.github.io/opencad"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "OpenCAD STEP 뷰어",
+      "item": "https://gyutae-kim.github.io/opencad-step/"
+    }
+  ]
+}
