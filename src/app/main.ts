@@ -2,6 +2,8 @@
  * 앱 진입점: 화면을 세우고, 자동 확인용 window.opencadApp을 두고, 시작 주소 인자(?open=·?sample)를 처리한다.
  */
 import './styles.css';
+import { initAnalytics } from './analytics';
+import { GA4_MEASUREMENT_ID } from './analytics-config';
 import { StepApp, type AppState } from './app';
 import type { Theme } from './theme';
 
@@ -30,6 +32,7 @@ declare global {
 
 const root = document.getElementById('app');
 if (root) {
+  initAnalytics(GA4_MEASUREMENT_ID, 'step');
   const app = new StepApp(root);
   window.opencadApp = {
     app,
