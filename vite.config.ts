@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { siteMetadata } from './tools/site-plugin.mjs';
 
 /**
  * 앱(index.html → src/app/main.ts, 해석 워커 src/worker/parse.worker.ts) 빌드와 vitest 설정.
@@ -6,6 +7,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   base: './',
+  plugins: [siteMetadata()],
   build: {
     target: 'es2022',
     sourcemap: true,

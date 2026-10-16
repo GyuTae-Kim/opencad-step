@@ -31,7 +31,8 @@ import { filterRows, nodeLabel, selectFromPick } from './tree';
 const NARROW = '(max-width: 759.98px)';
 const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
 const REPO_URL = 'https://github.com/GyuTae-Kim/opencad-step';
-const APP_TITLE = 'OpenCAD STEP 뷰어 · STEP(.stp·.step) 3D 모델 보기';
+// The initial title comes from the shared site metadata generated into HTML.
+const APP_TITLE = document.title;
 /** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
 const WIDE_CUBE = 112;
 const NARROW_CUBE = 76;
