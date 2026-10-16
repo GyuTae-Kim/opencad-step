@@ -277,8 +277,9 @@ export function docStatus(d: StepDoc): StatusItem[] {
   items.push({ text: `부품 ${fmtCount(partCount(d.products))}`, title: `제품 ${fmtCount(d.info.productCounts.length)}종, 놓인 형상 ${fmtCount(c.meshes)}개` });
   const st = d.info.stats;
   items.push({
-    text: `읽기 ${formatMs(d.openMs)}`,
-    title: st ? `해석 ${formatMs(st.parseMs)} · 삼각화 ${formatMs(st.meshMs)} · 워커 전체 ${formatMs(d.parseMs)}` : `워커 ${formatMs(d.parseMs)}`,
+    // NC·SKP 앱과 같게 워커 해석 시간을 보인다(화면에 올라가기까지는 말풍선과 정보 탭에)
+    text: `읽기 ${formatMs(d.parseMs)}`,
+    title: `${st ? `해석 ${formatMs(st.parseMs)} · 삼각화 ${formatMs(st.meshMs)} · ` : ''}워커 전체 ${formatMs(d.parseMs)} · 화면까지 ${formatMs(d.openMs)}`,
   });
   return items;
 }
