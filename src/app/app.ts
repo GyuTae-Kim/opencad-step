@@ -1,0 +1,796 @@
+/**
+ * OpenCAD STEP 뷰어 앱: 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대)과 문서 열기·고르기·키 처리.
+ *
+ * - 한 번에 문서 하나를 연다(새로 열면 바꾼다). 해석은 웹 워커(src/worker/parse.worker.ts)에서 하고
+ *   진행률·단계는 3D 보기 위 덮개에 보이며, 덮개의 취소 단추는 워커를 끝낸다.
+ * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계).
+ * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 받아
+ *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
+ */
+import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
+import { ParseCancelled, ParseClient } from './client';
+import { h, icon, iconButton } from './dom';
+import { createDoc, docStatus, productAt, selectionMeshIds, subtreeMeshIds, unitLabel, type StepDoc } from './doc';
+import { baseName, isStepName, parseStartQuery, STEP_ACCEPT, stemName } from './files';
+import { fmtNum, fmtPercent, stageLabel } from './format';
+import { isTextTarget, routeKey } from './keys';
+import { closeMenu } from './menu';
+import { Panel } from './panel';
+import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
+import { SAMPLE_NAME, sampleStepBytes } from './sample';
+import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
+import { Toolbar } from './toolbar';
+import { nodeLabel, selectFromPick } from './tree';
+
+const NARROW = '(max-width: 759.98px)';
+const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
+const REPO_URL = 'https://github.com/GyuTae-Kim/opencad-step';
+const APP_TITLE = 'OpenCAD STEP 뷰어 · STEP(.stp·.step) 3D 모델 보기';
+/** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
+const WIDE_CUBE = 112;
+const NARROW_CUBE = 76;
+
+interface Loading {
+  name: string;
+  fraction: number;
+  stage: string;
+}
+
+/** window.opencadApp.state 꼴(자동 확인용) */
+export interface AppState {
+  docName: string | null;
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+  progress: number;
+  stage: string;
+  theme: Theme;
+  panelOpen: boolean;
+  panelTab: string | null;
+  renderMode: RenderMode;
+  projection: Projection;
+  grid: boolean;
+  measuring: boolean;
+  triangles: number;
+  meshes: number;
+  products: string[];
+  warnings: number;
+  selKey: string | null;
+  picked: string | null;
+}
+
+export class StepApp {
+  doc: StepDoc | null = null;
+  private viewer: Viewer3d | null = null;
+  private readonly client = new ParseClient();
+  private loading: Loading | null = null;
+  private loadSeq = 0;
+  private abort: AbortController | null = null;
+  private lastError: string | null = null;
+  private theme: Theme;
+  private storedTheme: Theme | null;
+  private readonly systemDark: MediaQueryList | null;
+  private readonly narrow: MediaQueryList | null;
+
+  panelOpen: boolean;
+
+  // ── 화면 요소 ──
+  readonly root: HTMLElement;
+  private readonly toolbar: Toolbar;
+  private readonly panel: Panel;
+  private readonly viewEl: HTMLElement;
+  private readonly hostEl: HTMLElement;
+  private readonly startEl: HTMLElement;
+  private readonly startError: HTMLElement;
+  private readonly busyEl: HTMLElement;
+  private readonly busyName: HTMLElement;
+  private readonly busyStage: HTMLElement;
+  private readonly busyBar: HTMLElement;
+  private readonly busyPct: HTMLElement;
+  private readonly dropEl: HTMLElement;
+  private readonly toasts: HTMLElement;
+  private readonly docNameEl: HTMLElement;
+  private readonly statusDoc: HTMLElement;
+  private readonly statusSel: HTMLElement;
+  private readonly themeBtn: HTMLButtonElement;
+  private readonly fileInput: HTMLInputElement;
+
+  constructor(root: HTMLElement) {
+    this.root = root;
+    this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
+    this.narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;
+    this.storedTheme = readStoredTheme(safeLocalStorage());
+    this.theme = resolveTheme(this.storedTheme, this.systemDark?.matches ?? true);
+    this.panelOpen = !this.narrow?.matches;
+    this.applyTheme();
+
+    // ── 제목 막대 ──
+    this.fileInput = h('input', { type: 'file', accept: STEP_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+    this.fileInput.addEventListener('change', () => {
+      const f = this.fileInput.files?.[0];
+      this.fileInput.value = '';
+      if (f) void this.openFile(f);
+    });
+    const openBtn = iconButton('open', '열기', { title: 'STEP 파일 열기 (Ctrl+O)', cls: 'primary' });
+    openBtn.addEventListener('click', () => this.pickFile());
+    const sampleBtn = iconButton('sample', '예제 열기', { title: '예제 조립 모형 열기' });
+    sampleBtn.addEventListener('click', () => void this.openSample());
+    this.themeBtn = iconButton('moon', '테마', { title: '', hideLabel: true });
+    this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
+    this.applyTheme();
+    const tools = h('a', { class: 'btn link', href: TOOLS_URL, target: '_blank', rel: 'noopener', title: 'OpenCAD 도구 모음' }, icon('apps'), h('span', { class: 'btn-label' }, 'OpenCAD 도구'));
+    const gh = h('a', { class: 'btn link', href: REPO_URL, target: '_blank', rel: 'noopener', title: 'GitHub 소스 코드', 'aria-label': 'GitHub 소스 코드' }, icon('code'), h('span', { class: 'btn-label' }, 'GitHub'));
+    this.docNameEl = h('span', { class: 'doc-name' });
+    const favicon = h('img', { class: 'brand-icon', src: './favicon.svg', alt: '', width: '20', height: '20' });
+    const title = h(
+      'header',
+      { class: 'titlebar' },
+      h('h1', { class: 'brand' }, favicon, h('b', {}, 'OpenCAD'), h('span', {}, '\u00a0STEP 뷰어')),
+      this.docNameEl,
+      h('div', { class: 'title-actions' }, openBtn, sampleBtn, this.themeBtn, tools, gh),
+    );
+
+    // ── 도구 막대·패널 ──
+    this.toolbar = new Toolbar(this);
+    this.panel = new Panel(this);
+
+    // ── 3D 보기 ──
+    this.hostEl = h('div', { class: 'viewer-host' });
+    this.startError = h('div', { class: 'start-error', role: 'alert', hidden: true });
+    this.startEl = this.buildStart();
+    this.busyName = h('div', { class: 'busy-name' });
+    this.busyStage = h('div', { class: 'busy-stage' });
+    this.busyBar = h('div', { class: 'busy-fill' });
+    this.busyPct = h('span', { class: 'busy-pct' });
+    const cancel = h('button', { type: 'button', class: 'btn' }, '취소');
+    cancel.addEventListener('click', () => this.cancel());
+    this.busyEl = h(
+      'div',
+      { class: 'busy', hidden: true, role: 'status', 'aria-live': 'polite' },
+      h(
+        'div',
+        { class: 'busy-card' },
+        this.busyName,
+        h('div', { class: 'busy-row' }, this.busyStage, this.busyPct),
+        h('div', { class: 'busy-bar', role: 'progressbar', 'aria-label': '해석 진행률', 'aria-valuemin': '0', 'aria-valuemax': '100' }, this.busyBar),
+        h('div', { class: 'busy-actions' }, cancel),
+      ),
+    );
+    this.dropEl = h('div', { class: 'drop-hint', hidden: true, 'aria-hidden': 'true' }, h('div', {}, icon('upload', 40), h('p', {}, '놓으면 STEP 파일을 엽니다')));
+    this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.startEl, this.busyEl, this.dropEl, this.toasts);
+
+    // ── 상태 막대 ──
+    this.statusDoc = h('div', { class: 'status-doc' });
+    this.statusSel = h('div', { class: 'status-sel' });
+    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSel);
+
+    root.replaceChildren(title, this.toolbar.el, h('main', { class: 'workspace' }, this.viewEl, this.panel.el), status, this.fileInput);
+    root.classList.add('app');
+
+    this.bindWindow();
+    this.updateAll();
+  }
+
+  // ───────────────────────── 시작 화면 ─────────────────────────
+
+  private buildStart(): HTMLElement {
+    const open = h('button', { type: 'button', class: 'btn primary large' }, icon('open'), h('span', {}, '파일 열기'));
+    open.addEventListener('click', () => this.pickFile());
+    const sample = h('button', { type: 'button', class: 'btn large' }, icon('sample'), h('span', {}, '예제 열기'));
+    sample.addEventListener('click', () => void this.openSample());
+    const drop = h(
+      'div',
+      { class: 'dropzone' },
+      icon('upload', 44),
+      h('p', { class: 'drop-title' }, 'STEP 파일을 여기에 끌어다 놓으세요'),
+      h('p', { class: 'dim' }, '또는'),
+      h('div', { class: 'start-actions' }, open, sample),
+    );
+    drop.addEventListener('click', (e) => {
+      if (e.target === drop) this.pickFile();
+    });
+    return h(
+      'div',
+      { class: 'start' },
+      h(
+        'div',
+        { class: 'start-card' },
+        h('h2', {}, 'STEP 3D 모델 보기'),
+        h('p', { class: 'lead' }, 'STEP(ISO 10303-21) 파일을 열어 돌려 보고, 부품을 고르고, 거리를 잽니다.'),
+        drop,
+        this.startError,
+        h(
+          'ul',
+          { class: 'start-facts' },
+          h('li', {}, icon('info', 16), h('span', {}, '지원 형식: STEP AP203 · AP214 · AP242 (B-rep·조립·색·단위) — 확장자 .stp .step .p21')),
+          h('li', {}, icon('lock', 16), h('span', {}, '파일은 이 브라우저 밖으로 나가지 않습니다. 읽기와 그리기를 모두 이 컴퓨터에서 합니다.')),
+          h('li', {}, icon('views', 16), h('span', {}, '끌기 회전 · 오른쪽 끌기 이동 · 휠 확대 · F 전체 보기 · 1~7 표준 뷰 · F7 격자')),
+        ),
+      ),
+    );
+  }
+
+  // ───────────────────────── 열기 ─────────────────────────
+
+  /** 열기 상자 */
+  pickFile(): void {
+    this.fileInput.click();
+  }
+
+  /** 파일 열기(확장자가 STEP이 아니면 앞부분을 보고 STEP 글인지 먼저 가린다) */
+  async openFile(file: File): Promise<boolean> {
+    if (!isStepName(file.name)) {
+      let head: Uint8Array;
+      try {
+        head = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
+      } catch (e) {
+        this.showError(`${file.name}: 파일을 읽지 못했습니다. ${errorText(e)}`);
+        return false;
+      }
+      const sn = sniffStep(head);
+      if (!sn.ok) {
+        this.showError(`${file.name}: STEP 파일(.stp·.step·.p21)만 열 수 있습니다. ${sn.reason}`);
+        return false;
+      }
+    }
+    return this.load(file.name, () => file.arrayBuffer());
+  }
+
+  /** 예제 모형 열기 */
+  openSample(): Promise<boolean> {
+    return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer);
+  }
+
+  /** 같은 출처 주소의 파일 열기(?open=) */
+  openUrl(url: string): Promise<boolean> {
+    const name = baseName(url) || 'model.stp';
+    return this.load(name, async (signal) => {
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`주소에서 파일을 받지 못했습니다(HTTP ${res.status}).`);
+      return res.arrayBuffer();
+    });
+  }
+
+  /** 열고 있는 것을 멈춘다 */
+  cancel(): void {
+    if (!this.loading) return;
+    this.loadSeq++;
+    this.abort?.abort();
+    this.abort = null;
+    this.client.cancel();
+    this.setLoading(null);
+    this.toast('열기를 취소했습니다.');
+  }
+
+  private async load(name: string, read: (signal: AbortSignal) => Promise<ArrayBuffer>): Promise<boolean> {
+    closeMenu();
+    const seq = ++this.loadSeq;
+    this.abort?.abort();
+    this.client.cancel();
+    const ac = new AbortController();
+    this.abort = ac;
+    const t0 = performance.now();
+    this.setLoading({ name, fraction: 0, stage: '파일 읽는 중' });
+    try {
+      const buf = await read(ac.signal);
+      if (seq !== this.loadSeq) return false;
+      const size = buf.byteLength;
+      const res = await this.client.parse(name, buf, (f, stage) => {
+        if (seq === this.loadSeq) this.setLoading({ name, fraction: f, stage: stageLabel(stage) });
+      });
+      if (seq !== this.loadSeq) return false;
+      if (!sceneHasGeometry(res.scene)) {
+        const why = res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
+        throw new Error(`그릴 형상(B-rep·삼각형)을 찾지 못했습니다.${why ? ` (${why})` : ''}`);
+      }
+      this.setLoading({ name, fraction: 1, stage: '화면에 올리는 중' });
+      await nextPaint();
+      if (seq !== this.loadSeq) return false;
+      const doc = createDoc(name, size, res);
+      this.showDoc(doc);
+      doc.openMs = performance.now() - t0;
+      this.lastError = null;
+      this.updateAll();
+      const w = res.scene.warnings?.length ?? 0;
+      if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
+      return true;
+    } catch (e) {
+      if (seq !== this.loadSeq) return false;
+      if (e instanceof ParseCancelled || (e instanceof DOMException && e.name === 'AbortError')) return false;
+      this.showError(`${name}: 파일을 열지 못했습니다. ${friendlyError(errorText(e))}`);
+      return false;
+    } finally {
+      if (seq === this.loadSeq) {
+        this.abort = null;
+        this.setLoading(null);
+      }
+    }
+  }
+
+  private showDoc(doc: StepDoc): void {
+    const v = this.ensureViewer();
+    v.setScene(doc.scene);
+    v.highlight(null);
+    if (v.measureMode) v.clearMeasure();
+    this.doc = doc;
+    this.panel.show(doc);
+    this.panel.setOpen(this.panelOpen);
+    document.title = `${doc.name} - OpenCAD STEP 뷰어`;
+    // 좁은 화면에서 시트가 보기 높이를 바꾸므로 크기가 정해진 뒤 다시 맞춘다
+    requestAnimationFrame(() => requestAnimationFrame(() => this.viewer?.fit(false)));
+  }
+
+  private ensureViewer(): Viewer3d {
+    if (this.viewer) return this.viewer;
+    const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
+    v.onPick((p) => this.onPick(p));
+    v.onMeasure((m) => this.onMeasure(m));
+    this.viewer = v;
+    return v;
+  }
+
+  /** 뷰 큐브 크기: 좁은 화면(시트)에서는 작게 */
+  private cubeSize(): number {
+    return this.narrow?.matches ? NARROW_CUBE : WIDE_CUBE;
+  }
+
+  // ───────────────────────── 고르기 ─────────────────────────
+
+  private onPick(p: Pick3d | null): void {
+    const d = this.doc;
+    if (!d) return;
+    if (this.viewer?.measureMode) return;
+    d.pick = p;
+    if (!p || p.kind !== 'mesh') {
+      d.pick = p && p.kind !== 'mesh' ? p : null;
+      d.selKey = null;
+      this.viewer?.highlight(null);
+    } else {
+      this.viewer?.highlight([p.id]);
+      const s = selectFromPick(d.products, d.expanded, p.id);
+      d.selKey = s?.key ?? null;
+      if (s) d.expanded = s.expanded;
+      if (s && d.panelTab !== 'tree' && this.panel.open) this.panel.setTab('tree');
+    }
+    this.selectionChanged(true);
+  }
+
+  private onMeasure(m: MeasureResult | null): void {
+    const d = this.doc;
+    if (!d) return;
+    d.measure = m;
+    this.panel.onMeasure();
+    this.updateStatus();
+  }
+
+  /** 나무 마디 고르기(그 아래 형상을 모두 강조) */
+  selectKey(key: string | null): void {
+    const d = this.doc;
+    if (!d) return;
+    const node = key ? productAt(d.products, key) : null;
+    d.selKey = node ? key : null;
+    d.pick = null;
+    this.viewer?.highlight(node ? subtreeMeshIds(node) : null);
+    this.selectionChanged();
+  }
+
+  /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */
+  fitKey(key: string): void {
+    const d = this.doc;
+    if (!d) return;
+    if (d.selKey !== key || d.pick) this.selectKey(key);
+    this.fitSelection();
+  }
+
+  /** 고른 것이 있는지(나무 마디 또는 3D에서 고른 그물) */
+  get hasSelection(): boolean {
+    return !!this.doc && selectionMeshIds(this.doc).length > 0;
+  }
+
+  /** 고른 것으로 맞춰 보기(코어 fitItems: 숨긴 것은 빼고, 보이는 것이 없으면 전체 보기) */
+  fitSelection(): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return;
+    const ids = selectionMeshIds(d);
+    if (ids.length) v.fitItems(ids);
+  }
+
+  private selectionChanged(reveal = false): void {
+    this.panel.onSelection(reveal);
+    this.toolbar.refresh();
+    this.updateStatus();
+  }
+
+  private clearSelection(): boolean {
+    const d = this.doc;
+    if (!d || (!d.selKey && !d.pick)) return false;
+    this.selectKey(null);
+    return true;
+  }
+
+  setItemsVisible(ids: readonly string[], on: boolean): void {
+    const v = this.viewer;
+    if (!v) return;
+    for (const id of ids) v.setItemVisible(id, on);
+    this.panel.onVisibility();
+  }
+
+  setGroupVisible(group: string, on: boolean): void {
+    this.viewer?.setGroupVisible(group, on);
+    this.panel.onVisibility();
+  }
+
+  /** 숨긴 항목·묶음 모두 보이기 */
+  showAll(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    for (const g of v.groups()) if (!g.visible) v.setGroupVisible(g.name, true);
+    for (const m of d.scene.meshes) if (!v.isVisible(m.id)) v.setItemVisible(m.id, true);
+    this.panel.onVisibility();
+  }
+
+  isVisible(id: string): boolean {
+    return this.viewer?.isVisible(id) ?? true;
+  }
+
+  groups() {
+    return this.viewer?.groups() ?? [];
+  }
+
+  // ───────────────────────── 보기 명령(도구 막대) ─────────────────────────
+
+  get hasDoc(): boolean {
+    return !!this.doc && !!this.viewer;
+  }
+
+  get projection(): Projection {
+    return this.viewer?.getProjection() ?? 'perspective';
+  }
+
+  get renderMode(): RenderMode {
+    return this.viewer?.getRenderMode() ?? 'shadedEdges';
+  }
+
+  get measuring(): boolean {
+    return !!this.viewer?.measureMode;
+  }
+
+  fit(): void {
+    this.viewer?.fit();
+  }
+
+  setView(v: ViewName): void {
+    this.viewer?.setView(v);
+  }
+
+  setProjection(p: Projection): void {
+    this.viewer?.setProjection(p);
+    this.toolbar.refresh();
+  }
+
+  setRenderMode(m: RenderMode): void {
+    this.viewer?.setRenderMode(m);
+    this.toolbar.refresh();
+  }
+
+  // 격자·뷰 큐브·좌표축 상태는 뷰어(코어)가 든다. 뷰어가 아직 없으면 코어 기본값(켜짐)
+
+  get gridOn(): boolean {
+    return this.viewer?.gridVisible ?? true;
+  }
+
+  get cubeOn(): boolean {
+    return this.viewer?.viewCubeVisible ?? true;
+  }
+
+  get axesOn(): boolean {
+    return this.viewer?.axesVisible ?? true;
+  }
+
+  toggleGrid(): void {
+    const v = this.viewer;
+    if (!v) return;
+    v.setGridVisible(!v.gridVisible);
+    this.toolbar.refresh();
+  }
+
+  toggleCube(): void {
+    const v = this.viewer;
+    if (!v) return;
+    v.setViewCubeVisible(!v.viewCubeVisible);
+    this.toolbar.refresh();
+  }
+
+  toggleAxes(): void {
+    const v = this.viewer;
+    if (!v) return;
+    v.setAxesVisible(!v.axesVisible);
+    this.toolbar.refresh();
+  }
+
+  toggleMeasure(on = !this.measuring): void {
+    const v = this.viewer;
+    if (!v) return;
+    v.setMeasureMode(on);
+    if (this.doc && !on) this.doc.measure = null;
+    if (on) {
+      this.viewer?.highlight(null);
+      if (this.doc) {
+        this.doc.pick = null;
+        this.doc.selKey = null;
+      }
+      this.panel.onSelection();
+    }
+    this.panel.onMeasure();
+    this.toolbar.refresh();
+    this.updateStatus();
+  }
+
+  async savePng(): Promise<void> {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    try {
+      const b = await v.toBlob('image/png');
+      const a = h('a', { href: URL.createObjectURL(b), download: `${stemName(d.name)}.png` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      this.toast('지금 화면을 PNG로 저장했습니다.');
+    } catch (e) {
+      this.toast(`그림을 저장하지 못했습니다: ${errorText(e)}`, 'error');
+    }
+  }
+
+  togglePanel(on = !this.panelOpen): void {
+    this.panelOpen = on;
+    this.panel.setOpen(on);
+    this.toolbar.refresh();
+    if (this.narrow?.matches && this.viewer) requestAnimationFrame(() => requestAnimationFrame(() => this.viewer?.fit(false)));
+  }
+
+  // ───────────────────────── 테마 ─────────────────────────
+
+  setTheme(t: Theme | null): void {
+    this.storedTheme = t;
+    writeStoredTheme(safeLocalStorage(), t);
+    this.theme = resolveTheme(t, this.systemDark?.matches ?? true);
+    this.applyTheme();
+  }
+
+  private applyTheme(): void {
+    document.documentElement.dataset.theme = this.theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', this.theme === 'dark' ? '#232830' : '#ffffff');
+    this.viewer?.setTheme(this.theme);
+    if (this.themeBtn) {
+      const dark = this.theme === 'dark';
+      const label = dark ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기';
+      this.themeBtn.title = label;
+      this.themeBtn.setAttribute('aria-label', label);
+      const svg = this.themeBtn.querySelector('svg');
+      svg?.replaceWith(icon(dark ? 'sun' : 'moon'));
+    }
+  }
+
+  // ───────────────────────── 창 이벤트 ─────────────────────────
+
+  private bindWindow(): void {
+    // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
+    window.addEventListener('keydown', (ev) => this.onKey(ev));
+    // 끌어다 놓기: 창 어디에나
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    window.addEventListener('dragenter', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth++;
+      this.dropEl.hidden = false;
+    });
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    window.addEventListener('dragleave', (e) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) this.dropEl.hidden = true;
+    });
+    window.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      this.dropEl.hidden = true;
+      const f = e.dataTransfer?.files[0];
+      if (f) void this.openFile(f);
+    });
+    // 시스템 테마가 바뀌면(사용자가 고르지 않았을 때만) 따라간다
+    this.systemDark?.addEventListener('change', () => {
+      if (this.storedTheme) return;
+      this.theme = resolveTheme(null, this.systemDark?.matches ?? true);
+      this.applyTheme();
+    });
+    // 좁은 화면 ↔ 넓은 화면을 넘나들면 패널 기본값을 다시 정한다
+    this.narrow?.addEventListener('change', () => {
+      this.viewer?.setViewCubeSize(this.cubeSize());
+      this.togglePanel(!this.narrow?.matches);
+    });
+  }
+
+  private onKey(ev: KeyboardEvent): void {
+    if (ev.defaultPrevented) return;
+    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, inText: isTextTarget(ev.target), hasDoc: this.hasDoc });
+    if (!action) return;
+    const v = this.viewer;
+    switch (action) {
+      case 'open':
+        ev.preventDefault();
+        this.pickFile();
+        return;
+      case 'viewer':
+        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault)
+        v?.handleKey(ev);
+        return;
+      case 'grid':
+        this.toggleGrid();
+        break;
+      case 'escape':
+        // 메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기
+        if (closeMenu()) break;
+        if (this.loading) {
+          this.cancel();
+          break;
+        }
+        if (v?.measureMode) {
+          if (v.measurePointCount > 0 && v.handleKey(ev)) return;
+          this.toggleMeasure(false);
+          break;
+        }
+        if (this.clearSelection()) break;
+        return;
+    }
+    ev.preventDefault();
+  }
+
+  // ───────────────────────── 상태 ─────────────────────────
+
+  private setLoading(l: Loading | null): void {
+    this.loading = l;
+    this.busyEl.hidden = !l;
+    if (l) {
+      this.busyName.textContent = l.name;
+      this.busyStage.textContent = `${l.stage}…`;
+      this.busyPct.textContent = fmtPercent(l.fraction);
+      this.busyBar.style.width = `${Math.round(Math.max(0.02, l.fraction) * 1000) / 10}%`;
+      this.busyBar.parentElement?.setAttribute('aria-valuenow', String(Math.round(l.fraction * 100)));
+    }
+    this.updateStatus();
+  }
+
+  private showError(msg: string): void {
+    this.lastError = msg;
+    this.toast(msg, 'error', 9000);
+    this.updateAll();
+  }
+
+  /** 잠깐 보이는 알림 */
+  toast(msg: string, kind: 'info' | 'warn' | 'error' = 'info', ms = 3500): void {
+    const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
+    close.append(icon('close', 14));
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, msg), close);
+    const remove = () => t.remove();
+    close.addEventListener('click', remove);
+    this.toasts.append(t);
+    while (this.toasts.children.length > 3) this.toasts.firstElementChild?.remove();
+    setTimeout(remove, ms);
+  }
+
+  private updateAll(): void {
+    const d = this.doc;
+    this.startEl.hidden = !!d;
+    // 문서가 없을 때 시작 화면 뒤에 미리 만든 캔버스로 초점이 가지 않게
+    this.hostEl.inert = !d;
+    this.startError.hidden = !this.lastError || !!d;
+    this.startError.textContent = this.lastError ?? '';
+    this.docNameEl.textContent = d ? d.name : '';
+    this.docNameEl.title = d ? d.name : '';
+    if (!d) document.title = APP_TITLE;
+    this.toolbar.refresh();
+    this.panel.setOpen(this.panelOpen);
+    this.updateStatus();
+  }
+
+  private updateStatus(): void {
+    const d = this.doc;
+    this.statusDoc.innerHTML = '';
+    if (this.loading) {
+      this.statusDoc.append(h('span', {}, `${this.loading.name} 여는 중… ${fmtPercent(this.loading.fraction)}`));
+    } else if (d) {
+      for (const it of docStatus(d)) this.statusDoc.append(h('span', { title: it.title ?? null }, it.text));
+    } else {
+      this.statusDoc.append(h('span', {}, 'STEP 파일을 열거나 끌어다 놓으세요'));
+    }
+    this.statusSel.textContent = d ? this.selectionText(d) : '';
+  }
+
+  private selectionText(d: StepDoc): string {
+    const u = unitLabel(d.scene.units);
+    if (d.measure) return `거리 ${fmtNum(d.measure.distance)} ${u}`.trim();
+    if (this.measuring) return '측정: 두 점을 누르십시오';
+    const node = d.selKey ? productAt(d.products, d.selKey) : null;
+    if (node) {
+      const n = nodeLabel(node);
+      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
+    }
+    if (d.pick) {
+      const m = d.scene.meshes.find((x) => x.id === d.pick!.id);
+      return `고른 것: ${m?.name ?? d.pick.id}`;
+    }
+    return '';
+  }
+
+  // ───────────────────────── 자동 확인 ─────────────────────────
+
+  get viewerRef(): Viewer3d | null {
+    return this.viewer;
+  }
+
+  snapshot(): AppState {
+    const d = this.doc;
+    let triangles = 0;
+    if (d) for (const m of d.scene.meshes) triangles += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
+    return {
+      docName: d?.name ?? null,
+      loading: !!this.loading,
+      loaded: !!d && !this.loading,
+      error: this.lastError,
+      progress: this.loading?.fraction ?? (d ? 1 : 0),
+      stage: this.loading?.stage ?? '',
+      theme: this.theme,
+      panelOpen: this.panel.open,
+      panelTab: d?.panelTab ?? null,
+      renderMode: this.renderMode,
+      projection: this.projection,
+      grid: this.gridOn,
+      measuring: this.measuring,
+      triangles: Math.round(triangles),
+      meshes: d?.scene.meshes.length ?? 0,
+      products: d ? d.products.map((p) => p.name) : [],
+      warnings: d?.scene.warnings?.length ?? 0,
+      selKey: d?.selKey ?? null,
+      picked: d?.pick?.id ?? null,
+    };
+  }
+
+  /** 시작 주소 인자(?open=·?sample) 처리 */
+  async start(): Promise<void> {
+    const q = parseStartQuery(location.search, location.href);
+    if (q.openError) this.showError(q.openError);
+    if (q.open) await this.openUrl(q.open);
+    else if (q.sample) await this.openSample();
+    else {
+      // 파일을 고르는 동안 해석 워커와 3D 보기(WebGL 문맥·셰이더 준비)를 미리 띄운다
+      const warm = () => {
+        this.client.warm();
+        if (this.doc || this.loading) return;
+        try {
+          this.ensureViewer();
+        } catch {
+          /* WebGL2가 없으면 열 때 알기 쉬운 오류로 알린다 */
+        }
+      };
+      const idle = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (idle) idle(warm, { timeout: 2000 });
+      else setTimeout(warm, 500);
+    }
+  }
+}
+
+/** 덮개 글이 그려질 틈을 준다 */
+function nextPaint(): Promise<void> {
+  return new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+}
