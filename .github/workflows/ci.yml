@@ -1,8 +1,7 @@
 name: CI
 
+# main push는 deploy.yml이 같은 확인(typecheck·test·build)을 거쳐 게시한다
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -21,3 +20,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
