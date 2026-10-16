@@ -15,14 +15,14 @@
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
-import { beginOpen, trackExport, type InputKind, type OpenAttempt } from './analytics';
+import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
 import { h, icon, iconButton } from './dom';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
 import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
-import { closeMenu } from './menu';
+import { closeMenu, openMenu } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { PanelResizer } from './resize';
@@ -149,7 +149,12 @@ export class StepApp {
     const sampleBtn = iconButton('sample', '예제 열기', { title: '예제 조립 모형 열기' });
     sampleBtn.addEventListener('click', () => void this.openSample());
     this.themeBtn = iconButton('moon', '테마', { title: '', hideLabel: true });
-    this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
+    this.themeBtn.setAttribute('aria-haspopup', 'menu');
+    this.themeBtn.setAttribute('aria-expanded', 'false');
+    this.themeBtn.addEventListener('click', () => openMenu(this.themeBtn, [
+      { label: this.theme === 'dark' ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기', run: () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark') },
+      { label: '방문 통계 설정', run: showAnalyticsSettings },
+    ], '앱 설정'));
     this.applyTheme();
     const tools = h('a', { class: 'btn link', href: TOOLS_URL, target: '_blank', rel: 'noopener', title: 'OpenCAD 도구 모음' }, icon('apps'), h('span', { class: 'btn-label' }, 'OpenCAD 도구'));
     const gh = h('a', { class: 'btn link', href: REPO_URL, target: '_blank', rel: 'noopener', title: 'GitHub 소스 코드', 'aria-label': 'GitHub 소스 코드' }, icon('code'), h('span', { class: 'btn-label' }, 'GitHub'));
@@ -858,7 +863,7 @@ export class StepApp {
     this.viewer?.setTheme(this.theme);
     if (this.themeBtn) {
       const dark = this.theme === 'dark';
-      const label = dark ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기';
+      const label = '앱 설정';
       this.themeBtn.title = label;
       this.themeBtn.setAttribute('aria-label', label);
       const svg = this.themeBtn.querySelector('svg');
