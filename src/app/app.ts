@@ -15,6 +15,7 @@
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
+import { beginOpen, trackExport, type InputKind, type OpenAttempt } from './analytics';
 import { h, icon, iconButton } from './dom';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
@@ -276,7 +277,9 @@ export class StepApp {
    * STEP-XML(.stpx)과 그 밖의 것은 알기 쉬운 이유로 거절한다.
    */
   async openFile(file: File): Promise<boolean> {
+    const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
     if (isStepXmlName(file.name)) {
+      attempt.error('unsupported');
       this.showError(`${file.name}: ${STEP_XML_MESSAGE}`);
       return false;
     }
@@ -286,25 +289,28 @@ export class StepApp {
         head = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
       } catch (e) {
         this.showError(`${file.name}: 파일을 읽지 못했습니다. ${errorText(e)}`);
+        attempt.error('read_error');
         return false;
       }
       const kind = sniffContainer(head);
       if (kind === 'xml') {
+        attempt.error('unsupported');
         this.showError(`${file.name}: ${isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.'}`);
         return false;
       }
       if (kind !== 'step' && kind !== 'gzip' && kind !== 'zip') {
+        attempt.error('unsupported');
         const sn = sniffStep(head);
         this.showError(`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다. ${sn.ok ? '' : sn.reason}`.trim());
         return false;
       }
     }
-    return this.load(file.name, () => file.arrayBuffer());
+    return this.load(file.name, () => file.arrayBuffer(), 'local', attempt);
   }
 
   /** 예제 모형 열기 */
   openSample(): Promise<boolean> {
-    return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer);
+    return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer, 'sample');
   }
 
   /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
@@ -339,7 +345,7 @@ export class StepApp {
         p += c.length;
       }
       return out.buffer;
-    });
+    }, 'url');
   }
 
   /** 열고 있는 것을 멈춘다 */
@@ -353,7 +359,8 @@ export class StepApp {
     this.toast('열기를 취소했습니다.');
   }
 
-  private async load(name: string, read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>): Promise<boolean> {
+  private async load(name: string, read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>, input: InputKind = 'local', attempt: OpenAttempt = beginOpen(input, name.split('.').pop() ?? 'other')): Promise<boolean> {
+    let reading = true;
     closeMenu();
     const seq = ++this.loadSeq;
     this.abort?.abort();
@@ -367,12 +374,14 @@ export class StepApp {
         if (seq === this.loadSeq) this.setLoading({ name, fraction, stage: stage.startsWith('받기 ') ? `파일 받는 중 (${stage.slice(3)})` : stageLabel(stage) });
       });
       if (seq !== this.loadSeq) return false;
+      reading = false;
       const size = buf.byteLength;
       const res = await this.client.parse(name, buf, (f, stage) => {
         if (seq === this.loadSeq) this.setLoading({ name, fraction: f, stage: stageLabel(stage) });
       });
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
+        attempt.error('empty');
         const why = res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
         throw new Error(`그릴 형상(B-rep·삼각형)을 찾지 못했습니다.${why ? ` (${why})` : ''}`);
       }
@@ -386,10 +395,12 @@ export class StepApp {
       this.updateAll();
       const w = res.scene.warnings?.length ?? 0;
       if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
+      attempt.success();
       return true;
     } catch (e) {
       if (seq !== this.loadSeq) return false;
       if (e instanceof ParseCancelled || (e instanceof DOMException && e.name === 'AbortError')) return false;
+      attempt.error(reading ? (input === 'url' ? 'fetch_error' : 'read_error') : 'parse_error');
       this.showError(`${name}: 파일을 열지 못했습니다. ${friendlyError(errorText(e))}`);
       return false;
     } finally {
@@ -817,6 +828,7 @@ export class StepApp {
       document.body.append(a);
       a.click();
       a.remove();
+      trackExport('png');
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       this.toast('지금 화면을 PNG로 저장했습니다.');
     } catch (e) {
