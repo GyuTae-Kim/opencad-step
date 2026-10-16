@@ -6,16 +6,18 @@
  * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계).
  * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 받아
  *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
- * - 면 고르기: 도구 막대의 "면 고르기"를 켜거나 Alt(⌥)를 누른 채 누르면, 부품 고르기와 함께 누른 B-rep 면을 찾아
- *   경계 모서리를 강조(setHighlightSegments)하고 종류·넓이·법선 등을 패널 아래 띠에 보인다.
+ * - 면 고르기: 도구 막대의 "면 고르기"를 켜거나 Alt(⌥)를 누른 채 누르면(onPick의 e.altKey), 부품 고르기와 함께 누른 B-rep 면을 찾아
+ *   면 자체(highlightRanges — 면 표의 삼각형 범위)와 경계 모서리(setHighlightSegments)를 강조하고 종류·넓이·법선 등을 패널 아래 띠에 보인다.
+ *   3D에서 두 번 누르면(e.clicks) 나무처럼 그 부품으로 맞춰 본다.
+ * - 단면: 도구 막대·단면 막대에서 바꾸고, 막대 표시는 코어 onSectionChange 알림으로만 맞춘다(새 문서에서 꺼짐 등).
  * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
  */
-import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type ViewName } from 'opencad-viewer3d';
+import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { h, icon, iconButton } from './dom';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
-import { faceAt, faceDetails, faceKindLabel } from './faces';
+import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
 import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
@@ -118,8 +120,6 @@ export class StepApp {
   private readonly resizer: PanelResizer;
   /** 면 고르기 모드(도구 막대) */
   faceMode = false;
-  /** 마지막으로 3D를 누를 때 Alt(⌥)를 눌렀는지 */
-  private altPick = false;
   // ── 단면 막대 ──
   private readonly sectionBar: HTMLElement;
   private readonly sectionSlider: HTMLInputElement;
@@ -199,17 +199,11 @@ export class StepApp {
       axes.append(b);
     }
     this.sectionSlider = h('input', { type: 'range', class: 'section-slider', min: '0', max: '1000', step: '1', 'aria-label': '단면 위치' });
-    this.sectionSlider.addEventListener('input', () => {
-      this.viewer?.setSectionPosition(Number(this.sectionSlider.value) / 1000);
-      this.syncSection(false);
-    });
+    this.sectionSlider.addEventListener('input', () => this.viewer?.setSectionPosition(Number(this.sectionSlider.value) / 1000));
     this.sectionValue = h('span', { class: 'section-val', 'aria-live': 'off' });
     this.sectionFlipBtn = h('button', { type: 'button', class: 'icon-btn', title: '잘라 내는 쪽 뒤집기', 'aria-label': '잘라 내는 쪽 뒤집기', 'aria-pressed': 'false' });
     this.sectionFlipBtn.append(icon('flip', 16));
-    this.sectionFlipBtn.addEventListener('click', () => {
-      this.viewer?.flipSection();
-      this.syncSection();
-    });
+    this.sectionFlipBtn.addEventListener('click', () => this.viewer?.flipSection());
     const secClose = h('button', { type: 'button', class: 'icon-btn', title: '단면 끄기', 'aria-label': '단면 끄기' });
     secClose.append(icon('close', 16));
     secClose.addEventListener('click', () => this.setSectionAxis(null));
@@ -226,12 +220,6 @@ export class StepApp {
     this.panel.el.prepend(this.resizer.el);
     root.replaceChildren(title, this.toolbar.el, workspace, status, this.fileInput);
     root.classList.add('app');
-    // 3D를 누를 때 Alt(⌥)를 기억한다(코어의 고르기 알림에는 수정 키가 없다 — 잡기 단계에서 먼저 듣는다)
-    const rememberAlt = (e: PointerEvent) => {
-      this.altPick = e.altKey;
-    };
-    this.hostEl.addEventListener('pointerdown', rememberAlt, { capture: true });
-    this.hostEl.addEventListener('pointerup', rememberAlt, { capture: true });
 
     this.bindWindow();
     this.updateAll();
@@ -416,13 +404,13 @@ export class StepApp {
     const v = this.ensureViewer();
     v.setScene(doc.scene);
     v.highlight(null);
-    v.setHighlightSegments(null);
+    this.showFace(null);
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
     // 파일이 숨긴 레이어 등 처음 보이기
     this.applyVisibility();
-    // 새 장면은 단면이 꺼진 채로 온다(코어 setScene) — 막대·도구 막대를 맞춘다
-    this.syncSection();
+    // 새 장면은 단면이 꺼진 채로 온다(코어 setScene → onSectionChange가 막대를 맞춘다). 문서가 바뀐 것만 다시 그린다
+    this.syncSection(v.section);
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
@@ -433,8 +421,14 @@ export class StepApp {
   private ensureViewer(): Viewer3d {
     if (this.viewer) return this.viewer;
     const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
-    v.onPick((p) => this.onPick(p));
+    v.onPick((p, e) => {
+      this.onPick(p, this.faceMode || e.altKey);
+      // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
+      if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
+    });
     v.onMeasure((m) => this.onMeasure(m));
+    // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
+    v.onSectionChange((st) => this.syncSection(st));
     this.viewer = v;
     return v;
   }
@@ -446,11 +440,10 @@ export class StepApp {
 
   // ───────────────────────── 고르기 ─────────────────────────
 
-  private onPick(p: Pick3d | null, wantFace = this.faceMode || this.altPick): void {
+  private onPick(p: Pick3d | null, wantFace = this.faceMode): void {
     const d = this.doc;
     if (!d) return;
     if (this.viewer?.measureMode) return;
-    this.altPick = false;
     d.pick = p;
     d.items = null;
     d.face = null;
@@ -468,10 +461,24 @@ export class StepApp {
       if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && this.panel.open) this.panel.setTab('tree');
       // 잘린 면(단면 채움)을 누르면 면 고르기 대신 부품만(아래 띠에 "단면" 표시)
       if (p.kind === 'mesh' && wantFace && !p.section) d.face = this.findFace(d, p);
+      // 면을 골랐으면 부품 통째 강조 대신 그 면만(나무에서는 부품이 골라져 있다)
+      if (d.face) this.viewer?.highlight(null);
     }
-    // 면 경계는 부품 강조색과 다른 색으로(부품 강조 위에서도 잘 보이게)
-    this.viewer?.setHighlightSegments(d.face?.boundary ?? null, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(d.face?.boundaryOrigin ? { origin: d.face.boundaryOrigin } : {}) });
+    this.showFace(d.face);
     this.selectionChanged(true);
+  }
+
+  /** 고른 면 강조: 면 삼각형 범위(highlightRanges) + 경계 모서리(부품 강조색과 다른 색). null이면 둘 다 푼다 */
+  private showFace(face: FacePick | null): void {
+    const v = this.viewer;
+    if (!v) return;
+    if (!face) {
+      v.highlightRanges(null);
+      v.setHighlightSegments(null);
+      return;
+    }
+    v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
+    v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
   }
 
   /** 누른 삼각형의 B-rep 면(면 표가 없거나 못 찾으면 null) */
@@ -503,18 +510,15 @@ export class StepApp {
       const cur = v.section;
       v.setSectionAxis(axis, cur?.axis === axis ? cur.t : 0.5);
     }
-    this.syncSection();
   }
 
   /** 단면 위치(장면 범위 안 0~1) */
   setSectionPosition(t: number): void {
     this.viewer?.setSectionPosition(Math.max(0, Math.min(1, t)));
-    this.syncSection();
   }
 
-  /** 단면 막대·도구 막대를 뷰어 상태에 맞춘다(slider면 슬라이더 값도) */
-  private syncSection(slider = true): void {
-    const st = this.viewer?.section ?? null;
+  /** 단면 막대·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서) */
+  private syncSection(st: SectionState | null): void {
     this.sectionBar.hidden = !st || !this.doc;
     if (st) {
       for (const [a, b] of this.sectionAxisBtns) {
@@ -522,7 +526,8 @@ export class StepApp {
         b.classList.toggle('on', on);
         b.setAttribute('aria-checked', String(on));
       }
-      if (slider) this.sectionSlider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
+      // 끄는 중인 슬라이더 값은 건드리지 않는다(되돌아가며 떨리지 않게)
+      if (document.activeElement !== this.sectionSlider) this.sectionSlider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
       const u = this.doc ? unitLabel(this.doc.scene.units) : '';
       this.sectionValue.textContent = `${(st.axis ?? '').toUpperCase()} = ${fmtNum(st.position)}${u ? ` ${u}` : ''}`;
       this.sectionFlipBtn.setAttribute('aria-pressed', String(st.flip));
@@ -537,8 +542,10 @@ export class StepApp {
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
     if (!on && this.doc?.face) {
-      this.doc.face = null;
-      this.viewer?.setHighlightSegments(null);
+      const d = this.doc;
+      d.face = null;
+      this.showFace(null);
+      if (d.pick) this.viewer?.highlight([d.pick.id]);
       this.selectionChanged();
     }
     this.toolbar.refresh();
@@ -571,7 +578,7 @@ export class StepApp {
     d.pick = null;
     d.items = null;
     d.face = null;
-    this.viewer?.setHighlightSegments(null);
+    this.showFace(null);
     this.viewer?.highlight(node ? subtreeItemIds(node) : null);
     this.selectionChanged();
   }
@@ -584,7 +591,7 @@ export class StepApp {
     d.pick = null;
     d.face = null;
     d.items = ids && ids.length ? { ids: [...ids], label } : null;
-    this.viewer?.setHighlightSegments(null);
+    this.showFace(null);
     this.viewer?.highlight(d.items ? d.items.ids : null);
     this.selectionChanged();
     if (fit && d.items) this.viewer?.fitItems(d.items.ids);
@@ -785,7 +792,7 @@ export class StepApp {
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
       this.viewer?.highlight(null);
-      this.viewer?.setHighlightSegments(null);
+      this.showFace(null);
       if (this.faceMode) this.faceMode = false;
       if (this.doc) {
         this.doc.pick = null;

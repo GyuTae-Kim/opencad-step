@@ -20,6 +20,8 @@ export interface FacePick {
   stepId: number;
   /** 면 종류 이름(plane·cylinder·…) */
   kind: string;
+  /** 그 면의 첫 삼각형 번호(그물 안 — Viewer3d.highlightRanges의 start) */
+  triStart: number;
   /** 삼각형 수 */
   triangles: number;
   /** 넓이(세계 단위²) */
@@ -178,6 +180,7 @@ export function faceDetails(mesh: Mesh3d, table: StepFaceTable, face: number, ki
     face,
     stepId: table.stepIds[face] ?? 0,
     kind,
+    triStart: t0,
     triangles: t1 - t0,
     area,
     perimeter,
