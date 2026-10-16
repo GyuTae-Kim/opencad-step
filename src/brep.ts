@@ -9,9 +9,33 @@
 import type { Rgba } from 'opencad-viewer3d/types';
 import type { Tol } from './curves';
 import type { Geometry } from './geometry';
+import { isClosedMesh } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
 import { bool, list, numList, refId, refList, type StepFile } from './part21';
+import { ConeSurface, CylinderSurface, PlaneSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
 import { type MeshOut, tessellateFace, tessellatePlanarLoops } from './tessellate';
+
+/** 면 종류(면 표 kinds의 번호 → 이름) */
+export const FACE_KINDS = ['plane', 'cylinder', 'cone', 'sphere', 'torus', 'revolution', 'extrusion', 'bspline', 'offset', 'polygon', 'triangulated', 'unknown'] as const;
+export type FaceKind = (typeof FACE_KINDS)[number];
+
+/** 면 표 매개변수 개수(면마다): [r1, r2, ax, ay, az, ox, oy, oz] */
+export const FACE_PARAMS = 8;
+
+/**
+ * 면 표: 그물 삼각형 → B-rep 면. 면 i의 삼각형은 [triStart[i], triStart[i+1]).
+ * params는 면마다 FACE_PARAMS개(형상 항목 좌표·단위):
+ * 평면 — 축 = 바깥 법선(면 방향 반영), 원점 = 평면 위 점 · 원기둥 — r1 반지름, 축·축 위 점 ·
+ * 원뿔 — r1 기준 반지름, r2 반각(라디안), 축·꼭짓점 쪽 기준점 · 구 — r1 반지름, 원점 = 중심 · 원환 — r1 큰 반지름, r2 작은 반지름, 축·중심.
+ */
+export interface FaceTableData {
+  triStart: Uint32Array;
+  /** 면의 STEP 인스턴스 번호(#n) */
+  stepIds: Uint32Array;
+  /** FACE_KINDS 번호 */
+  kinds: Uint8Array;
+  params: Float32Array;
+}
 
 /** 한 형상 항목(입체·껍질 등)의 그물(형상 항목 좌표·단위 그대로) */
 export interface ItemMesh {
@@ -32,6 +56,44 @@ export interface ItemMesh {
   bbox: [V3, V3] | null;
   /** 면 실패 이유 → 개수 */
   failures: Map<string, number>;
+  /** 삼각형 → 면 표 */
+  faceTable?: FaceTableData;
+  /** 닫힌 입체이고 삼각형이 틈 없이 맞물렸는지(Mesh3d.closed — 단면 채우기) */
+  solid?: boolean;
+  /**
+   * 큰 좌표일 때만: 묶음 원점(형상 항목 좌표). positions·edges·면 표의 점 매개변수는 이 점을 뺀 값이다(float32 떨림 막기).
+   * 기준은 needsOrigin.
+   */
+  origin?: V3;
+}
+
+/**
+ * 묶음 원점이 필요한지: 좌표 크기 M(상자 꼭짓점 성분의 절댓값 최대)이 1e4 단위 이상이고 묶음 크기 S(상자 대각선)의
+ * 2000배를 넘을 때. float32 간격은 약 M × 1.2e-7이므로 이때 S의 1/4000(묶음이 화면 1000화소를 채우면 0.25화소) 이상 떨린다.
+ */
+export function needsOrigin(lo: readonly number[], hi: readonly number[]): boolean {
+  if (!Number.isFinite(lo[0]!) || !Number.isFinite(hi[0]!)) return false;
+  let m = 0;
+  for (let k = 0; k < 3; k++) m = Math.max(m, Math.abs(lo[k]!), Math.abs(hi[k]!));
+  const size = Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
+  return m >= 1e4 && m > 2000 * Math.max(size, 1e-9);
+}
+
+/** 상자 가운데 */
+function boxCenter(lo: readonly number[], hi: readonly number[]): V3 {
+  return [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2];
+}
+
+/** xyz… 배열에서 원점을 빼 float32로 */
+export function relativeFloat32(src: readonly number[], o: V3 | undefined): Float32Array {
+  if (!o) return Float32Array.from(src);
+  const out = new Float32Array(src.length);
+  for (let i = 0; i + 2 < src.length; i += 3) {
+    out[i] = src[i]! - o[0];
+    out[i + 1] = src[i + 1]! - o[1];
+    out[i + 2] = src[i + 2]! - o[2];
+  }
+  return out;
 }
 
 export interface MeshOptions {
@@ -41,11 +103,50 @@ export interface MeshOptions {
   absTol?: number;
   /** 최대 각(라디안) */
   angle: number;
+  /** 면 표(ItemMesh.faceTable)를 만들지. 기본 true */
+  faceTable?: boolean;
 }
 
 interface FaceRef {
   id: number;
   reversed: boolean;
+}
+
+/** 면 하나를 삼각화하며 알아낸 것(면 표용) */
+interface FaceInfo {
+  stepId: number;
+  kind: number;
+  params: number[];
+}
+
+const KIND_INDEX = new Map<string, number>(FACE_KINDS.map((k, i) => [k, i]));
+
+/** 곡면·면 방향 → 면 표 종류와 매개변수 */
+function surfaceInfo(surf: Surface | null, sameSense: boolean, poly: boolean, info: FaceInfo): void {
+  const p = info.params;
+  p.fill(0);
+  if (!surf || poly) {
+    info.kind = KIND_INDEX.get('polygon')!;
+    return;
+  }
+  info.kind = KIND_INDEX.get(surf.kind) ?? KIND_INDEX.get('unknown')!;
+  const put = (r1: number, r2: number, a: V3, o: V3) => {
+    p[0] = r1;
+    p[1] = r2;
+    p[2] = a[0];
+    p[3] = a[1];
+    p[4] = a[2];
+    p[5] = o[0];
+    p[6] = o[1];
+    p[7] = o[2];
+  };
+  if (surf instanceof PlaneSurface) {
+    const z = surf.f.z;
+    put(0, 0, sameSense ? z : [-z[0], -z[1], -z[2]], surf.f.o);
+  } else if (surf instanceof CylinderSurface) put(Math.abs(surf.r), 0, surf.f.z, surf.f.o);
+  else if (surf instanceof ConeSurface) put(Math.abs(surf.r), Math.atan(surf.t), surf.f.z, surf.f.o);
+  else if (surf instanceof SphereSurface) put(Math.abs(surf.r), 0, surf.f.z, surf.f.o);
+  else if (surf instanceof TorusSurface) put(Math.abs(surf.R), Math.abs(surf.r), surf.f.z, surf.f.o);
 }
 
 const SOLID_TYPES = new Set(['MANIFOLD_SOLID_BREP', 'BREP_WITH_VOIDS', 'FACETED_BREP', 'FACETED_BREP_AND_BREP_WITH_VOIDS']);
@@ -166,6 +267,8 @@ export class BrepMesher {
     if (!(diag > surfSize * 1e-3)) diag = Math.max(diag, surfSize);
     if (!(diag > 0)) diag = 1;
     const chord = this.opts.absTol ?? Math.max(diag * this.opts.relTol, 1e-9);
+    // 큰 좌표면 묶음 원점(꼭짓점 상자 가운데)을 빼서 담는다
+    const origin = needsOrigin(lo, hi) ? boxCenter(lo, hi) : undefined;
     this.tol = { chord, angle: this.opts.angle };
     this.eps = Math.max(chord * 1e-3, diag * 1e-9);
     this.edgeCache = new Map();
@@ -180,14 +283,36 @@ export class BrepMesher {
       failed++;
       failures.set(why, (failures.get(why) ?? 0) + 1);
     };
-    for (const fr of faces) {
+    const nf = faces.length;
+    const table = this.opts.faceTable !== false;
+    const triStart = new Uint32Array(table ? nf + 1 : 0);
+    const stepIds = new Uint32Array(table ? nf : 0);
+    const kinds = new Uint8Array(table ? nf : 0);
+    const params = new Float32Array(table ? nf * FACE_PARAMS : 0);
+    const info: FaceInfo = { stepId: 0, kind: KIND_INDEX.get('unknown')!, params: new Array<number>(FACE_PARAMS).fill(0) };
+    for (let fi = 0; fi < nf; fi++) {
+      const fr = faces[fi]!;
       onFace?.();
       const col = this.colorOf(fr.id) ?? inherited.get(fr.id);
       b.startFace(col);
-      const r = this.meshFace(fr, b, edgeUse, seams);
+      if (table) {
+        triStart[fi] = b.indices.length / 3;
+        info.stepId = fr.id;
+        info.kind = KIND_INDEX.get('unknown')!;
+        info.params.fill(0);
+      }
+      const r = this.meshFace(fr, b, edgeUse, seams, table ? info : null);
       if (r) fail(r);
+      if (table) {
+        stepIds[fi] = info.stepId;
+        kinds[fi] = info.kind;
+        // 점 매개변수(평면·원기둥·원뿔·구·원환의 원점)도 묶음 원점 기준으로
+        if (origin && info.kind <= KIND_INDEX.get('torus')!) for (let q = 0; q < 3; q++) info.params[5 + q] = info.params[5 + q]! - origin[q]!;
+        params.set(info.params, fi * FACE_PARAMS);
+      }
     }
     const nTri = b.indices.length / 3;
+    if (table) triStart[nf] = nTri;
     // 모서리 선
     const lines: number[] = [];
     for (const [eid] of edgeUse) {
@@ -216,20 +341,45 @@ export class BrepMesher {
         for (let v = s; v < t; v++) colors.set(c, v * 4);
       }
     }
-    return {
-      positions: Float32Array.from(b.positions),
+    const positions = relativeFloat32(b.positions, origin);
+    const indices = Uint32Array.from(b.indices);
+    // 닫힌 입체: 닫힌 껍질 + 실패한 면 없음 + (모서리마다 두 면이 같은 다각선을 나눠 쓰면 삼각형도 틈 없이 맞물린다 —
+    // 이음선은 한 면 안에서 두 번) 그렇지 않은 드문 경우(퇴화 모서리·다각 고리 면)는 삼각형 모서리 짝을 직접 확인한다
+    let solid = false;
+    if (closed && !failed && nTri > 0) {
+      let topo = edgeUse.size > 0;
+      for (const [eid, n] of edgeUse)
+        if (n !== 2 && !(n === 1 && seams.has(eid))) {
+          topo = false;
+          break;
+        }
+      solid = topo || isClosedMesh(positions, indices);
+    }
+    const out: ItemMesh = {
+      positions,
       normals: Float32Array.from(b.normals),
-      indices: Uint32Array.from(b.indices),
+      indices,
       colors,
       color,
-      edges: Float32Array.from(lines),
+      edges: relativeFloat32(lines, origin),
       faces: faces.length,
       failedFaces: failed,
       triangles: nTri,
       closed,
       bbox: Number.isFinite(lo[0]) ? [lo, hi] : boxOf(b.positions),
       failures,
+      faceTable: table ? { triStart, stepIds, kinds, params } : undefined,
     };
+    if (solid) out.solid = true;
+    if (origin) out.origin = origin;
+    return out;
+  }
+
+  /** 와이어프레임 모서리용 허용 오차를 정하고 모서리 캐시를 비운다(그 뒤 edgePolyline을 부른다) */
+  setWireTolerance(chord: number): void {
+    this.tol = { chord, angle: this.opts.angle };
+    this.eps = Math.max(chord * 1e-3, 1e-12);
+    this.edgeCache = new Map();
   }
 
   /**
@@ -403,7 +553,7 @@ export class BrepMesher {
   }
 
   /** 면 하나(실패하면 이유) */
-  private meshFace(fr: FaceRef, b: Builder, edgeUse: Map<number, number>, seams: Set<number>): string | null {
+  private meshFace(fr: FaceRef, b: Builder, edgeUse: Map<number, number>, seams: Set<number>, info: FaceInfo | null): string | null {
     let fe = this.f.get(fr.id);
     let reversed = fr.reversed;
     if (fe && fe.type === 'ORIENTED_FACE') {
@@ -411,6 +561,7 @@ export class BrepMesher {
       fe = this.f.get(refId(fe.args[2]));
     }
     if (!fe) return '면 개체 없음';
+    if (info) info.stepId = fe.id;
     if (!FACE_TYPES.has(fe.type)) {
       this.miss(fe.type);
       return `지원하지 않는 면 ${fe.type}`;
@@ -471,6 +622,7 @@ export class BrepMesher {
       sameSense = !sameSense;
       for (const l of loops) l.reverse();
     }
+    if (info) surfaceInfo(surf, sameSense, poly, info);
     if (!surf || poly) {
       // 평면 다각형으로(곡면을 모르거나 다각 고리)
       let hint: V3 | null = null;
@@ -495,6 +647,8 @@ export class BrepMesher {
     const hi: V3 = [-Infinity, -Infinity, -Infinity];
     let faces = 0;
     let closed = false;
+    const triStart: number[] = [];
+    const stepIds: number[] = [];
     const visit = (id: number, depth: number, parentColor: Rgba | undefined) => {
       if (depth > 4) return;
       const e = this.f.get(id);
@@ -511,6 +665,8 @@ export class BrepMesher {
       }
       faces++;
       b.startFace(col);
+      triStart.push(b.indices.length / 3);
+      stepIds.push(id);
       const complex = e.type.startsWith('COMPLEX_');
       const isFace = e.type.endsWith('_FACE');
       // (name, coordinates, pnmax, normals, [geometric_link,] pnindex, triangles | strips, fans)
@@ -551,10 +707,13 @@ export class BrepMesher {
         for (let v = s; v < t; v++) colors.set(c, v * 4);
       }
     }
-    return {
-      positions: Float32Array.from(b.positions),
+    const origin = needsOrigin(lo, hi) ? boxCenter(lo, hi) : undefined;
+    const positions = relativeFloat32(b.positions, origin);
+    const indices = Uint32Array.from(b.indices);
+    const out: ItemMesh = {
+      positions,
       normals: Float32Array.from(b.normals),
-      indices: Uint32Array.from(b.indices),
+      indices,
       colors,
       color,
       edges: new Float32Array(0),
@@ -564,7 +723,20 @@ export class BrepMesher {
       closed,
       bbox: Number.isFinite(lo[0]) ? [lo, hi] : null,
       failures: new Map(),
+      faceTable:
+        this.opts.faceTable === false
+          ? undefined
+          : {
+              triStart: Uint32Array.from([...triStart, b.indices.length / 3]),
+              stepIds: Uint32Array.from(stepIds),
+              kinds: new Uint8Array(stepIds.length).fill(KIND_INDEX.get('triangulated')!),
+              params: new Float32Array(stepIds.length * FACE_PARAMS),
+            },
     };
+    // 삼각형 입체(TESSELLATED_SOLID)는 파일의 삼각형이 정말 닫혔을 때만
+    if (closed && isClosedMesh(positions, indices)) out.solid = true;
+    if (origin) out.origin = origin;
+    return out;
   }
 }
 

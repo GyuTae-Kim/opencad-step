@@ -120,3 +120,91 @@ export function meshVolume(positions: ArrayLike<number>, indices?: ArrayLike<num
   }
   return s / 6;
 }
+
+/**
+ * 빠른 닫힘 검사: 정점을 float32 비트가 같은 것끼리(정확히) 용접하고, 모든 모서리를 두 삼각형이 반대 방향으로
+ * 한 번씩 쓰는지 본다(문자열 열쇠·정렬 없이 형식 배열 해시 표 — 큰 그물에서도 빠르다). 삼각형이 없으면 false.
+ */
+export function isClosedMesh(positions: Float32Array, indices?: ArrayLike<number>): boolean {
+  const nv = Math.floor(positions.length / 3);
+  if (nv < 3) return false;
+  const bits = new Uint32Array(positions.buffer, positions.byteOffset, nv * 3);
+  // 1) 정점 용접(열린 주소 해시)
+  let cap = 1;
+  while (cap < nv * 2) cap <<= 1;
+  let mask = cap - 1;
+  const vt = new Int32Array(cap).fill(-1);
+  const weld = new Int32Array(nv);
+  const rep = new Int32Array(nv);
+  let n = 0;
+  for (let i = 0; i < nv; i++) {
+    let x = bits[i * 3]!;
+    let y = bits[i * 3 + 1]!;
+    let z = bits[i * 3 + 2]!;
+    // -0과 0은 같은 자리로
+    if (x === 0x80000000) x = 0;
+    if (y === 0x80000000) y = 0;
+    if (z === 0x80000000) z = 0;
+    let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) & mask;
+    for (;;) {
+      const t = vt[h]!;
+      if (t < 0) {
+        vt[h] = n;
+        rep[n] = i;
+        weld[i] = n++;
+        break;
+      }
+      const j = rep[t]! * 3;
+      let jx = bits[j]!;
+      let jy = bits[j + 1]!;
+      let jz = bits[j + 2]!;
+      if (jx === 0x80000000) jx = 0;
+      if (jy === 0x80000000) jy = 0;
+      if (jz === 0x80000000) jz = 0;
+      if (jx === x && jy === y && jz === z) {
+        weld[i] = t;
+        break;
+      }
+      h = (h + 1) & mask;
+    }
+  }
+  // 2) 방향 있는 모서리 표: 같은 방향 모서리가 두 번 나오면 바로 실패, 끝에 모든 모서리의 역방향이 있는지
+  const nt = Math.floor((indices ? indices.length : nv) / 3);
+  cap = 1;
+  while (cap < nt * 6) cap <<= 1;
+  mask = cap - 1;
+  const ka = new Int32Array(cap).fill(-1);
+  const kb = new Int32Array(cap);
+  const hash = (a: number, b: number) => (Math.imul(a, 0x9e3779b1) ^ Math.imul(b + 0x7f4a7c15, 0x85ebca6b)) & mask;
+  const find = (a: number, b: number): number => {
+    let h = hash(a, b);
+    for (;;) {
+      const x = ka[h]!;
+      if (x < 0 || (x === a && kb[h] === b)) return h;
+      h = (h + 1) & mask;
+    }
+  };
+  let edges = 0;
+  for (let t = 0; t < nt; t++) {
+    const a = weld[indices ? indices[t * 3]! : t * 3]!;
+    const b = weld[indices ? indices[t * 3 + 1]! : t * 3 + 1]!;
+    const c = weld[indices ? indices[t * 3 + 2]! : t * 3 + 2]!;
+    if (a === b || b === c || c === a) continue;
+    for (let e = 0; e < 3; e++) {
+      const x = e === 0 ? a : e === 1 ? b : c;
+      const y = e === 0 ? b : e === 1 ? c : a;
+      const h = find(x, y);
+      if (ka[h]! >= 0) return false;
+      ka[h] = x;
+      kb[h] = y;
+      edges++;
+    }
+  }
+  if (!edges) return false;
+  for (let h = 0; h < cap; h++) {
+    const a = ka[h]!;
+    if (a < 0) continue;
+    if (ka[find(kb[h]!, a)]! < 0) return false;
+  }
+  return true;
+}

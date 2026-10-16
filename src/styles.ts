@@ -2,7 +2,7 @@
  * 색: STYLED_ITEM·OVER_RIDING_STYLED_ITEM → PRESENTATION_STYLE_ASSIGNMENT → SURFACE_STYLE_USAGE → SURFACE_SIDE_STYLE
  * → SURFACE_STYLE_FILL_AREA → FILL_AREA_STYLE → FILL_AREA_STYLE_COLOUR → COLOUR_RGB·DRAUGHTING_PRE_DEFINED_COLOUR,
  * 투명도는 SURFACE_STYLE_RENDERING_WITH_PROPERTIES → SURFACE_STYLE_TRANSPARENT.
- * 면 색이 없을 때 CURVE_STYLE 색은 쓰지 않는다(선 색).
+ * 면 색이 없을 때 CURVE_STYLE 색은 쓰지 않는다(선 색 — 곡선·와이어프레임·PMI 선 색으로 따로 모은다).
  */
 import type { Rgba } from 'opencad-viewer3d/types';
 import { num, refId, refList, text, type StepFile } from './part21';
@@ -23,11 +23,16 @@ export interface StyleInfo {
   colors: Map<number, Rgba>;
   /** 숨김(INVISIBILITY) 대상 */
   hidden: Set<number>;
+  /** 대상 개체 → 선 색(CURVE_STYLE). 곡선·와이어프레임 형상에 쓴다 */
+  curveColors: Map<number, Rgba>;
+  /** 양식 배정(PRESENTATION_STYLE_ASSIGNMENT 등) 번호들 → 선 색(없으면 면 색). PMI 주석처럼 양식이 붙은 항목에 직접 쓴다 */
+  curveColorOf(styleIds: readonly number[]): Rgba | undefined;
 }
 
 export function readStyles(f: StepFile): StyleInfo {
   const colors = new Map<number, Rgba>();
   const hidden = new Set<number>();
+  const curveColors = new Map<number, Rgba>();
   const colourCache = new Map<number, [number, number, number] | null>();
   const colour = (id: number): [number, number, number] | null => {
     const hit = colourCache.get(id);
@@ -53,14 +58,16 @@ export function readStyles(f: StepFile): StyleInfo {
     return c;
   };
   // 표현 양식 하나에서 면 색·투명도
-  const surfaceStyle = (id: number, depth = 0): { rgb: [number, number, number] | null; alpha: number } => {
-    const out = { rgb: null as [number, number, number] | null, alpha: 1 };
+  type StyleOut = { rgb: [number, number, number] | null; alpha: number; curve: [number, number, number] | null };
+  const surfaceStyle = (id: number, depth = 0): StyleOut => {
+    const out: StyleOut = { rgb: null, alpha: 1, curve: null };
     if (depth > 8) return out;
     const e = f.get(id);
     if (!e) return out;
-    const merge = (o: { rgb: [number, number, number] | null; alpha: number }) => {
+    const merge = (o: StyleOut) => {
       if (o.rgb && !out.rgb) out.rgb = o.rgb;
       if (o.alpha < 1) out.alpha = Math.min(out.alpha, o.alpha);
+      if (o.curve && !out.curve) out.curve = o.curve;
     };
     switch (e.type) {
       case 'PRESENTATION_STYLE_ASSIGNMENT':
@@ -81,6 +88,10 @@ export function readStyles(f: StepFile): StyleInfo {
         break;
       case 'FILL_AREA_STYLE_COLOUR':
         out.rgb = colour(refId(e.args[1]));
+        break;
+      case 'CURVE_STYLE':
+        // (name, curve_font, curve_width, curve_colour)
+        out.curve = colour(refId(e.args[3]));
         break;
       case 'SURFACE_STYLE_RENDERING':
       case 'SURFACE_STYLE_RENDERING_WITH_PROPERTIES': {
@@ -105,11 +116,14 @@ export function readStyles(f: StepFile): StyleInfo {
       if (!item) continue;
       let rgb: [number, number, number] | null = null;
       let alpha = 1;
+      let curve: [number, number, number] | null = null;
       for (const s of refList(e.args[1])) {
         const st = surfaceStyle(s);
         if (st.rgb && !rgb) rgb = st.rgb;
+        if (st.curve && !curve) curve = st.curve;
         alpha = Math.min(alpha, st.alpha);
       }
+      if (curve) curveColors.set(item, [curve[0], curve[1], curve[2], 1]);
       if (rgb) colors.set(item, [rgb[0], rgb[1], rgb[2], alpha]);
       else if (alpha < 1) {
         const prev = colors.get(item);
@@ -130,7 +144,17 @@ export function readStyles(f: StepFile): StyleInfo {
       else hidden.add(r);
     }
   }
-  return { colors, hidden };
+  const curveColorOf = (styleIds: readonly number[]): Rgba | undefined => {
+    let fill: [number, number, number] | null = null;
+    for (const s of styleIds) {
+      const st = surfaceStyle(s);
+      if (st.curve) return [st.curve[0], st.curve[1], st.curve[2], 1];
+      if (st.rgb && !fill) fill = st.rgb;
+    }
+    // 채운 글자(삼각형 주석)는 면 색만 있을 수 있다
+    return fill ? [fill[0], fill[1], fill[2], 1] : undefined;
+  };
+  return { colors, hidden, curveColors, curveColorOf };
 }
 
 function clamp01(x: number): number {
