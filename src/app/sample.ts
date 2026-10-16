@@ -8,9 +8,69 @@
  *     ├ 핀(구멍을 지나는 원기둥, 주황)
  *     └ 고리(원환, 금색)
  *
- * 평면·원기둥·원환 곡면, 구멍 있는 면, 조립 변환, 인스턴스, 색, 한글 이름(\X2\ 부호)을 함께 보여 준다.
+ * 평면·원기둥·원환 곡면, 구멍 있는 면, 조립 변환, 인스턴스, 색, 한글 이름(\X2\ 부호)을 함께 보여 주고,
+ * 레이어 셋(본체·체결 부품·PMI 주석)과 받침판의 PMI(폭 치수·구멍 지름 지시선 — 표현 PMI 선, 의미 PMI 치수·공차·데이텀)도 넣었다.
  */
-import { cube, cylinder, plateWithHole, StepText, stepString as s, torus } from './stepText';
+import { cube, cylinder, type P3, plateWithHole, r, StepText, stepString as s, torus } from './stepText';
+
+/** 획 글자(높이 1, 왼쪽 아래 원점, z=0 평면): 숫자와 지름 기호만 */
+const GLYPHS: Record<string, [number, number][][]> = {
+  '0': [
+    [
+      [0, 0],
+      [0.6, 0],
+      [0.6, 1],
+      [0, 1],
+      [0, 0],
+    ],
+  ],
+  '2': [
+    [
+      [0, 1],
+      [0.6, 1],
+      [0.6, 0.5],
+      [0, 0.5],
+      [0, 0],
+      [0.6, 0],
+    ],
+  ],
+  '4': [
+    [
+      [0.45, 0],
+      [0.45, 1],
+      [0, 0.35],
+      [0.65, 0.35],
+    ],
+  ],
+  Ø: [
+    [
+      [0.3, 0.05],
+      [0.55, 0.2],
+      [0.6, 0.5],
+      [0.55, 0.8],
+      [0.3, 0.95],
+      [0.05, 0.8],
+      [0, 0.5],
+      [0.05, 0.2],
+      [0.3, 0.05],
+    ],
+    [
+      [-0.05, -0.05],
+      [0.65, 1.05],
+    ],
+  ],
+};
+
+/** 글을 획 꺾은선들로(x0,y0에서 높이 hgt, z 높이) */
+function strokes(text: string, x0: number, y0: number, z: number, hgt: number): P3[][] {
+  const out: P3[][] = [];
+  let x = x0;
+  for (const ch of text) {
+    for (const g of GLYPHS[ch] ?? []) out.push(g.map(([u, v]) => [x + u * hgt, y0 + v * hgt, z]));
+    x += hgt * 0.85;
+  }
+  return out;
+}
 
 export const SAMPLE_NAME = 'opencad-sample.stp';
 
@@ -21,7 +81,7 @@ export function sampleStepText(): string {
 
   // ── 부품 ──
   const plateSolid = plateWithHole(w, '');
-  w.color(plateSolid, [0.46, 0.58, 0.71]);
+  const plateStyle = w.color(plateSolid, [0.46, 0.58, 0.71]);
   const plate = w.product(s('받침판'), [plateSolid], ctx);
 
   const blockSolid = cube(w, 3, [0, 0, 0], '').solid;
@@ -35,6 +95,80 @@ export function sampleStepText(): string {
   const ringSolid = torus(w, 2.6, 0.5, '');
   w.color(ringSolid, [0.86, 0.71, 0.27]);
   const ring = w.product(s('고리'), [ringSolid], ctx);
+
+  // ── 받침판 PMI: 폭 치수(앞쪽 바닥 평면)와 구멍 지름 지시선(윗면) ──
+  const poly = (pts: P3[]) => w.add('POLYLINE', `'',(${pts.map((p) => `#${w.pt(p)}`).join(',')})`);
+  const pmiColour = w.add('COLOUR_RGB', `'',0.85,0.2,0.15`);
+  const font = w.add('DRAUGHTING_PRE_DEFINED_CURVE_FONT', `'continuous'`);
+  const curveStyle = w.add('CURVE_STYLE', `'',#${font},POSITIVE_LENGTH_MEASURE(0.1),#${pmiColour}`);
+  const pmiStyle = w.add('PRESENTATION_STYLE_ASSIGNMENT', `(#${curveStyle})`);
+  const annotation = (name: string, polys: P3[][]) => {
+    const set = w.add('GEOMETRIC_CURVE_SET', `'',(${polys.map((pl) => `#${poly(pl)}`).join(',')})`);
+    return w.add('ANNOTATION_CURVE_OCCURRENCE', `'${s(name)}',(#${pmiStyle}),#${set}`);
+  };
+  const a = 0.6; // 화살촉
+  const widthDim = annotation('폭 20', [
+    [
+      [0, -0.3, 0],
+      [0, -3.6, 0],
+    ],
+    [
+      [20, -0.3, 0],
+      [20, -3.6, 0],
+    ],
+    [
+      [0, -3, 0],
+      [20, -3, 0],
+    ],
+    [
+      [a, -3 + a * 0.4, 0],
+      [0, -3, 0],
+      [a, -3 - a * 0.4, 0],
+    ],
+    [
+      [20 - a, -3 + a * 0.4, 0],
+      [20, -3, 0],
+      [20 - a, -3 - a * 0.4, 0],
+    ],
+    ...strokes('20', 9.4, -2.7, 0, 1.2),
+  ]);
+  const holeDim = annotation('구멍 지름 4', [
+    [
+      [11.414, 6.414, 2],
+      [14.5, 9.5, 2],
+      [17.5, 9.5, 2],
+    ],
+    [
+      [11.414 + 0.55, 6.414 + 0.15, 2],
+      [11.414, 6.414, 2],
+      [11.414 + 0.15, 6.414 + 0.55, 2],
+    ],
+    ...strokes('Ø4', 14.9, 9.75, 2, 1),
+  ]);
+  const frontPlane = w.add('ANNOTATION_PLANE', `'${s('바닥 평면')}',(#${pmiStyle}),#${w.plane([0, 0, 0])},(#${widthDim})`);
+  const topPlane = w.add('ANNOTATION_PLANE', `'${s('윗면')}',(#${pmiStyle}),#${w.plane([0, 0, 2])},(#${holeDim})`);
+  const dm = w.add('DRAUGHTING_MODEL', `'${s('받침판 PMI')}',(#${frontPlane},#${topPlane}),#${ctx}`);
+  w.add('SHAPE_REPRESENTATION_RELATIONSHIP', `'','',#${dm},#${plate.rep}`);
+  // 의미 PMI: 폭 20 ±0.1, 구멍 지름 4 +0.05/0, 윗면 평면도 0.02, 데이텀 A(바닥)
+  const mm = w.raw(`(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.))`);
+  const pds = w.add('PRODUCT_DEFINITION_SHAPE', `'','',#${plate.pd}`);
+  const measureItem = (v: number) =>
+    w.raw(`(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() MEASURE_WITH_UNIT(LENGTH_MEASURE(${r(v)}),#${mm}) REPRESENTATION_ITEM('nominal value'))`);
+  const lmu = (v: number) => w.add('LENGTH_MEASURE_WITH_UNIT', `LENGTH_MEASURE(${r(v)}),#${mm}`);
+  const size = (aspect: string, name: string, nominal: number, lo: number, hi: number) => {
+    const sa = w.add('SHAPE_ASPECT', `'${s(aspect)}','',#${pds},.T.`);
+    const ds = w.add('DIMENSIONAL_SIZE', `#${sa},'${name}'`);
+    const sdr = w.add('SHAPE_DIMENSION_REPRESENTATION', `'',(#${measureItem(nominal)}),#${ctx}`);
+    w.add('DIMENSIONAL_CHARACTERISTIC_REPRESENTATION', `#${ds},#${sdr}`);
+    w.add('PLUS_MINUS_TOLERANCE', `#${w.add('TOLERANCE_VALUE', `#${lmu(lo)},#${lmu(hi)}`)},#${ds}`);
+    return sa;
+  };
+  size('폭', 'width', 20, -0.1, 0.1);
+  size('구멍', 'diameter', 4, 0, 0.05);
+  const top = w.add('SHAPE_ASPECT', `'${s('윗면')}','',#${pds},.T.`);
+  w.add('FLATNESS_TOLERANCE', `'${s('윗면 평면도')}','',#${lmu(0.02)},#${top}`);
+  const bottom = w.add('SHAPE_ASPECT', `'${s('바닥')}','',#${pds},.T.`);
+  w.add('DATUM', `'A','',#${bottom},.F.,'A'`);
 
   // ── 핀 묶음(하위 조립): 핀은 판 밑으로 1 내려 구멍을 지나고, 고리는 판 위에 띄운다 ──
   const gPin = w.ax2([0, 0, -1]);
@@ -54,6 +188,11 @@ export function sampleStepText(): string {
   w.place(root, block, pBlock1, s('블록-1'));
   w.place(root, block, pBlock2, s('블록-2'));
   w.place(root, pinGroup, pGroup, s('핀 묶음-1'));
+
+  // ── 레이어 ──
+  w.add('PRESENTATION_LAYER_ASSIGNMENT', `'${s('본체')}','${s('받침판과 블록')}',(#${plateStyle},#${blockSolid})`);
+  w.add('PRESENTATION_LAYER_ASSIGNMENT', `'${s('체결 부품')}','${s('핀과 고리')}',(#${pinSolid},#${ringSolid})`);
+  w.add('PRESENTATION_LAYER_ASSIGNMENT', `'${s('PMI 주석')}','',(#${widthDim},#${holeDim})`);
 
   return w.toString(SAMPLE_NAME, undefined, {
     description: 'OpenCAD 예제 조립 모형',

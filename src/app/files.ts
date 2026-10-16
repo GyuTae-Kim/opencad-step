@@ -8,6 +8,23 @@ export const STEP_EXTENSIONS = ['.stp', '.step', '.p21'] as const;
 /** 열기 상자 accept(대소문자 모두 — 일부 휴대폰 브라우저는 대소문자를 가린다) */
 export const STEP_ACCEPT = [...STEP_EXTENSIONS, ...STEP_EXTENSIONS.map((e) => e.toUpperCase())].join(',');
 
+/** 압축 STEP 확장자(소문자): gzip(.stp.gz·.stpz) — 그리고 안에 STEP이 든 ZIP */
+export const PACKED_EXTENSIONS = ['.stpz', '.gz', '.zip'] as const;
+
+/** 열기 상자 accept(STEP과 압축 STEP, 대소문자 모두). .stp.gz는 끝 확장자 .gz로 고른다 */
+export const OPEN_ACCEPT = [...STEP_EXTENSIONS, ...PACKED_EXTENSIONS].flatMap((e) => [e, e.toUpperCase()]).join(',');
+
+/** 압축 STEP일 수 있는 이름인지(.stpz·.stp.gz·.zip 등, 대소문자 무시) */
+export function isPackedStepName(name: string): boolean {
+  const n = name.toLowerCase();
+  return PACKED_EXTENSIONS.some((e) => n.endsWith(e));
+}
+
+/** 이 앱이 이름만 보고 열어 볼 파일인지(STEP·압축 STEP) */
+export function isOpenableName(name: string): boolean {
+  return isStepName(name) || isPackedStepName(name);
+}
+
 /** 확장자가 STEP인지(대소문자 무시) */
 export function isStepName(name: string): boolean {
   const n = name.toLowerCase();

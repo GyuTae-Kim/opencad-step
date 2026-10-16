@@ -31,6 +31,12 @@ export const ICONS = {
   warn: '<path d="M12 3.5 21.5 20h-19Z"/><path d="M12 10v4.5M12 17.2v.3"/>',
   expand: '<path d="m7 10 5 5 5-5M7 4.5l5 5 5-5" />',
   collapse: '<path d="m7 14 5-5 5 5M7 19.5l5-5 5 5"/>',
+  face: '<path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5Z"/><path d="M4 8.5 12 13l8-4.5" opacity=".45"/><path d="M12 13v7" opacity=".45"/><path d="m12 4 8 4.5L12 13 4 8.5Z" fill="currentColor" stroke="none" opacity=".35"/>',
+  layers: '<path d="m12 4 9 4.5-9 4.5-9-4.5Z"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/>',
+  pmi: '<path d="M4 18h16M4 15v6M20 15v6"/><path d="m7 18 2.5-1.5M7 18l2.5 1.5M17 18l-2.5-1.5M17 18l-2.5 1.5"/><rect x="6" y="4" width="12" height="7" rx="1"/><path d="M10 4v7M14 4v7"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>',
+  section: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z" opacity=".45"/><path d="M3 12.5 12 9l9 3.5L12 16Z" fill="currentColor" stroke="none" opacity=".35"/><path d="M3 12.5 12 9l9 3.5L12 16Z"/>',
+  flip: '<path d="M7 4v16M17 4v16"/><path d="m10 9-3-3-3 3M14 15l3 3 3-3"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

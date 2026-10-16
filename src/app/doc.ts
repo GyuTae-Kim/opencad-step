@@ -4,12 +4,44 @@
  */
 import type { MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
-import type { StepMeta, StepProductNode } from '../scene';
+import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode } from '../scene';
+import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
-import type { ParseResult } from './protocol';
+import type { ParseResult, ParseSource } from './protocol';
+import { Visibility } from './visibility';
 
 export type ProductNode = StepProductNode;
-export type PanelTab = 'tree' | 'info';
+export type PanelTab = 'tree' | 'layers' | 'pmi' | 'info';
+
+/** 화면용 레이어(meta.layers) */
+export interface DocLayer {
+  name: string;
+  description: string;
+  /** 파일이 정한 처음 보이기 */
+  visible: boolean;
+  /** 그물·선 묶음 id */
+  itemIds: string[];
+}
+
+/** 화면용 PMI(meta.pmi) */
+export interface DocPmi {
+  presentations: StepPmiPresentation[];
+  semantic: StepPmiSemantic[];
+}
+
+/** 면 고르기용 표(meta.faceKinds·faceTables·meshFaceTable) */
+export interface FaceIndex {
+  kinds: readonly string[];
+  tables: StepFaceTable[];
+  /** 그물 id → 표 번호 */
+  tableOf: Map<string, number>;
+}
+
+/** 고른 항목 묶음(레이어·PMI 목록에서 고른 것) */
+export interface ItemSelection {
+  ids: string[];
+  label: string;
+}
 
 /** 정보 탭·상태 막대에 쓰는 meta 요약 */
 export interface StepInfo {
@@ -43,12 +75,34 @@ export interface StepDoc {
   pick: Pick3d | null;
   measure: MeasureResult | null;
   panelTab: PanelTab;
+  /** 레이어(없으면 빈 배열) */
+  readonly layers: DocLayer[];
+  readonly pmi: DocPmi;
+  /** 면 표(없으면 null — 면 고르기를 못 한다) */
+  readonly faces: FaceIndex | null;
+  /** 압축을 풀어 열었으면 그 내력 */
+  readonly source: ParseSource | null;
+  /** 보이기 상태(나무 눈 단추·레이어·PMI) */
+  readonly vis: Visibility;
+  /** 3D에서 고른 면 */
+  face: FacePick | null;
+  /** 레이어·PMI 목록에서 고른 항목 */
+  items: ItemSelection | null;
+  /** 제품 나무 이름 거르기 */
+  treeFilter: string;
+  /** 제품 나무에 그리는 최대 줄 수 */
+  treeLimit: number;
 }
+
+/** 제품 나무 기본 줄 수 제한 */
+export const TREE_LIMIT = 3000;
 
 let serial = 0;
 
 export function createDoc(name: string, size: number, res: ParseResult): StepDoc {
   const products = stepProducts(res.scene);
+  const layers = stepLayers(res.scene);
+  const pmi = stepPmi(res.scene);
   return {
     id: ++serial,
     name,
@@ -63,7 +117,29 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     pick: null,
     measure: null,
     panelTab: 'tree',
+    layers,
+    pmi,
+    faces: stepFaceIndex(res.scene),
+    source: res.source ?? null,
+    vis: createVisibility(layers, pmi),
+    face: null,
+    items: null,
+    treeFilter: '',
+    treeLimit: TREE_LIMIT,
   };
+}
+
+/** 문서의 보이기 상태: 파일이 숨긴 레이어는 처음부터 끈다 */
+export function createVisibility(layers: readonly DocLayer[], pmi: DocPmi): Visibility {
+  const layerOf = new Map<string, number>();
+  layers.forEach((l, i) => {
+    for (const id of l.itemIds) if (!layerOf.has(id)) layerOf.set(id, i);
+  });
+  const v = new Visibility(layerOf, new Set(pmi.presentations.map((p) => p.id)), layers.length > 0);
+  layers.forEach((l, i) => {
+    if (!l.visible) v.layerHidden.add(i);
+  });
+  return v;
 }
 
 /** 처음 펼침: 뿌리와 그 바로 아래(두 단계) */
@@ -94,6 +170,7 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
       children: [],
     };
     if (typeof o.instance === 'string' && o.instance) node.instance = o.instance;
+    if (Array.isArray(o.lineIds) && o.lineIds.length) node.lineIds = (o.lineIds as unknown[]).map(String);
     if (Array.isArray(o.children))
       for (const c of o.children) {
         const n = read(c, depth + 1);
@@ -105,6 +182,59 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
 }
 
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : []);
+
+/** meta.layers를 안전하게 읽는다 */
+export function stepLayers(scene: Scene3d): DocLayer[] {
+  const l = (scene.meta as { layers?: unknown } | undefined)?.layers;
+  if (!Array.isArray(l)) return [];
+  return l
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+    .map((x) => ({
+      name: String(x.name ?? ''),
+      description: typeof x.description === 'string' ? x.description : '',
+      visible: x.visible !== false,
+      itemIds: [...strList(x.meshIds), ...strList(x.lineIds)],
+    }));
+}
+
+/** meta.pmi를 안전하게 읽는다 */
+export function stepPmi(scene: Scene3d): DocPmi {
+  const p = (scene.meta as { pmi?: unknown } | undefined)?.pmi as Record<string, unknown> | undefined;
+  if (!p || typeof p !== 'object') return { presentations: [], semantic: [] };
+  const rec = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
+  const presentations: StepPmiPresentation[] = rec(p.presentations).map((x) => {
+    const o: StepPmiPresentation = { id: String(x.id ?? ''), name: String(x.name ?? ''), type: String(x.type ?? ''), stepId: Number(x.stepId) || 0 };
+    if (typeof x.plane === 'string' && x.plane) o.plane = x.plane;
+    if (typeof x.model === 'string' && x.model) o.model = x.model;
+    return o;
+  });
+  const semantic: StepPmiSemantic[] = rec(p.semantic).map((x) => ({
+    kind: x.kind === 'tolerance' || x.kind === 'datum' ? x.kind : 'dimension',
+    type: String(x.type ?? ''),
+    name: String(x.name ?? ''),
+    value: String(x.value ?? ''),
+    stepId: Number(x.stepId) || 0,
+  }));
+  return { presentations, semantic };
+}
+
+/** meta의 면 표를 읽는다(꼴이 맞지 않으면 null) */
+export function stepFaceIndex(scene: Scene3d): FaceIndex | null {
+  const m = (scene.meta ?? {}) as Record<string, unknown>;
+  const kinds = m.faceKinds;
+  const tables = m.faceTables;
+  const mt = m.meshFaceTable;
+  if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
+  const ok = (t: unknown): t is StepFaceTable =>
+    !!t && typeof t === 'object' && (t as StepFaceTable).triStart instanceof Uint32Array && (t as StepFaceTable).kinds instanceof Uint8Array && (t as StepFaceTable).params instanceof Float32Array && (t as StepFaceTable).stepIds instanceof Uint32Array;
+  if (!tables.every(ok)) return null;
+  const tableOf = new Map<string, number>();
+  scene.meshes.forEach((mesh, i) => {
+    const t = mt[i] ?? -1;
+    if (t >= 0 && t < tables.length) tableOf.set(mesh.id, t);
+  });
+  return { kinds: kinds.map(String), tables, tableOf };
+}
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
@@ -194,12 +324,20 @@ export function subtreeMeshIds(n: ProductNode, out: string[] = []): string[] {
   return out;
 }
 
-/** 그물 id가 든 첫 마디의 경로 열쇠("0/2/1") */
+/** 마디와 그 아래 모든 그물·선 묶음 id */
+export function subtreeItemIds(n: ProductNode, out: string[] = []): string[] {
+  out.push(...n.meshIds);
+  if (n.lineIds) out.push(...n.lineIds);
+  for (const c of n.children) subtreeItemIds(c, out);
+  return out;
+}
+
+/** 그물(또는 선 묶음) id가 든 첫 마디의 경로 열쇠("0/2/1") */
 export function productKeyOf(nodes: readonly ProductNode[], meshId: string, prefix = ''): string | null {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i]!;
     const key = prefix ? `${prefix}/${i}` : String(i);
-    if (n.meshIds.includes(meshId)) return key;
+    if (n.meshIds.includes(meshId) || n.lineIds?.includes(meshId)) return key;
     const k = productKeyOf(n.children, meshId, key);
     if (k) return k;
   }
@@ -230,12 +368,23 @@ export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'
   return d.pick?.kind === 'mesh' ? [d.pick.id] : [];
 }
 
+/**
+ * 고른 것의 모든 항목 id(맞춰 보기용): 나무 마디면 그 아래 그물·선 모두, 레이어·PMI에서 골랐으면 그 항목들,
+ * 아니면 3D에서 고른 항목 하나.
+ */
+export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick' | 'items'>): string[] {
+  const node = d.selKey ? productAt(d.products, d.selKey) : null;
+  if (node) return subtreeItemIds(node);
+  if (d.items) return d.items.ids;
+  return d.pick ? [d.pick.id] : [];
+}
+
 /** 형상이 바로 놓인 마디(부품 자리) 수 */
 export function partCount(nodes: readonly ProductNode[]): number {
   let n = 0;
   const walk = (list: readonly ProductNode[]) => {
     for (const x of list) {
-      if (x.meshIds.length) n++;
+      if (x.meshIds.length || x.lineIds?.length) n++;
       walk(x.children);
     }
   };
