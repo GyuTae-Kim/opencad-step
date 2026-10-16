@@ -25,6 +25,20 @@ export interface ParseResult {
   scene: Scene3d;
   /** 워커 안 해석 시간(ms) */
   ms: number;
+  /** 압축을 풀어 열었으면 그 내력(gzip·ZIP) */
+  source?: ParseSource;
+}
+
+/** 압축 STEP을 풀어 연 내력 */
+export interface ParseSource {
+  /** 풀었던 압축 형식(바깥부터) */
+  containers: ('gzip' | 'zip')[];
+  /** ZIP 안에서 연 항목 이름 */
+  entry?: string;
+  /** 압축된 파일 크기(바이트) */
+  packedSize: number;
+  /** 풀어 낸 STEP 글 크기(바이트) */
+  size: number;
 }
 
 /**

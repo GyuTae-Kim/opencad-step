@@ -6,14 +6,25 @@
  * CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION → ITEM_DEFINED_TRANSFORMATION)
  * 또는 MAPPED_ITEM(REPRESENTATION_MAP)으로 자식을 놓는다. 같은 형상 항목은 한 번만 삼각화하고 Mesh3d.matrix로 여러 번 놓는다.
  * 표현마다 맥락 단위가 다르면 장면 단위(뿌리 표현의 길이 단위)로 바꾼다.
+ *
+ * 덧붙여(meta 선택 필드·scene.lines): 레이어(PRESENTATION_LAYER_ASSIGNMENT — layers.ts), 와이어프레임·곡선 형상(wire.ts →
+ * LineSet3d), 표현 PMI 선과 의미 PMI 목록(pmi.ts), 면 표(그물 삼각형 → B-rep 면, 면 단위 고르기용).
  */
-import type { Box3, Mesh3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
-import { BrepMesher, isMeshableType, isTessellatedType, type ItemMesh } from './brep';
+import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
+import { BrepMesher, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
 import { Geometry } from './geometry';
+import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
+import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
 import { readStyles } from './styles';
 import { type ContextUnits, contextUnits, DEFAULT_UNITS, sceneUnitMm, sceneUnitOf } from './units';
+import { isWireItemType, type WireGeom, WireSampler } from './wire';
+
+export type { StepPmiSemantic } from './pmi';
+/** 면 표(meta.faceTables의 한 칸): 그물 삼각형 → B-rep 면. 뜻은 brep.ts FaceTableData */
+export type StepFaceTable = FaceTableData;
+export { FACE_KINDS, FACE_PARAMS } from './brep';
 
 export interface StepOptions {
   /** 장면 이름(기본: 파일 머리의 FILE_NAME 또는 'STEP') */
@@ -28,6 +39,12 @@ export interface StepOptions {
   onProgress?: (fraction: number, stage: string) => void;
   /** 면 경계 모서리 선(Mesh3d.edges)을 만들지. 기본 true */
   edges?: boolean;
+  /** 와이어프레임·곡선 형상(GEOMETRIC_CURVE_SET 등)을 scene.lines로 그릴지. 기본 true */
+  curves?: boolean;
+  /** 표현 PMI(주석 선)를 scene.lines로 그리고 의미 PMI를 meta.pmi에 모을지. 기본 true */
+  pmi?: boolean;
+  /** 면 표(meta.faceTables·meta.meshFaceTable)를 만들지. 기본 true */
+  faceTable?: boolean;
 }
 
 /** 화면 패널용 제품 나무 마디 */
@@ -40,7 +57,40 @@ export interface StepProductNode {
   instance?: string;
   /** 이 자리에 바로 놓인 그물 id */
   meshIds: string[];
+  /** 이 자리에 바로 놓인 선(와이어프레임·곡선 형상) 묶음 id — 있을 때만 */
+  lineIds?: string[];
   children: StepProductNode[];
+}
+
+/** 레이어(PRESENTATION_LAYER_ASSIGNMENT, 이름이 같으면 합친다) */
+export interface StepLayer {
+  name: string;
+  description: string;
+  /** 파일이 레이어를 숨겼으면(INVISIBILITY) false — 그물은 그대로 만들고 화면이 처음에 숨긴다 */
+  visible: boolean;
+  meshIds: string[];
+  /** 선 묶음(곡선·PMI) id */
+  lineIds: string[];
+}
+
+/** 표현 PMI 주석 하나(scene.lines의 선 묶음 하나) */
+export interface StepPmiPresentation {
+  /** LineSet3d id */
+  id: string;
+  name: string;
+  /** STEP 개체 이름(ANNOTATION_CURVE_OCCURRENCE·TESSELLATED_ANNOTATION_OCCURRENCE 등) */
+  type: string;
+  /** 담긴 주석 평면(ANNOTATION_PLANE) 이름 */
+  plane?: string;
+  /** 담긴 제도 모형(DRAUGHTING_MODEL) 이름 */
+  model?: string;
+  /** STEP 인스턴스 번호 */
+  stepId: number;
+}
+
+export interface StepPmi {
+  presentations: StepPmiPresentation[];
+  semantic: StepPmiSemantic[];
 }
 
 /** meta에 넣는 요약 */
@@ -65,6 +115,16 @@ export interface StepMeta {
   };
   /** 길이 단위 이름(원래 파일) */
   lengthUnit: string;
+  /** 레이어(있을 때만) */
+  layers?: StepLayer[];
+  /** PMI(있을 때만) */
+  pmi?: StepPmi;
+  /** 면 표 종류 이름(FACE_KINDS, 면 표가 있을 때만) */
+  faceKinds?: readonly string[];
+  /** 면 표들(같은 형상을 여러 자리에 놓으면 표 하나를 함께 쓴다) */
+  faceTables?: StepFaceTable[];
+  /** scene.meshes와 같은 순서로 그물마다 면 표 번호(-1 = 없음) */
+  meshFaceTable?: Int32Array;
 }
 
 interface RepInfo {
@@ -92,7 +152,39 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     relTol: opts.tolerance ?? 0.001,
     absTol: opts.chordTolerance,
     angle: ((opts.angleTolerance ?? 20) * Math.PI) / 180,
+    faceTable: opts.faceTable !== false,
   });
+  const wantCurves = opts.curves !== false;
+  const wantPmi = opts.pmi !== false;
+  const wantFaces = opts.faceTable !== false;
+  const wire = new WireSampler(f, geom, mesher, {
+    relTol: opts.tolerance ?? 0.001,
+    absTol: opts.chordTolerance,
+    angle: ((opts.angleTolerance ?? 20) * Math.PI) / 180,
+  });
+  // ── 레이어 ──
+  const layerIdx = readLayers(f);
+  const layerOf = layerIdx.layerOf;
+  const hasLayers = layerIdx.layers.length > 0;
+  const layerMeshes: string[][] = layerIdx.layers.map(() => []);
+  const layerLines: string[][] = layerIdx.layers.map(() => []);
+  /** 지금 따라가는 표현·사상 항목에서 물려받은 레이어(-1 = 없음) */
+  let curLayer = -1;
+  /** 형상 항목의 레이어: 항목 → 껍질·첫 면(몇 단계) → 물려받은 것 */
+  const itemLayer = (item: number): number => {
+    if (!hasLayers) return -1;
+    const direct = layerOf.get(item);
+    if (direct !== undefined) return direct;
+    let cur = f.get(item);
+    for (let hop = 0; hop < 2 && cur && !cur.parts; hop++) {
+      const next = refId(cur.args[1]) || refList(cur.args[1])[0] || 0;
+      if (!next) break;
+      const l = layerOf.get(next);
+      if (l !== undefined) return l;
+      cur = f.get(next);
+    }
+    return curLayer;
+  };
 
   // ── 표현 ──
   const repCache = new Map<number, RepInfo | null>();
@@ -338,11 +430,16 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       const pos = m.positions.map((x) => x * k);
       const edges = m.edges.map((x) => x * k);
       sm = { ...m, positions: pos, edges, bbox: m.bbox ? [scaleV(m.bbox[0], k), scaleV(m.bbox[1], k)] : null };
+      if (m.faceTable) sm.faceTable = scaleFaceTable(m.faceTable, k);
+      if (m.origin) sm.origin = scaleV(m.origin, k);
       scaledMeshes.set(key, sm);
     }
     return sm;
   };
   let meshSeq = 0;
+  const faceTables: FaceTableData[] = [];
+  const faceTableOf = new Map<FaceTableData, number>();
+  const meshFaceTable: number[] = [];
   const instance = (item: number, r: RepInfo, matrix: M4, node: StepProductNode, inheritedColor: Rgba | undefined) => {
     if (styles.hidden.has(item)) return;
     const m = getMesh(item, r.units);
@@ -362,8 +459,89 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     if (m.colors) mesh.colors = m.colors;
     if (opts.edges !== false && m.edges.length) mesh.edges = m.edges;
     if (!isIdentity(matrix)) mesh.matrix = matrix;
+    // 닫힌 입체(틈 없이 맞물린 삼각형) — 단면에서 잘린 면을 채운다
+    if (m.solid) mesh.closed = true;
+    if (m.origin) mesh.origin = [m.origin[0], m.origin[1], m.origin[2]];
     meshes.push(mesh);
     node.meshIds.push(id);
+    if (hasLayers) {
+      const li = itemLayer(item);
+      if (li >= 0) layerMeshes[li]!.push(id);
+    }
+    let ti = -1;
+    if (wantFaces && m.faceTable) {
+      const t = m.faceTable;
+      ti = faceTableOf.get(t) ?? -1;
+      if (ti < 0) {
+        ti = faceTables.length;
+        faceTables.push(t);
+        faceTableOf.set(t, ti);
+      }
+    }
+    meshFaceTable.push(ti);
+  };
+
+  // ── 선 형상(와이어프레임·곡선) ──
+  const lines: LineSet3d[] = [];
+  const points: PointSet3d[] = [];
+  let lineSeq = 0;
+  const wireCache = new Map<string, WireGeom | null>();
+  const wireOf = (item: number, units: ContextUnits): WireGeom | null => {
+    const k = units.lengthMm / sceneMm;
+    const key = `${item}@${k}`;
+    let w = wireCache.get(key);
+    if (w === undefined) {
+      geom.angleFactor = units.angleRad;
+      const base = wire.sample(item);
+      w = base && k !== 1 ? { segs: base.segs.map((x) => x * k), points: base.points.map((x) => x * k) } : base;
+      geom.trim();
+      wireCache.set(key, w);
+    }
+    return w;
+  };
+  interface WireAgg {
+    segs: number[];
+    pts: number[];
+    color: Rgba | undefined;
+    layer: number;
+  }
+  /** 표현 하나를 따라가는 동안 모은 선(색·레이어별) → 선 묶음으로 */
+  const flushWire = (aggs: Map<string, WireAgg>, name: string, node: StepProductNode) => {
+    for (const a of aggs.values()) {
+      if (a.segs.length) {
+        const id = `step-line-${++lineSeq}`;
+        const o = originOf(a.segs);
+        const ls: LineSet3d = { id, name, positions: relativeFloat32(a.segs, o), group: node.name };
+        if (o) ls.origin = o;
+        if (a.color) ls.color = a.color;
+        lines.push(ls);
+        (node.lineIds ??= []).push(id);
+        if (a.layer >= 0) layerLines[a.layer]!.push(id);
+      }
+      if (a.pts.length) {
+        const id = `step-point-${++lineSeq}`;
+        const o = originOf(a.pts);
+        const ps: PointSet3d = { id, name, positions: relativeFloat32(a.pts, o), group: node.name };
+        if (o) ps.origin = o;
+        if (a.color) ps.color = a.color;
+        points.push(ps);
+        (node.lineIds ??= []).push(id);
+        if (a.layer >= 0) layerLines[a.layer]!.push(id);
+      }
+    }
+  };
+  const addWire = (aggs: Map<string, WireAgg>, item: number, r: RepInfo, matrix: M4) => {
+    if (styles.hidden.has(item)) return;
+    const w = wireOf(item, r.units);
+    if (!w) return;
+    pickUnits(r.units);
+    const color = styles.curveColors.get(item);
+    const layer = itemLayer(item);
+    const key = `${color ? color.join(',') : ''}|${layer}`;
+    let a = aggs.get(key);
+    if (!a) aggs.set(key, (a = { segs: [], pts: [], color, layer }));
+    appendWorld(a.segs, w.segs, matrix);
+    appendWorld(a.pts, w.points, matrix);
   };
 
   const visitedReps = new Set<number>();
@@ -373,6 +551,10 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     const r = rep(repId);
     if (!r || depth > 32) return;
     visitedReps.add(repId);
+    const prevLayer = curLayer;
+    const rl = hasLayers ? layerOf.get(repId) : undefined;
+    if (rl !== undefined) curLayer = rl;
+    let wires: Map<string, WireAgg> | null = null;
     const hasBrep = r.items.some((it) => {
       const t = f.typeOf(it);
       return isMeshableType(t) && !isTessellatedType(t);
@@ -397,14 +579,22 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         const owner = repOwner.get(mappedRep);
         const use = owner !== undefined ? children.get(pd)?.find((u) => u.child === owner && !consumedNauo.has(u.nauo)) : undefined;
         const col = styles.colors.get(it) ?? color;
+        const saveLayer = curLayer;
+        const ml = hasLayers ? layerOf.get(it) : undefined;
+        if (ml !== undefined) curLayer = ml;
         if (use && owner !== undefined) {
           consumedNauo.add(use.nauo);
           const child = makeNode(owner, use.name);
           node.children.push(child);
           visitPd(owner, mul(matrix, T), child, depth + 1, col);
         } else visitRep(mappedRep, mul(matrix, T), node, pd, depth + 1, col);
+        curLayer = saveLayer;
+      } else if (wantCurves && isWireItemType(f, it)) {
+        addWire((wires ??= new Map()), it, r, matrix);
       }
     }
+    if (wires) flushWire(wires, text(f.get(repId)?.args[0]) || node.name, node);
+    curLayer = prevLayer;
   };
   const makeNode = (pd: number, instanceName?: string): StepProductNode => {
     const pn = productName(pd);
@@ -414,9 +604,12 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     return n;
   };
   const path = new Set<number>();
+  /** 제품 정의의 첫 자리 세계 변환(PMI를 그 부품 자리에 놓는다) */
+  const pdWorld = new Map<number, M4>();
   const visitPd = (pd: number, matrix: M4, node: StepProductNode, depth: number, color: Rgba | undefined) => {
     if (path.has(pd) || depth > 32) return;
     path.add(pd);
+    if (!pdWorld.has(pd)) pdWorld.set(pd, matrix);
     for (const r of repsOfPd(pd)) visitRep(r, matrix, node, pd, depth, color);
     for (const use of children.get(pd) ?? []) {
       if (consumedNauo.has(use.nauo)) continue;
@@ -468,16 +661,19 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       if (e) mappedReps.add(refId(e.args[1]));
     }
     const orphan: StepProductNode = { name: opts.name ?? 'STEP', productId: '', meshIds: [], children: [] };
+    // 제품 구조에서 선 형상을 하나도 못 찾았으면 구조 밖 선 형상도 찾는다
+    const orphanWires = wantCurves && lines.length === 0 && points.length === 0;
     for (let q = 0; q < f.count; q++) {
       const id = f.allIds()[q]!;
       if (visitedReps.has(id) || mappedReps.has(id)) continue;
       const t = f.typeOf(id);
       if (!t.endsWith('REPRESENTATION') && t !== 'COMPLEX') continue;
+      if (t === 'DRAUGHTING_MODEL' || t === 'MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION') continue;
       const r = rep(id);
-      if (!r || !r.items.some((it) => isMeshableType(f.typeOf(it)) || f.typeOf(it) === 'MAPPED_ITEM')) continue;
+      if (!r || !r.items.some((it) => isMeshableType(f.typeOf(it)) || f.typeOf(it) === 'MAPPED_ITEM' || (orphanWires && isWireItemType(f, it)))) continue;
       visitRep(id, identity(), orphan, 0, 0, undefined);
     }
-    if (orphan.meshIds.length) products.push(orphan);
+    if (orphan.meshIds.length || orphan.lineIds?.length) products.push(orphan);
   }
   // 표현 밖에 홀로 있는 입체(표현이 없는 파일)
   if (!meshes.length) {
@@ -491,6 +687,114 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       }
     }
     if (lone.meshIds.length) products.push(lone);
+  }
+  // ── PMI ──
+  let pmiMeta: StepPmi | undefined;
+  let pmiText = 0;
+  if (wantPmi) {
+    const anns = findAnnotations(f, (id) => rep(id)?.items ?? null);
+    const semantic = semanticPmi(f);
+    if (anns.length || semantic.length) {
+      pmiMeta = { presentations: [], semantic };
+      // 제도 모형 → 놓을 자리(그 모형이 딸린 제품의 첫 자리)와 단위
+      let links: Map<number, number[]> | null = null;
+      const allLinks = (): Map<number, number[]> => {
+        if (links) return links;
+        links = new Map();
+        for (const t of ['REPRESENTATION_RELATIONSHIP', 'SHAPE_REPRESENTATION_RELATIONSHIP']) {
+          for (const id of f.idsOfType(t)) {
+            const e = f.get(id);
+            if (!e || (e.parts && partOf(e, 'REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION'))) continue;
+            const args = e.parts ? (partOf(e, 'REPRESENTATION_RELATIONSHIP')?.args ?? []) : e.args;
+            const a = refId(args[2]);
+            const b = refId(args[3]);
+            if (!a || !b) continue;
+            for (const [x, y] of [
+              [a, b],
+              [b, a],
+            ] as const) {
+              let l = links.get(x);
+              if (!l) links.set(x, (l = []));
+              l.push(y);
+            }
+          }
+        }
+        return links;
+      };
+      const ownerOfRep = (start: number): number => {
+        const direct = repOwner.get(start);
+        if (direct !== undefined) return direct;
+        const L = allLinks();
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length && seen.size < 64) {
+          const x = queue.shift()!;
+          for (const y of L.get(x) ?? []) {
+            if (seen.has(y)) continue;
+            const o = repOwner.get(y);
+            if (o !== undefined) return o;
+            seen.add(y);
+            queue.push(y);
+          }
+        }
+        return 0;
+      };
+      let dmia: Map<number, number> | null = null;
+      const placeOf = new Map<number, { m: M4; k: number; angle: number; name: string }>();
+      const place = (model: number) => {
+        let p = placeOf.get(model);
+        if (p) return p;
+        const r = model ? rep(model) : null;
+        const u = r?.units.known ? r.units : null;
+        let pd = model ? ownerOfRep(model) : 0;
+        if (!pd && model) {
+          if (!dmia) {
+            dmia = new Map();
+            for (const id of f.idsOfType('DRAUGHTING_MODEL_ITEM_ASSOCIATION')) {
+              const e = f.get(id);
+              if (!e) continue;
+              const dm = refId(e.args[3]);
+              if (dm && !dmia.has(dm)) {
+                const owner = productDefinitionOf(f, refId(e.args[2]));
+                if (owner) dmia.set(dm, owner);
+              }
+            }
+          }
+          pd = dmia.get(model) ?? 0;
+        }
+        p = { m: (pd && pdWorld.get(pd)) || identity(), k: u ? u.lengthMm / sceneMm : 1, angle: u ? u.angleRad : 1, name: model ? text(f.get(model)?.args[0]) || text(partOf(f.get(model)!, 'REPRESENTATION')?.args[0]) : '' };
+        placeOf.set(model, p);
+        return p;
+      };
+      let pmiSeq = 0;
+      for (const a of anns) {
+        if (styles.hidden.has(a.id)) continue;
+        const pl = place(a.model);
+        geom.angleFactor = pl.angle;
+        const w = a.item ? wire.sample(a.item) : null;
+        if (!w || !w.segs.length) {
+          if (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL'))) pmiText++;
+          continue;
+        }
+        const segs: number[] = [];
+        appendWorld(segs, pl.k === 1 ? w.segs : w.segs.map((x) => x * pl.k), pl.m);
+        const id = `step-pmi-${++pmiSeq}`;
+        const o = originOf(segs);
+        const ls: LineSet3d = { id, name: a.name || 'PMI', positions: relativeFloat32(segs, o) };
+        if (o) ls.origin = o;
+        const col = styles.curveColorOf(a.styles);
+        if (col) ls.color = col;
+        lines.push(ls);
+        if (hasLayers) {
+          const li = layerOf.get(a.id) ?? layerOf.get(a.item);
+          if (li !== undefined) layerLines[li]!.push(id);
+        }
+        const pres: StepPmiPresentation = { id, name: a.name, type: a.type, stepId: a.id };
+        if (a.plane) pres.plane = a.plane;
+        if (pl.name) pres.model = pl.name;
+        pmiMeta.presentations.push(pres);
+      }
+    }
   }
   const tMesh = now();
 
@@ -506,7 +810,11 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       .join(', ');
     warnings.push(`삼각화하지 못한 면 ${failedFaces}개 / ${faces}개 (${why})`);
   }
-  if (!meshes.length) warnings.push('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)');
+  if (wire.unbounded) warnings.push(`끝이 없는 곡선(LINE 등) ${wire.unbounded}개는 그리지 않았다`);
+  const skippedSurf = wire.skipped.get('곡면') ?? 0;
+  if (skippedSurf) warnings.push(`선 형상 묶음 안의 곡면 ${skippedSurf}개는 그리지 않았다(경계가 없는 곡면)`);
+  if (pmiText) warnings.push(`PMI 글자(글꼴로 쓰는 ANNOTATION_TEXT 등) ${pmiText}개는 그리지 않았다`);
+  if (!meshes.length && !lines.length && !points.length) warnings.push('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)');
 
   // 경계 상자
   let bounds: Box3 | undefined;
@@ -515,8 +823,9 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   for (const m of meshes) {
     const bb = boxOfPositions(m.positions);
     if (!bb) continue;
+    const o = m.origin ?? [0, 0, 0];
     const corners: V3[] = [];
-    for (let c = 0; c < 8; c++) corners.push([c & 1 ? bb[1][0] : bb[0][0], c & 2 ? bb[1][1] : bb[0][1], c & 4 ? bb[1][2] : bb[0][2]]);
+    for (let c = 0; c < 8; c++) corners.push([(c & 1 ? bb[1][0] : bb[0][0]) + o[0], (c & 2 ? bb[1][1] : bb[0][1]) + o[1], (c & 4 ? bb[1][2] : bb[0][2]) + o[2]]);
     for (const c of corners) {
       const p = m.matrix ? transformPoint(m.matrix, c) : c;
       for (let k = 0; k < 3; k++) {
@@ -524,6 +833,17 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         hi[k] = Math.max(hi[k]!, p[k]!);
       }
     }
+  }
+  // 선·점(이미 세계 좌표)
+  for (const set of [...lines, ...points]) {
+    const p = set.positions;
+    const o = set.origin ?? [0, 0, 0];
+    for (let i = 0; i + 2 < p.length; i += 3)
+      for (let k = 0; k < 3; k++) {
+        const v = p[i + k]! + o[k]!;
+        if (v < lo[k]!) lo[k] = v;
+        if (v > hi[k]!) hi[k] = v;
+      }
   }
   if (Number.isFinite(lo[0])) bounds = { min: lo, max: hi };
 
@@ -550,15 +870,29 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     },
     lengthUnit: lengthUnit || (sceneUnits === 'unknown' ? '' : sceneUnits),
   };
+  if (hasLayers) {
+    const layers: StepLayer[] = [];
+    layerIdx.layers.forEach((l, i) => {
+      if (layerMeshes[i]!.length || layerLines[i]!.length) layers.push({ name: l.name, description: l.description, visible: l.visible, meshIds: layerMeshes[i]!, lineIds: layerLines[i]! });
+    });
+    if (layers.length) meta.layers = layers;
+  }
+  if (pmiMeta && (pmiMeta.presentations.length || pmiMeta.semantic.length)) meta.pmi = pmiMeta;
+  if (wantFaces && faceTables.length) {
+    meta.faceKinds = FACE_KINDS;
+    meta.faceTables = faceTables;
+    meta.meshFaceTable = Int32Array.from(meshFaceTable);
+  }
   progress(1, '완료');
   const scene: Scene3d = {
     name: opts.name ?? (baseName(f.header.name) || 'STEP'),
     units: sceneUnits,
     meshes,
-    lines: [],
+    lines,
     warnings,
     meta: meta as unknown as Record<string, unknown>,
   };
+  if (points.length) scene.points = points;
   if (bounds) scene.bounds = bounds;
   return scene;
 }
@@ -566,6 +900,47 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
 function baseName(path: string): string {
   const b = path.split(/[\\/]/).pop() ?? '';
   return b.replace(/\.(stp|step|p21)$/i, '');
+}
+
+/** 선·점 묶음(세계 좌표 xyz…)이 큰 좌표면 묶음 원점(상자 가운데), 아니면 undefined — 기준은 brep.ts needsOrigin */
+function originOf(src: readonly number[]): [number, number, number] | undefined {
+  if (src.length < 3) return undefined;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < src.length; i += 3)
+    for (let k = 0; k < 3; k++) {
+      const v = src[i + k]!;
+      if (v < lo[k]!) lo[k] = v;
+      if (v > hi[k]!) hi[k] = v;
+    }
+  return needsOrigin(lo, hi) ? [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2] : undefined;
+}
+
+/** 형상 항목 좌표 xyz… → 세계 좌표로 out 뒤에 붙인다 */
+function appendWorld(out: number[], src: readonly number[], m: M4): void {
+  if (isIdentity(m)) {
+    for (const v of src) out.push(v);
+    return;
+  }
+  for (let i = 0; i + 2 < src.length; i += 3) {
+    const x = src[i]!;
+    const y = src[i + 1]!;
+    const z = src[i + 2]!;
+    out.push(m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!);
+  }
+}
+
+/** 단위를 바꾼 그물의 면 표(길이 매개변수만 배율, 원뿔 반각은 그대로) */
+function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
+  const params = new Float32Array(t.params);
+  const cone = FACE_KINDS.indexOf('cone');
+  for (let i = 0; i < t.kinds.length; i++) {
+    const o = i * FACE_PARAMS;
+    params[o] = params[o]! * k;
+    if (t.kinds[i] !== cone) params[o + 1] = params[o + 1]! * k;
+    for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
+  }
+  return { ...t, params };
 }
 
 function hasGeometricLink(f: StepFile, id: number): boolean {

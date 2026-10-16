@@ -6,21 +6,29 @@
  * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계).
  * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 받아
  *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
+ * - 면 고르기: 도구 막대의 "면 고르기"를 켜거나 Alt(⌥)를 누른 채 누르면(onPick의 e.altKey), 부품 고르기와 함께 누른 B-rep 면을 찾아
+ *   면 자체(highlightRanges — 면 표의 삼각형 범위)와 경계 모서리(setHighlightSegments)를 강조하고 종류·넓이·법선 등을 패널 아래 띠에 보인다.
+ *   3D에서 두 번 누르면(e.clicks) 나무처럼 그 부품으로 맞춰 본다.
+ * - 단면: 도구 막대·단면 막대에서 바꾸고, 막대 표시는 코어 onSectionChange 알림으로만 맞춘다(새 문서에서 꺼짐 등).
+ * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
  */
-import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
+import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
+import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { h, icon, iconButton } from './dom';
-import { createDoc, docStatus, productAt, selectionMeshIds, subtreeMeshIds, unitLabel, type StepDoc } from './doc';
-import { baseName, isStepName, parseStartQuery, STEP_ACCEPT, stemName } from './files';
-import { fmtNum, fmtPercent, stageLabel } from './format';
+import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
+import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
+import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
+import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
 import { closeMenu } from './menu';
-import { Panel } from './panel';
+import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
+import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { Toolbar } from './toolbar';
-import { nodeLabel, selectFromPick } from './tree';
+import { filterRows, nodeLabel, selectFromPick } from './tree';
 
 const NARROW = '(max-width: 759.98px)';
 const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
@@ -30,6 +38,8 @@ const APP_TITLE = document.title;
 /** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
 const WIDE_CUBE = 112;
 const NARROW_CUBE = 76;
+/** 고른 면 경계 색(청록) */
+const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
 
 interface Loading {
   name: string;
@@ -58,6 +68,18 @@ export interface AppState {
   warnings: number;
   selKey: string | null;
   picked: string | null;
+  /** 면 고르기 모드 */
+  faceMode: boolean;
+  /** 고른 면(종류·STEP 번호·넓이) */
+  face: { kind: string; stepId: number; area: number; boundarySegments: number } | null;
+  /** 선 묶음(곡선·PMI)·레이어·표현 PMI 수 */
+  lines: number;
+  layers: number;
+  pmi: number;
+  /** 압축을 풀어 열었으면 그 형식들 */
+  containers: string[];
+  /** 단면(꺼져 있으면 null) */
+  section: { axis: string | null; t: number; position: number; flip: boolean } | null;
 }
 
 export class StepApp {
@@ -95,6 +117,15 @@ export class StepApp {
   private readonly statusSel: HTMLElement;
   private readonly themeBtn: HTMLButtonElement;
   private readonly fileInput: HTMLInputElement;
+  private readonly resizer: PanelResizer;
+  /** 면 고르기 모드(도구 막대) */
+  faceMode = false;
+  // ── 단면 막대 ──
+  private readonly sectionBar: HTMLElement;
+  private readonly sectionSlider: HTMLInputElement;
+  private readonly sectionValue: HTMLElement;
+  private readonly sectionAxisBtns: Map<SectionAxis, HTMLButtonElement> = new Map();
+  private readonly sectionFlipBtn: HTMLButtonElement;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -106,7 +137,7 @@ export class StepApp {
     this.applyTheme();
 
     // ── 제목 막대 ──
-    this.fileInput = h('input', { type: 'file', accept: STEP_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+    this.fileInput = h('input', { type: 'file', accept: OPEN_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
     this.fileInput.addEventListener('change', () => {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
@@ -159,14 +190,35 @@ export class StepApp {
     );
     this.dropEl = h('div', { class: 'drop-hint', hidden: true, 'aria-hidden': 'true' }, h('div', {}, icon('upload', 40), h('p', {}, '놓으면 STEP 파일을 엽니다')));
     this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.startEl, this.busyEl, this.dropEl, this.toasts);
+    // ── 단면 막대(단면을 켜면 3D 보기 왼쪽 위에): 축 · 위치 슬라이더 · 값 · 뒤집기 · 끄기 ──
+    const axes = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': '단면 축' });
+    for (const a of ['x', 'y', 'z'] as const) {
+      const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', title: `${a.toUpperCase()}축에 수직인 평면` }, a.toUpperCase());
+      b.addEventListener('click', () => this.setSectionAxis(a));
+      this.sectionAxisBtns.set(a, b);
+      axes.append(b);
+    }
+    this.sectionSlider = h('input', { type: 'range', class: 'section-slider', min: '0', max: '1000', step: '1', 'aria-label': '단면 위치' });
+    this.sectionSlider.addEventListener('input', () => this.viewer?.setSectionPosition(Number(this.sectionSlider.value) / 1000));
+    this.sectionValue = h('span', { class: 'section-val', 'aria-live': 'off' });
+    this.sectionFlipBtn = h('button', { type: 'button', class: 'icon-btn', title: '잘라 내는 쪽 뒤집기', 'aria-label': '잘라 내는 쪽 뒤집기', 'aria-pressed': 'false' });
+    this.sectionFlipBtn.append(icon('flip', 16));
+    this.sectionFlipBtn.addEventListener('click', () => this.viewer?.flipSection());
+    const secClose = h('button', { type: 'button', class: 'icon-btn', title: '단면 끄기', 'aria-label': '단면 끄기' });
+    secClose.append(icon('close', 16));
+    secClose.addEventListener('click', () => this.setSectionAxis(null));
+    this.sectionBar = h('div', { class: 'section-bar', role: 'group', 'aria-label': '단면 보기', hidden: true }, icon('section', 16), axes, this.sectionSlider, this.sectionValue, this.sectionFlipBtn, secClose);
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
     this.statusSel = h('div', { class: 'status-sel' });
     const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSel);
 
-    root.replaceChildren(title, this.toolbar.el, h('main', { class: 'workspace' }, this.viewEl, this.panel.el), status, this.fileInput);
+    const workspace = h('main', { class: 'workspace' }, this.viewEl, this.panel.el);
+    this.resizer = new PanelResizer(root, this.panel.el, workspace, this.narrow, safeLocalStorage());
+    this.panel.el.prepend(this.resizer.el);
+    root.replaceChildren(title, this.toolbar.el, workspace, status, this.fileInput);
     root.classList.add('app');
 
     this.bindWindow();
@@ -204,7 +256,7 @@ export class StepApp {
         h(
           'ul',
           { class: 'start-facts' },
-          h('li', {}, icon('info', 16), h('span', {}, '지원 형식: STEP AP203 · AP214 · AP242 (B-rep·조립·색·단위) — 확장자 .stp .step .p21')),
+          h('li', {}, icon('info', 16), h('span', {}, '지원 형식: STEP AP203 · AP214 · AP242 (B-rep·조립·색·단위·레이어·와이어프레임·PMI) — .stp .step .p21, 압축 .stp.gz .stpZ .zip')),
           h('li', {}, icon('lock', 16), h('span', {}, '파일은 이 브라우저 밖으로 나가지 않습니다. 읽기와 그리기를 모두 이 컴퓨터에서 합니다.')),
           h('li', {}, icon('views', 16), h('span', {}, '끌기 회전 · 오른쪽 끌기 이동 · 휠 확대 · F 전체 보기 · 1~7 표준 뷰 · F7 격자')),
         ),
@@ -219,8 +271,15 @@ export class StepApp {
     this.fileInput.click();
   }
 
-  /** 파일 열기(확장자가 STEP이 아니면 앞부분을 보고 STEP 글인지 먼저 가린다) */
+  /**
+   * 파일 열기. 확장자가 STEP이 아니면 앞부분을 보고 가린다: STEP 글·gzip·ZIP(워커가 푼다)은 열고,
+   * STEP-XML(.stpx)과 그 밖의 것은 알기 쉬운 이유로 거절한다.
+   */
   async openFile(file: File): Promise<boolean> {
+    if (isStepXmlName(file.name)) {
+      this.showError(`${file.name}: ${STEP_XML_MESSAGE}`);
+      return false;
+    }
     if (!isStepName(file.name)) {
       let head: Uint8Array;
       try {
@@ -229,9 +288,14 @@ export class StepApp {
         this.showError(`${file.name}: 파일을 읽지 못했습니다. ${errorText(e)}`);
         return false;
       }
-      const sn = sniffStep(head);
-      if (!sn.ok) {
-        this.showError(`${file.name}: STEP 파일(.stp·.step·.p21)만 열 수 있습니다. ${sn.reason}`);
+      const kind = sniffContainer(head);
+      if (kind === 'xml') {
+        this.showError(`${file.name}: ${isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.'}`);
+        return false;
+      }
+      if (kind !== 'step' && kind !== 'gzip' && kind !== 'zip') {
+        const sn = sniffStep(head);
+        this.showError(`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다. ${sn.ok ? '' : sn.reason}`.trim());
         return false;
       }
     }
@@ -243,13 +307,38 @@ export class StepApp {
     return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer);
   }
 
-  /** 같은 출처 주소의 파일 열기(?open=) */
+  /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
   openUrl(url: string): Promise<boolean> {
     const name = baseName(url) || 'model.stp';
-    return this.load(name, async (signal) => {
+    return this.load(name, async (signal, progress) => {
       const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`주소에서 파일을 받지 못했습니다(HTTP ${res.status}).`);
-      return res.arrayBuffer();
+      const total = Number(res.headers.get('content-length')) || 0;
+      if (!res.body) return res.arrayBuffer();
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let got = 0;
+      let last = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        const now = performance.now();
+        if (now - last > 80) {
+          last = now;
+          // 전송 압축(content-encoding)이면 받은 양이 머리 크기를 넘을 수 있다 — 그때는 양만 보인다
+          if (total > 0 && got <= total) progress(got / total, `받기 ${formatBytes(got)} / ${formatBytes(total)}`);
+          else progress(0, `받기 ${formatBytes(got)}`);
+        }
+      }
+      const out = new Uint8Array(got);
+      let p = 0;
+      for (const c of chunks) {
+        out.set(c, p);
+        p += c.length;
+      }
+      return out.buffer;
     });
   }
 
@@ -264,7 +353,7 @@ export class StepApp {
     this.toast('열기를 취소했습니다.');
   }
 
-  private async load(name: string, read: (signal: AbortSignal) => Promise<ArrayBuffer>): Promise<boolean> {
+  private async load(name: string, read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>): Promise<boolean> {
     closeMenu();
     const seq = ++this.loadSeq;
     this.abort?.abort();
@@ -274,7 +363,9 @@ export class StepApp {
     const t0 = performance.now();
     this.setLoading({ name, fraction: 0, stage: '파일 읽는 중' });
     try {
-      const buf = await read(ac.signal);
+      const buf = await read(ac.signal, (fraction, stage) => {
+        if (seq === this.loadSeq) this.setLoading({ name, fraction, stage: stage.startsWith('받기 ') ? `파일 받는 중 (${stage.slice(3)})` : stageLabel(stage) });
+      });
       if (seq !== this.loadSeq) return false;
       const size = buf.byteLength;
       const res = await this.client.parse(name, buf, (f, stage) => {
@@ -313,8 +404,13 @@ export class StepApp {
     const v = this.ensureViewer();
     v.setScene(doc.scene);
     v.highlight(null);
+    this.showFace(null);
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
+    // 파일이 숨긴 레이어 등 처음 보이기
+    this.applyVisibility();
+    // 새 장면은 단면이 꺼진 채로 온다(코어 setScene → onSectionChange가 막대를 맞춘다). 문서가 바뀐 것만 다시 그린다
+    this.syncSection(v.section);
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
@@ -325,8 +421,14 @@ export class StepApp {
   private ensureViewer(): Viewer3d {
     if (this.viewer) return this.viewer;
     const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
-    v.onPick((p) => this.onPick(p));
+    v.onPick((p, e) => {
+      this.onPick(p, this.faceMode || e.altKey);
+      // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
+      if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
+    });
     v.onMeasure((m) => this.onMeasure(m));
+    // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
+    v.onSectionChange((st) => this.syncSection(st));
     this.viewer = v;
     return v;
   }
@@ -338,23 +440,125 @@ export class StepApp {
 
   // ───────────────────────── 고르기 ─────────────────────────
 
-  private onPick(p: Pick3d | null): void {
+  private onPick(p: Pick3d | null, wantFace = this.faceMode): void {
     const d = this.doc;
     if (!d) return;
     if (this.viewer?.measureMode) return;
     d.pick = p;
-    if (!p || p.kind !== 'mesh') {
-      d.pick = p && p.kind !== 'mesh' ? p : null;
+    d.items = null;
+    d.face = null;
+    if (!p) {
       d.selKey = null;
       this.viewer?.highlight(null);
     } else {
       this.viewer?.highlight([p.id]);
-      const s = selectFromPick(d.products, d.expanded, p.id);
+      const isPmi = d.vis.pmiIds.has(p.id);
+      const s = isPmi ? null : selectFromPick(d.products, d.expanded, p.id);
       d.selKey = s?.key ?? null;
       if (s) d.expanded = s.expanded;
-      if (s && d.panelTab !== 'tree' && this.panel.open) this.panel.setTab('tree');
+      // 이름 거르기 중이면 고른 마디가 보이지 않을 때 거르기를 푼다
+      if (s && d.treeFilter.trim() && !filterRows(d.products, d.treeFilter, d.expanded, Infinity).rows.some((r) => r.key === s.key)) d.treeFilter = '';
+      if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && this.panel.open) this.panel.setTab('tree');
+      // 잘린 면(단면 채움)을 누르면 면 고르기 대신 부품만(아래 띠에 "단면" 표시)
+      if (p.kind === 'mesh' && wantFace && !p.section) d.face = this.findFace(d, p);
+      // 면을 골랐으면 부품 통째 강조 대신 그 면만(나무에서는 부품이 골라져 있다)
+      if (d.face) this.viewer?.highlight(null);
     }
+    this.showFace(d.face);
     this.selectionChanged(true);
+  }
+
+  /** 고른 면 강조: 면 삼각형 범위(highlightRanges) + 경계 모서리(부품 강조색과 다른 색). null이면 둘 다 푼다 */
+  private showFace(face: FacePick | null): void {
+    const v = this.viewer;
+    if (!v) return;
+    if (!face) {
+      v.highlightRanges(null);
+      v.setHighlightSegments(null);
+      return;
+    }
+    v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
+    v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
+  }
+
+  /** 누른 삼각형의 B-rep 면(면 표가 없거나 못 찾으면 null) */
+  private findFace(d: StepDoc, p: Pick3d) {
+    const fx = d.faces;
+    const ti = fx?.tableOf.get(p.id);
+    if (!fx || ti === undefined) return null;
+    const mesh = d.scene.meshes.find((m) => m.id === p.id);
+    const table = fx.tables[ti];
+    if (!mesh || !table) return null;
+    const tri = p.raw ?? p.index;
+    const f = faceAt(table, tri);
+    return f < 0 ? null : faceDetails(mesh, table, f, fx.kinds);
+  }
+
+  // ───────────────────────── 단면 ─────────────────────────
+
+  /** 지금 단면 축(꺼져 있거나 축 단면이 아니면 null) */
+  get sectionAxis(): SectionAxis | null {
+    return this.viewer?.section?.axis ?? null;
+  }
+
+  /** 단면 축 고르기(null = 끄기). 같은 축을 다시 고르면 위치·방향을 지키고, 처음이면 가운데(0.5) */
+  setSectionAxis(axis: SectionAxis | null): void {
+    const v = this.viewer;
+    if (!v || !this.doc) return;
+    if (!axis) v.setSection(null);
+    else {
+      const cur = v.section;
+      v.setSectionAxis(axis, cur?.axis === axis ? cur.t : 0.5);
+    }
+  }
+
+  /** 단면 위치(장면 범위 안 0~1) */
+  setSectionPosition(t: number): void {
+    this.viewer?.setSectionPosition(Math.max(0, Math.min(1, t)));
+  }
+
+  /** 단면 막대·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서) */
+  private syncSection(st: SectionState | null): void {
+    this.sectionBar.hidden = !st || !this.doc;
+    if (st) {
+      for (const [a, b] of this.sectionAxisBtns) {
+        const on = st.axis === a;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+      }
+      // 끄는 중인 슬라이더 값은 건드리지 않는다(되돌아가며 떨리지 않게)
+      if (document.activeElement !== this.sectionSlider) this.sectionSlider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
+      const u = this.doc ? unitLabel(this.doc.scene.units) : '';
+      this.sectionValue.textContent = `${(st.axis ?? '').toUpperCase()} = ${fmtNum(st.position)}${u ? ` ${u}` : ''}`;
+      this.sectionFlipBtn.setAttribute('aria-pressed', String(st.flip));
+      this.sectionFlipBtn.classList.toggle('on', st.flip);
+      this.sectionFlipBtn.title = st.flip ? `−${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기` : `+${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기`;
+    }
+    this.toolbar.refresh();
+  }
+
+  /** 면 고르기 모드 켜고 끄기 */
+  toggleFaceMode(on = !this.faceMode): void {
+    this.faceMode = on;
+    if (on && this.measuring) this.toggleMeasure(false);
+    if (!on && this.doc?.face) {
+      const d = this.doc;
+      d.face = null;
+      this.showFace(null);
+      if (d.pick) this.viewer?.highlight([d.pick.id]);
+      this.selectionChanged();
+    }
+    this.toolbar.refresh();
+    if (on && this.doc && !this.doc.faces) this.toast('이 문서에는 면 정보가 없어 면을 고를 수 없습니다.', 'warn');
+  }
+
+  /** 자동 확인용: 캔버스 점(CSS 화소)에서 고르기 */
+  pickAt(x: number, y: number, face = false): Pick3d | null {
+    const v = this.viewer;
+    if (!v) return null;
+    const p = v.pick(x, y);
+    this.onPick(p, face || this.faceMode);
+    return p;
   }
 
   private onMeasure(m: MeasureResult | null): void {
@@ -372,8 +576,25 @@ export class StepApp {
     const node = key ? productAt(d.products, key) : null;
     d.selKey = node ? key : null;
     d.pick = null;
-    this.viewer?.highlight(node ? subtreeMeshIds(node) : null);
+    d.items = null;
+    d.face = null;
+    this.showFace(null);
+    this.viewer?.highlight(node ? subtreeItemIds(node) : null);
     this.selectionChanged();
+  }
+
+  /** 레이어·PMI 목록에서 항목 묶음 고르기(강조), fit이면 맞춰 보기 */
+  selectItems(ids: readonly string[] | null, label: string, fit = false): void {
+    const d = this.doc;
+    if (!d) return;
+    d.selKey = null;
+    d.pick = null;
+    d.face = null;
+    d.items = ids && ids.length ? { ids: [...ids], label } : null;
+    this.showFace(null);
+    this.viewer?.highlight(d.items ? d.items.ids : null);
+    this.selectionChanged();
+    if (fit && d.items) this.viewer?.fitItems(d.items.ids);
   }
 
   /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */
@@ -384,9 +605,9 @@ export class StepApp {
     this.fitSelection();
   }
 
-  /** 고른 것이 있는지(나무 마디 또는 3D에서 고른 그물) */
+  /** 고른 것이 있는지(나무 마디, 3D에서 고른 항목, 레이어·PMI에서 고른 묶음) */
   get hasSelection(): boolean {
-    return !!this.doc && selectionMeshIds(this.doc).length > 0;
+    return !!this.doc && selectionItemIds(this.doc).length > 0;
   }
 
   /** 고른 것으로 맞춰 보기(코어 fitItems: 숨긴 것은 빼고, 보이는 것이 없으면 전체 보기) */
@@ -394,7 +615,7 @@ export class StepApp {
     const d = this.doc;
     const v = this.viewer;
     if (!d || !v) return;
-    const ids = selectionMeshIds(d);
+    const ids = selectionItemIds(d);
     if (ids.length) v.fitItems(ids);
   }
 
@@ -406,15 +627,37 @@ export class StepApp {
 
   private clearSelection(): boolean {
     const d = this.doc;
-    if (!d || (!d.selKey && !d.pick)) return false;
+    if (!d || (!d.selKey && !d.pick && !d.items && !d.face)) return false;
     this.selectKey(null);
     return true;
   }
 
-  setItemsVisible(ids: readonly string[], on: boolean): void {
+  /** 모든 항목(그물·선·점)의 뷰어 보이기를 doc.vis에 맞춘다(ids를 주면 그것만) */
+  private applyVisibility(ids?: readonly string[]): void {
     const v = this.viewer;
-    if (!v) return;
-    for (const id of ids) v.setItemVisible(id, on);
+    const d = this.doc;
+    if (!v || !d) return;
+    const set = (id: string) => {
+      const on = d.vis.visible(id);
+      if (v.isVisible(id) !== on || !on) v.setItemVisible(id, on);
+    };
+    if (ids) for (const id of ids) set(id);
+    else {
+      for (const m of d.scene.meshes) set(m.id);
+      for (const l of d.scene.lines) set(l.id);
+      for (const p of d.scene.points ?? []) set(p.id);
+    }
+  }
+
+  setItemsVisible(ids: readonly string[], on: boolean): void {
+    const d = this.doc;
+    if (!d) return;
+    d.vis.setUser(ids, on);
+    this.applyVisibility(ids);
+    if (on) {
+      const blocked = ids.find((id) => d.vis.hiddenBy(id) === 'layer');
+      if (blocked) this.toast('레이어가 꺼져 있어 보이지 않는 형상이 있습니다 — 레이어 탭에서 켜십시오.', 'warn');
+    }
     this.panel.onVisibility();
   }
 
@@ -423,13 +666,43 @@ export class StepApp {
     this.panel.onVisibility();
   }
 
-  /** 숨긴 항목·묶음 모두 보이기 */
+  /** 레이어 켜고 끄기(NO_LAYER = 레이어 없음) */
+  setLayerVisible(layer: number, on: boolean): void {
+    const d = this.doc;
+    if (!d) return;
+    d.vis.setLayer(layer, on);
+    this.applyVisibility();
+    this.panel.onVisibility();
+  }
+
+  setAllLayersVisible(on: boolean): void {
+    const d = this.doc;
+    if (!d) return;
+    d.layers.forEach((_, i) => d.vis.setLayer(i, on));
+    d.vis.setLayer(-1, on);
+    this.applyVisibility();
+    this.panel.onVisibility();
+  }
+
+  /** 표현 PMI 하나(id) 또는 모두(null) 켜고 끄기 */
+  setPmiVisible(id: string | null, on: boolean): void {
+    const d = this.doc;
+    if (!d) return;
+    if (id === null) d.vis.pmiOff = !on;
+    else d.vis.setPmi(id, on);
+    this.applyVisibility(id === null ? [...d.vis.pmiIds] : [id]);
+    this.panel.onVisibility();
+  }
+
+  /** 숨긴 부품·묶음 모두 보이기(레이어·PMI 켜고 끄기는 그대로) */
   showAll(): void {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
     for (const g of v.groups()) if (!g.visible) v.setGroupVisible(g.name, true);
-    for (const m of d.scene.meshes) if (!v.isVisible(m.id)) v.setItemVisible(m.id, true);
+    const ids = [...d.vis.userHidden];
+    d.vis.userHidden.clear();
+    this.applyVisibility(ids);
     this.panel.onVisibility();
   }
 
@@ -519,9 +792,13 @@ export class StepApp {
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
       this.viewer?.highlight(null);
+      this.showFace(null);
+      if (this.faceMode) this.faceMode = false;
       if (this.doc) {
         this.doc.pick = null;
         this.doc.selKey = null;
+        this.doc.items = null;
+        this.doc.face = null;
       }
       this.panel.onSelection();
     }
@@ -606,8 +883,11 @@ export class StepApp {
       e.preventDefault();
       depth = 0;
       this.dropEl.hidden = true;
-      const f = e.dataTransfer?.files[0];
+      // 여러 개를 놓으면 이름으로 열 만한 첫 파일(없으면 첫 파일)
+      const files = [...(e.dataTransfer?.files ?? [])];
+      const f = files.find((x) => isOpenableName(x.name)) ?? files[0];
       if (f) void this.openFile(f);
+      if (files.length > 1) this.toast(`한 번에 파일 하나만 엽니다 — ${f?.name ?? ''}을(를) 엽니다.`);
     });
     // 시스템 테마가 바뀌면(사용자가 고르지 않았을 때만) 따라간다
     this.systemDark?.addEventListener('change', () => {
@@ -722,15 +1002,19 @@ export class StepApp {
     const u = unitLabel(d.scene.units);
     if (d.measure) return `거리 ${fmtNum(d.measure.distance)} ${u}`.trim();
     if (this.measuring) return '측정: 두 점을 누르십시오';
+    const face = d.face ? ` · 면 ${faceKindLabel(d.face.kind)}${d.face.radius !== undefined ? ` R${fmtNum(d.face.radius)}` : ''}` : '';
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
     if (node) {
       const n = nodeLabel(node);
-      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
+      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}${face}`;
     }
     if (d.pick) {
-      const m = d.scene.meshes.find((x) => x.id === d.pick!.id);
-      return `고른 것: ${m?.name ?? d.pick.id}`;
+      const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
+      if (pm) return `고른 PMI: ${pm.name || pmiTypeLabel(pm.type)}`;
+      const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
+      return `고른 것: ${m?.name ?? d.pick.id}${face}`;
     }
+    if (d.items) return `고른 것: ${d.items.label}`;
     return '';
   }
 
@@ -764,6 +1048,16 @@ export class StepApp {
       warnings: d?.scene.warnings?.length ?? 0,
       selKey: d?.selKey ?? null,
       picked: d?.pick?.id ?? null,
+      faceMode: this.faceMode,
+      face: d?.face ? { kind: d.face.kind, stepId: d.face.stepId, area: d.face.area, boundarySegments: d.face.boundary.length / 6 } : null,
+      lines: d?.scene.lines.length ?? 0,
+      layers: d?.layers.length ?? 0,
+      pmi: d?.pmi.presentations.length ?? 0,
+      containers: d?.source?.containers ?? [],
+      section: (() => {
+        const st = this.viewer?.section;
+        return st ? { axis: st.axis, t: st.t, position: st.position, flip: st.flip } : null;
+      })(),
     };
   }
 

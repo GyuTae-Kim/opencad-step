@@ -1,12 +1,19 @@
 /**
- * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·격자·뷰 큐브·좌표축·측정·PNG 저장·패널.
+ * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·단면·격자·뷰 큐브·좌표축·면 고르기·측정·PNG 저장·패널.
  * 넓은 화면은 아이콘 + 글, 좁은 화면은 아이콘만 보이고 넘치면 가로로 스크롤한다(styles.css).
  */
-import { VIEW_KEYS, VIEW_LABELS, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
+import { VIEW_KEYS, VIEW_LABELS, type Projection, type RenderMode, type SectionAxis, type ViewName } from 'opencad-viewer3d';
 import { h, iconButton } from './dom';
 import type { IconName } from './icons';
 import { VIEW_MENU, viewKeyOf } from './keys';
 import { openMenu } from './menu';
+
+export const SECTION_AXES: [SectionAxis | null, string][] = [
+  [null, '끔'],
+  ['x', 'X 단면(YZ 평면)'],
+  ['y', 'Y 단면(ZX 평면)'],
+  ['z', 'Z 단면(XY 평면)'],
+];
 
 export const RENDER_MODES: [RenderMode, string][] = [
   ['shaded', '음영'],
@@ -27,6 +34,10 @@ export interface ToolbarHost {
   readonly axesOn: boolean;
   readonly measuring: boolean;
   readonly panelOpen: boolean;
+  /** 면 고르기 모드 */
+  readonly faceMode: boolean;
+  /** 단면 축(꺼져 있으면 null) */
+  readonly sectionAxis: SectionAxis | null;
   fit(): void;
   /** 고른 부품으로 맞춰 보기 */
   fitSelection(): void;
@@ -37,6 +48,9 @@ export interface ToolbarHost {
   toggleCube(): void;
   toggleAxes(): void;
   toggleMeasure(): void;
+  toggleFaceMode(): void;
+  /** 단면 축 고르기(null = 끄기) */
+  setSectionAxis(axis: SectionAxis | null): void;
   savePng(): void;
   togglePanel(): void;
 }
@@ -88,12 +102,33 @@ export class Toolbar {
     mode.el.setAttribute('aria-haspopup', 'menu');
     mode.el.setAttribute('aria-expanded', 'false');
     mode.el.classList.add('has-menu');
+    const section = this.add(
+      'section',
+      '단면',
+      '단면 보기: 축(X·Y·Z)에 수직인 평면으로 잘라 봅니다 — 위치 끌기·뒤집기는 3D 보기 위 막대에서',
+      () =>
+        openMenu(
+          section.el,
+          SECTION_AXES.map(([a, label]) => ({ label, checked: H.sectionAxis === a, run: () => H.setSectionAxis(a) })),
+          '단면 보기',
+        ),
+      () => {
+        const a = H.sectionAxis;
+        setLabel(section.el, a ? `단면 ${a.toUpperCase()}` : '단면');
+        section.el.classList.toggle('on', !!a);
+        section.el.setAttribute('aria-pressed', String(!!a));
+      },
+    );
+    section.el.setAttribute('aria-haspopup', 'menu');
+    section.el.setAttribute('aria-expanded', 'false');
+    section.el.classList.add('has-menu');
     this.sep();
 
     this.toggle('grid', '격자', '바닥 격자 (F7)', () => H.gridOn, () => H.toggleGrid());
     this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube());
     this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes());
     this.sep();
+    this.toggle('face', '면 고르기', '누른 면(B-rep 면)을 골라 종류·넓이·법선을 보고 경계를 강조합니다 (Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
     this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
     this.add('image', 'PNG 저장', '지금 화면을 PNG 그림으로 저장', () => H.savePng());
     this.sep();

@@ -54,6 +54,8 @@ export function fmtPercent(f: number): string {
 }
 
 const STAGES: Record<string, string> = {
+  받기: '파일 받는 중',
+  '압축 풀기': '압축 푸는 중',
   읽기: '파일 읽는 중',
   구조: '제품 구조 읽는 중',
   삼각화: '곡면 삼각화 중',

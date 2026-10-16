@@ -17,6 +17,13 @@ declare global {
       cancel(): void;
       selectProduct(key: string | null): void;
       setTheme(t: Theme | null): void;
+      /** 캔버스 점(CSS 화소)에서 고르기(face면 면 고르기도) */
+      pickAt(x: number, y: number, face?: boolean): ReturnType<StepApp['pickAt']>;
+      setFaceMode(on: boolean): void;
+      setLayerVisible(layer: number, on: boolean): void;
+      setPmiVisible(id: string | null, on: boolean): void;
+      /** 단면 축(null = 끄기)과 위치(0~1, 선택) */
+      setSection(axis: 'x' | 'y' | 'z' | null, t?: number): void;
     };
   }
 }
@@ -37,6 +44,14 @@ if (root) {
     cancel: () => app.cancel(),
     selectProduct: (key) => app.selectKey(key),
     setTheme: (t) => app.setTheme(t),
+    pickAt: (x, y, face) => app.pickAt(x, y, face),
+    setFaceMode: (on) => app.toggleFaceMode(on),
+    setLayerVisible: (layer, on) => app.setLayerVisible(layer, on),
+    setPmiVisible: (id, on) => app.setPmiVisible(id, on),
+    setSection: (axis, t) => {
+      app.setSectionAxis(axis);
+      if (axis && t !== undefined) app.setSectionPosition(t);
+    },
   };
   void app.start();
 }
