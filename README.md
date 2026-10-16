@@ -77,7 +77,7 @@ npm run preview    # 빌드 결과 보기
 
 시험은 `tests/stepText.ts`(본문은 `src/app/stepText.ts`)로 만든 작은 STEP 글로 돌립니다(외부 STEP 파일은 넣지 않습니다).
 확인용으로 받은 공개 STEP 파일이나 임시 결과는 git이 무시하는 `.runtime/`에만 둡니다.
-3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.2.0`으로 받습니다.
+3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.3.0`으로 받습니다.
 
 ## 배포
 
