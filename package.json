@@ -2,7 +2,7 @@
   "name": "opencad-step",
   "version": "0.1.0",
   "private": true,
-  "description": "OpenCAD STEP 해석기: STEP(AP203·AP214·AP242) B-rep을 브라우저에서 삼각화해 3D 장면으로 만듦",
+  "description": "OpenCAD STEP 뷰어·해석기: STEP(AP203·AP214·AP242) B-rep을 브라우저에서 삼각화해 3D로 보기",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -13,6 +13,9 @@
     "src"
   ],
   "scripts": {
+    "dev": "vite --port 4402",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4402",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -24,6 +27,7 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
+    "vite": "^7.3.7",
     "vitest": "^3.2.7"
   }
 }
