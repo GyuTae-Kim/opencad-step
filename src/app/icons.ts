@@ -9,6 +9,7 @@ export const ICONS = {
   apps: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
   code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15"/>',
   fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><rect x="8.5" y="8.5" width="7" height="7" rx="1"/>',
+  focus: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M11 8v6M8 11h6"/>',
   views: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/><path d="M12 12 4 7.5" stroke-dasharray="1.5 2"/>',
   perspective: '<path d="M6 6h12l3 12H3Z"/><path d="M9.5 6 8 18M14.5 6 16 18"/>',
   ortho: '<rect x="4" y="6" width="16" height="12" rx="1"/><path d="M9.3 6v12M14.7 6v12"/>',

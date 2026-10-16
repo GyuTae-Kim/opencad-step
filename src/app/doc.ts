@@ -220,6 +220,16 @@ export function productAt(nodes: readonly ProductNode[], key: string): ProductNo
   return node;
 }
 
+/**
+ * 고른 것의 그물 id("고른 부품 보기"·두 번 누르기 확대에 쓴다):
+ * 나무 마디를 골랐으면 그 아래 모두, 아니면 3D에서 고른 그물 하나, 없으면 빈 배열.
+ */
+export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'>): string[] {
+  const node = d.selKey ? productAt(d.products, d.selKey) : null;
+  if (node) return subtreeMeshIds(node);
+  return d.pick?.kind === 'mesh' ? [d.pick.id] : [];
+}
+
 /** 형상이 바로 놓인 마디(부품 자리) 수 */
 export function partCount(nodes: readonly ProductNode[]): number {
   let n = 0;

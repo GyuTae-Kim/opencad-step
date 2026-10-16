@@ -13,6 +13,10 @@ export interface PanelHost {
   readonly measuring: boolean;
   /** 나무 마디 고르기(null = 풀기) */
   selectKey(key: string | null): void;
+  /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
+  fitKey(key: string): void;
+  /** 지금 고른 것으로 맞춰 보기 */
+  fitSelection(): void;
   setItemsVisible(ids: readonly string[], on: boolean): void;
   setGroupVisible(group: string, on: boolean): void;
   showAll(): void;
@@ -185,7 +189,7 @@ export class Panel {
           'aria-expanded': r.hasChildren ? String(r.open) : null,
           tabindex: '0',
           style: `--depth:${r.depth}`,
-          title: [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.meshIds.length}개`].filter(Boolean).join(' · '),
+          title: [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.meshIds.length}개`, '두 번 누르면 이 부품으로 맞춰 봅니다'].filter(Boolean).join(' · '),
           'data-key': r.key,
         },
         tog,
@@ -193,11 +197,22 @@ export class Panel {
         h('span', { class: 'tree-name' }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
         n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
       );
-      item.addEventListener('click', () => this.host.selectKey(sel ? null : r.key));
+      // 첫 누르기에 나무를 다시 그리므로 dblclick 대신 누른 횟수(detail)로 두 번 누르기를 가린다
+      item.addEventListener('click', (ev) => {
+        if (ev.detail === 2) this.host.fitKey(r.key);
+        else if (ev.detail <= 1) this.host.selectKey(sel ? null : r.key);
+      });
       item.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') {
+        if (ev.key === 'Enter') {
+          // Enter: 고르기, 이미 골랐으면 맞춰 보기
+          ev.preventDefault();
+          if (sel) this.host.fitKey(r.key);
+          else this.host.selectKey(r.key);
+          (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
+        } else if (ev.key === ' ') {
           ev.preventDefault();
           this.host.selectKey(sel ? null : r.key);
+          (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
         } else if ((ev.key === 'ArrowRight' && r.hasChildren && !r.open) || (ev.key === 'ArrowLeft' && r.open)) {
           ev.preventDefault();
           d.expanded = toggleKey(d.expanded, r.key);
@@ -305,17 +320,23 @@ export class Panel {
     const lines: HTMLElement[] = [];
     const u = unitLabel(d.scene.units);
     const p = d.pick;
+    const fitBtn = (): HTMLButtonElement => {
+      const b = h('button', { type: 'button', class: 'btn small foot-fit', title: '고른 부품으로 맞춰 보기' });
+      b.append(icon('focus', 14), h('span', {}, '고른 부품 보기'));
+      b.addEventListener('click', () => this.host.fitSelection());
+      return b;
+    };
     if (p) {
       const mesh = d.scene.meshes.find((m) => m.id === p.id);
       const node = d.selKey ? productAt(d.products, d.selKey) : null;
       const name = node ? nodeLabel(node) : { name: mesh?.name ?? p.id, instance: '' };
-      lines.push(h('div', {}, h('b', {}, '고른 것 '), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null));
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       lines.push(h('div', { class: 'dim' }, `점 ${fmtPt(p.point)} ${u}${p.normal ? ` · 법선 ${fmtPt(p.normal)}` : ''}`));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
       if (node) {
         const name = nodeLabel(node);
-        lines.push(h('div', {}, h('b', {}, '고른 제품 '), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null));
+        lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       }
     }
     if (d.measure) {

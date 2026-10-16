@@ -541,6 +541,19 @@ select {
   overflow-wrap: anywhere;
   user-select: text;
 }
+.foot-sel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.foot-sel > span {
+  min-width: 0;
+}
+.foot-fit {
+  flex: none;
+  gap: 4px;
+}
 .prop-group {
   padding: 6px 10px 2px;
 }

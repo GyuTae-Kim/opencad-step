@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName } from '../../src/app/files';
 import { fmtCount, fmtNum, fmtPercent, fmtPt, formatBytes, formatMs, stageLabel } from '../../src/app/format';
-import { isTextTarget, routeKey, VIEW_KEY_OF, VIEW_KEYS, VIEW_MENU } from '../../src/app/keys';
+import { VIEW_KEYS } from 'opencad-viewer3d';
+import { isTextTarget, routeKey, VIEW_MENU, viewKeyOf } from '../../src/app/keys';
 import { readStoredTheme, resolveTheme, THEME_KEY, writeStoredTheme } from '../../src/app/theme';
 
 describe('크기·시간·수 글', () => {
@@ -84,26 +85,30 @@ describe('파일 이름·주소 인자', () => {
 });
 
 describe('키 규칙', () => {
-  it('뷰 키 배치', () => {
-    expect(VIEW_KEYS['1']).toBe('front');
-    expect(VIEW_KEYS['7']).toBe('seIso');
-    expect(VIEW_KEY_OF.top).toBe('5');
+  it('표준 뷰 메뉴의 키 글은 코어 VIEW_KEYS에서', () => {
     expect(VIEW_MENU).toHaveLength(10);
+    for (const [k, v] of Object.entries(VIEW_KEYS)) expect(viewKeyOf(v)).toBe(k);
+    expect(viewKeyOf('top')).toBe('5');
+    expect(viewKeyOf('nwIso')).toBeUndefined();
+    expect(VIEW_MENU.filter((v) => viewKeyOf(v))).toHaveLength(Object.keys(VIEW_KEYS).length);
   });
 
-  it('routeKey', () => {
-    expect(routeKey({ key: 'f', hasDoc: true })).toBe('fit');
-    expect(routeKey({ key: 'F', hasDoc: true })).toBe('fit');
-    expect(routeKey({ key: '5', hasDoc: true })).toBe('view:top');
-    expect(routeKey({ key: '8', hasDoc: true })).toBeNull();
+  it('routeKey: 뷰어 키는 코어(handleKey)로, F7·Esc·Ctrl+O는 앱이', () => {
+    expect(routeKey({ key: 'f', hasDoc: true })).toBe('viewer');
+    expect(routeKey({ key: '5', hasDoc: true })).toBe('viewer');
+    expect(routeKey({ key: '8', hasDoc: true })).toBe('viewer'); // 처리 여부는 코어가 정한다
     expect(routeKey({ key: 'F7', hasDoc: true })).toBe('grid');
+    expect(routeKey({ key: 'Escape', hasDoc: true })).toBe('escape');
     expect(routeKey({ key: 'Escape', hasDoc: false })).toBe('escape');
     expect(routeKey({ key: 'f', hasDoc: false })).toBeNull();
+    expect(routeKey({ key: 'F7', hasDoc: false })).toBeNull();
     expect(routeKey({ key: 'f', hasDoc: true, inText: true })).toBeNull();
+    expect(routeKey({ key: 'Escape', hasDoc: true, inText: true })).toBeNull();
     expect(routeKey({ key: 'f', hasDoc: true, ctrl: true })).toBeNull();
     expect(routeKey({ key: '1', hasDoc: true, alt: true })).toBeNull();
     expect(routeKey({ key: 'o', ctrl: true })).toBe('open');
     expect(routeKey({ key: 'O', meta: true })).toBe('open');
+    expect(routeKey({ key: 'o', ctrl: true, alt: true })).toBeNull();
     expect(routeKey({ key: 'o', ctrl: true, inText: true })).toBeNull();
   });
 

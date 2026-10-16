@@ -9,6 +9,7 @@ import {
   productAt,
   productKeyOf,
   schemaSummary,
+  selectionMeshIds,
   sceneCounts,
   stepInfo,
   stepProducts,
@@ -42,6 +43,17 @@ describe('제품 나무 도움', () => {
     expect(productAt(tree, '0/9')).toBeNull();
     expect(productAt(tree, '')).toBeNull();
     expect(productAt(tree, 'x/1')).toBeNull();
+  });
+
+  it('selectionMeshIds: 마디면 그 아래 모두, 아니면 3D에서 고른 그물', () => {
+    expect(selectionMeshIds({ products: tree, selKey: '0/1', pick: null })).toEqual(['m2', 'm3', 'm4']);
+    expect(selectionMeshIds({ products: tree, selKey: '0', pick: null })).toEqual(['m1', 'm2', 'm3', 'm4']);
+    const pick = { kind: 'mesh' as const, id: 'm9', index: 0, point: [0, 0, 0] as [number, number, number] };
+    expect(selectionMeshIds({ products: tree, selKey: null, pick })).toEqual(['m9']);
+    expect(selectionMeshIds({ products: tree, selKey: '0/0', pick })).toEqual(['m1']);
+    expect(selectionMeshIds({ products: tree, selKey: null, pick: { ...pick, kind: 'line' } })).toEqual([]);
+    expect(selectionMeshIds({ products: tree, selKey: '0/2', pick: null })).toEqual([]);
+    expect(selectionMeshIds({ products: tree, selKey: '9', pick: null })).toEqual([]);
   });
 
   it('partCount: 형상이 바로 놓인 마디 수', () => {

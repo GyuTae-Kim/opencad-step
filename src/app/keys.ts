@@ -1,19 +1,26 @@
 /**
  * 창 전체 키 처리 규칙(순수 함수). 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc(측정 지우기)를 직접 받고
- * 전파를 멈추므로, 여기에는 뷰어가 받지 않은 키만 온다(main 쪽에서 창의 bubble 단계로 듣는다).
+ * 전파를 멈추므로, 여기에는 뷰어가 받지 않은 키만 온다(app 쪽에서 창의 bubble 단계로 듣는다).
+ * F·1~7 같은 뷰어 키의 뜻은 앱이 따로 들지 않고 `Viewer3d.handleKey`에 넘겨 코어 규칙을 그대로 쓴다.
  */
-import type { ViewName } from 'opencad-viewer3d';
-
-/** 키 1~7 → 표준 뷰(뷰어 코어와 같은 배치) */
-export const VIEW_KEYS: Record<string, ViewName> = { '1': 'front', '2': 'back', '3': 'left', '4': 'right', '5': 'top', '6': 'bottom', '7': 'seIso' };
+import { VIEW_KEYS, type ViewName } from 'opencad-viewer3d';
 
 /** 표준 뷰 메뉴 순서 */
 export const VIEW_MENU: ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'seIso', 'swIso', 'neIso', 'nwIso'];
 
-/** 표준 뷰 → 키 */
-export const VIEW_KEY_OF: Partial<Record<ViewName, string>> = Object.fromEntries(Object.entries(VIEW_KEYS).map(([k, v]) => [v, k]));
+/** 표준 뷰 → 단축키 글(코어 VIEW_KEYS에서 찾는다, 없으면 undefined) */
+export function viewKeyOf(v: ViewName): string | undefined {
+  return Object.keys(VIEW_KEYS).find((k) => VIEW_KEYS[k] === v);
+}
 
-export type KeyAction = 'open' | 'fit' | 'grid' | 'escape' | `view:${ViewName}`;
+/**
+ * 할 일:
+ * - open: 열기 상자(Ctrl/⌘+O)
+ * - escape: 앱 쪽 Esc 순서(메뉴 닫기 → 해석 취소 → 측정 지우기·끄기 → 고르기 풀기)
+ * - grid: 격자(F7, 코어는 받지 않는 키)
+ * - viewer: 뷰어 키일 수 있으니 `viewer.handleKey`에 넘긴다(F·1~7 등, 처리 여부는 코어가 정한다)
+ */
+export type KeyAction = 'open' | 'grid' | 'escape' | 'viewer';
 
 export interface KeyInput {
   key: string;
@@ -35,10 +42,7 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.key === 'Escape') return 'escape';
   if (!k.hasDoc) return null;
   if (k.key === 'F7') return 'grid';
-  if (k.key === 'f' || k.key === 'F') return 'fit';
-  const v = VIEW_KEYS[k.key];
-  if (v) return `view:${v}`;
-  return null;
+  return 'viewer';
 }
 
 /** 이벤트 대상이 글 입력 칸인지 */

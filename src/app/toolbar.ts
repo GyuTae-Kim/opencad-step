@@ -1,11 +1,11 @@
 /**
- * 보기 도구 막대: 전체 보기·표준 뷰·투영·그리기 모드·격자·뷰 큐브·좌표축·측정·PNG 저장·패널.
+ * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·격자·뷰 큐브·좌표축·측정·PNG 저장·패널.
  * 넓은 화면은 아이콘 + 글, 좁은 화면은 아이콘만 보이고 넘치면 가로로 스크롤한다(styles.css).
  */
-import { VIEW_LABELS, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
+import { VIEW_KEYS, VIEW_LABELS, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
 import { h, iconButton } from './dom';
 import type { IconName } from './icons';
-import { VIEW_KEY_OF, VIEW_MENU } from './keys';
+import { VIEW_MENU, viewKeyOf } from './keys';
 import { openMenu } from './menu';
 
 export const RENDER_MODES: [RenderMode, string][] = [
@@ -18,6 +18,8 @@ export const RENDER_MODES: [RenderMode, string][] = [
 /** 도구 막대가 부르는 앱 쪽 기능 */
 export interface ToolbarHost {
   readonly hasDoc: boolean;
+  /** 고른 제품(나무 마디·3D 고르기)이 있는지 */
+  readonly hasSelection: boolean;
   readonly projection: Projection;
   readonly renderMode: RenderMode;
   readonly gridOn: boolean;
@@ -26,6 +28,8 @@ export interface ToolbarHost {
   readonly measuring: boolean;
   readonly panelOpen: boolean;
   fit(): void;
+  /** 고른 부품으로 맞춰 보기 */
+  fitSelection(): void;
   setView(v: ViewName): void;
   setProjection(p: Projection): void;
   setRenderMode(m: RenderMode): void;
@@ -51,10 +55,16 @@ export class Toolbar {
     const H = host;
 
     this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit());
-    const views = this.add('views', '표준 뷰', '표준 뷰 (1 앞 · 2 뒤 · 3 왼쪽 · 4 오른쪽 · 5 위 · 6 아래 · 7 등각)', () =>
+    const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (제품 나무에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
+      focus.el.disabled = !H.hasDoc || !H.hasSelection;
+    });
+    const keyHelp = Object.entries(VIEW_KEYS)
+      .map(([k, v]) => `${k} ${VIEW_LABELS[v]}`)
+      .join(' · ');
+    const views = this.add('views', '표준 뷰', `표준 뷰 (${keyHelp})`, () =>
       openMenu(
         views.el,
-        VIEW_MENU.map((v) => ({ label: VIEW_LABELS[v], hint: VIEW_KEY_OF[v], run: () => H.setView(v) })),
+        VIEW_MENU.map((v) => ({ label: VIEW_LABELS[v], hint: viewKeyOf(v), run: () => H.setView(v) })),
         '표준 뷰',
       ),
     );

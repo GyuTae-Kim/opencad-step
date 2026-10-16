@@ -4,12 +4,13 @@
  * - 한 번에 문서 하나를 연다(새로 열면 바꾼다). 해석은 웹 워커(src/worker/parse.worker.ts)에서 하고
  *   진행률·단계는 3D 보기 위 덮개에 보이며, 덮개의 취소 단추는 워커를 끝낸다.
  * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계).
- * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 같은 키를 뷰어로 보낸다.
+ * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 받아
+ *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
  */
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type ViewName } from 'opencad-viewer3d';
 import { ParseCancelled, ParseClient } from './client';
 import { h, icon, iconButton } from './dom';
-import { createDoc, docStatus, productAt, subtreeMeshIds, unitLabel, type StepDoc } from './doc';
+import { createDoc, docStatus, productAt, selectionMeshIds, subtreeMeshIds, unitLabel, type StepDoc } from './doc';
 import { baseName, isStepName, parseStartQuery, STEP_ACCEPT, stemName } from './files';
 import { fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
@@ -25,6 +26,9 @@ const NARROW = '(max-width: 759.98px)';
 const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
 const REPO_URL = 'https://github.com/GyuTae-Kim/opencad-step';
 const APP_TITLE = 'OpenCAD STEP 뷰어 · STEP(.stp·.step) 3D 모델 보기';
+/** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
+const WIDE_CUBE = 112;
+const NARROW_CUBE = 76;
 
 interface Loading {
   name: string;
@@ -68,9 +72,6 @@ export class StepApp {
   private readonly systemDark: MediaQueryList | null;
   private readonly narrow: MediaQueryList | null;
 
-  gridOn = true;
-  cubeOn = true;
-  axesOn = true;
   panelOpen: boolean;
 
   // ── 화면 요소 ──
@@ -322,11 +323,16 @@ export class StepApp {
 
   private ensureViewer(): Viewer3d {
     if (this.viewer) return this.viewer;
-    const v = new Viewer3d(this.hostEl, { theme: this.theme, grid: this.gridOn, viewCube: this.cubeOn, axes: this.axesOn });
+    const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     v.onPick((p) => this.onPick(p));
     v.onMeasure((m) => this.onMeasure(m));
     this.viewer = v;
     return v;
+  }
+
+  /** 뷰 큐브 크기: 좁은 화면(시트)에서는 작게 */
+  private cubeSize(): number {
+    return this.narrow?.matches ? NARROW_CUBE : WIDE_CUBE;
   }
 
   // ───────────────────────── 고르기 ─────────────────────────
@@ -347,8 +353,7 @@ export class StepApp {
       if (s) d.expanded = s.expanded;
       if (s && d.panelTab !== 'tree' && this.panel.open) this.panel.setTab('tree');
     }
-    this.panel.onSelection(true);
-    this.updateStatus();
+    this.selectionChanged(true);
   }
 
   private onMeasure(m: MeasureResult | null): void {
@@ -367,7 +372,34 @@ export class StepApp {
     d.selKey = node ? key : null;
     d.pick = null;
     this.viewer?.highlight(node ? subtreeMeshIds(node) : null);
-    this.panel.onSelection();
+    this.selectionChanged();
+  }
+
+  /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */
+  fitKey(key: string): void {
+    const d = this.doc;
+    if (!d) return;
+    if (d.selKey !== key || d.pick) this.selectKey(key);
+    this.fitSelection();
+  }
+
+  /** 고른 것이 있는지(나무 마디 또는 3D에서 고른 그물) */
+  get hasSelection(): boolean {
+    return !!this.doc && selectionMeshIds(this.doc).length > 0;
+  }
+
+  /** 고른 것으로 맞춰 보기(코어 fitItems: 숨긴 것은 빼고, 보이는 것이 없으면 전체 보기) */
+  fitSelection(): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return;
+    const ids = selectionMeshIds(d);
+    if (ids.length) v.fitItems(ids);
+  }
+
+  private selectionChanged(reveal = false): void {
+    this.panel.onSelection(reveal);
+    this.toolbar.refresh();
     this.updateStatus();
   }
 
@@ -444,21 +476,38 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  // 격자·뷰 큐브·좌표축 상태는 뷰어(코어)가 든다. 뷰어가 아직 없으면 코어 기본값(켜짐)
+
+  get gridOn(): boolean {
+    return this.viewer?.gridVisible ?? true;
+  }
+
+  get cubeOn(): boolean {
+    return this.viewer?.viewCubeVisible ?? true;
+  }
+
+  get axesOn(): boolean {
+    return this.viewer?.axesVisible ?? true;
+  }
+
   toggleGrid(): void {
-    this.gridOn = !this.gridOn;
-    this.viewer?.setGridVisible(this.gridOn);
+    const v = this.viewer;
+    if (!v) return;
+    v.setGridVisible(!v.gridVisible);
     this.toolbar.refresh();
   }
 
   toggleCube(): void {
-    this.cubeOn = !this.cubeOn;
-    this.viewer?.setViewCubeVisible(this.cubeOn);
+    const v = this.viewer;
+    if (!v) return;
+    v.setViewCubeVisible(!v.viewCubeVisible);
     this.toolbar.refresh();
   }
 
   toggleAxes(): void {
-    this.axesOn = !this.axesOn;
-    this.viewer?.setAxesVisible(this.axesOn);
+    const v = this.viewer;
+    if (!v) return;
+    v.setAxesVisible(!v.axesVisible);
     this.toolbar.refresh();
   }
 
@@ -567,6 +616,7 @@ export class StepApp {
     });
     // 좁은 화면 ↔ 넓은 화면을 넘나들면 패널 기본값을 다시 정한다
     this.narrow?.addEventListener('change', () => {
+      this.viewer?.setViewCubeSize(this.cubeSize());
       this.togglePanel(!this.narrow?.matches);
     });
   }
@@ -581,27 +631,27 @@ export class StepApp {
         ev.preventDefault();
         this.pickFile();
         return;
+      case 'viewer':
+        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault)
+        v?.handleKey(ev);
+        return;
+      case 'grid':
+        this.toggleGrid();
+        break;
       case 'escape':
+        // 메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기
         if (closeMenu()) break;
         if (this.loading) {
           this.cancel();
           break;
         }
         if (v?.measureMode) {
-          if (v.measurement()) v.clearMeasure();
-          else this.toggleMeasure(false);
+          if (v.measurePointCount > 0 && v.handleKey(ev)) return;
+          this.toggleMeasure(false);
           break;
         }
         if (this.clearSelection()) break;
         return;
-      case 'grid':
-        this.toggleGrid();
-        break;
-      case 'fit':
-        v?.fit();
-        break;
-      default:
-        v?.setView(action.slice(5) as ViewName);
     }
     ev.preventDefault();
   }
