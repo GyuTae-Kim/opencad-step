@@ -117,7 +117,7 @@ npm run preview    # 빌드 결과 보기
 시험은 `tests/stepText.ts`(본문은 `src/app/stepText.ts`)로 만든 작은 STEP 글로 돌립니다(외부 STEP 파일은 넣지 않습니다).
 압축 시험은 `tests/zipText.ts`(시험용 ZIP 글쓴이, node:zlib)로 gzip·ZIP을 만듭니다.
 확인용으로 받은 공개 STEP 파일이나 임시 결과는 git이 무시하는 `.runtime/`에만 둡니다.
-3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.4.0`(잠금 커밋 `0563f16`)으로 받습니다 — 올릴 때는
+3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.4.0`(잠금 커밋 `2085f0e`)으로 받습니다 — 올릴 때는
 `npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.4.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
 
