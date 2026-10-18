@@ -138,7 +138,7 @@ npm run preview    # 빌드 결과 보기
 
 ## 내력
 
-[2dcad-viewer](https://github.com/GyuTae-Kim/2dcad-viewer)의 `src/formats/step/`에서 분리했습니다(커밋 `d7c584a` 기준, 처음 들어온 것은 PR #7).
+[2dcad-viewer](https://github.com/GyuTae-Kim/opencad-dwgdxf)의 `src/formats/step/`에서 분리했습니다(커밋 `d7c584a` 기준, 처음 들어온 것은 PR #7).
 2D 뷰어 안에서 STEP 파일을 3D 탭으로 열던 화면(제품 나무 패널, 리본, 웹 워커 — `src/app/view3d/`)은 이 저장소의 혼자 도는 앱(`src/app/`)으로
 새로 짰습니다(제품 나무·워커 프로토콜·이전 목록 등은 그 커밋의 코드를 옮겨 다듬었습니다).
 
