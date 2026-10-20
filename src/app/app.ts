@@ -25,7 +25,7 @@ import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
 import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
-import { faceHint, faceSummary, measureHint, measureLines } from './measure';
+import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -140,10 +140,11 @@ export class StepApp {
   private readonly sectionFlipBtn: HTMLButtonElement;
   // ── 측정 띠(휴대폰·터치) ──
   private readonly measureBar: HTMLElement;
+  private readonly selFit: HTMLButtonElement;
   private readonly measureText: HTMLElement;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
-  private barMode: 'measure' | 'face' | null = null;
+  private barMode: 'measure' | 'face' | 'select' | null = null;
   private readonly aimLayer: HTMLElement;
 
   constructor(root: HTMLElement) {
@@ -242,12 +243,16 @@ export class StepApp {
       this.viewer?.clearMeasure();
       this.refreshBar();
     });
+    // 고른 부품 카드(측정·면 고르기가 아닐 때): 맞춰 보기
+    this.selFit = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품 보기' }, icon('fit', 16), h('span', {}, '맞춰 보기'));
+    this.selFit.addEventListener('click', () => this.fitSelection());
     this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
     this.measureClose.addEventListener('click', () => {
       if (this.measuring) this.toggleMeasure(false);
-      else this.toggleFaceMode(false);
+      else if (this.faceMode) this.toggleFaceMode(false);
+      else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.measureClose));
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.measureBar, this.toasts);
@@ -898,6 +903,8 @@ export class StepApp {
     this.panelOpen = on;
     this.panel.setOpen(on);
     this.toolbar.refresh();
+    // 고른 부품 카드는 패널이 닫혀 있을 때만(열면 패널 아래 띠가 같은 것을 보인다)
+    this.refreshBar();
     if (this.narrow?.matches && this.viewer) requestAnimationFrame(() => requestAnimationFrame(() => this.viewer?.fit(false)));
   }
 
@@ -1069,18 +1076,22 @@ export class StepApp {
     this.refreshBar();
   }
 
-  /** 측정 띠: 측정 중이면 다음에 누를 곳 안내나 결과(거리와 dx·dy·dz), 면 고르기 중이면 고른 면의 종류·주요 치수·넓이 */
+  /**
+   * 측정 띠: 측정 중이면 다음에 누를 곳 안내나 결과(거리와 dx·dy·dz), 면 고르기 중이면 고른 면의 종류·주요 치수·넓이,
+   * 둘 다 아니고 패널이 닫혀 있으면 고른 부품의 이름과 외형 크기(고른 부품 카드)
+   */
   private refreshBar(): void {
     const d = this.doc;
     const v = this.viewer;
-    const mode = !d || !v || this.loading ? null : v.measureMode ? 'measure' : this.faceMode ? 'face' : null;
+    const mode = !d || !v || this.loading ? null : v.measureMode ? 'measure' : this.faceMode ? 'face' : !this.panelOpen && selectionItemIds(d).length ? 'select' : null;
     this.measureBar.hidden = !mode;
     if (mode !== this.barMode) {
       this.barMode = mode;
-      const close = mode === 'face' ? '면 고르기 끝내기' : '측정 끝내기';
+      const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : '측정 끝내기';
       this.measureClose.title = close;
       this.measureClose.setAttribute('aria-label', close);
       this.measureClear.hidden = mode !== 'measure';
+      this.selFit.hidden = mode !== 'select';
     }
     if (!mode || !d || !v) return;
     const u = unitLabel(d.scene.units);
@@ -1097,7 +1108,31 @@ export class StepApp {
       const facts: (Node | string)[] = [];
       f.facts.forEach(([k, val], i) => facts.push(...(i ? [' · '] : []), h('span', {}, k), ` ${val}`));
       t.append(h('b', { class: 'mb-value' }, h('span', {}, f.kind), f.main ? ` ${f.main}` : null), h('span', { class: 'mb-sub' }, ...facts));
-    } else t.append(h('span', { class: 'mb-hint' }, faceHint(this.touch)));
+    } else if (mode === 'face') t.append(h('span', { class: 'mb-hint' }, faceHint(this.touch)));
+    else {
+      // 부품 이름은 파일 글이라 번역하지 않는다
+      t.append(h('b', { class: 'mb-value', 'data-i18n-skip': '' }, this.selectionName(d)));
+      const size = selectionSize(d.scene, selectionItemIds(d));
+      // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
+      if (size)
+        t.append(
+          h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '크기'), ` ≈ ${fmtNum(size[0])} × ${fmtNum(size[1])} × ${fmtNum(size[2])}${u ? ` ${u}` : ''}`),
+        );
+    }
+  }
+
+  /** 고른 것의 이름(고른 부품 카드 제목) */
+  private selectionName(d: StepDoc): string {
+    const node = d.selKey ? productAt(d.products, d.selKey) : null;
+    if (node) {
+      const n = nodeLabel(node);
+      return `${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
+    }
+    if (d.pick) {
+      const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
+      return m?.name ?? d.pick.id;
+    }
+    return d.items?.label ?? '';
   }
 
   private selectionText(d: StepDoc): string {

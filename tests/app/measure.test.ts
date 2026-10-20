@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FacePick } from '../../src/app/faces';
-import { faceHint, faceSummary, measureHint, measureLines, panelMeasureHint } from '../../src/app/measure';
+import { faceHint, faceSummary, measureHint, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
 
 const face = (kind: string, extra: Partial<FacePick> = {}): FacePick => ({
   meshId: 'm',
@@ -61,5 +61,18 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
         ['둘레', '62.832'],
       ],
     });
+  });
+});
+
+describe('고른 부품 외형 크기', () => {
+  it('고른 그물·선의 축에 나란한 범위를 합치고, 고른 형상이 없으면 null', () => {
+    const mesh = (id: string, pts: number[]) => ({ id, positions: Float32Array.from(pts), indices: Uint32Array.from([0, 1, 2]), color: [1, 1, 1, 1] as [number, number, number, number] });
+    const scene = {
+      meshes: [mesh('a', [0, 0, 0, 10, 0, 0, 0, 5, 0]), mesh('b', [0, 0, 2, 1, 1, 3, 2, 2, 7])],
+      lines: [{ id: 'l', positions: Float32Array.from([-4, 0, 0, 0, 0, 0]) }],
+    };
+    expect(selectionSize(scene, ['a'])).toEqual([10, 5, 0]);
+    expect(selectionSize(scene, ['a', 'b', 'l'])).toEqual([14, 5, 7]);
+    expect(selectionSize(scene, ['없음'])).toBeNull();
   });
 });

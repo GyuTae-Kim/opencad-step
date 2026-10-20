@@ -4,6 +4,8 @@
  * 키 설명이 있는 원래 글(넓은 화면·마우스)은 그대로 둔다.
  */
 import type { MeasureResult } from 'opencad-viewer3d';
+import { boxIsEmpty, boxSize, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
+import type { Scene3d } from 'opencad-viewer3d/types';
 import { faceKindLabel, type FacePick } from './faces';
 import { fmtNum } from './format';
 
@@ -55,4 +57,14 @@ export function faceSummary(fp: FacePick, u: string): FaceSummary {
   facts.push(['넓이', `${fmtNum(fp.area)}${u ? ` ${u}²` : ''}`]);
   if (!main && fp.kind !== 'cone') facts.push(['둘레', `${fmtNum(fp.perimeter)}${unit}`]);
   return { kind: faceKindLabel(fp.kind), main, facts };
+}
+
+/** 고른 항목들(그물·선)의 외형 크기 — 축에 나란한 범위의 X·Y·Z 길이(장면 단위). 고른 형상이 없으면 null */
+export function selectionSize(scene: Pick<Scene3d, 'meshes' | 'lines'>, ids: readonly string[]): [number, number, number] | null {
+  const want = new Set(ids);
+  let b = emptyBox();
+  for (const it of [...scene.meshes, ...scene.lines]) if (want.has(it.id)) b = unionBox(b, itemBounds(it));
+  if (boxIsEmpty(b)) return null;
+  const s = boxSize(b);
+  return [s[0], s[1], s[2]];
 }

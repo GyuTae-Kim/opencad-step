@@ -221,6 +221,7 @@
   "만든 프로그램": "Created program",
   "맞는 마디 {0}개 (조상 마디와 함께 보입니다)": "{0} matching nodes (shown together with ancestral nodes)",
   "맞는 마디가 없습니다.": "There is no correct node.",
+  "맞춰 보기": "Zoom to fit",
   "메모리가 모자라 파일을 끝까지 읽지 못했습니다. 다른 탭을 닫거나 더 작은 파일로 해 보십시오.": "The file could not be read to the end due to insufficient memory. Close other tabs or try a smaller file.",
   "면": "Face",
   "면 개체 없음": "No face objects",
@@ -301,6 +302,7 @@
   "선 형상 묶음 안의 곡면 {0}개는 그리지 않았다(경계가 없는 곡면)": "{0} curved surfaces in the line shape bundle were not drawn (curved surfaces without boundaries)",
   "선분 {0} · 그리기 {1}회 · 삼각형 {2} · CPU {3} ms · {4}×{5}@{6}{7}{8} {9} {10} {11} {12}": "Line segment {0} · Draw {1} times · Triangle {2} · CPU {3} ms · {4}×{5}@{6}{7}{8} {9} {10} {11} {12}",
   "선의 윤곽도 ⌒": "Line outline ⌒",
+  "선택 해제": "Clear selection",
   "설치": "Installation",
   "소스 코드": "Source code",
   "소스 코드(MIT)": "Source code (MIT)",
@@ -536,6 +538,7 @@
   "형상 {0}개": "Geometry: {0}",
   "형식": "Format",
   "홈": "Home",
+  "화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.": "Overall size measured from the triangles drawn on screen. Check exact hole and cylinder diameters with face picking.",
   "화면에 올리는 중": "Placing on screen",
   "확인": "Confirm",
   "회전 곡면": "Surface of revolution"

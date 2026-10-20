@@ -221,6 +221,7 @@
   "만든 프로그램": "Erstelltes Programm",
   "맞는 마디 {0}개 (조상 마디와 함께 보입니다)": "{0} passende Knoten (zusammen mit den Vorgängerknoten angezeigt)",
   "맞는 마디가 없습니다.": "Es gibt keinen korrekten Knoten.",
+  "맞춰 보기": "Einpassen",
   "메모리가 모자라 파일을 끝까지 읽지 못했습니다. 다른 탭을 닫거나 더 작은 파일로 해 보십시오.": "Die Datei konnte wegen unzureichendem Speicher nicht bis zum Ende gelesen werden. Schließen Sie andere Tabs oder versuchen Sie es mit einer kleineren Datei.",
   "면": "Fläche",
   "면 개체 없음": "Keine Gesichtsobjekte",
@@ -301,6 +302,7 @@
   "선 형상 묶음 안의 곡면 {0}개는 그리지 않았다(경계가 없는 곡면)": "{0} gekrümmte Flächen im Linienformbündel wurden nicht gezeichnet (gekrümmte Flächen ohne Grenzen)",
   "선분 {0} · 그리기 {1}회 · 삼각형 {2} · CPU {3} ms · {4}×{5}@{6}{7}{8} {9} {10} {11} {12}": "Liniensegment {0} · {1} mal zeichnen · Dreieck {2} · CPU {3} ms · {4}×{5}@{6}{7}{8} {9} {10} {11} {12}",
   "선의 윤곽도 ⌒": "Linienumriss ⌒",
+  "선택 해제": "Auswahl aufheben",
   "설치": "Installation",
   "소스 코드": "Quellcode",
   "소스 코드(MIT)": "Quellcode (MIT)",
@@ -536,6 +538,7 @@
   "형상 {0}개": "{0} Geometrie",
   "형식": "Format",
   "홈": "Startseite",
+  "화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.": "Außenmaße, gemessen an den auf dem Bildschirm gezeichneten Dreiecken. Genaue Durchmesser von Bohrungen und Zylindern prüfen Sie mit der Flächenauswahl.",
   "화면에 올리는 중": "Auf Bildschirm hochladen",
   "확인": "Bestätigen",
   "회전 곡면": "Drehung Oberfläche"
