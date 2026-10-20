@@ -129,6 +129,7 @@ export class StepApp {
   private readonly sectionFlipBtn: HTMLButtonElement;
 
   constructor(root: HTMLElement) {
+    root.addEventListener('languagechange', () => { if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize); });
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     this.narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;

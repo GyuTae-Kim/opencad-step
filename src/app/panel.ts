@@ -314,7 +314,7 @@ export class Panel {
         const cb = h('input', { type: 'checkbox', 'aria-label': `${g.name} 보이기` });
         cb.checked = g.visible;
         cb.addEventListener('change', () => this.host.setGroupVisible(g.name, cb.checked));
-        tbody.append(h('tr', { class: g.visible ? '' : 'off' }, h('td', {}, h('label', { class: 'check' }, cb, h('span', {}, g.name))), h('td', { class: 'num' }, fmtCount(g.count))));
+        tbody.append(h('tr', { class: g.visible ? '' : 'off' }, h('td', {}, h('label', { class: 'check' }, cb, h('span', { translate: 'no' }, g.name))), h('td', { class: 'num' }, fmtCount(g.count))));
       }
       this.body.append(section('부품별 보이기', h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, '부품'), h('th', { class: 'num' }, '자리'))), tbody)));
     }
@@ -423,7 +423,7 @@ export class Panel {
       cb.addEventListener('change', () => this.host.setLayerVisible(idx, cb.checked));
       const label = `레이어 ${name}`;
       const selected = d.items?.label === label;
-      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${title}${title ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, name);
+      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${title}${title ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, h('span', { translate: 'no' }, name));
       nameBtn.addEventListener('click', (ev) => {
         if (ev.detail === 2) this.host.selectItems(ids, label, true);
         else if (ev.detail <= 1) this.host.selectItems(selected ? null : ids, label);
@@ -489,7 +489,7 @@ export class Panel {
       const tbody = h('tbody');
       const LIMIT = 1000;
       for (const x of sem.slice(0, LIMIT)) {
-        tbody.append(h('tr', {}, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), h('td', {}, x.name || '—'), h('td', { class: 'mono' }, x.value || '—')));
+        tbody.append(h('tr', {}, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), h('td', { translate: 'no' }, x.name || '—'), h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
       }
       this.body.append(
         section(
@@ -602,14 +602,14 @@ export class Panel {
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
       const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item?.name ?? p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       lines.push(h('div', { class: 'dim' }, `${p.section ? '단면(자른 면) 위 점' : '점'} ${fmtPt(p.point)} ${u}${p.normal ? ` · 법선 ${fmtPt(p.normal)}` : ''}`));
       if (d.face) lines.push(...faceLines(d.face, u));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
       if (node) {
         const name = nodeLabel(node);
-        lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), name.name, name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
+        lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       }
     } else if (d.items) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));

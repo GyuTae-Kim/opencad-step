@@ -1,3 +1,4 @@
+import { installLocalization } from './i18n';
 /**
  * 앱 진입점: 화면을 세우고, 자동 확인용 window.opencadApp을 두고, 시작 주소 인자(?open=·?sample)를 처리한다.
  */
@@ -58,3 +59,5 @@ if (root) {
   };
   void app.start();
 }
+
+if (root) void installLocalization(root);
