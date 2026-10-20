@@ -9,12 +9,15 @@ import { h, icon } from './dom';
 import { instanceCounts, productAt, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount, fmtNum, fmtPt } from './format';
+import { panelMeasureHint } from './measure';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
   readonly measuring: boolean;
+  /** 손가락이 주인 기기인지(안내에서 키 설명을 뺀다) */
+  readonly touch: boolean;
   /** 나무 마디 고르기(null = 풀기) */
   selectKey(key: string | null): void;
   /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
@@ -617,7 +620,7 @@ export class Panel {
     if (d.measure) {
       const m = d.measure;
       lines.push(h('div', {}, h('b', {}, '거리 '), `${fmtNum(m.distance)} ${u}`, h('span', { class: 'dim' }, ` · dx ${fmtNum(m.dx)} · dy ${fmtNum(m.dy)} · dz ${fmtNum(m.dz)}`)));
-    } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, '측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기'));
+    } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, panelMeasureHint(this.host.touch)));
     f.hidden = !lines.length;
     f.append(...lines);
   }

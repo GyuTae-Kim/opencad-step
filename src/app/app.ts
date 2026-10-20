@@ -11,17 +11,21 @@
  *   3D에서 두 번 누르면(e.clicks) 나무처럼 그 부품으로 맞춰 본다.
  * - 단면: 도구 막대·단면 막대에서 바꾸고, 막대 표시는 코어 onSectionChange 알림으로만 맞춘다(새 문서에서 꺼짐 등).
  * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
+ * - 휴대폰·터치: 측정·면 고르기 중에는 3D 보기 아래 가운데 띠(measure.ts)에 안내·거리·고른 면 치수와 다시 재기·끝내기 단추를 두고,
+ *   길게 누르면 손가락 위 십자선으로 정밀 조준한다(aim.ts — 코어 포인터 처리를 그대로 쓴다).
  */
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
+import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
 import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
+import { faceHint, faceSummary, measureHint, measureLines } from './measure';
 import { closeMenu, openMenu } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -32,6 +36,8 @@ import { Toolbar } from './toolbar';
 import { filterRows, nodeLabel, selectFromPick } from './tree';
 
 const NARROW = '(max-width: 759.98px)';
+/** 손가락이 주인 기기(휴대폰·태블릿): 안내 글·파일 고르기를 맞춘다 */
+const COARSE = '(pointer: coarse)';
 const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
 const REPO_URL = 'https://github.com/GyuTae-Kim/opencad-step';
 // The initial title comes from the shared site metadata generated into HTML.
@@ -63,6 +69,8 @@ export interface AppState {
   projection: Projection;
   grid: boolean;
   measuring: boolean;
+  /** 정밀 조준 중(터치 길게 누르기) */
+  aiming: boolean;
   triangles: number;
   meshes: number;
   products: string[];
@@ -95,6 +103,9 @@ export class StepApp {
   private storedTheme: Theme | null;
   private readonly systemDark: MediaQueryList | null;
   private readonly narrow: MediaQueryList | null;
+  private readonly coarse: MediaQueryList | null;
+  /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다) */
+  private aim: TouchAim | null = null;
 
   panelOpen: boolean;
 
@@ -127,19 +138,28 @@ export class StepApp {
   private readonly sectionValue: HTMLElement;
   private readonly sectionAxisBtns: Map<SectionAxis, HTMLButtonElement> = new Map();
   private readonly sectionFlipBtn: HTMLButtonElement;
+  // ── 측정 띠(휴대폰·터치) ──
+  private readonly measureBar: HTMLElement;
+  private readonly measureText: HTMLElement;
+  private readonly measureClear: HTMLButtonElement;
+  private readonly measureClose: HTMLButtonElement;
+  private barMode: 'measure' | 'face' | null = null;
+  private readonly aimLayer: HTMLElement;
 
   constructor(root: HTMLElement) {
     root.addEventListener('languagechange', () => { if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize); });
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     this.narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;
+    this.coarse = typeof matchMedia === 'function' ? matchMedia(COARSE) : null;
     this.storedTheme = readStoredTheme(safeLocalStorage());
     this.theme = resolveTheme(this.storedTheme, this.systemDark?.matches ?? true);
     this.panelOpen = !this.narrow?.matches;
     this.applyTheme();
 
     // ── 제목 막대 ──
-    this.fileInput = h('input', { type: 'file', accept: OPEN_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+    // 휴대폰은 accept의 확장자(.stp 등)를 시스템 형식으로 못 바꾸면 파일을 흐리게 해 못 고르게 한다(iOS) — 거르지 않고 고른 뒤 앞부분을 보고 가린다
+    this.fileInput = h('input', { type: 'file', accept: this.coarse?.matches ? null : OPEN_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
     this.fileInput.addEventListener('change', () => {
       const f = this.fileInput.files?.[0];
       this.fileInput.value = '';
@@ -215,7 +235,22 @@ export class StepApp {
     secClose.append(icon('close', 16));
     secClose.addEventListener('click', () => this.setSectionAxis(null));
     this.sectionBar = h('div', { class: 'section-bar', role: 'group', 'aria-label': '단면 보기', hidden: true }, icon('section', 16), axes, this.sectionSlider, this.sectionValue, this.sectionFlipBtn, secClose);
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.toasts);
+    // ── 측정 띠(좁은 화면·터치에서 측정·면 고르기 중): 안내·결과를 크게 보이고, Esc 대신 다시 재기·끝내기 단추 ──
+    this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
+    this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기' }, icon('reset', 16), h('span', {}, '다시 재기'));
+    this.measureClear.addEventListener('click', () => {
+      this.viewer?.clearMeasure();
+      this.refreshBar();
+    });
+    this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
+    this.measureClose.addEventListener('click', () => {
+      if (this.measuring) this.toggleMeasure(false);
+      else this.toggleFaceMode(false);
+    });
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.measureClose));
+    // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
+    this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.measureBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
@@ -243,8 +278,9 @@ export class StepApp {
       'div',
       { class: 'dropzone' },
       icon('upload', 44),
-      h('p', { class: 'drop-title' }, 'STEP 파일을 여기에 끌어다 놓으세요'),
-      h('p', { class: 'dim' }, '또는'),
+      h('p', { class: 'drop-title fine-only' }, 'STEP 파일을 여기에 끌어다 놓으세요'),
+      h('p', { class: 'dim fine-only' }, '또는'),
+      h('p', { class: 'drop-title coarse-only' }, 'STEP 파일을 골라 여세요'),
       h('div', { class: 'start-actions' }, open, sample),
     );
     drop.addEventListener('click', (e) => {
@@ -265,7 +301,8 @@ export class StepApp {
           { class: 'start-facts' },
           h('li', {}, icon('info', 16), h('span', {}, '지원 형식: STEP AP203 · AP214 · AP242 (B-rep·조립·색·단위·레이어·와이어프레임·PMI) — .stp .step .p21, 압축 .stp.gz .stpZ .zip')),
           h('li', {}, icon('lock', 16), h('span', {}, '파일은 이 브라우저 밖으로 나가지 않습니다. 읽기와 그리기를 모두 이 컴퓨터에서 합니다.')),
-          h('li', {}, icon('views', 16), h('span', {}, '끌기 회전 · 오른쪽 끌기 이동 · 휠 확대 · F 전체 보기 · 1~7 표준 뷰 · F7 격자')),
+          h('li', { class: 'fine-only' }, icon('views', 16), h('span', {}, '끌기 회전 · 오른쪽 끌기 이동 · 휠 확대 · F 전체 보기 · 1~7 표준 뷰 · F7 격자')),
+          h('li', { class: 'coarse-only' }, icon('views', 16), h('span', {}, '한 손가락 끌기 회전 · 두 손가락 이동·확대 · 측정·면 고르기는 길게 눌러 정밀 조준')),
         ),
       ),
     );
@@ -422,6 +459,7 @@ export class StepApp {
     v.setScene(doc.scene);
     v.highlight(null);
     this.showFace(null);
+    this.aim?.cancel();
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
     // 파일이 숨긴 레이어 등 처음 보이기
@@ -446,6 +484,12 @@ export class StepApp {
     v.onMeasure((m) => this.onMeasure(m));
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
     v.onSectionChange((st) => this.syncSection(st));
+    // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
+    this.aim = new TouchAim(v.canvas, { enabled: () => !!this.doc && (v.measureMode || this.faceMode), layer: this.aimLayer });
+    // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
+    this.hostEl.addEventListener('pointerup', () => {
+      if (v.measureMode) this.refreshBar();
+    });
     this.viewer = v;
     return v;
   }
@@ -556,6 +600,7 @@ export class StepApp {
 
   /** 면 고르기 모드 켜고 끄기 */
   toggleFaceMode(on = !this.faceMode): void {
+    if (on !== this.faceMode) this.aim?.cancel();
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
     if (!on && this.doc?.face) {
@@ -566,6 +611,7 @@ export class StepApp {
       this.selectionChanged();
     }
     this.toolbar.refresh();
+    this.refreshBar();
     if (on && this.doc && !this.doc.faces) this.toast('이 문서에는 면 정보가 없어 면을 고를 수 없습니다.', 'warn');
   }
 
@@ -749,6 +795,11 @@ export class StepApp {
     return !!this.viewer?.measureMode;
   }
 
+  /** 손가락이 주인 기기인지: 안내에서 키(Esc) 설명을 빼고 길게 누르기(정밀 조준)를 알린다 */
+  get touch(): boolean {
+    return !!this.coarse?.matches;
+  }
+
   fit(): void {
     this.viewer?.fit();
   }
@@ -805,6 +856,7 @@ export class StepApp {
   toggleMeasure(on = !this.measuring): void {
     const v = this.viewer;
     if (!v) return;
+    if (on !== v.measureMode) this.aim?.cancel();
     v.setMeasureMode(on);
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
@@ -1014,6 +1066,38 @@ export class StepApp {
       this.statusDoc.append(h('span', {}, 'STEP 파일을 열거나 끌어다 놓으세요'));
     }
     this.statusSel.textContent = d ? this.selectionText(d) : '';
+    this.refreshBar();
+  }
+
+  /** 측정 띠: 측정 중이면 다음에 누를 곳 안내나 결과(거리와 dx·dy·dz), 면 고르기 중이면 고른 면의 종류·주요 치수·넓이 */
+  private refreshBar(): void {
+    const d = this.doc;
+    const v = this.viewer;
+    const mode = !d || !v || this.loading ? null : v.measureMode ? 'measure' : this.faceMode ? 'face' : null;
+    this.measureBar.hidden = !mode;
+    if (mode !== this.barMode) {
+      this.barMode = mode;
+      const close = mode === 'face' ? '면 고르기 끝내기' : '측정 끝내기';
+      this.measureClose.title = close;
+      this.measureClose.setAttribute('aria-label', close);
+      this.measureClear.hidden = mode !== 'measure';
+    }
+    if (!mode || !d || !v) return;
+    const u = unitLabel(d.scene.units);
+    const t = this.measureText;
+    t.replaceChildren();
+    if (mode === 'measure') {
+      if (d.measure) {
+        const m = measureLines(d.measure, u);
+        t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
+      } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
+      this.measureClear.disabled = !d.measure && !v.measurePointCount;
+    } else if (d.face) {
+      const f = faceSummary(d.face, u);
+      const facts: (Node | string)[] = [];
+      f.facts.forEach(([k, val], i) => facts.push(...(i ? [' · '] : []), h('span', {}, k), ` ${val}`));
+      t.append(h('b', { class: 'mb-value' }, h('span', {}, f.kind), f.main ? ` ${f.main}` : null), h('span', { class: 'mb-sub' }, ...facts));
+    } else t.append(h('span', { class: 'mb-hint' }, faceHint(this.touch)));
   }
 
   private selectionText(d: StepDoc): string {
@@ -1060,6 +1144,7 @@ export class StepApp {
       projection: this.projection,
       grid: this.gridOn,
       measuring: this.measuring,
+      aiming: !!this.aim?.aiming,
       triangles: Math.round(triangles),
       meshes: d?.scene.meshes.length ?? 0,
       products: d ? d.products.map((p) => p.name) : [],
