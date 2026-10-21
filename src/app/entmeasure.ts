@@ -4,6 +4,7 @@
  * - 평면–평면: 평행이면 면 사이 거리, 아니면 사이 각(0~90°)
  * - 축–축(원기둥·원뿔 면, 원호 모서리의 축): 평행이면 축 사이 거리(구멍 피치), 아니면 사이 각과 꼬인 축의 최단 거리
  * - 원–원(원호 모서리·원환): 중심 거리, 평면–축: 축이 평면과 나란하면 거리, 아니면 각
+ * - 축·직선–원: 원 중심에서 축·모서리까지(원 축이 나란한 축이면 "축 사이 거리"), 누른 차례와 상관없이 같은 결과
  * - 점–평면·점–축·점–직선·점–점: 거리, 직선–직선: 사이 각과 최단 거리(나란하면 거리)
  * 결과는 값 줄(이름표 + 값)과 코어 덧그림(setAnnotations의 distance·angle·point). 이름표는 화면 글(번역), 값은 부르는 쪽이 Fmt로 쓴다.
  * 해석적으로 못 재는 개체(B-스플라인 면 등)는 누른 점으로 다룬다. 몸체 사이 최소 거리는 앱이 코어 closestPoints로 더한다.
@@ -175,9 +176,9 @@ export function measureEntities(A: Entity, B: Entity, size = 1): EntityMeasure {
   const asPt = (e: Entity): Entity => (e.type === 'line' && len(sub(e.b, e.a)) <= 1e-12 * Math.max(1, len(e.a)) ? { type: 'point', label: e.label, point: e.a, ...(e.meshId ? { meshId: e.meshId } : {}) } : e);
   A = asPt(A);
   B = asPt(B);
-  // 순서를 맞춘다: 평면 > 축류(축·원·직선) > 점
-  const rank = (e: Entity) => (e.type === 'plane' ? 0 : e.type === 'point' ? 2 : 1);
-  if (rank(B) < rank(A)) [A, B] = [B, A];
+  // 순서를 맞춘다(누른 차례와 상관없이 같은 결과): 평면 > 축 > 직선 > 원 > 점
+  const RANK = { plane: 0, axis: 1, line: 2, circle: 3, point: 4 } as const;
+  if (RANK[B.type] < RANK[A.type]) [A, B] = [B, A];
 
   if (A.type === 'plane' && B.type === 'plane') {
     const n1 = unit(A.normal);
@@ -239,6 +240,15 @@ export function measureEntities(A: Entity, B: Entity, size = 1): EntityMeasure {
     return { lines, annotations: anns };
   }
   const xa = asAxis(A)!;
+  // 축·직선 모서리 – 원: 원 중심에서 축(무한 직선)·모서리(선분)까지. 원의 축이 나란한 축이면 축 사이 거리(구멍 피치)
+  if (B.type === 'circle') {
+    const cn = unit(B.normal);
+    const par = Math.acos(Math.min(1, Math.abs(dot(cn, xa.d)))) < PARALLEL;
+    const foot = A.type === 'line' ? footOnSegment(B.center, A.a, A.b) : footOnLine(B.center, xa.o, xa.d);
+    dist(A.type === 'line' ? '중심–모서리 거리' : par ? '축 사이 거리' : '중심–축 거리', B.center, foot);
+    if (A.type === 'axis' && !par) lines.push({ label: '축 사이 각', unit: 'angle', value: deg(Math.acos(Math.min(1, Math.abs(dot(cn, xa.d))))) });
+    return { lines, annotations: anns };
+  }
   if (pb) {
     // 축류–점: 직선 모서리는 선분까지, 축은 무한 직선까지
     const foot = A.type === 'line' ? footOnSegment(pb, A.a, A.b) : footOnLine(pb, xa.o, xa.d);

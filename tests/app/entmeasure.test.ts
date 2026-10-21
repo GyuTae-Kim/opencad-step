@@ -87,4 +87,31 @@ describe('두 개체 사이 측정(해석적)', () => {
     expect(measureEntities(line([0, 0, 0], [0, 0, 0]), line([3, 4, 0], [3, 4, 0])).lines).toEqual([{ label: '거리', unit: 'length', value: 5 }]);
     expect(measureEntities(line([0, 0, 0], [10, 0, 0]), line([3, 4, 0], [3, 4, 0])).lines).toEqual([{ label: '점–모서리 거리', unit: 'length', value: 4 }]);
   });
+
+  it('누른 차례와 상관없이 같은 결과: 원–축·원–직선·평면–점 등', () => {
+    const c = circle([10, 0, 0], [0, 0, 1]);
+    const x = axis([0, 0, 0], [1, 0, 0]);
+    // 원 축(세로)이 x축과 나란하지 않음: 중심–축 거리 0과 축 사이 각 90°
+    const r1 = measureEntities(c, x);
+    expect(r1.lines).toEqual([
+      { label: '중심–축 거리', unit: 'length', value: 0 },
+      { label: '축 사이 각', unit: 'angle', value: 90 },
+    ]);
+    expect(measureEntities(x, c).lines).toEqual(r1.lines);
+    // 원 축이 나란한 축(구멍 모서리와 다른 구멍): 축 사이 거리
+    const z = axis([0, 0, 0], [0, 0, 1]);
+    const c2 = circle([3, 4, 7], [0, 0, -1]);
+    expect(measureEntities(c2, z).lines).toEqual([{ label: '축 사이 거리', unit: 'length', value: 5 }]);
+    expect(measureEntities(z, c2).lines).toEqual([{ label: '축 사이 거리', unit: 'length', value: 5 }]);
+    // 원–직선 모서리: 선분까지
+    const l = line([0, 5, 0], [0, 5, 10]);
+    expect(measureEntities(c, l).lines).toEqual(measureEntities(l, c).lines);
+    expect(measureEntities(c, l).lines[0]!.label).toBe('중심–모서리 거리');
+    expect(measureEntities(c, l).lines[0]!.value).toBeCloseTo(Math.hypot(10, 5), 9);
+    // 그 밖의 짝도 순서를 바꿔도 같다
+    const P = plane([0, 0, 1], [0, 0, 1]);
+    const pt = point([3, 4, 9]);
+    const all: Entity[] = [P, x, z, l, c, c2, pt];
+    for (const a of all) for (const b of all) if (a !== b) expect(measureEntities(a, b).lines).toEqual(measureEntities(b, a).lines);
+  });
 });
