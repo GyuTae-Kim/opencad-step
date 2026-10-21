@@ -1,9 +1,10 @@
 {
   "name": "OpenCAD STEP 뷰어",
   "short_name": "STEP 뷰어",
-  "description": "STEP·STP 3D CAD 파일을 설치나 회원가입 없이 열어 돌려 보고 치수를 재는 무료 뷰어입니다. 파일은 서버로 보내지 않고 이 브라우저에서 처리합니다.",
+  "description": "STEP·STP 3D CAD 파일을 설치 없이 여는 무료 STEP 뷰어입니다. AP203·AP214·AP242 모델의 조립 구조·부품 색·단위를 확인하고 거리를 측정하거나 PNG로 저장하세요. 파일은 브라우저에서 처리합니다.",
   "lang": "ko",
   "dir": "ltr",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
