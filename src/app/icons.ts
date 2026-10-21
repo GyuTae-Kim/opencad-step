@@ -39,6 +39,7 @@ export const ICONS = {
   flip: '<path d="M7 4v16M17 4v16"/><path d="m10 9-3-3-3 3M14 15l3 3 3-3"/>',
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   reset: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 3.5v5h5"/>',
+  explode: '<rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M3.5 8V3.5H8M16 3.5h4.5V8M20.5 16v4.5H16M8 20.5H3.5V16"/><path d="m4 4 4 4M20 4l-4 4M20 20l-4-4M4 20l4-4"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

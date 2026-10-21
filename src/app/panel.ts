@@ -6,18 +6,31 @@
  */
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
-import { instanceCounts, productAt, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import type { StepSavedView } from '../scene';
+import type { InterferencePair } from './interference';
+import type { Fmt } from './display';
+import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { nodePath, partRows, type PropRow } from './partinfo';
+import { MATERIALS, massText, meshNodes, physProps } from './physics';
+import { sceneMm } from './display';
+import { selectRow } from './dialog';
+import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
-import { formatBytes, formatMs, fmtCount, fmtNum, fmtPt } from './format';
-import { panelMeasureHint } from './measure';
+import { formatBytes, formatMs, fmtCount } from './format';
+import { lineValue } from './entpick';
+import { edgeSummary, edgeTitle, entityHint, faceSummary, panelMeasureHint } from './measure';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
   readonly measuring: boolean;
+  /** 측정 종류(두 점 · 개체) */
+  readonly measureKind: 'points' | 'entities';
   /** 손가락이 주인 기기인지(안내에서 키 설명을 뺀다) */
   readonly touch: boolean;
+  /** 수 꼴(표시 단위·소수 자리·언어) */
+  readonly fmt: Fmt;
   /** 나무 마디 고르기(null = 풀기) */
   selectKey(key: string | null): void;
   /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
@@ -37,6 +50,18 @@ export interface PanelHost {
   setPmiVisible(id: string | null, on: boolean): void;
   /** 레이어·PMI 목록에서 항목 묶음 고르기(강조, null = 풀기) */
   selectItems(ids: readonly string[] | null, label: string, fit?: boolean): void;
+  /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³, null = 안 씀) */
+  setDensity(kgm3: number | null): void;
+  /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
+  openContextMenu(clientX: number, clientY: number): void;
+  /** 의미 PMI가 가리키는 면 강조·맞춰 보기 */
+  showPmiFaces(stepIds: readonly number[], label: string): boolean;
+  /** 저장된 보기 적용 */
+  applySavedView(view: StepSavedView): void;
+  /** 간섭 검사(보이는 그물끼리) 돌리기·지우기, 한 쌍 보기 */
+  runInterference(): void;
+  clearInterference(): void;
+  showInterference(p: InterferencePair): void;
 }
 
 const PMI_TYPE: Record<string, string> = {
@@ -92,6 +117,10 @@ export function pmiTypeLabel(type: string): string {
 const row = (k: string, v: string, title?: string): HTMLElement =>
   h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v }, v));
 
+/** 속성 줄(파일 글은 번역하지 않는다) */
+const propRow = (r: PropRow): HTMLElement =>
+  h('div', { class: 'prop-row' }, h('span', { class: 'k', translate: r.kData ? 'no' : null }, r.k), h('span', { class: 'v', title: r.v, translate: r.vData ? 'no' : null }, r.v));
+
 const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
 
@@ -104,6 +133,8 @@ export class Panel {
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
   private filterTimer = 0;
+  /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
+  private interferenceEl: HTMLElement | null = null;
 
   constructor(private readonly host: PanelHost) {
     this.tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '패널 탭' });
@@ -138,12 +169,54 @@ export class Panel {
     if (!d) return;
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
-    } else if (d.panelTab === 'layers' || d.panelTab === 'pmi') this.renderBody();
+    } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
     if (reveal) this.body.querySelector('.tree-row.sel')?.scrollIntoView({ block: 'nearest' });
     this.renderFoot();
   }
 
   onMeasure(): void {
+    this.renderFoot();
+  }
+
+  /** 간섭 검사 진행·결과가 바뀜: 제품 탭의 그 묶음만 다시 그린다(없으면 탭을 다시 그림) */
+  onInterference(): void {
+    const d = this.doc;
+    if (!d || d.panelTab !== 'tree') return;
+    if (this.interferenceEl && d.interference) {
+      const el = this.interferenceSection(d);
+      this.interferenceEl.replaceWith(el);
+      this.interferenceEl = el;
+    } else this.renderBody();
+  }
+
+  private interferenceSection(d: StepDoc): HTMLElement {
+    const st = d.interference!;
+    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
+    const kids: HTMLElement[] = [];
+    const clear = h('button', { type: 'button', class: 'btn small' }, st.running ? '멈추기' : '결과 지우기');
+    clear.addEventListener('click', () => this.host.clearInterference());
+    if (st.running) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사 중…'), ` ${st.total ? `${fmtCount(st.done)} / ${fmtCount(st.total)}` : ''}`));
+    else if (st.error) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
+    else if (st.result) {
+      const r = st.result;
+      kids.push(h('p', { class: 'hint' }, h('span', {}, '범위가 겹친 쌍'), ` ${fmtCount(r.tested)} · `, h('span', {}, '간섭'), ` ${fmtCount(r.pairs.length)} · ${fmtCount(r.ms)} ms`));
+      const LIMIT = 200;
+      for (const p of r.pairs.slice(0, LIMIT)) {
+        const label = `${name(p.a)} ↔ ${name(p.b)}`;
+        const sel = d.items?.label === label;
+        const b = h('button', { type: 'button', class: `link-btn${sel ? ' sel' : ''}`, title: '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
+        b.addEventListener('click', () => this.host.showInterference(p));
+        kids.push(h('div', { class: 'prop-row' }, b, h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count))));
+      }
+      if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않고, 한 부품이 다른 부품 안에 통째로 든 경우는 찾지 못합니다.'));
+    }
+    return section('간섭 검사', ...kids, h('div', { class: 'tree-tools' }, clear));
+  }
+
+  /** 수 꼴(표시 단위·소수 자리·언어)이 바뀜: 본문과 아래 띠를 다시 그린다 */
+  redraw(): void {
+    if (!this.doc) return;
+    this.renderBody();
     this.renderFoot();
   }
 
@@ -171,9 +244,12 @@ export class Panel {
       this.el.hidden = true;
       return;
     }
-    const tabs: [PanelTab, string][] = [['tree', '제품']];
+    const tabs: [PanelTab, string][] = [
+      ['tree', '제품'],
+      ['props', '속성'],
+    ];
     if (d.layers.length) tabs.push(['layers', `레이어 ${d.layers.length}`]);
-    if (d.pmi.presentations.length || d.pmi.semantic.length) tabs.push(['pmi', 'PMI']);
+    if (d.pmi.presentations.length || d.pmi.semantic.length || d.pmi.views.length) tabs.push(['pmi', 'PMI']);
     tabs.push(['info', `정보${d.scene.warnings?.length ? ` (경고 ${d.scene.warnings.length})` : ''}`]);
     if (!tabs.some(([k]) => k === d.panelTab)) d.panelTab = 'tree';
     for (const [k, label] of tabs) {
@@ -199,6 +275,7 @@ export class Panel {
     if (d.panelTab === 'tree') this.renderTree(d);
     else if (d.panelTab === 'layers') this.renderLayers(d);
     else if (d.panelTab === 'pmi') this.renderPmi(d);
+    else if (d.panelTab === 'props') this.renderProps(d);
     else this.renderInfo(d);
     this.body.scrollTop = scroll;
     if (refocus) {
@@ -289,6 +366,7 @@ export class Panel {
       this.renderBody();
     });
     mk('모두 보이기', '숨긴 부품을 모두 다시 보입니다(레이어로 끈 것은 레이어 탭에서 켭니다)', () => this.host.showAll());
+    if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가는 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
 
     const list = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
     for (const r of rows) list.append(this.treeRow(d, r, counts));
@@ -308,6 +386,11 @@ export class Panel {
     }
     this.body.append(section('제품 나무', search, filterInfo, tools, list, more));
     if (!filtering) this.drawnExpanded = new Set(d.expanded);
+    this.interferenceEl = null;
+    if (d.interference) {
+      this.interferenceEl = this.interferenceSection(d);
+      this.body.append(this.interferenceEl);
+    }
 
     // 부품별(묶음): 같은 이름의 부품 자리를 한꺼번에 숨기고 보인다
     const groups = this.host.groups();
@@ -372,6 +455,12 @@ export class Panel {
       if (ev.detail === 2) this.host.fitKey(r.key);
       else if (ev.detail <= 1) this.host.selectKey(d.selKey === r.key ? null : r.key);
     });
+    // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
+    item.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      if (d.selKey !== r.key) this.host.selectKey(r.key);
+      this.host.openContextMenu(ev.clientX, ev.clientY);
+    });
     item.addEventListener('keydown', (ev) => {
       const refocus = () => (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
       const isSel = d.selKey === r.key;
@@ -398,6 +487,77 @@ export class Panel {
       }
     });
     return item;
+  }
+
+  // ───────────────────────── 속성 탭 ─────────────────────────
+
+  /** 속성을 보일 나무 마디 열쇠: 나무에서 고른 마디, 아니면 3D에서 고른 그물의 마디 */
+  private propsKey(d: StepDoc): string | null {
+    if (d.selKey) return d.selKey;
+    if (d.pick) return productKeyOf(d.products, d.pick.id);
+    return null;
+  }
+
+  private renderProps(d: StepDoc): void {
+    const key = this.propsKey(d);
+    const path = key ? nodePath(d.products, key) : [];
+    const node = path[path.length - 1];
+    if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.')));
+    else {
+      const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
+      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
+    }
+    this.body.append(this.physSection(d, node ? subtreeMeshIds(node) : null));
+  }
+
+  /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
+  private physSection(d: StepDoc, ids: string[] | null): HTMLElement {
+    const f = this.host.fmt;
+    const owner = meshNodes(d.products);
+    const pp = physProps(d.scene.meshes, ids ? new Set(ids) : null, {
+      faces: d.faces,
+      sceneMm: sceneMm(d.scene.units),
+      densityOf: (id) => owner.get(id)?.props?.density,
+      picked: d.density,
+    });
+    const u = f.unit ? ` ${f.unit}` : '';
+    const rows: HTMLElement[] = [];
+    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
+    if (pp.closed) r('부피', `≈ ${f.vol(pp.volume)}`);
+    r('겉넓이', `${pp.areaExact ? '' : '≈ '}${f.area(pp.area)}`);
+    if (pp.mass !== null) r('질량', `≈ ${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
+    if (pp.centroid) r('무게중심', `${f.pt(pp.centroid)}${u}`);
+    const b = pp.bounds;
+    if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
+    r('닫힌 입체 · 열린 그물', `${fmtCount(pp.closed)} · ${fmtCount(pp.open)}`);
+    const notes: (HTMLElement | null)[] = [];
+    if (!pp.closed) notes.push(h('p', { class: 'hint' }, '닫힌 입체가 없어 부피·질량·무게중심을 구하지 못했습니다(열린 면·얇은 판).'));
+    else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 그물(닫히지 않은 면)은 부피·질량에서 뺐습니다.'));
+    if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량을 보입니다.'));
+    else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
+    // 재질 고르기(파일에 밀도가 없는 부품에 쓴다)
+    const opts: [string, string][] = [['', '고르지 않음'], ...MATERIALS.map(([name, rho]): [string, string] => [String(rho), `${name} · ${f.num(rho / 1000, 2)} g/cm³`])];
+    const cur = d.density === null ? '' : MATERIALS.some(([, rho]) => rho === d.density) ? String(d.density) : 'custom';
+    if (cur === 'custom') opts.push(['custom', `${f.num(d.density! / 1000, 3)} g/cm³`]);
+    const pick = selectRow('재질(밀도가 없는 부품)', opts, cur, (v) => {
+      if (v !== 'custom') this.host.setDensity(v ? Number(v) : null);
+    });
+    // 밀도 직접 넣기(g/cm³)
+    const inp = h('input', { type: 'number', class: 'dlg-input', min: '0', step: '0.01', inputmode: 'decimal', 'aria-label': '밀도 직접 입력(g/cm³)', placeholder: 'g/cm³' }) as HTMLInputElement;
+    if (d.density !== null) inp.value = String(Number((d.density / 1000).toPrecision(6)));
+    inp.addEventListener('change', () => {
+      const g = Number(inp.value.replace(',', '.'));
+      this.host.setDensity(Number.isFinite(g) && g > 0 ? g * 1000 : null);
+    });
+    const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
+    return section(
+      ids ? '물리 속성' : '모형 전체 물리 속성',
+      ...rows,
+      ...notes,
+      pick,
+      custom,
+      h('p', { class: 'hint' }, '부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)이라 곡면이 있으면 조금 작게 나옵니다(보통 품질에서 많게는 1~2%, 표시 설정에서 곡면 품질을 높이면 줄어듭니다). 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.'),
+    );
   }
 
   // ───────────────────────── 레이어 탭 ─────────────────────────
@@ -492,7 +652,16 @@ export class Panel {
       const tbody = h('tbody');
       const LIMIT = 1000;
       for (const x of sem.slice(0, LIMIT)) {
-        tbody.append(h('tr', {}, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), h('td', { translate: 'no' }, x.name || '—'), h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
+        // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
+        const label = `PMI ${x.name || semanticLabel(x.type)}`;
+        const selected = d.items?.label === label;
+        let nameCell: HTMLElement;
+        if (x.faces?.length) {
+          const b = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, h('span', { translate: 'no' }, x.name || '—'));
+          b.addEventListener('click', () => (selected ? this.host.selectItems(null, label) : this.host.showPmiFaces(x.faces!, label)));
+          nameCell = h('td', {}, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
+        } else nameCell = h('td', { translate: 'no' }, x.name || '—');
+        tbody.append(h('tr', { class: selected ? 'sel' : '' }, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), nameCell, h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
       }
       this.body.append(
         section(
@@ -503,7 +672,17 @@ export class Panel {
         ),
       );
     }
-    if (!pres.length && !sem.length) this.body.append(h('p', { class: 'empty' }, '이 파일에는 PMI가 없습니다.'));
+    const views = d.pmi.views;
+    if (views.length) {
+      const list = h('div', { class: 'view-list' });
+      for (const v of views) {
+        const b = h('button', { type: 'button', class: 'btn small view-btn', title: `${v.projection === 'perspective' ? '원근' : '평행'} · ${v.pmiIds?.length ? `PMI ${v.pmiIds.length}개` : 'PMI 없음'}` }, icon('views', 14), h('span', { translate: 'no' }, v.name || `#${v.id}`));
+        b.addEventListener('click', () => this.host.applySavedView(v));
+        list.append(b);
+      }
+      this.body.append(section(`저장된 보기 ${fmtCount(views.length)}개`, list, h('p', { class: 'hint' }, '누르면 그 보기의 카메라로 옮기고 그 보기에 든 표현 PMI만 보입니다(PMI 모두 보이기로 되돌립니다).')));
+    }
+    if (!pres.length && !sem.length && !views.length) this.body.append(h('p', { class: 'empty' }, '이 파일에는 PMI가 없습니다.'));
   }
 
   // ───────────────────────── 정보 탭 ─────────────────────────
@@ -525,8 +704,9 @@ export class Panel {
       docRows.splice(2, 0, row('압축', `${kinds}${d.source.entry ? ` · ${d.source.entry}` : ''}`), row('푼 크기', `${formatBytes(d.source.size)} (압축 ${formatBytes(d.source.packedSize)})`));
     }
     if (b) {
-      docRows.push(row('범위 크기', `${fmtNum(b.max[0] - b.min[0])} × ${fmtNum(b.max[1] - b.min[1])} × ${fmtNum(b.max[2] - b.min[2])} ${u}`.trim()));
-      docRows.push(row('최소', fmtPt(b.min)), row('최대', fmtPt(b.max)));
+      const f = this.host.fmt;
+      docRows.push(row('범위 크기', `${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])} ${f.unit}`.trim()));
+      docRows.push(row('최소', f.pt(b.min)), row('최대', f.pt(b.max)));
     }
     docRows.push(row('삼각형', fmtCount(c.triangles), '놓인 자리를 모두 센 삼각형 수'));
     this.body.append(section('문서', ...docRows));
@@ -549,7 +729,8 @@ export class Panel {
       if (r.some(Boolean)) this.body.append(section('파일 머리', ...r));
     }
 
-    this.body.append(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름')));
+    const fu = this.host.fmt;
+    this.body.append(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름'), row('표시 단위', fu.unit || '—'), row('소수 자리', String(fu.decimals))));
 
     const st = info.stats;
     const statRows: HTMLElement[] = [];
@@ -591,7 +772,8 @@ export class Panel {
       return;
     }
     const lines: HTMLElement[] = [];
-    const u = unitLabel(d.scene.units);
+    const fm = this.host.fmt;
+    const u = fm.unit;
     const p = d.pick;
     const fitBtn = (): HTMLButtonElement => {
       const b = h('button', { type: 'button', class: 'btn small foot-fit', title: '고른 것으로 맞춰 보기' });
@@ -601,13 +783,17 @@ export class Panel {
     };
     if (p) {
       const node = d.selKey ? productAt(d.products, d.selKey) : null;
-      const item = p.kind === 'mesh' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
+      // 윤곽선(모서리) 고르기의 id는 그물 id
+      const item = p.kind === 'mesh' || p.kind === 'edge' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
       const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item?.name ?? p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
-      lines.push(h('div', { class: 'dim' }, `${p.section ? '단면(자른 면) 위 점' : '점'} ${fmtPt(p.point)} ${u}${p.normal ? ` · 법선 ${fmtPt(p.normal)}` : ''}`));
-      if (d.face) lines.push(...faceLines(d.face, u));
+      // 점·법선 조각을 따로 번역되게 나눈다
+      const at = `${p.section ? '단면(자른 면) 위 점' : p.kind === 'edge' ? '모서리 위 점' : '점'} ${fm.pt(p.point)} ${u}`.trim();
+      lines.push(h('div', { class: 'dim' }, h('span', {}, at), ...(p.normal ? [' · ', h('span', {}, `법선 ${fm.dir(p.normal)}`)] : [])));
+      if (d.face) lines.push(...faceLines(d.face, fm));
+      else if (d.edge) lines.push(...edgeLines(d.edge, fm));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
       if (node) {
@@ -617,29 +803,60 @@ export class Panel {
     } else if (d.items) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     }
-    if (d.measure) {
+    if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
+    else if (d.measure) {
       const m = d.measure;
-      lines.push(h('div', {}, h('b', {}, '거리 '), `${fmtNum(m.distance)} ${u}`, h('span', { class: 'dim' }, ` · dx ${fmtNum(m.dx)} · dy ${fmtNum(m.dy)} · dz ${fmtNum(m.dz)}`)));
+      lines.push(h('div', {}, h('b', {}, '거리 '), fm.len(m.distance), h('span', { class: 'dim' }, ` · dx ${fm.lenNum(m.dx)} · dy ${fm.lenNum(m.dy)} · dz ${fm.lenNum(m.dz)}`)));
     } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, panelMeasureHint(this.host.touch)));
     f.hidden = !lines.length;
     f.append(...lines);
   }
 }
 
+/** 개체 측정 줄: 누른 개체(A·B — 이름과 주요 치수)와 결과(이름표 값), 아직이면 안내 */
+function entityLines(d: StepDoc, f: Fmt, touch: boolean): HTMLElement[] {
+  const { picks, result } = d.ent;
+  const out: HTMLElement[] = [];
+  picks.forEach((p, i) => {
+    const main = p.face ? faceSummary(p.face, f).main : p.edge && p.what === 'edge' ? edgeSummary(p.edge, f).main : null;
+    out.push(h('div', { class: 'foot-face' }, h('b', {}, i ? 'B ' : 'A '), h('span', {}, p.title), main ? h('span', { class: 'dim' }, ` ${main}`) : null));
+  });
+  if (result) for (const l of result.lines) out.push(h('div', {}, h('b', {}, l.label), ` ${lineValue(l, f)}`));
+  else out.push(h('div', { class: 'dim' }, entityHint(picks.length, touch)));
+  return out;
+}
+
+/** 고른 모서리 정보 줄: 종류·STEP 번호, 길이(곡선 적분)·지름·반지름·중심·축·호 각, 두 끝점 */
+function edgeLines(ep: EdgePick, f: Fmt): HTMLElement[] {
+  const out: HTMLElement[] = [h('div', { class: 'foot-face' }, h('b', {}, '고른 모서리 '), edgeTitle(ep), h('span', { class: 'dim' }, ` · #${ep.stepId} · 선분 ${fmtCount(ep.segCount)}`))];
+  const geo: string[] = [`길이 ${f.len(ep.length)}`];
+  if (ep.radius !== undefined) {
+    if (ep.kind === 'circle') geo.push(`반지름 ${f.len(ep.radius)}`, `지름 ${f.len(ep.radius * 2)}`);
+    else geo.push(`긴 반지름 ${f.len(ep.radius)}`);
+  }
+  if (ep.minorRadius !== undefined) geo.push(`짧은 반지름 ${f.len(ep.minorRadius)}`);
+  if (ep.kind === 'circle' && !isFullCircle(ep) && ep.sweepDeg !== undefined) geo.push(`호 각 ${f.deg(ep.sweepDeg)}`);
+  if (ep.center) geo.push(`중심 ${f.pt(ep.center)}`);
+  if (ep.axis) geo.push(`축 ${f.dir(ep.axis)}`);
+  out.push(h('div', { class: 'dim' }, ...geo.flatMap((g, i) => (i ? [' · ', h('span', {}, g)] : [h('span', {}, g)]))));
+  if (!isFullCircle(ep)) out.push(h('div', { class: 'dim' }, h('span', {}, `시작 ${f.pt(ep.ends[0])}`), ' · ', h('span', {}, `끝 ${f.pt(ep.ends[1])}`)));
+  return out;
+}
+
 /** 고른 면 정보 줄 */
-function faceLines(fp: FacePick, u: string): HTMLElement[] {
-  const unit = u ? ` ${u}` : '';
-  const area = u ? ` ${u}²` : '';
+function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   const out: HTMLElement[] = [h('div', { class: 'foot-face' }, h('b', {}, '고른 면 '), faceKindLabel(fp.kind), h('span', { class: 'dim' }, ` · #${fp.stepId} · 삼각형 ${fmtCount(fp.triangles)}`))];
   const geo: string[] = [];
-  if (fp.radius !== undefined) geo.push(`${fp.kind === 'torus' ? '큰 반지름' : '반지름'} ${fmtNum(fp.radius)}${unit}`);
-  if (fp.minorRadius !== undefined) geo.push(`작은 반지름 ${fmtNum(fp.minorRadius)}${unit}`);
-  if (fp.halfAngleDeg !== undefined) geo.push(`반각 ${fmtNum(fp.halfAngleDeg)}°`);
-  if (fp.radius !== undefined && (fp.kind === 'cylinder' || fp.kind === 'sphere')) geo.push(`지름 ${fmtNum(fp.radius * 2)}${unit}`);
-  if (fp.normal) geo.push(`법선 ${fmtPt(fp.normal)}`);
-  if (fp.axis) geo.push(`축 ${fmtPt(fp.axis)}`);
-  if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${fmtPt(fp.origin)}`);
-  if (geo.length) out.push(h('div', { class: 'dim' }, geo.join(' · ')));
-  out.push(h('div', { class: 'dim' }, `넓이 ${fmtNum(fp.area)}${area} · 둘레 ${fmtNum(fp.perimeter)}${unit}`));
+  if (fp.radius !== undefined) geo.push(`${fp.kind === 'torus' ? '큰 반지름' : '반지름'} ${f.len(fp.radius)}`);
+  if (fp.minorRadius !== undefined) geo.push(`작은 반지름 ${f.len(fp.minorRadius)}`);
+  if (fp.halfAngleDeg !== undefined) geo.push(`반각 ${f.deg(fp.halfAngleDeg)}`);
+  if (fp.radius !== undefined && (fp.kind === 'cylinder' || fp.kind === 'sphere')) geo.push(`지름 ${f.len(fp.radius * 2)}`);
+  if (fp.normal) geo.push(`법선 ${f.dir(fp.normal)}`);
+  if (fp.axis) geo.push(`축 ${f.dir(fp.axis)}`);
+  if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${f.pt(fp.origin)}`);
+  // 조각마다 따로 번역되게(반지름 …·지름 …·축 …) 글 마디를 나눈다
+  if (geo.length) out.push(h('div', { class: 'dim' }, ...geo.flatMap((g, i) => (i ? [' · ', h('span', {}, g)] : [h('span', {}, g)]))));
+  const approx = fp.exact ? '' : '≈ ';
+  out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${f.area(fp.area)} · 둘레 ${approx}${f.len(fp.perimeter)}`));
   return out;
 }

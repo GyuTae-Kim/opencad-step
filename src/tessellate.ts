@@ -11,7 +11,7 @@
 import earcut, { deviation, refine as lawson } from 'earcut';
 import type { Tol } from './curves';
 import { cross, dist, dot, len, normalize, scale, sub, type V3 } from './math';
-import type { Surface } from './surfaces';
+import { ConeSurface, CylinderSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
 
 /** 면 하나의 삼각형 그물(정점은 면마다 따로) */
 export interface MeshOut {
@@ -841,7 +841,88 @@ export function faceDomain(s: Surface, loops: V3[][], sameSense: boolean, tol: T
  * @param sameSense 면 법선이 곡면 법선과 같은 방향인지
  * @param eps 같은 점으로 볼 거리
  */
-export function tessellateFace(s: Surface, loops: V3[][], sameSense: boolean, tol: Tol, eps: number, out: MeshOut, maxTris = 400_000): FaceResult {
+/** 해석적 곡면(넓이를 매개변수 영역 적분으로 구할 곡면) */
+const QUADRATURE_KINDS = new Set(['cylinder', 'cone', 'sphere', 'torus']);
+
+/**
+ * 매개변수 삼각형들의 곡면 넓이 ∬|Su×Sv| du dv. 매개변수 영역의 경계가 등매개선(원·모선)이면 영역도 정확하다.
+ * 네 해석적 곡면은 틀이 직교라 넓이 요소가 v만의 함수다(곡면 미분을 부르지 않고 바로 센다 — 면 표를 켜 둔 해석이 느려지지 않게):
+ * - 원기둥 |r| — 넓이 = |r| × 매개변수 다각형 넓이(정확)
+ * - 원뿔 |r + v·tanα|·√(1 + tan²α) — v에 일차라 삼각형 무게중심 한 점으로 정확
+ * - 구 r²·|cos v|, 원환 |r|·|R + r·cos v| — 삼각형마다 3점 공식(2차 정확, 화면용 삼각형보다 훨씬 작은 오차)
+ * 그 밖의 곡면은 미분으로 같은 3점 공식을 쓴다.
+ */
+export function uvArea(s: Surface, u: readonly number[], v: readonly number[], tris: readonly number[]): number {
+  const A = 2 / 3;
+  const B = 1 / 6;
+  let total = 0;
+  if (s instanceof CylinderSurface || s instanceof ConeSurface || s instanceof SphereSurface || s instanceof TorusSurface) {
+    // 원기둥은 매개변수 넓이 합, 원뿔은 무게중심 v의 반지름으로 무게를 준 합
+    if (s instanceof CylinderSurface || s instanceof ConeSurface) {
+      const t = s instanceof ConeSurface ? s.t : 0;
+      for (let i = 0; i + 2 < tris.length; i += 3) {
+        const a = tris[i]!;
+        const b = tris[i + 1]!;
+        const c = tris[i + 2]!;
+        const jac = Math.abs((u[b]! - u[a]!) * (v[c]! - v[a]!) - (u[c]! - u[a]!) * (v[b]! - v[a]!)) / 2;
+        if (!(jac > 0)) continue;
+        total += t === 0 ? jac : jac * Math.abs(s.r + (t * (v[a]! + v[b]! + v[c]!)) / 3);
+      }
+      return t === 0 ? total * Math.abs(s.r) : total * Math.sqrt(1 + t * t);
+    }
+    // 구: g(v) = r²|cos v|, 원환: g(v) = |r|·|R + r cos v|
+    const sph = s instanceof SphereSurface;
+    const k0 = sph ? 0 : s.R;
+    const k1 = s.r;
+    for (let i = 0; i + 2 < tris.length; i += 3) {
+      const a = tris[i]!;
+      const b = tris[i + 1]!;
+      const c = tris[i + 2]!;
+      const va = v[a]!;
+      const vb = v[b]!;
+      const vc = v[c]!;
+      const jac = Math.abs((u[b]! - u[a]!) * (vc - va) - (u[c]! - u[a]!) * (vb - va)) / 2;
+      if (!(jac > 0)) continue;
+      const g = Math.abs(k0 + k1 * Math.cos(A * va + B * vb + B * vc)) + Math.abs(k0 + k1 * Math.cos(B * va + A * vb + B * vc)) + Math.abs(k0 + k1 * Math.cos(B * va + B * vb + A * vc));
+      total += (jac * g) / 3;
+    }
+    return total * Math.abs(s.r);
+  }
+  for (let t = 0; t + 2 < tris.length; t += 3) {
+    const a = tris[t]!;
+    const b = tris[t + 1]!;
+    const c = tris[t + 2]!;
+    const du1 = u[b]! - u[a]!;
+    const dv1 = v[b]! - v[a]!;
+    const du2 = u[c]! - u[a]!;
+    const dv2 = v[c]! - v[a]!;
+    const jac = Math.abs(du1 * dv2 - du2 * dv1) / 2;
+    if (!(jac > 0)) continue;
+    let g = 0;
+    for (const [wa, wb, wc] of [
+      [A, B, B],
+      [B, A, B],
+      [B, B, A],
+    ] as const) {
+      const [, su, sv] = s.derivs(wa * u[a]! + wb * u[b]! + wc * u[c]!, wa * v[a]! + wb * v[b]! + wc * v[c]!);
+      g += len(cross(su, sv));
+    }
+    total += (jac * g) / 3;
+  }
+  return total;
+}
+
+export function tessellateFace(
+  s: Surface,
+  loops: V3[][],
+  sameSense: boolean,
+  tol: Tol,
+  eps: number,
+  out: MeshOut,
+  maxTris = 400_000,
+  /** 넓이 누적(해석적 곡면만 — 매개변수 영역 적분) */
+  acc?: { area: number },
+): FaceResult {
   const polys = faceDomain(s, loops, sameSense, tol, eps);
   if (typeof polys === 'string') return { triangles: 0, error: polys };
 
@@ -880,6 +961,7 @@ export function tessellateFace(s: Surface, loops: V3[][], sameSense: boolean, to
       lawson(tris, vs.xy, 2);
       tris = refineMesh(vs, tris, tol, maxTris);
     }
+    if (acc && QUADRATURE_KINDS.has(s.kind)) acc.area += uvArea(s, vs.u, vs.v, tris);
     total += emit(vs, tris, sameSense, out);
   }
   return { triangles: total };

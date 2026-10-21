@@ -24,7 +24,7 @@ function parse(req: ParseRequest): Promise<ParseResult> {
     lastStage = stage;
     post({ id, type: 'progress', fraction: Math.max(0, Math.min(1, fraction)), stage });
   };
-  return parseStepFile(req.name, req.bytes, progress);
+  return parseStepFile(req.name, req.bytes, progress, req.options);
 }
 
 ctx.onmessage = async (ev: MessageEvent<ParseRequest>) => {

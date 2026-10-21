@@ -7,7 +7,7 @@ import { clampPanelWidth, clampSheetHeight } from '../../src/app/resize';
 import { sampleStepBytes } from '../../src/app/sample';
 import { filterRows, nodeMatches, visibleRows } from '../../src/app/tree';
 import { NO_LAYER, Visibility } from '../../src/app/visibility';
-import { cube, cylinder, StepText } from '../stepText';
+import { cone, cube, cylinder, plateWithHole, sphere, StepText, torus } from '../stepText';
 
 const N = (name: string, meshIds: string[] = [], children: ProductNode[] = [], instance?: string): ProductNode => ({
   name,
@@ -112,29 +112,36 @@ describe('문서 meta 읽기(레이어·PMI·면 표·선 묶음)', () => {
   // 워커가 넘기는 것처럼 구조적 복제를 거친다
   const copy = structuredClone(scene) as Scene3d;
 
-  it('예제: 레이어 셋, PMI(표현 2·의미 4), 면 표', () => {
+  it('예제: 레이어 셋, PMI(표현 3 — 글 주석 포함·의미 4·저장된 보기 1), 면 표', () => {
     const layers = stepLayers(copy);
     expect(layers.map((l) => [l.name, l.itemIds.length, l.visible])).toEqual([
       ['본체', 3, true],
       ['체결 부품', 2, true],
-      ['PMI 주석', 2, true],
+      ['PMI 주석', 3, true],
     ]);
     const pmi = stepPmi(copy);
-    expect(pmi.presentations.map((p) => p.plane)).toEqual(['바닥 평면', '윗면']);
+    expect(pmi.presentations.map((p) => p.plane)).toEqual(['바닥 평면', '윗면', '윗면']);
     expect(pmi.semantic.map((x) => x.value)).toEqual(['20 mm ±0.1', '4 mm +0.05/0', '0.02 mm', 'A']);
+    // 의미 PMI → 면(폭: 좌우 두 면, 구멍: 벽, 평면도: 윗면, 데이텀 A: 바닥)
+    expect(pmi.semantic.map((x) => x.faces?.length ?? 0)).toEqual([2, 1, 1, 1]);
+    expect(pmi.views.map((v) => [v.name, v.projection])).toEqual([['윗면 보기', 'orthographic']]);
+    expect(pmi.views[0]!.dir).toEqual([0, 0, 1]);
+    expect(pmi.views[0]!.target).toEqual([10, 5, 2]);
+    expect(pmi.views[0]!.height).toBe(14);
+    expect(pmi.views[0]!.pmiIds).toHaveLength(3);
     const fx = stepFaceIndex(copy)!;
     expect(fx.tableOf.size).toBe(5);
     expect(fx.tableOf.get(copy.meshes[1]!.id)).toBe(fx.tableOf.get(copy.meshes[2]!.id));
     const d = createDoc('s.stp', 10, { scene: copy, ms: 1 });
     expect(d.layers).toHaveLength(3);
-    expect(d.vis.pmiIds.size).toBe(2);
+    expect(d.vis.pmiIds.size).toBe(3);
     expect(d.faces).not.toBeNull();
   });
 
   it('꼴이 틀리면 빈 값', () => {
     const bad: Scene3d = { name: 'x', units: 'mm', meshes: [], lines: [], meta: { layers: 3, pmi: 'no', faceTables: [{}], faceKinds: [], meshFaceTable: new Int32Array(0) } };
     expect(stepLayers(bad)).toEqual([]);
-    expect(stepPmi(bad)).toEqual({ presentations: [], semantic: [] });
+    expect(stepPmi(bad)).toEqual({ presentations: [], semantic: [], views: [] });
     expect(stepFaceIndex(bad)).toBeNull();
   });
 
@@ -242,4 +249,67 @@ describe('면 고르기', () => {
     expect(top.normal).toEqual([0, 0, 1]);
     expect(top.perimeter).toBeCloseTo(2 * Math.PI * 2, 1);
   });
+
+  it('B-rep 넓이·둘레: 화면용 삼각형이 아니라 곡면·곡선에서 정확히(소수 6자리)', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    w.product('cyl', [cylinder(w, 1.6, 7)], ctx);
+    const s = stepToScene(w.bytes());
+    const fx = stepFaceIndex(s)!;
+    const mesh = s.meshes[0]!;
+    const table = fx.tables[0]!;
+    const side = faceDetails(mesh, table, 2, fx.kinds)!;
+    expect(side.exact).toBe(true);
+    expect(side.area).toBeCloseTo(2 * Math.PI * 1.6 * 7, 6);
+    expect(side.perimeter).toBeCloseTo(2 * 2 * Math.PI * 1.6, 6);
+    const cap = faceDetails(mesh, table, 1, fx.kinds)!;
+    expect(cap.exact).toBe(true);
+    expect(cap.area).toBeCloseTo(Math.PI * 1.6 * 1.6, 6);
+    expect(cap.perimeter).toBeCloseTo(2 * Math.PI * 1.6, 6);
+  });
+
+  it('구멍 뚫린 판(평면: 그린 적분 |바깥| − |구멍|), 구·원뿔·원환 넓이', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    w.product('plate', [plateWithHole(w)], ctx);
+    const s = stepToScene(w.bytes());
+    const fx = stepFaceIndex(s)!;
+    const table = fx.tables[0]!;
+    const mesh = s.meshes[0]!;
+    // 윗면(둘째 면): 20×10 − π·2²
+    const top = faceDetails(mesh, table, 1, fx.kinds)!;
+    expect(top.exact).toBe(true);
+    expect(top.area).toBeCloseTo(200 - Math.PI * 4, 6);
+    expect(top.perimeter).toBeCloseTo(60 + 2 * Math.PI * 2, 6);
+    // 구멍 벽(원기둥): 2π·2·2
+    const wall = faceDetails(mesh, table, 6, fx.kinds)!;
+    expect(wall.area).toBeCloseTo(2 * Math.PI * 2 * 2, 6);
+
+    const area = (build: (w: StepText) => number, face: number) => {
+      const v = new StepText();
+      v.product('x', [build(v)], v.context());
+      const sc = stepToScene(v.bytes());
+      const f = stepFaceIndex(sc)!;
+      return faceDetails(sc.meshes[0]!, f.tables[0]!, face, f.kinds)!;
+    };
+    const sp = area((v) => sphere(v, 3), 0);
+    expect(sp.area).toBeCloseTo(4 * Math.PI * 9, 3);
+    const co = area((v) => cone(v, 3, 4), 1);
+    expect(co.area).toBeCloseTo(Math.PI * 3 * 5, 4);
+    const to = area((v) => torus(v, 5, 1), 0);
+    expect(to.area).toBeCloseTo(4 * Math.PI * Math.PI * 5 * 1, 3);
+  });
+
+  it('면 표 넓이·둘레는 단위 배율과 자리 변환 배율을 따른다(인치 → mm)', () => {
+    const w = new StepText();
+    const ctx = w.context('inch');
+    w.product('cyl', [cylinder(w, 1, 2)], ctx);
+    const s = stepToScene(w.bytes());
+    const fx = stepFaceIndex(s)!;
+    const side = faceDetails(s.meshes[0]!, fx.tables[0]!, 2, fx.kinds)!;
+    // 장면 단위가 인치면 그대로 인치
+    expect(s.units).toBe('inch');
+    expect(side.area).toBeCloseTo(2 * Math.PI * 1 * 2, 6);
+  });
 });
+

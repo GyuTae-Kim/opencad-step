@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName } from '../../src/app/files';
+import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName, withoutOnceParams } from '../../src/app/files';
 import { fmtCount, fmtNum, fmtPercent, fmtPt, formatBytes, formatMs, stageLabel } from '../../src/app/format';
 import { VIEW_KEYS } from 'opencad-viewer3d';
-import { isTextTarget, routeKey, VIEW_MENU, viewKeyOf } from '../../src/app/keys';
+import { controlOf, isTextTarget, routeKey, VIEW_MENU, viewKeyOf } from '../../src/app/keys';
 import { readStoredTheme, resolveTheme, THEME_KEY, writeStoredTheme } from '../../src/app/theme';
 
 describe('크기·시간·수 글', () => {
@@ -71,14 +71,18 @@ describe('파일 이름·주소 인자', () => {
 
   it('parseStartQuery: ?sample, 같은 출처 ?open만', () => {
     const page = 'https://gyutae-kim.github.io/opencad-step/?open=x';
-    expect(parseStartQuery('?sample', page)).toEqual({ open: null, openError: null, sample: true });
+    expect(parseStartQuery('?sample', page)).toEqual({ open: null, openError: null, sample: true, recent: null, shareError: null });
     expect(parseStartQuery('?open=models/a.stp', page).open).toBe('https://gyutae-kim.github.io/opencad-step/models/a.stp');
     expect(parseStartQuery('?open=/x/b.step', page).open).toBe('https://gyutae-kim.github.io/x/b.step');
     const bad = parseStartQuery('?open=https://evil.example/a.stp', page);
     expect(bad.open).toBeNull();
     expect(bad.openError).toMatch(/같은 사이트/);
     expect(parseStartQuery('?open=javascript:alert(1)', page).open).toBeNull();
-    expect(parseStartQuery('?open=', page)).toEqual({ open: null, openError: null, sample: false });
+    expect(parseStartQuery('?open=', page)).toEqual({ open: null, openError: null, sample: false, recent: null, shareError: null });
+    // 공유 받기(서비스 워커가 보낸 한 번짜리 인자)
+    expect(parseStartQuery('?recent=a.stp%3A12', page).recent).toBe('a.stp:12');
+    expect(parseStartQuery('?share-error=too-big', page).shareError).toBe('too-big');
+    expect(withoutOnceParams('https://x.test/app/?recent=a&sample&share-error=x#view=sel:0')).toBe('/app/?sample=#view=sel:0');
     expect(sameOriginUrl('//gyutae-kim.github.io/a.stp', page)).toBe('https://gyutae-kim.github.io/a.stp');
     expect(sameOriginUrl('a.stp', 'not a url')).toBeNull();
   });
@@ -110,6 +114,23 @@ describe('키 규칙', () => {
     expect(routeKey({ key: 'O', meta: true })).toBe('open');
     expect(routeKey({ key: 'o', ctrl: true, alt: true })).toBeNull();
     expect(routeKey({ key: 'o', ctrl: true, inText: true })).toBeNull();
+  });
+
+  it('routeKey: 밀대·라디오에 초점이 있으면 그 칸이 쓰는 키(Home·End·Page·화살표)는 뷰어·홈 뷰로 보내지 않는다', () => {
+    for (const key of ['Home', 'End', 'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(routeKey({ key, hasDoc: true, control: 'range' })).toBeNull();
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(routeKey({ key, hasDoc: true, control: 'radio' })).toBeNull();
+    expect(routeKey({ key: 'Home', hasDoc: true, control: 'radio' })).toBe('home');
+    expect(routeKey({ key: 'Home', hasDoc: true })).toBe('home');
+    expect(routeKey({ key: 'ArrowLeft', hasDoc: true })).toBe('viewer');
+    // 다른 키는 그대로(밀대에서 H·Esc 등)
+    expect(routeKey({ key: 'h', hasDoc: true, control: 'range' })).toBe('hide');
+    expect(routeKey({ key: 'Escape', hasDoc: true, control: 'range' })).toBe('escape');
+    const el = (tagName: string, type?: string) => ({ tagName, type }) as unknown as EventTarget;
+    expect(controlOf(el('INPUT', 'range'))).toBe('range');
+    expect(controlOf(el('INPUT', 'RADIO'))).toBe('radio');
+    expect(controlOf(el('INPUT', 'checkbox'))).toBeNull();
+    expect(controlOf(el('BUTTON'))).toBeNull();
+    expect(controlOf(null)).toBeNull();
   });
 
   it('isTextTarget', () => {

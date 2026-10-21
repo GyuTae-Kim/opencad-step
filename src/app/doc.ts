@@ -2,16 +2,21 @@
  * 열린 STEP 문서의 상태와 장면 meta(StepMeta) 읽기(순수, DOM 없음).
  * 워커에서 넘어온 meta는 구조적 복제를 거친 자료이므로 꼴을 하나씩 확인하며 읽는다.
  */
-import type { MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
+import type { CameraState, MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
-import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode } from '../scene';
+import type { StepProductProps } from '../props';
+import type { StepEdgeTable, StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
+import type { MeasureRecord } from './export';
+import type { InterferenceResult } from './interference';
+import type { EdgePick } from './edges';
+import type { Picked, PickedMeasure } from './entpick';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
 import { Visibility } from './visibility';
 
 export type ProductNode = StepProductNode;
-export type PanelTab = 'tree' | 'layers' | 'pmi' | 'info';
+export type PanelTab = 'tree' | 'props' | 'layers' | 'pmi' | 'info';
 
 /** 화면용 레이어(meta.layers) */
 export interface DocLayer {
@@ -27,12 +32,22 @@ export interface DocLayer {
 export interface DocPmi {
   presentations: StepPmiPresentation[];
   semantic: StepPmiSemantic[];
+  /** 저장된 보기 */
+  views: StepSavedView[];
 }
 
 /** 면 고르기용 표(meta.faceKinds·faceTables·meshFaceTable) */
 export interface FaceIndex {
   kinds: readonly string[];
   tables: StepFaceTable[];
+  /** 그물 id → 표 번호 */
+  tableOf: Map<string, number>;
+}
+
+/** 모서리 고르기용 표(meta.edgeKinds·edgeTables·meshEdgeTable) */
+export interface EdgeIndex {
+  kinds: readonly string[];
+  tables: StepEdgeTable[];
   /** 그물 id → 표 번호 */
   tableOf: Map<string, number>;
 }
@@ -80,18 +95,40 @@ export interface StepDoc {
   readonly pmi: DocPmi;
   /** 면 표(없으면 null — 면 고르기를 못 한다) */
   readonly faces: FaceIndex | null;
+  /** 모서리 표(없으면 null — 모서리 고르기를 못 한다) */
+  readonly edges: EdgeIndex | null;
   /** 압축을 풀어 열었으면 그 내력 */
   readonly source: ParseSource | null;
   /** 보이기 상태(나무 눈 단추·레이어·PMI) */
   readonly vis: Visibility;
   /** 3D에서 고른 면 */
   face: FacePick | null;
+  /** 3D에서 고른 모서리(면 고르기 중 모서리 가까이 눌렀을 때) */
+  edge: EdgePick | null;
+  /** 개체 측정: 누른 개체(0~2)와 두 개 사이 결과 */
+  ent: { picks: Picked[]; result: PickedMeasure | null };
   /** 레이어·PMI 목록에서 고른 항목 */
   items: ItemSelection | null;
   /** 제품 나무 이름 거르기 */
   treeFilter: string;
   /** 제품 나무에 그리는 최대 줄 수 */
   treeLimit: number;
+  /** 파일에 밀도가 없는 부품에 쓸 고른 재질 밀도(kg/m³), 안 골랐으면 null */
+  density: number | null;
+  /** 격리(이것만 보기·나머지 흐리게)한 것의 이름(격리 띠) */
+  isoLabel?: string;
+  /** 격리의 "나머지 흐리게": 초점 항목(그 밖은 흐리고 고를 수 없다), 아니면 null */
+  dim: Set<string> | null;
+  /** 부품별 불투명도(그물·선 id → 0~1) */
+  opacity: Map<string, number>;
+  /** 분해 보기 0~1(0 = 제자리) */
+  explode: number;
+  /** 홈 뷰(처음 맞춘 보기 또는 "지금 보기를 홈으로") */
+  home?: CameraState;
+  /** 측정 기록(거리·고른 면 — CSV 복사용) */
+  measureLog: MeasureRecord[];
+  /** 간섭 검사 상태·결과(돌린 적이 없으면 없음) */
+  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string };
 }
 
 /** 제품 나무 기본 줄 수 제한 */
@@ -120,12 +157,20 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     layers,
     pmi,
     faces: stepFaceIndex(res.scene),
+    edges: stepEdgeIndex(res.scene),
     source: res.source ?? null,
     vis: createVisibility(layers, pmi),
     face: null,
+    edge: null,
+    ent: { picks: [], result: null },
     items: null,
     treeFilter: '',
     treeLimit: TREE_LIMIT,
+    density: null,
+    dim: null,
+    opacity: new Map(),
+    explode: 0,
+    measureLog: [],
   };
 }
 
@@ -171,6 +216,9 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
     };
     if (typeof o.instance === 'string' && o.instance) node.instance = o.instance;
     if (Array.isArray(o.lineIds) && o.lineIds.length) node.lineIds = (o.lineIds as unknown[]).map(String);
+    const props = readProps(o.props);
+    if (props) node.props = props;
+    if (Array.isArray(o.matrix) && o.matrix.length === 16 && o.matrix.every((v) => typeof v === 'number' && Number.isFinite(v))) node.matrix = o.matrix as number[];
     if (Array.isArray(o.children))
       for (const c of o.children) {
         const n = read(c, depth + 1);
@@ -182,6 +230,20 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
 }
 
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : []);
+
+/** 제품 속성(meta.products[].props)을 꼴을 보며 읽는다 */
+function readProps(v: unknown): StepProductProps | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const out: StepProductProps = {};
+  for (const k of ['description', 'version', 'definition', 'material', 'densityText'] as const) if (typeof o[k] === 'string' && o[k]) out[k] = o[k] as string;
+  if (typeof o.density === 'number' && o.density > 0 && Number.isFinite(o.density)) out.density = o.density;
+  if (Array.isArray(o.items)) {
+    const items = o.items.filter((x): x is [string, string] => Array.isArray(x) && x.length === 2).map(([a, b]) => [String(a), String(b)] as [string, string]);
+    if (items.length) out.items = items;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 /** meta.layers를 안전하게 읽는다 */
 export function stepLayers(scene: Scene3d): DocLayer[] {
@@ -200,7 +262,7 @@ export function stepLayers(scene: Scene3d): DocLayer[] {
 /** meta.pmi를 안전하게 읽는다 */
 export function stepPmi(scene: Scene3d): DocPmi {
   const p = (scene.meta as { pmi?: unknown } | undefined)?.pmi as Record<string, unknown> | undefined;
-  if (!p || typeof p !== 'object') return { presentations: [], semantic: [] };
+  if (!p || typeof p !== 'object') return { presentations: [], semantic: [], views: [] };
   const rec = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
   const presentations: StepPmiPresentation[] = rec(p.presentations).map((x) => {
     const o: StepPmiPresentation = { id: String(x.id ?? ''), name: String(x.name ?? ''), type: String(x.type ?? ''), stepId: Number(x.stepId) || 0 };
@@ -208,14 +270,38 @@ export function stepPmi(scene: Scene3d): DocPmi {
     if (typeof x.model === 'string' && x.model) o.model = x.model;
     return o;
   });
-  const semantic: StepPmiSemantic[] = rec(p.semantic).map((x) => ({
-    kind: x.kind === 'tolerance' || x.kind === 'datum' ? x.kind : 'dimension',
-    type: String(x.type ?? ''),
-    name: String(x.name ?? ''),
-    value: String(x.value ?? ''),
-    stepId: Number(x.stepId) || 0,
-  }));
-  return { presentations, semantic };
+  const semantic: StepPmiSemantic[] = rec(p.semantic).map((x) => {
+    const o: StepPmiSemantic = {
+      kind: x.kind === 'tolerance' || x.kind === 'datum' ? x.kind : 'dimension',
+      type: String(x.type ?? ''),
+      name: String(x.name ?? ''),
+      value: String(x.value ?? ''),
+      stepId: Number(x.stepId) || 0,
+    };
+    if (Array.isArray(x.faces) && x.faces.length) o.faces = x.faces.map(Number).filter((n) => n > 0);
+    return o;
+  });
+  const v3 = (v: unknown): [number, number, number] | null => (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? (v as [number, number, number]) : null);
+  const views: StepSavedView[] = [];
+  for (const x of rec(p.views)) {
+    const target = v3(x.target);
+    const dir = v3(x.dir);
+    const up = v3(x.up);
+    if (!target || !dir || !up) continue;
+    const view: StepSavedView = {
+      id: Number(x.id) || 0,
+      name: String(x.name ?? ''),
+      target,
+      dir,
+      up,
+      distance: Number(x.distance) || 0,
+      projection: x.projection === 'perspective' ? 'perspective' : 'orthographic',
+      height: Number(x.height) || 0,
+    };
+    if (Array.isArray(x.pmiIds) && x.pmiIds.length) view.pmiIds = x.pmiIds.map(String);
+    views.push(view);
+  }
+  return { presentations, semantic, views };
 }
 
 /** meta의 면 표를 읽는다(꼴이 맞지 않으면 null) */
@@ -226,7 +312,24 @@ export function stepFaceIndex(scene: Scene3d): FaceIndex | null {
   const mt = m.meshFaceTable;
   if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
   const ok = (t: unknown): t is StepFaceTable =>
-    !!t && typeof t === 'object' && (t as StepFaceTable).triStart instanceof Uint32Array && (t as StepFaceTable).kinds instanceof Uint8Array && (t as StepFaceTable).params instanceof Float32Array && (t as StepFaceTable).stepIds instanceof Uint32Array;
+    !!t && typeof t === 'object' && (t as StepFaceTable).triStart instanceof Uint32Array && (t as StepFaceTable).kinds instanceof Uint8Array && (t as StepFaceTable).params instanceof Float64Array && (t as StepFaceTable).stepIds instanceof Uint32Array;
+  if (!tables.every(ok)) return null;
+  const tableOf = new Map<string, number>();
+  scene.meshes.forEach((mesh, i) => {
+    const t = mt[i] ?? -1;
+    if (t >= 0 && t < tables.length) tableOf.set(mesh.id, t);
+  });
+  return { kinds: kinds.map(String), tables, tableOf };
+}
+/** meta의 모서리 표를 읽는다(꼴이 맞지 않으면 null) */
+export function stepEdgeIndex(scene: Scene3d): EdgeIndex | null {
+  const m = (scene.meta ?? {}) as Record<string, unknown>;
+  const kinds = m.edgeKinds;
+  const tables = m.edgeTables;
+  const mt = m.meshEdgeTable;
+  if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
+  const ok = (t: unknown): t is StepEdgeTable =>
+    !!t && typeof t === 'object' && (t as StepEdgeTable).segStart instanceof Uint32Array && (t as StepEdgeTable).kinds instanceof Uint8Array && (t as StepEdgeTable).params instanceof Float64Array && (t as StepEdgeTable).length instanceof Float64Array;
   if (!tables.every(ok)) return null;
   const tableOf = new Map<string, number>();
   scene.meshes.forEach((mesh, i) => {
@@ -365,7 +468,8 @@ export function productAt(nodes: readonly ProductNode[], key: string): ProductNo
 export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'>): string[] {
   const node = d.selKey ? productAt(d.products, d.selKey) : null;
   if (node) return subtreeMeshIds(node);
-  return d.pick?.kind === 'mesh' ? [d.pick.id] : [];
+  // 윤곽선(모서리)을 골랐어도 그 그물
+  return d.pick?.kind === 'mesh' || d.pick?.kind === 'edge' ? [d.pick.id] : [];
 }
 
 /**
@@ -432,3 +536,27 @@ export function docStatus(d: StepDoc): StatusItem[] {
   });
   return items;
 }
+
+/** 다시 삼각화한 문서에 앞 문서의 상태(펼침·고르기·보이기·격리·밀도·홈 뷰·측정 기록·패널 탭)를 옮긴다 — 그물 id·나무 열쇠는 해석 순서가 같아 그대로다 */
+export function carryDocState(from: StepDoc, to: StepDoc): void {
+  to.expanded = new Set(from.expanded);
+  to.selKey = from.selKey && productAt(to.products, from.selKey) ? from.selKey : null;
+  to.panelTab = from.panelTab;
+  to.treeFilter = from.treeFilter;
+  to.density = from.density;
+  if (from.home) to.home = from.home;
+  to.measureLog = from.measureLog;
+  if (from.isoLabel) to.isoLabel = from.isoLabel;
+  const ids = new Set([...to.scene.meshes.map((m) => m.id), ...to.scene.lines.map((l) => l.id), ...(to.scene.points ?? []).map((p) => p.id)]);
+  for (const id of from.vis.userHidden) if (ids.has(id)) to.vis.userHidden.add(id);
+  to.vis.layerHidden.clear();
+  for (const l of from.vis.layerHidden) to.vis.layerHidden.add(l);
+  for (const id of from.vis.pmiHidden) if (to.vis.pmiIds.has(id)) to.vis.pmiHidden.add(id);
+  to.vis.pmiOff = from.vis.pmiOff;
+  if (from.vis.isolated) to.vis.isolated = new Set([...from.vis.isolated].filter((id) => ids.has(id)));
+  // 부품 겉모습(흐리게·불투명도·분해) — 코어는 새 장면에서 겉모습을 풀므로 앱이 다시 건다
+  if (from.dim) to.dim = new Set([...from.dim].filter((id) => ids.has(id)));
+  for (const [id, a] of from.opacity) if (ids.has(id)) to.opacity.set(id, a);
+  to.explode = from.explode;
+}
+

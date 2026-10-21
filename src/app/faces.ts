@@ -4,6 +4,7 @@
  *
  * 경계는 그 면의 삼각형에서 한 번만 쓰인 변이다. 변은 정점 번호가 아니라 위치로 맞춰 보므로
  * 원기둥 이음선처럼 같은 자리에 정점이 둘인 곳은 경계로 치지 않는다.
+ * 넓이·둘레는 면 표에 해석기가 B-rep에서 구한 값(area·perimeter)이 있으면 그것을 쓰고, 정확하지 않으면 exact = false다.
  */
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import type { StepFaceTable } from '../scene';
@@ -24,10 +25,12 @@ export interface FacePick {
   triStart: number;
   /** 삼각형 수 */
   triangles: number;
-  /** 넓이(세계 단위²) */
+  /** 넓이(세계 단위²): 면 표에 B-rep 넓이가 있으면 그것(행렬 배율 반영), 없으면 삼각형 넓이 */
   area: number;
-  /** 경계 길이(세계 단위) */
+  /** 경계 길이(세계 단위): 면 표의 모서리 곡선 길이 합, 없으면 경계 변 길이 */
   perimeter: number;
+  /** 넓이·둘레가 B-rep에서 구한 정확한 값인지(아니면 화면용 삼각형 근삿값 — "≈"로 보인다) */
+  exact: boolean;
   /** 넓이 가운데(세계) */
   center: [number, number, number];
   /** 평면이면 바깥 법선(세계) */
@@ -175,6 +178,13 @@ export function faceDetails(mesh: Mesh3d, table: StepFaceTable, face: number, ki
   const big = Math.max(Math.abs(center[0]), Math.abs(center[1]), Math.abs(center[2])) >= 1e4;
   if (big) for (let i = 0; i < segs.length; i++) segs[i] = segs[i]! - center[i % 3]!;
   const kind = kinds[table.kinds[face]!] ?? 'unknown';
+  const sc = matScale(m);
+  // B-rep 넓이·둘레(형상 항목 단위 → 행렬 배율). 없거나 NaN이면 삼각형으로 잰 값
+  const bArea = table.area?.[face];
+  const bPerim = table.perimeter?.[face];
+  const exactFlag = (table.exact?.[face] ?? 0) === 1;
+  const hasArea = bArea !== undefined && Number.isFinite(bArea);
+  const hasPerim = bPerim !== undefined && Number.isFinite(bPerim);
   const out: FacePick = {
     meshId: mesh.id,
     face,
@@ -182,14 +192,14 @@ export function faceDetails(mesh: Mesh3d, table: StepFaceTable, face: number, ki
     kind,
     triStart: t0,
     triangles: t1 - t0,
-    area,
-    perimeter,
+    area: hasArea ? bArea * sc * sc : area,
+    perimeter: hasPerim ? bPerim * sc : perimeter,
+    exact: exactFlag && (hasArea || kind === 'triangulated' || kind === 'polygon'),
     center,
     boundary: Float32Array.from(segs),
   };
   if (big) out.boundaryOrigin = center;
   const p = table.params.subarray(face * NP, face * NP + NP);
-  const sc = matScale(m);
   const axis = unit(xd(m, p[2]!, p[3]!, p[4]!));
   const origin = xf(m, p[5]! + o[0], p[6]! + o[1], p[7]! + o[2]);
   if (kind === 'plane') out.normal = Math.hypot(...axis) > 0 ? axis : unit(nrm);
@@ -238,3 +248,35 @@ const FACE_LABELS: Record<string, string> = {
   triangulated: '삼각형 면',
   unknown: '알 수 없는 면',
 };
+
+/** 면 STEP 번호들 → 그물마다 삼각형 범위(그 면을 담은 모든 자리). 면 표가 없으면 빈 Map */
+export function faceRangesByStepId(
+  faces: { tables: readonly StepFaceTable[]; tableOf: ReadonlyMap<string, number> } | null,
+  meshIds: readonly string[],
+  stepIds: readonly number[],
+): Map<string, { start: number; count: number }[]> {
+  const out = new Map<string, { start: number; count: number }[]>();
+  if (!faces || !stepIds.length) return out;
+  const want = new Set(stepIds);
+  // 표마다 한 번만 찾는다(같은 형상을 여러 자리에 놓으면 표를 함께 쓴다)
+  const perTable = new Map<number, { start: number; count: number }[]>();
+  for (const id of meshIds) {
+    const ti = faces.tableOf.get(id);
+    if (ti === undefined) continue;
+    let r = perTable.get(ti);
+    if (!r) {
+      r = [];
+      const t = faces.tables[ti]!;
+      for (let f = 0; f < t.stepIds.length; f++) {
+        if (!want.has(t.stepIds[f]!)) continue;
+        const s0 = t.triStart[f]!;
+        const s1 = t.triStart[f + 1]!;
+        if (s1 > s0) r.push({ start: s0, count: s1 - s0 });
+      }
+      perTable.set(ti, r);
+    }
+    if (r.length) out.set(id, r);
+  }
+  return out;
+}
+

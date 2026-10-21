@@ -3,7 +3,7 @@
  * 워커는 처음 쓸 때 만들고 계속 쓴다. 취소하면 워커를 끝내고(terminate) 기다리던 요청을 ParseCancelled로 끝내며,
  * 다음 요청 때 새로 만든다. 워커가 죽으면(메모리 부족 등) 기다리던 요청을 모두 실패로 끝낸다.
  */
-import type { ParseRequest, ParseResponse, ParseResult } from './protocol';
+import type { ParseOptions, ParseRequest, ParseResponse, ParseResult } from './protocol';
 
 /** 사용자가 취소한 해석 */
 export class ParseCancelled extends Error {
@@ -30,7 +30,7 @@ export class ParseClient {
   }
 
   /** 파일 해석(data는 이전되어 비워진다) */
-  parse(name: string, data: ArrayBuffer, progress?: (fraction: number, stage: string) => void): Promise<ParseResult> {
+  parse(name: string, data: ArrayBuffer, progress?: (fraction: number, stage: string) => void, options?: ParseOptions): Promise<ParseResult> {
     let w: Worker;
     try {
       w = this.ensure();
@@ -40,7 +40,7 @@ export class ParseClient {
     const id = ++this.seq;
     return new Promise<ParseResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, progress });
-      const req: ParseRequest = { id, type: 'parse', name, bytes: data };
+      const req: ParseRequest = { id, type: 'parse', name, bytes: data, ...(options ? { options } : {}) };
       try {
         w.postMessage(req, [data]);
       } catch (e) {

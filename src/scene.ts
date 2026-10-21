@@ -11,20 +11,25 @@
  * LineSet3d), 표현 PMI 선과 의미 PMI 목록(pmi.ts), 면 표(그물 삼각형 → B-rep 면, 면 단위 고르기용).
  */
 import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
-import { BrepMesher, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
+import { BrepMesher, EDGE_KINDS, EDGE_PARAMS, type EdgeTableData, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
 import { Geometry } from './geometry';
 import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
-import { readStyles } from './styles';
+import { styleTextHeight, textLiterals, textSegments } from './pmitext';
+import { readProductProps, type StepProductProps } from './props';
+import { readSavedViews } from './savedviews';
+import { type ContextColor, readStyles } from './styles';
 import { type ContextUnits, contextUnits, DEFAULT_UNITS, sceneUnitMm, sceneUnitOf } from './units';
 import { isWireItemType, type WireGeom, WireSampler } from './wire';
 
 export type { StepPmiSemantic } from './pmi';
 /** 면 표(meta.faceTables의 한 칸): 그물 삼각형 → B-rep 면. 뜻은 brep.ts FaceTableData */
 export type StepFaceTable = FaceTableData;
-export { FACE_KINDS, FACE_PARAMS } from './brep';
+/** 모서리 표(meta.edgeTables의 한 칸): 윤곽선 선분 → B-rep 모서리. 뜻은 brep.ts EdgeTableData */
+export type StepEdgeTable = EdgeTableData;
+export { EDGE_KINDS, EDGE_PARAMS, FACE_KINDS, FACE_PARAMS } from './brep';
 
 export interface StepOptions {
   /** 장면 이름(기본: 파일 머리의 FILE_NAME 또는 'STEP') */
@@ -60,6 +65,10 @@ export interface StepProductNode {
   /** 이 자리에 바로 놓인 선(와이어프레임·곡선 형상) 묶음 id — 있을 때만 */
   lineIds?: string[];
   children: StepProductNode[];
+  /** 제품 속성(설명·판·재질·밀도·사용자 속성) — 있을 때만, 같은 제품의 자리끼리 함께 쓴다 */
+  props?: StepProductProps;
+  /** 이 자리의 세계 변환(열 우선 4×4, 장면 단위) — 단위 행렬이 아닐 때만 */
+  matrix?: number[];
 }
 
 /** 레이어(PRESENTATION_LAYER_ASSIGNMENT, 이름이 같으면 합친다) */
@@ -88,9 +97,29 @@ export interface StepPmiPresentation {
   stepId: number;
 }
 
+/** 저장된 보기(장면 좌표·단위) */
+export interface StepSavedView {
+  /** CAMERA_MODEL 번호 */
+  id: number;
+  name: string;
+  target: [number, number, number];
+  /** 대상 → 눈(단위) */
+  dir: [number, number, number];
+  up: [number, number, number];
+  /** 눈과 대상 사이(중심 투영), 평행이면 0 */
+  distance: number;
+  projection: 'orthographic' | 'perspective';
+  /** 보기 창 세로 크기(장면 단위), 모르면 0 */
+  height: number;
+  /** 이 보기의 제도 모형에 든 표현 PMI 선 묶음 id(있을 때만) */
+  pmiIds?: string[];
+}
+
 export interface StepPmi {
   presentations: StepPmiPresentation[];
   semantic: StepPmiSemantic[];
+  /** 저장된 보기(있을 때만) */
+  views?: StepSavedView[];
 }
 
 /** meta에 넣는 요약 */
@@ -125,6 +154,12 @@ export interface StepMeta {
   faceTables?: StepFaceTable[];
   /** scene.meshes와 같은 순서로 그물마다 면 표 번호(-1 = 없음) */
   meshFaceTable?: Int32Array;
+  /** 모서리 표 종류 이름(EDGE_KINDS) */
+  edgeKinds?: readonly string[];
+  /** 모서리 표들(면 표처럼 같은 형상이면 함께 쓴다) */
+  edgeTables?: StepEdgeTable[];
+  /** scene.meshes와 같은 순서로 그물마다 모서리 표 번호(-1 = 없음) */
+  meshEdgeTable?: Int32Array;
 }
 
 interface RepInfo {
@@ -390,6 +425,40 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     return m ?? identity();
   };
 
+  // ── 자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM) ──
+  // 지금 따라가는 길(NAUO·표현 관계·사상 항목)의 개체 수. 덮어쓰기의 context가 모두 길에 있으면 그 자리에서만 쓴다
+  const onPath = new Map<number, number>();
+  const pathPush = (ids: readonly number[]) => {
+    for (const x of ids) if (x) onPath.set(x, (onPath.get(x) ?? 0) + 1);
+  };
+  const pathPop = (ids: readonly number[]) => {
+    for (const x of ids) {
+      if (!x) continue;
+      const n = (onPath.get(x) ?? 0) - 1;
+      if (n > 0) onPath.set(x, n);
+      else onPath.delete(x);
+    }
+  };
+  // 길에 오를 수 있는 개체: NAUO·그 자리 변환 관계·사상 항목. context가 이 밖의 것(표현·묶음·층 등 — 스키마가 허용한다)만이면
+  // 어느 자리 길에도 나타나지 않으니 예전처럼 항목 전체에 쓴다(섞여 있으면 길에 오를 수 있는 것만 맞춘다)
+  const pathable = new Set<number>(f.idsOfType('MAPPED_ITEM'));
+  for (const l of children.values()) for (const u of l) pathable.add(u.nauo);
+  for (const x of nauoRel.values()) pathable.add(x);
+  const overridesOf = new Map<number, { c: ContextColor; need: number[] }[]>();
+  for (const c of styles.contextColors) {
+    let l = overridesOf.get(c.item);
+    if (!l) overridesOf.set(c.item, (l = []));
+    l.push({ c, need: c.context.filter((x) => pathable.has(x)) });
+  }
+  /** 이 자리에서 항목(표현·형상 항목)에 쓸 덮어쓰기: 길이 맞는 것 먼저, 없으면 길과 상관없는 것 */
+  const contextOverride = (item: number): ContextColor | undefined => {
+    const l = overridesOf.get(item);
+    if (!l) return undefined;
+    return (l.find((o) => o.need.length > 0 && o.need.every((x) => onPath.has(x))) ?? l.find((o) => o.need.length === 0))?.c;
+  };
+  /** 따라가는 표현·사상 항목에서 물려받은 덮어쓰기 */
+  let curOverride: ContextColor | undefined;
+
   // ── 그물 캐시와 인스턴스 ──
   const meshCache = new Map<number, ItemMesh | null>();
   const meshes: Mesh3d[] = [];
@@ -431,6 +500,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       const edges = m.edges.map((x) => x * k);
       sm = { ...m, positions: pos, edges, bbox: m.bbox ? [scaleV(m.bbox[0], k), scaleV(m.bbox[1], k)] : null };
       if (m.faceTable) sm.faceTable = scaleFaceTable(m.faceTable, k);
+      if (m.edgeTable) sm.edgeTable = scaleEdgeTable(m.edgeTable, k);
       if (m.origin) sm.origin = scaleV(m.origin, k);
       scaledMeshes.set(key, sm);
     }
@@ -440,24 +510,34 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   const faceTables: FaceTableData[] = [];
   const faceTableOf = new Map<FaceTableData, number>();
   const meshFaceTable: number[] = [];
+  const edgeTables: EdgeTableData[] = [];
+  const edgeTableOf = new Map<EdgeTableData, number>();
+  const meshEdgeTable: number[] = [];
   const instance = (item: number, r: RepInfo, matrix: M4, node: StepProductNode, inheritedColor: Rgba | undefined) => {
     if (styles.hidden.has(item)) return;
     const m = getMesh(item, r.units);
     if (!m) return;
     const id = `step-${++meshSeq}`;
     const itemName = text(f.get(item)?.args[0]);
+    // 자리별 덮어쓰기(이 항목 또는 따라온 표현): 파일 색보다 앞선다
+    const ov = contextOverride(item) ?? curOverride;
+    const base = m.color ?? styles.colors.get(item) ?? inheritedColor ?? DEFAULT_COLOR;
+    const color: Rgba = ov ? (ov.color ? [ov.color[0], ov.color[1], ov.color[2], Math.min(ov.color[3], ov.alpha)] : [base[0], base[1], base[2], Math.min(base[3], ov.alpha)]) : base;
     const mesh: Mesh3d = {
       id,
       name: itemName && itemName !== node.name ? `${node.name} / ${itemName}` : node.name,
       positions: m.positions,
       normals: m.normals,
       indices: m.indices,
-      color: m.color ?? styles.colors.get(item) ?? inheritedColor ?? DEFAULT_COLOR,
+      color,
       group: node.name,
       doubleSided: !m.closed,
     };
-    if (m.colors) mesh.colors = m.colors;
+    if (m.colors && !ov?.color) mesh.colors = m.colors;
     if (opts.edges !== false && m.edges.length) mesh.edges = m.edges;
+    // B-rep 면 그물: 와이어프레임·숨은선에 삼각형 변을 그리지 않고 B-rep 모서리만(코어 0.7.1) — 모서리 없는 매끈한 닫힌 면(원환 고리 등)이
+    // 숨은선에서 촘촘한 삼각형 그물로 보이지 않게. 모서리 선을 끈 해석(edges: false)·삼각형 형식·다각 고리 면은 삼각형 변 그대로
+    if (m.triangleEdges === false && opts.edges !== false) mesh.triangleEdges = false;
     if (!isIdentity(matrix)) mesh.matrix = matrix;
     // 닫힌 입체(틈 없이 맞물린 삼각형) — 단면에서 잘린 면을 채운다
     if (m.solid) mesh.closed = true;
@@ -479,6 +559,17 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       }
     }
     meshFaceTable.push(ti);
+    let ei = -1;
+    if (wantFaces && m.edgeTable && mesh.edges) {
+      const t = m.edgeTable;
+      ei = edgeTableOf.get(t) ?? -1;
+      if (ei < 0) {
+        ei = edgeTables.length;
+        edgeTables.push(t);
+        edgeTableOf.set(t, ei);
+      }
+    }
+    meshEdgeTable.push(ei);
   };
 
   // ── 선 형상(와이어프레임·곡선) ──
@@ -554,6 +645,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     const prevLayer = curLayer;
     const rl = hasLayers ? layerOf.get(repId) : undefined;
     if (rl !== undefined) curLayer = rl;
+    const prevOverride = curOverride;
+    curOverride = contextOverride(repId) ?? curOverride;
     let wires: Map<string, WireAgg> | null = null;
     const hasBrep = r.items.some((it) => {
       const t = f.typeOf(it);
@@ -582,12 +675,18 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         const saveLayer = curLayer;
         const ml = hasLayers ? layerOf.get(it) : undefined;
         if (ml !== undefined) curLayer = ml;
+        const link = [it, use?.nauo ?? 0];
+        pathPush(link);
+        const saveOverride = curOverride;
+        curOverride = contextOverride(it) ?? curOverride;
         if (use && owner !== undefined) {
           consumedNauo.add(use.nauo);
           const child = makeNode(owner, use.name);
           node.children.push(child);
           visitPd(owner, mul(matrix, T), child, depth + 1, col);
         } else visitRep(mappedRep, mul(matrix, T), node, pd, depth + 1, col);
+        curOverride = saveOverride;
+        pathPop(link);
         curLayer = saveLayer;
       } else if (wantCurves && isWireItemType(f, it)) {
         addWire((wires ??= new Map()), it, r, matrix);
@@ -595,12 +694,16 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     }
     if (wires) flushWire(wires, text(f.get(repId)?.args[0]) || node.name, node);
     curLayer = prevLayer;
+    curOverride = prevOverride;
   };
+  const productProps = readProductProps(f);
   const makeNode = (pd: number, instanceName?: string): StepProductNode => {
     const pn = productName(pd);
     productCount.set(pd, (productCount.get(pd) ?? 0) + 1);
     const n: StepProductNode = { name: pn.name, productId: pn.id, meshIds: [], children: [] };
     if (instanceName !== undefined) n.instance = instanceName;
+    const pp = productProps.get(pd);
+    if (pp) n.props = pp;
     return n;
   };
   const path = new Set<number>();
@@ -610,13 +713,18 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     if (path.has(pd) || depth > 32) return;
     path.add(pd);
     if (!pdWorld.has(pd)) pdWorld.set(pd, matrix);
+    if (!isIdentity(matrix) && !node.matrix) node.matrix = Array.from(matrix);
     for (const r of repsOfPd(pd)) visitRep(r, matrix, node, pd, depth, color);
     for (const use of children.get(pd) ?? []) {
       if (consumedNauo.has(use.nauo)) continue;
       const T = nauoTransform(use.nauo, pd, use.child);
       const child = makeNode(use.child, use.name);
       node.children.push(child);
+      // 자리로 가는 길: NAUO와 그 자리 변환 관계(CONTEXT_DEPENDENT_SHAPE_REPRESENTATION의 표현 관계)
+      const link = [use.nauo, nauoRel.get(use.nauo) ?? 0];
+      pathPush(link);
       visitPd(use.child, mul(matrix, T), child, depth + 1, color);
+      pathPop(link);
     }
     path.delete(pd);
   };
@@ -694,7 +802,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   if (wantPmi) {
     const anns = findAnnotations(f, (id) => rep(id)?.items ?? null);
     const semantic = semanticPmi(f);
-    if (anns.length || semantic.length) {
+    const rawViews = readSavedViews(f, geom);
+    if (anns.length || semantic.length || rawViews.length) {
       pmiMeta = { presentations: [], semantic };
       // 제도 모형 → 놓을 자리(그 모형이 딸린 제품의 첫 자리)와 단위
       let links: Map<number, number[]> | null = null;
@@ -767,17 +876,24 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         return p;
       };
       let pmiSeq = 0;
+      /** 제도 모형 → 그 모형에 든 표현 PMI 선 묶음 id(저장된 보기용) */
+      const modelPmi = new Map<number, string[]>();
       for (const a of anns) {
         if (styles.hidden.has(a.id)) continue;
         const pl = place(a.model);
         geom.angleFactor = pl.angle;
         const w = a.item ? wire.sample(a.item) : null;
-        if (!w || !w.segs.length) {
-          if (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL'))) pmiText++;
+        // 글자(TEXT_LITERAL): 내장 획 글꼴로 선분(곡선과 함께 들어 있어도)
+        const lits = a.item ? textLiterals(f, a.item) : [];
+        const txt = lits.length ? textSegments(f, geom, lits, styleTextHeight(f, a.styles)) : null;
+        if (txt && txt.drawn < lits.length) pmiText += lits.length - txt.drawn;
+        const raw = [...(w?.segs ?? []), ...(txt?.segs ?? [])];
+        if (!raw.length) {
+          if (!lits.length && (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL')))) pmiText++;
           continue;
         }
         const segs: number[] = [];
-        appendWorld(segs, pl.k === 1 ? w.segs : w.segs.map((x) => x * pl.k), pl.m);
+        appendWorld(segs, pl.k === 1 ? raw : raw.map((x) => x * pl.k), pl.m);
         const id = `step-pmi-${++pmiSeq}`;
         const o = originOf(segs);
         const ls: LineSet3d = { id, name: a.name || 'PMI', positions: relativeFloat32(segs, o) };
@@ -793,6 +909,23 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         if (a.plane) pres.plane = a.plane;
         if (pl.name) pres.model = pl.name;
         pmiMeta.presentations.push(pres);
+        (modelPmi.get(a.model) ?? modelPmi.set(a.model, []).get(a.model)!).push(id);
+      }
+      // 저장된 보기: 카메라가 든 제도 모형 자리·단위로 옮기고, 그 모형의 표현 PMI를 함께
+      if (rawViews.length) {
+        const views: StepSavedView[] = [];
+        for (const rv of rawViews) {
+          const pl = place(rv.model);
+          const k = pl.k;
+          const m = pl.m;
+          const pt = (p: V3): V3 => transformPoint(m, [p[0] * k, p[1] * k, p[2] * k]);
+          const dv = (d: V3): V3 => normalize([m[0]! * d[0] + m[4]! * d[1] + m[8]! * d[2], m[1]! * d[0] + m[5]! * d[1] + m[9]! * d[2], m[2]! * d[0] + m[6]! * d[1] + m[10]! * d[2]]);
+          const v: StepSavedView = { id: rv.id, name: rv.name, target: pt(rv.target), dir: dv(rv.dir), up: dv(rv.up), distance: rv.distance * k, projection: rv.projection, height: rv.height * k };
+          const ids = modelPmi.get(rv.model);
+          if (ids?.length) v.pmiIds = ids;
+          views.push(v);
+        }
+        pmiMeta.views = views;
       }
     }
   }
@@ -813,7 +946,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   if (wire.unbounded) warnings.push(`끝이 없는 곡선(LINE 등) ${wire.unbounded}개는 그리지 않았다`);
   const skippedSurf = wire.skipped.get('곡면') ?? 0;
   if (skippedSurf) warnings.push(`선 형상 묶음 안의 곡면 ${skippedSurf}개는 그리지 않았다(경계가 없는 곡면)`);
-  if (pmiText) warnings.push(`PMI 글자(글꼴로 쓰는 ANNOTATION_TEXT 등) ${pmiText}개는 그리지 않았다`);
+  if (pmiText) warnings.push(`PMI 글자(ANNOTATION_TEXT 등) ${pmiText}개는 그리지 못했다(글이 비었거나 배치가 없음)`);
   if (!meshes.length && !lines.length && !points.length) warnings.push('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)');
 
   // 경계 상자
@@ -877,11 +1010,16 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     });
     if (layers.length) meta.layers = layers;
   }
-  if (pmiMeta && (pmiMeta.presentations.length || pmiMeta.semantic.length)) meta.pmi = pmiMeta;
+  if (pmiMeta && (pmiMeta.presentations.length || pmiMeta.semantic.length || pmiMeta.views?.length)) meta.pmi = pmiMeta;
   if (wantFaces && faceTables.length) {
     meta.faceKinds = FACE_KINDS;
     meta.faceTables = faceTables;
     meta.meshFaceTable = Int32Array.from(meshFaceTable);
+  }
+  if (wantFaces && edgeTables.length) {
+    meta.edgeKinds = EDGE_KINDS;
+    meta.edgeTables = edgeTables;
+    meta.meshEdgeTable = Int32Array.from(meshEdgeTable);
   }
   progress(1, '완료');
   const scene: Scene3d = {
@@ -932,7 +1070,7 @@ function appendWorld(out: number[], src: readonly number[], m: M4): void {
 
 /** 단위를 바꾼 그물의 면 표(길이 매개변수만 배율, 원뿔 반각은 그대로) */
 function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
-  const params = new Float32Array(t.params);
+  const params = new Float64Array(t.params);
   const cone = FACE_KINDS.indexOf('cone');
   for (let i = 0; i < t.kinds.length; i++) {
     const o = i * FACE_PARAMS;
@@ -940,7 +1078,22 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
     if (t.kinds[i] !== cone) params[o + 1] = params[o + 1]! * k;
     for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
   }
-  return { ...t, params };
+  const out: FaceTableData = { ...t, params };
+  if (t.area) out.area = t.area.map((a) => a * k * k);
+  if (t.perimeter) out.perimeter = t.perimeter.map((x) => x * k);
+  return out;
+}
+
+/** 단위를 바꾼 그물의 모서리 표(반지름·중심·길이에 배율) */
+function scaleEdgeTable(t: EdgeTableData, k: number): EdgeTableData {
+  const params = new Float64Array(t.params);
+  for (let i = 0; i < t.kinds.length; i++) {
+    const o = i * EDGE_PARAMS;
+    params[o] = params[o]! * k;
+    params[o + 1] = params[o + 1]! * k;
+    for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
+  }
+  return { ...t, params, length: t.length.map((x) => x * k) };
 }
 
 function hasGeometricLink(f: StepFile, id: number): boolean {

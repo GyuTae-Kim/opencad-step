@@ -192,7 +192,9 @@ export class CircleCurve extends Curve {
     return a < 0 ? a + TWO_PI : a;
   }
   override sample(ta: number, tb: number, tol: Tol, out: number[]): void {
-    const n = arcSegments(this.r, Math.abs(tb - ta), tol);
+    // 호는 적어도 두 토막: 처진 높이가 허용 오차보다 작은 짧은 호도 현 하나로 접으면, 같은 두 꼭짓점을 잇는 직선 모서리와
+    // 겹쳐 활꼴 면(호 + 현)의 고리가 넓이 0이 되어 삼각화에 실패한다(가운데 점 하나로 얇은 삼각형이 남는다)
+    const n = Math.max(2, arcSegments(this.r, Math.abs(tb - ta), tol));
     for (let i = 1; i < n; i++) out.push(ta + ((tb - ta) * i) / n);
   }
 }

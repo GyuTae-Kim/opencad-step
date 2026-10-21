@@ -18,9 +18,10 @@ export function viewKeyOf(v: ViewName): string | undefined {
  * - open: 열기 상자(Ctrl/⌘+O)
  * - escape: 앱 쪽 Esc 순서(메뉴 닫기 → 해석 취소 → 측정 지우기·끄기 → 고르기 풀기)
  * - grid: 격자(F7, 코어는 받지 않는 키)
+ * - hide: 고른 것 숨기기(H), isolate: 고른 것만 보기·격리 풀기(I), home: 홈 뷰(Home)
  * - viewer: 뷰어 키일 수 있으니 `viewer.handleKey`에 넘긴다(F·1~7 등, 처리 여부는 코어가 정한다)
  */
-export type KeyAction = 'open' | 'grid' | 'escape' | 'viewer';
+export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'home' | 'viewer';
 
 export interface KeyInput {
   key: string;
@@ -29,6 +30,8 @@ export interface KeyInput {
   alt?: boolean;
   /** 글 입력 칸(input·textarea·select·contentEditable)에서 눌렀는지 */
   inText?: boolean;
+  /** 초점이 있는 조작 칸(controlOf): 밀대는 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
+  control?: Control | null;
   /** 열린 문서가 있는지 */
   hasDoc?: boolean;
 }
@@ -36,13 +39,31 @@ export interface KeyInput {
 /** 눌린 키 → 할 일(없으면 null) */
 export function routeKey(k: KeyInput): KeyAction | null {
   if (k.inText) return null;
+  if (k.control === 'range' && RANGE_KEYS.has(k.key)) return null;
+  if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);
   if (mod && !k.alt && (k.key === 'o' || k.key === 'O')) return 'open';
   if (mod || k.alt) return null;
   if (k.key === 'Escape') return 'escape';
   if (!k.hasDoc) return null;
   if (k.key === 'F7') return 'grid';
+  if (k.key === 'h' || k.key === 'H') return 'hide';
+  if (k.key === 'i' || k.key === 'I') return 'isolate';
+  if (k.key === 'Home') return 'home';
   return 'viewer';
+}
+
+/** 키보드로 값을 바꾸는 조작 칸 */
+export type Control = 'range' | 'radio';
+
+const ARROW_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+const RANGE_KEYS = new Set([...ARROW_KEYS, 'Home', 'End', 'PageUp', 'PageDown']);
+
+/** 이벤트 대상이 밀대(range)·라디오면 그 종류(그 칸이 쓰는 키는 뷰어·홈 뷰로 보내지 않는다) */
+export function controlOf(t: EventTarget | null): Control | null {
+  if (!t || (t as HTMLElement).tagName !== 'INPUT') return null;
+  const type = ((t as HTMLInputElement).type || '').toLowerCase();
+  return type === 'range' || type === 'radio' ? type : null;
 }
 
 /** 이벤트 대상이 글 입력 칸인지 */
