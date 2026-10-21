@@ -7,7 +7,8 @@
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
 import type { Fmt } from './display';
-import { instanceCounts, productAt, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { nodePath, partRows, type PropRow } from './partinfo';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import { panelMeasureHint } from './measure';
@@ -95,6 +96,10 @@ export function pmiTypeLabel(type: string): string {
 const row = (k: string, v: string, title?: string): HTMLElement =>
   h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v }, v));
 
+/** 속성 줄(파일 글은 번역하지 않는다) */
+const propRow = (r: PropRow): HTMLElement =>
+  h('div', { class: 'prop-row' }, h('span', { class: 'k', translate: r.kData ? 'no' : null }, r.k), h('span', { class: 'v', title: r.v, translate: r.vData ? 'no' : null }, r.v));
+
 const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
 
@@ -141,7 +146,7 @@ export class Panel {
     if (!d) return;
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
-    } else if (d.panelTab === 'layers' || d.panelTab === 'pmi') this.renderBody();
+    } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
     if (reveal) this.body.querySelector('.tree-row.sel')?.scrollIntoView({ block: 'nearest' });
     this.renderFoot();
   }
@@ -181,7 +186,10 @@ export class Panel {
       this.el.hidden = true;
       return;
     }
-    const tabs: [PanelTab, string][] = [['tree', '제품']];
+    const tabs: [PanelTab, string][] = [
+      ['tree', '제품'],
+      ['props', '속성'],
+    ];
     if (d.layers.length) tabs.push(['layers', `레이어 ${d.layers.length}`]);
     if (d.pmi.presentations.length || d.pmi.semantic.length) tabs.push(['pmi', 'PMI']);
     tabs.push(['info', `정보${d.scene.warnings?.length ? ` (경고 ${d.scene.warnings.length})` : ''}`]);
@@ -209,6 +217,7 @@ export class Panel {
     if (d.panelTab === 'tree') this.renderTree(d);
     else if (d.panelTab === 'layers') this.renderLayers(d);
     else if (d.panelTab === 'pmi') this.renderPmi(d);
+    else if (d.panelTab === 'props') this.renderProps(d);
     else this.renderInfo(d);
     this.body.scrollTop = scroll;
     if (refocus) {
@@ -408,6 +417,27 @@ export class Panel {
       }
     });
     return item;
+  }
+
+  // ───────────────────────── 속성 탭 ─────────────────────────
+
+  /** 속성을 보일 나무 마디 열쇠: 나무에서 고른 마디, 아니면 3D에서 고른 그물의 마디 */
+  private propsKey(d: StepDoc): string | null {
+    if (d.selKey) return d.selKey;
+    if (d.pick) return productKeyOf(d.products, d.pick.id);
+    return null;
+  }
+
+  private renderProps(d: StepDoc): void {
+    const key = this.propsKey(d);
+    const path = key ? nodePath(d.products, key) : [];
+    const node = path[path.length - 1];
+    if (!node) {
+      this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.')));
+      return;
+    }
+    const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
+    this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
   }
 
   // ───────────────────────── 레이어 탭 ─────────────────────────

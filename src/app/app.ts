@@ -156,6 +156,7 @@ export class StepApp {
   // ── 측정 띠(휴대폰·터치) ──
   private readonly measureBar: HTMLElement;
   private readonly selFit: HTMLButtonElement;
+  private readonly selProps: HTMLButtonElement;
   private readonly measureText: HTMLElement;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
@@ -276,13 +277,16 @@ export class StepApp {
     // 고른 부품 카드(측정·면 고르기가 아닐 때): 맞춰 보기
     this.selFit = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품 보기' }, icon('fit', 16), h('span', {}, '맞춰 보기'));
     this.selFit.addEventListener('click', () => this.fitSelection());
+    // 고른 부품 카드: 속성(패널 속성 탭을 연다 — 휴대폰은 아래 시트)
+    this.selProps = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품의 속성' }, icon('info', 16), h('span', {}, '속성'));
+    this.selProps.addEventListener('click', () => this.showProps());
     this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
     this.measureClose.addEventListener('click', () => {
       if (this.measuring) this.toggleMeasure(false);
       else if (this.faceMode) this.toggleFaceMode(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.measureClose));
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.measureBar, this.toasts);
@@ -612,7 +616,7 @@ export class StepApp {
       if (s) d.expanded = s.expanded;
       // 이름 거르기 중이면 고른 마디가 보이지 않을 때 거르기를 푼다
       if (s && d.treeFilter.trim() && !filterRows(d.products, d.treeFilter, d.expanded, Infinity).rows.some((r) => r.key === s.key)) d.treeFilter = '';
-      if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && this.panel.open) this.panel.setTab('tree');
+      if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && d.panelTab !== 'props' && this.panel.open) this.panel.setTab('tree');
       // 잘린 면(단면 채움)을 누르면 면 고르기 대신 부품만(아래 띠에 "단면" 표시)
       if (p.kind === 'mesh' && wantFace && !p.section) d.face = this.findFace(d, p);
       // 면을 골랐으면 부품 통째 강조 대신 그 면만(나무에서는 부품이 골라져 있다)
@@ -763,6 +767,13 @@ export class StepApp {
   /** 고른 것이 있는지(나무 마디, 3D에서 고른 항목, 레이어·PMI에서 고른 묶음) */
   get hasSelection(): boolean {
     return !!this.doc && selectionItemIds(this.doc).length > 0;
+  }
+
+  /** 패널을 열고 속성 탭으로 */
+  showProps(): void {
+    if (!this.doc) return;
+    if (!this.panelOpen) this.togglePanel(true);
+    this.panel.setTab('props');
   }
 
   /** 고른 것으로 맞춰 보기(코어 fitItems: 숨긴 것은 빼고, 보이는 것이 없으면 전체 보기) */
@@ -1230,6 +1241,7 @@ export class StepApp {
       this.measureClose.setAttribute('aria-label', close);
       this.measureClear.hidden = mode !== 'measure';
       this.selFit.hidden = mode !== 'select';
+      this.selProps.hidden = mode !== 'select';
     }
     if (!mode || !d || !v) return;
     const fm = this.fmt;

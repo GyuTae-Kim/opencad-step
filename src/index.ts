@@ -16,4 +16,5 @@ export {
 } from './scene';
 export { DERIVED, StepBinary, StepEnum, StepFile, StepRef, StepTyped, decodeStepString, type StepEntity, type StepHeader, type StepValue } from './part21';
 export { watertightness, meshArea, meshVolume, type WatertightReport } from './analysis';
+export { readProductProps, type StepProductProps } from './props';
 export { STEP_XML_MESSAGE, sniffContainer, unpackStep, type ContainerKind, type Unpacked } from './archive';

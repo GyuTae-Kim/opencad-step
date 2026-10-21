@@ -10,6 +10,7 @@
  *
  * 평면·원기둥·원환 곡면, 구멍 있는 면, 조립 변환, 인스턴스, 색, 한글 이름(\X2\ 부호)을 함께 보여 주고,
  * 레이어 셋(본체·체결 부품·PMI 주석)과 받침판의 PMI(폭 치수·구멍 지름 지시선 — 표현 PMI 선, 의미 PMI 치수·공차·데이텀)도 넣었다.
+ * 부품마다 재질 이름·밀도(PROPERTY_DEFINITION), 받침판은 설명과 사용자 속성(Finish)을 둔다(속성·질량 보기).
  */
 import { cube, cylinder, type P3, plateWithHole, r, StepText, stepString as s, torus } from './stepText';
 
@@ -82,19 +83,28 @@ export function sampleStepText(): string {
   // ── 부품 ──
   const plateSolid = plateWithHole(w, '');
   const plateStyle = w.color(plateSolid, [0.46, 0.58, 0.71]);
-  const plate = w.product(s('받침판'), [plateSolid], ctx);
+  const plate = w.product(s('받침판'), [plateSolid], ctx, undefined, s('구멍 뚫린 받침판 20 × 10 × 2'));
+  w.textProperty(plate.pd, 'material property', 'material name', 'Aluminium 6061', ctx);
+  w.density(plate.pd, 2700, ctx);
+  w.textProperty(plate.pd, 'user defined attribute', 'Finish', 'Anodized', ctx);
 
   const blockSolid = cube(w, 3, [0, 0, 0], '').solid;
   w.color(blockSolid, [0.36, 0.69, 0.47]);
   const block = w.product(s('블록'), [blockSolid], ctx);
+  w.textProperty(block.pd, 'material property', 'material name', 'Steel S45C', ctx);
+  w.density(block.pd, 7850, ctx);
 
   const pinSolid = cylinder(w, 1.6, 7, '');
   w.color(pinSolid, [0.93, 0.55, 0.22]);
   const pin = w.product(s('핀'), [pinSolid], ctx);
+  w.textProperty(pin.pd, 'material property', 'material name', 'Steel S45C', ctx);
+  w.density(pin.pd, 7850, ctx);
 
   const ringSolid = torus(w, 2.6, 0.5, '');
   w.color(ringSolid, [0.86, 0.71, 0.27]);
   const ring = w.product(s('고리'), [ringSolid], ctx);
+  w.textProperty(ring.pd, 'material property', 'material name', 'Brass C3604', ctx);
+  w.density(ring.pd, 8500, ctx);
 
   // ── 받침판 PMI: 폭 치수(앞쪽 바닥 평면)와 구멍 지름 지시선(윗면) ──
   const poly = (pts: P3[]) => w.add('POLYLINE', `'',(${pts.map((p) => `#${w.pt(p)}`).join(',')})`);

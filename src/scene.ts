@@ -17,6 +17,7 @@ import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
+import { readProductProps, type StepProductProps } from './props';
 import { type ContextColor, readStyles } from './styles';
 import { type ContextUnits, contextUnits, DEFAULT_UNITS, sceneUnitMm, sceneUnitOf } from './units';
 import { isWireItemType, type WireGeom, WireSampler } from './wire';
@@ -60,6 +61,10 @@ export interface StepProductNode {
   /** 이 자리에 바로 놓인 선(와이어프레임·곡선 형상) 묶음 id — 있을 때만 */
   lineIds?: string[];
   children: StepProductNode[];
+  /** 제품 속성(설명·판·재질·밀도·사용자 속성) — 있을 때만, 같은 제품의 자리끼리 함께 쓴다 */
+  props?: StepProductProps;
+  /** 이 자리의 세계 변환(열 우선 4×4, 장면 단위) — 단위 행렬이 아닐 때만 */
+  matrix?: number[];
 }
 
 /** 레이어(PRESENTATION_LAYER_ASSIGNMENT, 이름이 같으면 합친다) */
@@ -637,11 +642,14 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     curLayer = prevLayer;
     curOverride = prevOverride;
   };
+  const productProps = readProductProps(f);
   const makeNode = (pd: number, instanceName?: string): StepProductNode => {
     const pn = productName(pd);
     productCount.set(pd, (productCount.get(pd) ?? 0) + 1);
     const n: StepProductNode = { name: pn.name, productId: pn.id, meshIds: [], children: [] };
     if (instanceName !== undefined) n.instance = instanceName;
+    const pp = productProps.get(pd);
+    if (pp) n.props = pp;
     return n;
   };
   const path = new Set<number>();
@@ -651,6 +659,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     if (path.has(pd) || depth > 32) return;
     path.add(pd);
     if (!pdWorld.has(pd)) pdWorld.set(pd, matrix);
+    if (!isIdentity(matrix) && !node.matrix) node.matrix = Array.from(matrix);
     for (const r of repsOfPd(pd)) visitRep(r, matrix, node, pd, depth, color);
     for (const use of children.get(pd) ?? []) {
       if (consumedNauo.has(use.nauo)) continue;

@@ -140,10 +140,10 @@ export class StepText {
   }
 
   /** 제품 하나(이름, 형상 항목들) → { pd, rep } */
-  product(name: string, items: number[], ctx: number, repType = 'ADVANCED_BREP_SHAPE_REPRESENTATION'): { pd: number; rep: number; origin: number } {
+  product(name: string, items: number[], ctx: number, repType = 'ADVANCED_BREP_SHAPE_REPRESENTATION', description = ''): { pd: number; rep: number; origin: number } {
     const appCtx = this.add('APPLICATION_CONTEXT', `'mechanical design'`);
     const pc = this.add('PRODUCT_CONTEXT', `'',#${appCtx},'mechanical'`);
-    const prod = this.add('PRODUCT', `'${name}','${name}','',(#${pc})`);
+    const prod = this.add('PRODUCT', `'${name}','${name}','${description}',(#${pc})`);
     const form = this.add('PRODUCT_DEFINITION_FORMATION', `'','',#${prod}`);
     const pdc = this.add('PRODUCT_DEFINITION_CONTEXT', `'part definition',#${appCtx},'design'`);
     const pd = this.add('PRODUCT_DEFINITION', `'design','',#${form},#${pdc}`);
@@ -164,6 +164,27 @@ export class StepText {
     const pds = this.add('PRODUCT_DEFINITION_SHAPE', `'','',#${nauo}`);
     this.add('CONTEXT_DEPENDENT_SHAPE_REPRESENTATION', `#${rel},#${pds}`);
     return nauo;
+  }
+
+  /** 제품 정의에 글 속성 하나(PROPERTY_DEFINITION → DESCRIPTIVE_REPRESENTATION_ITEM) — 예: 재질 이름 */
+  textProperty(pd: number, name: string, description: string, value: string, ctx: number): number {
+    const def = this.add('PROPERTY_DEFINITION', `'${name}','${description}',#${pd}`);
+    const item = this.add('DESCRIPTIVE_REPRESENTATION_ITEM', `'${value}','${value}'`);
+    const rep = this.add('REPRESENTATION', `'${description}',(#${item}),#${ctx}`);
+    this.add('PROPERTY_DEFINITION_REPRESENTATION', `#${def},#${rep}`);
+    return def;
+  }
+
+  /** 제품 정의에 밀도(kg/m³, DERIVED_UNIT 질량¹·길이⁻³) */
+  density(pd: number, kgPerM3: number, ctx: number): number {
+    const kg = this.raw(`(MASS_UNIT() NAMED_UNIT(*) SI_UNIT(.KILO.,.GRAM.))`);
+    const m = this.raw(`(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.))`);
+    const du = this.add('DERIVED_UNIT', `(#${this.add('DERIVED_UNIT_ELEMENT', `#${kg},1.`)},#${this.add('DERIVED_UNIT_ELEMENT', `#${m},-3.`)})`);
+    const def = this.add('PROPERTY_DEFINITION', `'material property','density of part',#${pd}`);
+    const item = this.add('MEASURE_REPRESENTATION_ITEM', `'density measure',POSITIVE_RATIO_MEASURE(${r(kgPerM3)}),#${du}`);
+    const rep = this.add('REPRESENTATION', `'density',(#${item}),#${ctx}`);
+    this.add('PROPERTY_DEFINITION_REPRESENTATION', `#${def},#${rep}`);
+    return def;
   }
 
   /** 면·입체 색 */

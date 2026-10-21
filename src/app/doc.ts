@@ -4,6 +4,7 @@
  */
 import type { MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
+import type { StepProductProps } from '../props';
 import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode } from '../scene';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
@@ -11,7 +12,7 @@ import type { ParseResult, ParseSource } from './protocol';
 import { Visibility } from './visibility';
 
 export type ProductNode = StepProductNode;
-export type PanelTab = 'tree' | 'layers' | 'pmi' | 'info';
+export type PanelTab = 'tree' | 'props' | 'layers' | 'pmi' | 'info';
 
 /** 화면용 레이어(meta.layers) */
 export interface DocLayer {
@@ -171,6 +172,9 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
     };
     if (typeof o.instance === 'string' && o.instance) node.instance = o.instance;
     if (Array.isArray(o.lineIds) && o.lineIds.length) node.lineIds = (o.lineIds as unknown[]).map(String);
+    const props = readProps(o.props);
+    if (props) node.props = props;
+    if (Array.isArray(o.matrix) && o.matrix.length === 16 && o.matrix.every((v) => typeof v === 'number' && Number.isFinite(v))) node.matrix = o.matrix as number[];
     if (Array.isArray(o.children))
       for (const c of o.children) {
         const n = read(c, depth + 1);
@@ -182,6 +186,20 @@ export function stepProducts(scene: Scene3d): ProductNode[] {
 }
 
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : []);
+
+/** 제품 속성(meta.products[].props)을 꼴을 보며 읽는다 */
+function readProps(v: unknown): StepProductProps | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const out: StepProductProps = {};
+  for (const k of ['description', 'version', 'definition', 'material', 'densityText'] as const) if (typeof o[k] === 'string' && o[k]) out[k] = o[k] as string;
+  if (typeof o.density === 'number' && o.density > 0 && Number.isFinite(o.density)) out.density = o.density;
+  if (Array.isArray(o.items)) {
+    const items = o.items.filter((x): x is [string, string] => Array.isArray(x) && x.length === 2).map(([a, b]) => [String(a), String(b)] as [string, string]);
+    if (items.length) out.items = items;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 /** meta.layers를 안전하게 읽는다 */
 export function stepLayers(scene: Scene3d): DocLayer[] {

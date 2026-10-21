@@ -19,6 +19,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 - 자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM): style_context(자리 변환 관계·NAUO·사상 항목)가 가리키는 자리에서만 칠한다
 - 짧은 호(처진 높이가 허용 오차보다 작은 원호)도 두 토막 이상으로 나눠, 같은 꼭짓점을 잇는 현과 겹친 활꼴 면이 넓이 0으로 실패하지 않는다
 - 레이어(PRESENTATION_LAYER_ASSIGNMENT, 레이어를 가리키는 INVISIBILITY) → `meta.layers`
+- 제품 속성(제품 설명·판·정의 설명, 재질 이름·밀도, 사용자 속성 — PROPERTY_DEFINITION → 표현 항목, MATERIAL_DESIGNATION) → `StepProductNode.props`,
+  자리의 세계 변환 → `StepProductNode.matrix`(밀도는 단위를 따라 kg/m³로, 단위가 없으면 값 크기로 g/cm³·kg/m³를 짐작)
 - 와이어프레임·곡선 형상(GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION의 GEOMETRIC_CURVE_SET·GEOMETRIC_SET,
   EDGE_BASED·SHELL_BASED_WIREFRAME_MODEL, 형상 표현 안의 독립 곡선 — 선·원·잘린 곡선·복합 곡선·B-스플라인 등, 선 색 CURVE_STYLE) → `scene.lines`(점은 `scene.points`)
 - 표현 PMI(ANNOTATION_CURVE_OCCURRENCE·TESSELLATED_ANNOTATION_OCCURRENCE 등, ANNOTATION_PLANE·DRAUGHTING_CALLOUT 안까지)를
@@ -77,6 +79,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
     **마디를 두 번 누르면(또는 마디를 고른 채 Enter, 3D에서 부품을 두 번 누르면) 그 부품으로 맞춰 봅니다.** 무엇을 고른 동안에는 도구 막대와 패널 아래 띠의 "고른 부품 보기" 단추로도 맞춥니다(숨긴 자리는 빼고).
     눈 단추로 숨기기/보이기, "부품별 보이기"로 같은 부품 자리를 한꺼번에 켜고 끕니다.
     나무는 한 번에 3,000줄까지 그리고, 넘으면 전체 줄 수와 "3,000줄 더 보기" 단추를 보입니다(접거나 이름으로 걸러도 됩니다).
+  - 속성 — 고른 부품(나무 마디나 3D에서 누른 부품)의 이름·자리 이름·경로(조립 › … › 부품)·제품 번호·설명·버전·재질·밀도·
+    사용자 속성(파일의 PROPERTY_DEFINITION)·놓인 수·놓인 위치·회전(각과 축). 파일 글은 번역하지 않습니다. 휴대폰 고른 부품 카드의 "속성" 단추로도 엽니다.
   - 레이어(있을 때) — 레이어마다 켜고 끄기·항목 수, "(레이어 없음)", 모두 켜기/끄기. 파일이 숨긴 레이어(INVISIBILITY)는 처음에 꺼져 있습니다.
     이름을 누르면 그 레이어의 형상을 강조하고, 두 번 누르면 맞춰 봅니다. 레이어·눈 단추·PMI 켜고 끄기는 서로 겹쳐 따집니다(모두 켜져야 보임).
   - PMI(있을 때) — 표현 PMI 모두/하나씩 켜고 끄기(주석 평면 이름과 함께, 이름을 누르면 강조), 의미 PMI 표(치수 값·± 공차, 기하 공차 크기 | 데이텀, 데이텀).
