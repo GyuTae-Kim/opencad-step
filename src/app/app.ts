@@ -29,14 +29,17 @@ import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick }
 import type { StepSavedView } from '../scene';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
-import { formatBytes, fmtPercent, stageLabel } from './format';
+import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
 import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
-import { Panel, pmiTypeLabel } from './panel';
+import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
+import { measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
+import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
+import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir } from './viewhelp';
 import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
@@ -161,6 +164,8 @@ export class StepApp {
   private readonly faceCut: HTMLButtonElement;
   /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
   private ctxFace: FacePick | null = null;
+  /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
+  private pendingView: ViewLink | null = null;
   private readonly measureText: HTMLElement;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
@@ -574,6 +579,13 @@ export class StepApp {
         this.viewer?.fit(false);
         // 처음 맞춘 보기가 홈 뷰
         if (this.doc === doc && this.viewer) doc.home = this.viewer.getCamera();
+        // 주소의 보기 링크(카메라·단면·고른 것)
+        const link = this.pendingView;
+        if (link && this.doc === doc) {
+          this.pendingView = null;
+          this.applyViewLink(link);
+          this.toast('주소의 보기(카메라·단면·고른 것)를 적용했습니다.');
+        }
       }),
     );
   }
@@ -647,6 +659,7 @@ export class StepApp {
       if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && d.panelTab !== 'props' && this.panel.open) this.panel.setTab('tree');
       // 잘린 면(단면 채움)을 누르면 면 고르기 대신 부품만(아래 띠에 "단면" 표시)
       if (p.kind === 'mesh' && wantFace && !p.section) d.face = this.findFace(d, p);
+      if (d.face) logMeasure(d, { type: 'face', kind: d.face.kind, stepId: d.face.stepId, ...(d.face.radius !== undefined ? { radius: d.face.radius } : {}), area: d.face.area, perimeter: d.face.perimeter, exact: d.face.exact });
       // 면을 골랐으면 부품 통째 강조 대신 그 면만(나무에서는 부품이 골라져 있다)
       if (d.face) this.viewer?.highlight(null);
     }
@@ -791,6 +804,8 @@ export class StepApp {
     const d = this.doc;
     if (!d) return;
     d.measure = m;
+    // 측정 기록(CSV 복사용, 이 문서 동안)
+    if (m) logMeasure(d, { type: 'distance', a: [...m.a], b: [...m.b], distance: m.distance, dx: m.dx, dy: m.dy, dz: m.dz });
     this.panel.onMeasure();
     this.updateStatus();
   }
@@ -1207,22 +1222,160 @@ export class StepApp {
     this.updateStatus();
   }
 
+  /** 지금 화면을 PNG로(손가락 기기는 공유 시트가 되면 공유, 아니면 내려받기) */
   async savePng(): Promise<void> {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
     try {
       const b = await v.toBlob('image/png');
-      const a = h('a', { href: URL.createObjectURL(b), download: `${stemName(d.name)}.png` });
-      document.body.append(a);
-      a.click();
-      a.remove();
+      const how = await this.deliver(b, `${stemName(d.name)}.png`);
+      if (how === 'cancelled') return;
       trackExport('png');
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      this.toast('지금 화면을 PNG로 저장했습니다.');
+      this.toast(how === 'shared' ? '지금 화면 그림을 공유했습니다.' : '지금 화면을 PNG로 저장했습니다.');
     } catch (e) {
       this.toast(`그림을 저장하지 못했습니다: ${errorText(e)}`, 'error');
     }
+  }
+
+  // ───────────────────────── 내보내기·공유·보기 링크 ─────────────────────────
+
+  /** 파일 건네기: 손가락 기기에서 파일 공유가 되면 공유 시트, 아니면 내려받기 */
+  private async deliver(blob: Blob, name: string): Promise<'shared' | 'saved' | 'cancelled'> {
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    if (this.touch && typeof nav.share === 'function' && typeof File === 'function') {
+      const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+      try {
+        if (nav.canShare?.({ files: [file] })) {
+          await nav.share({ files: [file], title: name });
+          return 'shared';
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
+        // 공유가 막히면(권한·형식) 내려받기로
+      }
+    }
+    const a = h('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return 'saved';
+  }
+
+  /** 보이는(또는 고른 것 가운데 보이는) 그물을 STL·OBJ로 */
+  async exportMesh(format: 'stl' | 'obj', which: 'visible' | 'selected'): Promise<void> {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return;
+    const pick = which === 'selected' ? new Set(selectionItemIds(d)) : null;
+    const meshes = d.scene.meshes.filter((m) => (!pick || pick.has(m.id)) && v.isVisible(m.id));
+    if (!meshes.length) {
+      this.toast('내보낼 형상이 없습니다(보이는 그물이 없음).', 'warn');
+      return;
+    }
+    const u = this.doc?.scene.units ?? 'unknown';
+    const head = `OpenCAD STEP viewer - ${d.name} - units ${u}`;
+    const blob = format === 'stl' ? new Blob([meshesToStl(meshes, head)], { type: 'model/stl' }) : new Blob([meshesToObj(meshes, head)], { type: 'model/obj' });
+    const how = await this.deliver(blob, `${stemName(d.name)}${pick ? '-selection' : ''}.${format}`);
+    if (how === 'cancelled') return;
+    trackExport(format);
+    let tris = 0;
+    for (const m of meshes) tris += Math.floor((m.indices ? m.indices.length : m.positions.length / 3) / 3);
+    this.toast(`${format.toUpperCase()}로 내보냈습니다: 그물 ${fmtCount(meshes.length)}개 · 삼각형 ${fmtCount(tris)}개 · 단위 ${u === 'unknown' ? '모름' : u === 'inch' ? 'in' : u}`);
+  }
+
+  /** 글을 클립보드로(안 되면 파일로 건넨다) */
+  private async copyText(text: string, fileName: string, what: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast(`${what}을(를) 클립보드에 복사했습니다.`);
+    } catch {
+      await this.deliver(new Blob([text], { type: fileName.endsWith('.csv') ? 'text/csv' : 'text/plain' }), fileName);
+      this.toast(`클립보드를 쓸 수 없어 ${what}을(를) 파일로 저장했습니다.`, 'warn');
+    }
+  }
+
+  /** 측정 기록(거리·고른 면)을 CSV로 복사 */
+  async copyMeasureCsv(): Promise<void> {
+    const d = this.doc;
+    if (!d || !d.measureLog.length) return;
+    const rows = measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
+    await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
+    trackExport('csv');
+  }
+
+  /** 의미 PMI 표를 CSV로 복사 */
+  async copyPmiCsv(): Promise<void> {
+    const d = this.doc;
+    if (!d || !d.pmi.semantic.length) return;
+    const rows: (string | number)[][] = [[translateUi('종류'), translateUi('이름'), translateUi('값'), translateUi('이어진 면 수'), 'STEP #']];
+    for (const x of d.pmi.semantic) rows.push([translateUi(semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
+    await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
+    trackExport('csv');
+  }
+
+  /** 지금 보기(카메라·단면·고른 것)를 담은 주소 — 파일은 담지 않는다 */
+  viewLinkUrl(): string {
+    const v = this.viewer;
+    const d = this.doc;
+    const link: ViewLink = {};
+    if (v) {
+      const c = v.getCamera();
+      link.cam = { target: c.target, distance: c.distance, yaw: c.yaw, pitch: c.pitch, projection: c.projection };
+      const st = v.section;
+      if (st) link.sec = { normal: st.normal, offset: st.offset };
+    }
+    if (d?.selKey) {
+      link.sel = d.selKey;
+      if (d.vis.isolated) link.iso = true;
+    }
+    return viewUrl(location.href, link);
+  }
+
+  async copyViewLink(): Promise<void> {
+    if (!this.doc) return;
+    const url = this.viewLinkUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      this.toast('보기 링크를 복사했습니다(카메라·단면·고른 것 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).');
+    } catch {
+      history.replaceState(history.state, '', url);
+      this.toast('클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', 'warn');
+    }
+  }
+
+  /** 보기 링크 적용(지금 문서에) */
+  applyViewLink(link: ViewLink): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    if (link.sel && productAt(d.products, link.sel)) {
+      this.selectKey(link.sel);
+      if (link.iso && !d.vis.isolated) this.isolateSelection();
+    }
+    if (link.cam) {
+      v.setProjection(link.cam.projection);
+      v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
+    }
+    if (link.sec) v.setSection(link.sec);
+    this.toolbar.refresh();
+  }
+
+  /** 내보내기 메뉴 항목(도구 막대·휴대폰 보기 설정) */
+  exportItems(): MenuItem[] {
+    const d = this.doc;
+    const sel = !!d && selectionItemIds(d).length > 0;
+    return [
+      { label: 'PNG 그림', run: () => void this.savePng() },
+      { label: 'STL — 보이는 것', sep: true, run: () => void this.exportMesh('stl', 'visible') },
+      { label: 'STL — 고른 것', disabled: !sel, run: () => void this.exportMesh('stl', 'selected') },
+      { label: 'OBJ — 보이는 것', run: () => void this.exportMesh('obj', 'visible') },
+      { label: 'OBJ — 고른 것', disabled: !sel, run: () => void this.exportMesh('obj', 'selected') },
+      { label: '측정 기록 CSV 복사', sep: true, disabled: !d?.measureLog.length, run: () => void this.copyMeasureCsv() },
+      { label: 'PMI 표 CSV 복사', disabled: !d?.pmi.semantic.length, run: () => void this.copyPmiCsv() },
+      { label: '보기 링크 복사', sep: true, run: () => void this.copyViewLink() },
+    ];
   }
 
   togglePanel(on = !this.panelOpen): void {
@@ -1594,6 +1747,14 @@ export class StepApp {
   /** 시작 주소 인자(?open=·?sample) 처리 */
   async start(): Promise<void> {
     void this.refreshRecent();
+    // 보기 링크(#view=…): 다음에 여는 문서에 적용, 문서가 열린 뒤 바뀌면 바로
+    this.pendingView = decodeViewLink(location.hash);
+    window.addEventListener('hashchange', () => {
+      const link = decodeViewLink(location.hash);
+      if (!link) return;
+      if (this.doc && !this.loading) this.applyViewLink(link);
+      else this.pendingView = link;
+    });
     const q = parseStartQuery(location.search, location.href);
     if (q.openError) this.showError(q.openError);
     if (q.open) await this.openUrl(q.open);
@@ -1620,3 +1781,15 @@ export class StepApp {
 function nextPaint(): Promise<void> {
   return new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 }
+
+/** 측정 기록에 한 줄(이 문서 동안 500줄까지) */
+function logMeasure(d: StepDoc, r: MeasureRecord): void {
+  d.measureLog.push(r);
+  if (d.measureLog.length > 500) d.measureLog.shift();
+}
+
+/** 파일·클립보드로 나가는 글(DOM 밖이라 번역층이 못 바꾼다)을 지금 화면 언어로 */
+function translateUi(ko: string): string {
+  return translateCatalog(ko, document.documentElement.lang || 'ko');
+}
+

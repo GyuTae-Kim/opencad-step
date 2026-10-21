@@ -36,6 +36,7 @@ function host(): ToolbarHost & { calls: string[] } {
     toggleFaceMode: call('face'),
     setSectionAxis: call('section'),
     savePng: call('png'),
+    exportItems: () => [{ label: 'STL', run: () => calls.push('stl') }],
     togglePanel: call('panel'),
   };
 }
@@ -56,7 +57,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
   it('보기·측정 단추만 좁은 화면에 남기고, 나머지는 wide-only', () => {
     const tb = new Toolbar(host());
     const wide = [...tb.el.querySelectorAll('button.wide-only .btn-label')].map((e) => e.textContent);
-    expect(wide).toEqual(['고른 부품 보기', '원근', '음영 + 모서리', '격자', '뷰 큐브', '좌표축', 'PNG 저장']);
+    expect(wide).toEqual(['고른 부품 보기', '원근', '음영 + 모서리', '격자', '뷰 큐브', '좌표축', '내보내기']);
     const narrow = [...tb.el.querySelectorAll('button:not(.wide-only) .btn-label')].map((e) => e.textContent);
     expect(narrow).toEqual(['전체 보기', '표준 뷰', '보기 설정', '단면', '면 고르기', '측정', '패널']);
     expect(button(tb, '보기 설정').classList.contains('narrow-only')).toBe(true);
@@ -85,6 +86,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
       ['뷰 큐브', 'menuitemcheckbox', 'false', false],
       ['좌표축', 'menuitemcheckbox', 'true', false],
       ['PNG 저장', 'menuitem', null, false],
+      ['내보내기…', 'menuitem', null, false],
     ]);
     expect(menu.querySelectorAll('.menu-sep[role=separator]')).toHaveLength(4);
     // 첫 초점은 고른 항목(쓸 수 없는 것은 건너뛴다)
@@ -112,7 +114,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     button(tb, '보기 설정').click();
     const key = (k: string) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
     key('ArrowUp');
-    expect(document.activeElement?.textContent).toContain('PNG 저장');
+    expect(document.activeElement?.textContent).toContain('내보내기…');
     key('ArrowDown');
     expect(document.activeElement?.textContent).toContain('원근 투영');
   });

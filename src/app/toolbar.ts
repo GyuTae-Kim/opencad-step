@@ -1,5 +1,5 @@
 /**
- * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·단면·격자·뷰 큐브·좌표축·면 고르기·측정·PNG 저장·패널.
+ * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·단면·격자·뷰 큐브·좌표축·면 고르기·측정·내보내기·패널.
  * 넓은 화면은 아이콘 + 글, 920px 이하는 아이콘만(styles.css).
  * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널)만 한 줄에 두고,
  * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
@@ -59,6 +59,8 @@ export interface ToolbarHost {
   /** 단면 축 고르기(null = 끄기) */
   setSectionAxis(axis: SectionAxis | null): void;
   savePng(): void;
+  /** 내보내기 메뉴 항목(PNG·STL·OBJ·CSV 복사·보기 링크) */
+  exportItems(): MenuItem[];
   togglePanel(): void;
 }
 
@@ -70,6 +72,7 @@ interface Tool {
 export class Toolbar {
   readonly el: HTMLElement;
   private tools: Tool[] = [];
+  private moreBtn: HTMLButtonElement | null = null;
 
   constructor(private readonly host: ToolbarHost) {
     this.el = h('nav', { class: 'toolbar', role: 'toolbar', 'aria-label': '보기 도구' });
@@ -97,6 +100,7 @@ export class Toolbar {
     views.el.setAttribute('aria-expanded', 'false');
     views.el.classList.add('has-menu');
     const more = this.add('sliders', '보기 설정', '보기 설정', () => openMenu(more.el, this.moreItems(), '보기 설정'), undefined, 'narrow-only');
+    this.moreBtn = more.el;
     more.el.setAttribute('aria-haspopup', 'menu');
     more.el.setAttribute('aria-expanded', 'false');
     more.el.classList.add('has-menu');
@@ -146,7 +150,10 @@ export class Toolbar {
     this.sep();
     this.toggle('face', '면 고르기', '누른 면(B-rep 면)을 골라 종류·넓이·법선을 보고 경계를 강조합니다 (Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
     this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
-    this.add('image', 'PNG 저장', '지금 화면을 PNG 그림으로 저장', () => H.savePng(), undefined, 'wide-only');
+    const exp = this.add('image', '내보내기', '내보내기: PNG 그림 · STL·OBJ(보이는 것·고른 것) · 측정 기록·PMI 표 CSV 복사 · 보기 링크 복사', () => openMenu(exp.el, H.exportItems(), '내보내기'), undefined, 'wide-only');
+    exp.el.setAttribute('aria-haspopup', 'menu');
+    exp.el.setAttribute('aria-expanded', 'false');
+    exp.el.classList.add('has-menu');
     this.sep();
     this.toggle('panel', '패널', '제품·정보 패널 열기/닫기', () => H.panelOpen, () => H.togglePanel());
     this.refresh();
@@ -172,6 +179,8 @@ export class Toolbar {
       { label: '뷰 큐브', checked: H.cubeOn, toggle: true, run: () => H.toggleCube() },
       { label: '좌표축', checked: H.axesOn, toggle: true, run: () => H.toggleAxes() },
       { label: 'PNG 저장', sep: true, run: () => H.savePng() },
+      // 내보내기 메뉴는 같은 단추(보기 설정) 자리에 다시 연다
+      { label: '내보내기…', run: () => openMenu(this.moreBtn!, H.exportItems(), '내보내기') },
     ];
   }
 

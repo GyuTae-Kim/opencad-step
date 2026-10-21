@@ -6,6 +6,7 @@ import type { CameraState, MeasureResult, Pick3d, Scene3d } from 'opencad-viewer
 import type { StepHeader } from '../part21';
 import type { StepProductProps } from '../props';
 import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
+import type { MeasureRecord } from './export';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
@@ -101,6 +102,8 @@ export interface StepDoc {
   isoLabel?: string;
   /** 홈 뷰(처음 맞춘 보기 또는 "지금 보기를 홈으로") */
   home?: CameraState;
+  /** 측정 기록(거리·고른 면 — CSV 복사용) */
+  measureLog: MeasureRecord[];
 }
 
 /** 제품 나무 기본 줄 수 제한 */
@@ -136,6 +139,7 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     treeFilter: '',
     treeLimit: TREE_LIMIT,
     density: null,
+    measureLog: [],
   };
 }
 

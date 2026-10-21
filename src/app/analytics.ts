@@ -2,7 +2,7 @@
 export type AnalyticsTool = 'portfolio' | 'dwgdxf' | 'nc' | 'step' | 'skp';
 export type InputKind = 'local' | 'sample' | 'url';
 export type OpenError = 'size_limit' | 'read_error' | 'fetch_error' | 'unsupported' | 'empty' | 'parse_error';
-export type ExportFormat = 'png' | 'jpg' | 'bmp' | 'pdf' | 'svg' | 'dxf' | 'dwg';
+export type ExportFormat = 'png' | 'jpg' | 'bmp' | 'pdf' | 'svg' | 'dxf' | 'dwg' | 'stl' | 'obj' | 'csv';
 export type ContentGroup = '포트폴리오' | '프로젝트' | '연구' | 'OpenCAD 소개' | 'OpenCAD 가이드' | 'OpenCAD 앱' | '개발 노트' | '연락' | '오류';
 
 const HOST = 'gyutae-kim.github.io';
