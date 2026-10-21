@@ -100,18 +100,46 @@ function closestLines(o1: V3, d1: V3, o2: V3, d2: V3): [V3, V3] | null {
   return [add(o1, scale(d1, s)), add(o2, scale(d2, t))];
 }
 
-/** 두 선분의 가장 가까운 두 점(점 몇 개를 번갈아 내려 수렴) */
-function closestSegments(a1: V3, b1: V3, a2: V3, b2: V3): [V3, V3] {
-  let p = scale(add(a1, b1), 0.5);
-  let q = footOnSegment(p, a2, b2);
-  for (let i = 0; i < 32; i++) {
-    const np = footOnSegment(q, a1, b1);
-    const nq = footOnSegment(np, a2, b2);
-    if (len(sub(np, p)) < 1e-12 && len(sub(nq, q)) < 1e-12) break;
-    p = np;
-    q = nq;
+/**
+ * 두 선분 p1–q1, p2–q2의 가장 가까운 두 점(닫힌 꼴 — Ericson, Real-Time Collision Detection 5.1.9).
+ * 길이 0인 선분은 점으로, 나란한 선분은 한쪽 끝을 기준으로 잰다(어느 쌍이든 거리는 같다)
+ */
+export function closestSegments(p1: V3, q1: V3, p2: V3, q2: V3): [V3, V3] {
+  const d1 = sub(q1, p1);
+  const d2 = sub(q2, p2);
+  const r = sub(p1, p2);
+  const a = dot(d1, d1);
+  const e = dot(d2, d2);
+  const f = dot(d2, r);
+  const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  const tiny = 1e-24 * Math.max(1, a, e);
+  let s: number;
+  let t: number;
+  if (a <= tiny && e <= tiny) return [[...p1] as V3, [...p2] as V3];
+  if (a <= tiny) {
+    s = 0;
+    t = clamp01(f / e);
+  } else {
+    const c = dot(d1, r);
+    if (e <= tiny) {
+      t = 0;
+      s = clamp01(-c / a);
+    } else {
+      const b = dot(d1, d2);
+      const denom = a * e - b * b;
+      // 나란하면(denom ≈ 0) 아무 s나 — 0에서 시작해 t를 구하고 다시 자른다
+      s = denom > 1e-14 * a * e ? clamp01((b * f - c * e) / denom) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) {
+        t = 0;
+        s = clamp01(-c / a);
+      } else if (t > 1) {
+        t = 1;
+        s = clamp01((b - c) / a);
+      }
+    }
   }
-  return [p, q];
+  return [add(p1, scale(d1, s)), add(p2, scale(d2, t))];
 }
 
 /** 축 개체로 볼 수 있으면(축·원·직선) 축 */
@@ -143,6 +171,10 @@ export function measureEntities(A: Entity, B: Entity, size = 1): EntityMeasure {
     anns.push({ kind: 'distance', a: p, b: q, line: lines.length - 1 });
   };
   const arm = Math.max(size * 0.08, 1e-9);
+  // 길이 0인 직선 모서리는 점으로
+  const asPt = (e: Entity): Entity => (e.type === 'line' && len(sub(e.b, e.a)) <= 1e-12 * Math.max(1, len(e.a)) ? { type: 'point', label: e.label, point: e.a, ...(e.meshId ? { meshId: e.meshId } : {}) } : e);
+  A = asPt(A);
+  B = asPt(B);
   // 순서를 맞춘다: 평면 > 축류(축·원·직선) > 점
   const rank = (e: Entity) => (e.type === 'plane' ? 0 : e.type === 'point' ? 2 : 1);
   if (rank(B) < rank(A)) [A, B] = [B, A];
