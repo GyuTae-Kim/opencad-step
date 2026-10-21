@@ -3,6 +3,8 @@
  * → SURFACE_STYLE_FILL_AREA → FILL_AREA_STYLE → FILL_AREA_STYLE_COLOUR → COLOUR_RGB·DRAUGHTING_PRE_DEFINED_COLOUR,
  * 투명도는 SURFACE_STYLE_RENDERING_WITH_PROPERTIES → SURFACE_STYLE_TRANSPARENT.
  * 면 색이 없을 때 CURVE_STYLE 색은 쓰지 않는다(선 색 — 곡선·와이어프레임·PMI 선 색으로 따로 모은다).
+ * CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM은 항목 전체 색이 아니라 style_context가 가리키는 자리(인스턴스)에서만 쓰도록
+ * contextColors로 따로 넘긴다(해석기가 조립 길을 따라가며 맞춘다).
  */
 import type { Rgba } from 'opencad-viewer3d/types';
 import { num, refId, refList, text, type StepFile } from './part21';
@@ -27,6 +29,21 @@ export interface StyleInfo {
   curveColors: Map<number, Rgba>;
   /** 양식 배정(PRESENTATION_STYLE_ASSIGNMENT 등) 번호들 → 선 색(없으면 면 색). PMI 주석처럼 양식이 붙은 항목에 직접 쓴다 */
   curveColorOf(styleIds: readonly number[]): Rgba | undefined;
+  /**
+   * 자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM). item은 표현(그 아래 모두) 또는 형상 항목,
+   * context는 그 자리로 가는 길의 개체들(NEXT_ASSEMBLY_USAGE_OCCURRENCE·REPRESENTATION_RELATIONSHIP·MAPPED_ITEM 등)이다.
+   * 해석기(scene.ts)는 지금 따라가는 길에 context가 모두 있을 때만 그 자리의 그물에 색을 칠한다.
+   */
+  contextColors: ContextColor[];
+}
+
+/** 자리별 색 덮어쓰기 하나 */
+export interface ContextColor {
+  item: number;
+  context: number[];
+  /** 덮어쓸 색(투명도만 바꾸면 null) */
+  color: Rgba | null;
+  alpha: number;
 }
 
 export function readStyles(f: StepFile): StyleInfo {
@@ -108,21 +125,25 @@ export function readStyles(f: StepFile): StyleInfo {
     }
     return out;
   };
+  const styleOf = (styleIds: readonly number[]) => {
+    let rgb: [number, number, number] | null = null;
+    let alpha = 1;
+    let curve: [number, number, number] | null = null;
+    for (const s of styleIds) {
+      const st = surfaceStyle(s);
+      if (st.rgb && !rgb) rgb = st.rgb;
+      if (st.curve && !curve) curve = st.curve;
+      alpha = Math.min(alpha, st.alpha);
+    }
+    return { rgb, alpha, curve };
+  };
   const apply = (type: string) => {
     for (const id of f.idsOfType(type)) {
       const e = f.get(id);
       if (!e || e.parts) continue;
       const item = refId(e.args[2]);
       if (!item) continue;
-      let rgb: [number, number, number] | null = null;
-      let alpha = 1;
-      let curve: [number, number, number] | null = null;
-      for (const s of refList(e.args[1])) {
-        const st = surfaceStyle(s);
-        if (st.rgb && !rgb) rgb = st.rgb;
-        if (st.curve && !curve) curve = st.curve;
-        alpha = Math.min(alpha, st.alpha);
-      }
+      const { rgb, alpha, curve } = styleOf(refList(e.args[1]));
       if (curve) curveColors.set(item, [curve[0], curve[1], curve[2], 1]);
       if (rgb) colors.set(item, [rgb[0], rgb[1], rgb[2], alpha]);
       else if (alpha < 1) {
@@ -133,7 +154,18 @@ export function readStyles(f: StepFile): StyleInfo {
   };
   apply('STYLED_ITEM');
   apply('OVER_RIDING_STYLED_ITEM');
-  apply('CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM');
+  // 자리(인스턴스)별 덮어쓰기: (이름, 양식, 항목, 덮어쓸 양식, style_context) — 항목 전체가 아니라 그 자리에서만 쓴다
+  const contextColors: ContextColor[] = [];
+  for (const id of f.idsOfType('CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM')) {
+    const e = f.get(id);
+    if (!e || e.parts) continue;
+    const item = refId(e.args[2]);
+    const context = refList(e.args[4]);
+    if (!item || !context.length) continue;
+    const { rgb, alpha } = styleOf(refList(e.args[1]));
+    if (!rgb && alpha >= 1) continue;
+    contextColors.push({ item, context, color: rgb ? [rgb[0], rgb[1], rgb[2], alpha] : null, alpha });
+  }
   for (const id of f.idsOfType('INVISIBILITY')) {
     const e = f.get(id);
     if (!e) continue;
@@ -154,7 +186,7 @@ export function readStyles(f: StepFile): StyleInfo {
     // 채운 글자(삼각형 주석)는 면 색만 있을 수 있다
     return fill ? [fill[0], fill[1], fill[2], 1] : undefined;
   };
-  return { colors, hidden, curveColors, curveColorOf };
+  return { colors, hidden, curveColors, curveColorOf, contextColors };
 }
 
 function clamp01(x: number): number {

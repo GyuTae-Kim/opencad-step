@@ -16,6 +16,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   STEP-XML(ISO 10303-28, .stpx)은 지원하지 않는다고 알려 줍니다.
 - B-rep 곡면 삼각화: 평면·원기둥·원뿔·구·원환·B-스플라인·회전·밀기 곡면, 구멍 있는 면, 틈 없는 이음
 - 조립(제품·인스턴스 변환), 색, 단위, 제품 나무(`StepProductNode`)
+- 자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM): style_context(자리 변환 관계·NAUO·사상 항목)가 가리키는 자리에서만 칠한다
+- 짧은 호(처진 높이가 허용 오차보다 작은 원호)도 두 토막 이상으로 나눠, 같은 꼭짓점을 잇는 현과 겹친 활꼴 면이 넓이 0으로 실패하지 않는다
 - 레이어(PRESENTATION_LAYER_ASSIGNMENT, 레이어를 가리키는 INVISIBILITY) → `meta.layers`
 - 와이어프레임·곡선 형상(GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION의 GEOMETRIC_CURVE_SET·GEOMETRIC_SET,
   EDGE_BASED·SHELL_BASED_WIREFRAME_MODEL, 형상 표현 안의 독립 곡선 — 선·원·잘린 곡선·복합 곡선·B-스플라인 등, 선 색 CURVE_STYLE) → `scene.lines`(점은 `scene.points`)

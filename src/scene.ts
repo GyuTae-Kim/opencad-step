@@ -17,7 +17,7 @@ import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
-import { readStyles } from './styles';
+import { type ContextColor, readStyles } from './styles';
 import { type ContextUnits, contextUnits, DEFAULT_UNITS, sceneUnitMm, sceneUnitOf } from './units';
 import { isWireItemType, type WireGeom, WireSampler } from './wire';
 
@@ -390,6 +390,34 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     return m ?? identity();
   };
 
+  // ── 자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM) ──
+  // 지금 따라가는 길(NAUO·표현 관계·사상 항목)의 개체 수. 덮어쓰기의 context가 모두 길에 있으면 그 자리에서만 쓴다
+  const onPath = new Map<number, number>();
+  const pathPush = (ids: readonly number[]) => {
+    for (const x of ids) if (x) onPath.set(x, (onPath.get(x) ?? 0) + 1);
+  };
+  const pathPop = (ids: readonly number[]) => {
+    for (const x of ids) {
+      if (!x) continue;
+      const n = (onPath.get(x) ?? 0) - 1;
+      if (n > 0) onPath.set(x, n);
+      else onPath.delete(x);
+    }
+  };
+  const overridesOf = new Map<number, ContextColor[]>();
+  for (const c of styles.contextColors) {
+    let l = overridesOf.get(c.item);
+    if (!l) overridesOf.set(c.item, (l = []));
+    l.push(c);
+  }
+  /** 이 자리에서 항목(표현·형상 항목)에 쓸 덮어쓰기 */
+  const contextOverride = (item: number): ContextColor | undefined => {
+    const l = overridesOf.get(item);
+    return l?.find((c) => c.context.every((x) => onPath.has(x)));
+  };
+  /** 따라가는 표현·사상 항목에서 물려받은 덮어쓰기 */
+  let curOverride: ContextColor | undefined;
+
   // ── 그물 캐시와 인스턴스 ──
   const meshCache = new Map<number, ItemMesh | null>();
   const meshes: Mesh3d[] = [];
@@ -446,17 +474,21 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     if (!m) return;
     const id = `step-${++meshSeq}`;
     const itemName = text(f.get(item)?.args[0]);
+    // 자리별 덮어쓰기(이 항목 또는 따라온 표현): 파일 색보다 앞선다
+    const ov = contextOverride(item) ?? curOverride;
+    const base = m.color ?? styles.colors.get(item) ?? inheritedColor ?? DEFAULT_COLOR;
+    const color: Rgba = ov ? (ov.color ? [ov.color[0], ov.color[1], ov.color[2], Math.min(ov.color[3], ov.alpha)] : [base[0], base[1], base[2], Math.min(base[3], ov.alpha)]) : base;
     const mesh: Mesh3d = {
       id,
       name: itemName && itemName !== node.name ? `${node.name} / ${itemName}` : node.name,
       positions: m.positions,
       normals: m.normals,
       indices: m.indices,
-      color: m.color ?? styles.colors.get(item) ?? inheritedColor ?? DEFAULT_COLOR,
+      color,
       group: node.name,
       doubleSided: !m.closed,
     };
-    if (m.colors) mesh.colors = m.colors;
+    if (m.colors && !ov?.color) mesh.colors = m.colors;
     if (opts.edges !== false && m.edges.length) mesh.edges = m.edges;
     if (!isIdentity(matrix)) mesh.matrix = matrix;
     // 닫힌 입체(틈 없이 맞물린 삼각형) — 단면에서 잘린 면을 채운다
@@ -554,6 +586,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     const prevLayer = curLayer;
     const rl = hasLayers ? layerOf.get(repId) : undefined;
     if (rl !== undefined) curLayer = rl;
+    const prevOverride = curOverride;
+    curOverride = contextOverride(repId) ?? curOverride;
     let wires: Map<string, WireAgg> | null = null;
     const hasBrep = r.items.some((it) => {
       const t = f.typeOf(it);
@@ -582,12 +616,18 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         const saveLayer = curLayer;
         const ml = hasLayers ? layerOf.get(it) : undefined;
         if (ml !== undefined) curLayer = ml;
+        const link = [it, use?.nauo ?? 0];
+        pathPush(link);
+        const saveOverride = curOverride;
+        curOverride = contextOverride(it) ?? curOverride;
         if (use && owner !== undefined) {
           consumedNauo.add(use.nauo);
           const child = makeNode(owner, use.name);
           node.children.push(child);
           visitPd(owner, mul(matrix, T), child, depth + 1, col);
         } else visitRep(mappedRep, mul(matrix, T), node, pd, depth + 1, col);
+        curOverride = saveOverride;
+        pathPop(link);
         curLayer = saveLayer;
       } else if (wantCurves && isWireItemType(f, it)) {
         addWire((wires ??= new Map()), it, r, matrix);
@@ -595,6 +635,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     }
     if (wires) flushWire(wires, text(f.get(repId)?.args[0]) || node.name, node);
     curLayer = prevLayer;
+    curOverride = prevOverride;
   };
   const makeNode = (pd: number, instanceName?: string): StepProductNode => {
     const pn = productName(pd);
@@ -616,7 +657,11 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       const T = nauoTransform(use.nauo, pd, use.child);
       const child = makeNode(use.child, use.name);
       node.children.push(child);
+      // 자리로 가는 길: NAUO와 그 자리 변환 관계(CONTEXT_DEPENDENT_SHAPE_REPRESENTATION의 표현 관계)
+      const link = [use.nauo, nauoRel.get(use.nauo) ?? 0];
+      pathPush(link);
       visitPd(use.child, mul(matrix, T), child, depth + 1, color);
+      pathPop(link);
     }
     path.delete(pd);
   };
