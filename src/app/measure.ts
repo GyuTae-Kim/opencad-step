@@ -6,8 +6,8 @@
 import type { MeasureResult } from 'opencad-viewer3d';
 import { boxIsEmpty, boxSize, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
 import type { Scene3d } from 'opencad-viewer3d/types';
+import type { Fmt } from './display';
 import { faceKindLabel, type FacePick } from './faces';
-import { fmtNum } from './format';
 
 /** 측정 안내(찍은 점 수 0~2, 결과가 있는지) */
 export function measureHint(points: number, hasResult: boolean, touch = false): string {
@@ -26,9 +26,9 @@ export function faceHint(touch = false): string {
   return touch ? '면 고르기: 면을 누르십시오 · 길게 누르면 정밀 조준' : '면 고르기: 면을 누르십시오';
 }
 
-/** 측정 결과 글: 거리(굵게)와 축별 길이(패널 아래 띠와 같은 꼴) */
-export function measureLines(m: Pick<MeasureResult, 'distance' | 'dx' | 'dy' | 'dz'>, u: string): { value: string; axes: string } {
-  return { value: `${fmtNum(m.distance)}${u ? ` ${u}` : ''}`, axes: `dx ${fmtNum(m.dx)} · dy ${fmtNum(m.dy)} · dz ${fmtNum(m.dz)}` };
+/** 측정 결과 글: 거리(굵게)와 축별 길이(패널 아래 띠와 같은 꼴, 표시 단위·소수 자리) */
+export function measureLines(m: Pick<MeasureResult, 'distance' | 'dx' | 'dy' | 'dz'>, f: Fmt): { value: string; axes: string } {
+  return { value: f.len(m.distance), axes: `dx ${f.lenNum(m.dx)} · dy ${f.lenNum(m.dy)} · dz ${f.lenNum(m.dz)}` };
 }
 
 /** 고른 면 요약: 종류, 주요 치수(Ø·R, 없으면 null), 이름·값 쌍(이름은 번역 글, 값은 숫자·단위) */
@@ -42,22 +42,21 @@ export interface FaceSummary {
  * 고른 면의 주요 치수: 원기둥·구는 지름(Ø)과 반지름, 원환은 큰 반지름(R)과 작은 반지름, 원뿔은 반각,
  * 그 밖(평면·곡면)은 둘레. 넓이는 늘 보인다. B-rep에서 정확히 구하지 못한 넓이·둘레(B-스플라인 등)는 "≈"를 붙인다.
  */
-export function faceSummary(fp: FacePick, u: string): FaceSummary {
-  const unit = u ? ` ${u}` : '';
+export function faceSummary(fp: FacePick, f: Fmt): FaceSummary {
   const facts: [string, string][] = [];
   let main: string | null = null;
   const r = fp.radius;
   if ((fp.kind === 'cylinder' || fp.kind === 'sphere') && r !== undefined) {
-    main = `Ø${fmtNum(r * 2)}${unit}`;
-    facts.push(['반지름', `${fmtNum(r)}${unit}`]);
+    main = `Ø${f.len(r * 2)}`;
+    facts.push(['반지름', f.len(r)]);
   } else if (fp.kind === 'torus' && r !== undefined) {
-    main = `R${fmtNum(r)}${unit}`;
-    if (fp.minorRadius !== undefined) facts.push(['작은 반지름', `${fmtNum(fp.minorRadius)}${unit}`]);
-  } else if (fp.kind === 'cone' && fp.halfAngleDeg !== undefined) facts.push(['반각', `${fmtNum(fp.halfAngleDeg)}°`]);
+    main = `R${f.len(r)}`;
+    if (fp.minorRadius !== undefined) facts.push(['작은 반지름', f.len(fp.minorRadius)]);
+  } else if (fp.kind === 'cone' && fp.halfAngleDeg !== undefined) facts.push(['반각', f.deg(fp.halfAngleDeg)]);
   // 정확하지 않은(화면용 삼각형으로 잰) 값은 ≈
   const approx = fp.exact ? '' : '≈ ';
-  facts.push(['넓이', `${approx}${fmtNum(fp.area)}${u ? ` ${u}²` : ''}`]);
-  if (!main && fp.kind !== 'cone') facts.push(['둘레', `${approx}${fmtNum(fp.perimeter)}${unit}`]);
+  facts.push(['넓이', `${approx}${f.area(fp.area)}`]);
+  if (!main && fp.kind !== 'cone') facts.push(['둘레', `${approx}${f.len(fp.perimeter)}`]);
   return { kind: faceKindLabel(fp.kind), main, facts };
 }
 

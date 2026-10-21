@@ -22,10 +22,12 @@ import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
 import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
-import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, unitLabel, type StepDoc } from './doc';
+import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
+import { openDialog, selectRow } from './dialog';
+import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
-import { formatBytes, fmtNum, fmtPercent, stageLabel } from './format';
+import { formatBytes, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
 import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu } from './menu';
@@ -115,6 +117,10 @@ export class StepApp {
   private readonly coarse: MediaQueryList | null;
   /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다) */
   private aim: TouchAim | null = null;
+  /** 표시 설정(길이 단위·소수 자리) — 이 브라우저에 기억한다 */
+  private display: DisplaySettings = { ...DEFAULT_DISPLAY };
+  /** 수 꼴(표시 설정·장면 단위·화면 언어) */
+  fmt: Fmt = new Fmt();
 
   panelOpen: boolean;
 
@@ -166,6 +172,8 @@ export class StepApp {
       if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize);
       // 시각 표기(오후 3:04 ↔ 3:04 PM)를 새 언어로
       void this.refreshRecent();
+      // 수 꼴(소수점·자리 구분)을 새 언어로
+      this.refreshFmt();
     });
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
@@ -173,6 +181,8 @@ export class StepApp {
     this.phone = typeof matchMedia === 'function' ? matchMedia(PHONE) : null;
     this.coarse = typeof matchMedia === 'function' ? matchMedia(COARSE) : null;
     this.storedTheme = readStoredTheme(safeLocalStorage());
+    this.display = readDisplaySettings(safeLocalStorage());
+    this.fmt = new Fmt('mm', this.display, numberLocale(document.documentElement.lang));
     this.theme = resolveTheme(this.storedTheme, this.systemDark?.matches ?? true);
     this.panelOpen = !this.phone?.matches;
     this.applyTheme();
@@ -194,6 +204,7 @@ export class StepApp {
     this.themeBtn.setAttribute('aria-expanded', 'false');
     this.themeBtn.addEventListener('click', () => openMenu(this.themeBtn, [
       { label: this.theme === 'dark' ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기', run: () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark') },
+      { label: '표시 설정…', run: () => this.showDisplaySettings() },
       { label: '방문 통계 설정', run: showAnalyticsSettings },
     ], '앱 설정'));
     this.applyTheme();
@@ -543,6 +554,7 @@ export class StepApp {
     this.aim?.cancel();
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
+    this.fmt = this.makeFmt();
     // 파일이 숨긴 레이어 등 처음 보이기
     this.applyVisibility();
     // 새 장면은 단면이 꺼진 채로 온다(코어 setScene → onSectionChange가 막대를 맞춘다). 문서가 바뀐 것만 다시 그린다
@@ -670,8 +682,7 @@ export class StepApp {
       }
       // 끄는 중인 슬라이더 값은 건드리지 않는다(되돌아가며 떨리지 않게)
       if (document.activeElement !== this.sectionSlider) this.sectionSlider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
-      const u = this.doc ? unitLabel(this.doc.scene.units) : '';
-      this.sectionValue.textContent = `${(st.axis ?? '').toUpperCase()} = ${fmtNum(st.position)}${u ? ` ${u}` : ''}`;
+      this.sectionValue.textContent = `${(st.axis ?? '').toUpperCase()} = ${this.fmt.len(st.position)}`;
       this.sectionFlipBtn.setAttribute('aria-pressed', String(st.flip));
       this.sectionFlipBtn.classList.toggle('on', st.flip);
       this.sectionFlipBtn.title = st.flip ? `−${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기` : `+${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기`;
@@ -984,6 +995,57 @@ export class StepApp {
     if (this.narrow?.matches && this.viewer) requestAnimationFrame(() => requestAnimationFrame(() => this.viewer?.fit(false)));
   }
 
+  // ───────────────────────── 표시 설정(단위·소수 자리) ─────────────────────────
+
+  /** 지금 문서·설정·언어로 수 꼴 만들기 */
+  private makeFmt(): Fmt {
+    return new Fmt(this.doc?.scene.units ?? 'mm', this.display, numberLocale(document.documentElement.lang));
+  }
+
+  /** 수 꼴을 다시 만들고 숫자가 든 화면(패널·띠·상태 막대·단면 값)을 다시 그린다 */
+  refreshFmt(): void {
+    this.fmt = this.makeFmt();
+    this.panel.redraw();
+    this.updateStatus();
+    if (this.viewer) this.syncSection(this.viewer.section);
+  }
+
+  /** 표시 설정 바꾸기(기억한다) */
+  setDisplay(next: Partial<DisplaySettings>): void {
+    this.display = { ...this.display, ...next };
+    writeDisplaySettings(safeLocalStorage(), this.display);
+    this.refreshFmt();
+  }
+
+  get displaySettings(): DisplaySettings {
+    return { ...this.display };
+  }
+
+  /** 표시 설정 대화 상자: 길이 단위·소수 자리(바로 적용) */
+  showDisplaySettings(): void {
+    const u = this.doc?.scene.units;
+    const file = u === 'mm' ? 'mm' : u === 'inch' ? 'in' : u === 'm' ? 'm' : '';
+    const known = u !== 'unknown';
+    const unit = selectRow(
+      '길이 단위',
+      [
+        ['file', file ? `파일 단위 (${file})` : '파일 단위'],
+        ['mm', '밀리미터 (mm)'],
+        ['in', '인치 (in)'],
+      ],
+      this.display.unit,
+      (v) => this.setDisplay({ unit: v === 'mm' || v === 'in' ? v : 'file' }),
+      known ? '측정·면 정보·속성·단면 값에 씁니다. 3D 보기 위 측정 글자는 파일 단위 그대로입니다.' : '이 파일은 길이 단위를 모릅니다 — 값을 바꾸지 않고 그대로 보입니다.',
+    );
+    const decimals = selectRow(
+      '소수 자리',
+      Array.from({ length: MAX_DECIMALS + 1 }, (_, i): [string, string] => [String(i), String(i)]),
+      String(this.display.decimals),
+      (v) => this.setDisplay({ decimals: Number(v) }),
+    );
+    openDialog('표시 설정', [unit, decimals]);
+  }
+
   // ───────────────────────── 테마 ─────────────────────────
 
   setTheme(t: Theme | null): void {
@@ -1170,17 +1232,17 @@ export class StepApp {
       this.selFit.hidden = mode !== 'select';
     }
     if (!mode || !d || !v) return;
-    const u = unitLabel(d.scene.units);
+    const fm = this.fmt;
     const t = this.measureText;
     t.replaceChildren();
     if (mode === 'measure') {
       if (d.measure) {
-        const m = measureLines(d.measure, u);
+        const m = measureLines(d.measure, fm);
         t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
       } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
       this.measureClear.disabled = !d.measure && !v.measurePointCount;
     } else if (d.face) {
-      const f = faceSummary(d.face, u);
+      const f = faceSummary(d.face, fm);
       const facts: (Node | string)[] = [];
       f.facts.forEach(([k, val], i) => facts.push(...(i ? [' · '] : []), h('span', {}, k), ` ${val}`));
       t.append(h('b', { class: 'mb-value' }, h('span', {}, f.kind), f.main ? ` ${f.main}` : null), h('span', { class: 'mb-sub' }, ...facts));
@@ -1192,7 +1254,7 @@ export class StepApp {
       // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
       if (size)
         t.append(
-          h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '크기'), ` ≈ ${fmtNum(size[0])} × ${fmtNum(size[1])} × ${fmtNum(size[2])}${u ? ` ${u}` : ''}`),
+          h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '크기'), ` ≈ ${fm.lenNum(size[0])} × ${fm.lenNum(size[1])} × ${fm.lenNum(size[2])}${fm.unit ? ` ${fm.unit}` : ''}`),
         );
     }
   }
@@ -1212,10 +1274,10 @@ export class StepApp {
   }
 
   private selectionText(d: StepDoc): string {
-    const u = unitLabel(d.scene.units);
-    if (d.measure) return `거리 ${fmtNum(d.measure.distance)} ${u}`.trim();
+    const fm = this.fmt;
+    if (d.measure) return `거리 ${fm.len(d.measure.distance)}`.trim();
     if (this.measuring) return '측정: 두 점을 누르십시오';
-    const face = d.face ? ` · 면 ${faceKindLabel(d.face.kind)}${d.face.radius !== undefined ? ` R${fmtNum(d.face.radius)}` : ''}` : '';
+    const face = d.face ? ` · 면 ${faceKindLabel(d.face.kind)}${d.face.radius !== undefined ? ` R${fm.len(d.face.radius)}` : ''}` : '';
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
     if (node) {
       const n = nodeLabel(node);

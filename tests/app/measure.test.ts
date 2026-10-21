@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { Fmt } from '../../src/app/display';
 import type { FacePick } from '../../src/app/faces';
 import { faceHint, faceSummary, measureHint, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
+
+const MM = new Fmt('mm');
+const NONE = new Fmt('unknown');
 
 const face = (kind: string, extra: Partial<FacePick> = {}): FacePick => ({
   meshId: 'm',
@@ -38,12 +42,12 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
   });
 
   it('거리와 dx·dy·dz(패널 아래 띠와 같은 꼴)', () => {
-    expect(measureLines({ distance: 50, dx: 30, dy: -40, dz: 0 }, 'mm')).toEqual({ value: '50 mm', axes: 'dx 30 · dy -40 · dz 0' });
-    expect(measureLines({ distance: 1234.56789, dx: 1, dy: 0, dz: 0 }, '').value).toBe('1,234.568');
+    expect(measureLines({ distance: 50, dx: 30, dy: -40, dz: 0 }, MM)).toEqual({ value: '50 mm', axes: 'dx 30 · dy -40 · dz 0' });
+    expect(measureLines({ distance: 1234.56789, dx: 1, dy: 0, dz: 0 }, NONE).value).toBe('1,234.568');
   });
 
   it('고른 면의 주요 치수: 원기둥·구는 지름, 원환은 큰 반지름, 원뿔은 반각, 그 밖은 둘레 — 넓이는 늘', () => {
-    expect(faceSummary(face('cylinder', { radius: 6 }), 'mm')).toEqual({
+    expect(faceSummary(face('cylinder', { radius: 6 }), MM)).toEqual({
       kind: '원기둥 면',
       main: 'Ø12 mm',
       facts: [
@@ -51,10 +55,10 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
         ['넓이', '150.796 mm²'],
       ],
     });
-    expect(faceSummary(face('sphere', { radius: 2.5 }), 'mm').main).toBe('Ø5 mm');
-    expect(faceSummary(face('torus', { radius: 20, minorRadius: 3 }), 'mm')).toMatchObject({ kind: '원환 면', main: 'R20 mm', facts: [['작은 반지름', '3 mm'], ['넓이', '150.796 mm²']] });
-    expect(faceSummary(face('cone', { radius: 4, halfAngleDeg: 30 }), 'mm')).toMatchObject({ kind: '원뿔 면', main: null, facts: [['반각', '30°'], ['넓이', '150.796 mm²']] });
-    expect(faceSummary(face('plane'), '')).toEqual({
+    expect(faceSummary(face('sphere', { radius: 2.5 }), MM).main).toBe('Ø5 mm');
+    expect(faceSummary(face('torus', { radius: 20, minorRadius: 3 }), MM)).toMatchObject({ kind: '원환 면', main: 'R20 mm', facts: [['작은 반지름', '3 mm'], ['넓이', '150.796 mm²']] });
+    expect(faceSummary(face('cone', { radius: 4, halfAngleDeg: 30 }), MM)).toMatchObject({ kind: '원뿔 면', main: null, facts: [['반각', '30°'], ['넓이', '150.796 mm²']] });
+    expect(faceSummary(face('plane'), NONE)).toEqual({
       kind: '평면',
       main: null,
       facts: [
@@ -63,7 +67,7 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
       ],
     });
     // B-rep에서 정확히 구하지 못한 값(B-스플라인 등)은 ≈
-    expect(faceSummary(face('bspline', { exact: false }), 'mm').facts).toEqual([
+    expect(faceSummary(face('bspline', { exact: false }), MM).facts).toEqual([
       ['넓이', '≈ 150.796 mm²'],
       ['둘레', '≈ 62.832 mm'],
     ]);

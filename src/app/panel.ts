@@ -6,9 +6,10 @@
  */
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
+import type { Fmt } from './display';
 import { instanceCounts, productAt, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { faceKindLabel, type FacePick } from './faces';
-import { formatBytes, formatMs, fmtCount, fmtNum, fmtPt } from './format';
+import { formatBytes, formatMs, fmtCount } from './format';
 import { panelMeasureHint } from './measure';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
@@ -18,6 +19,8 @@ export interface PanelHost {
   readonly measuring: boolean;
   /** 손가락이 주인 기기인지(안내에서 키 설명을 뺀다) */
   readonly touch: boolean;
+  /** 수 꼴(표시 단위·소수 자리·언어) */
+  readonly fmt: Fmt;
   /** 나무 마디 고르기(null = 풀기) */
   selectKey(key: string | null): void;
   /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
@@ -144,6 +147,13 @@ export class Panel {
   }
 
   onMeasure(): void {
+    this.renderFoot();
+  }
+
+  /** 수 꼴(표시 단위·소수 자리·언어)이 바뀜: 본문과 아래 띠를 다시 그린다 */
+  redraw(): void {
+    if (!this.doc) return;
+    this.renderBody();
     this.renderFoot();
   }
 
@@ -525,8 +535,9 @@ export class Panel {
       docRows.splice(2, 0, row('압축', `${kinds}${d.source.entry ? ` · ${d.source.entry}` : ''}`), row('푼 크기', `${formatBytes(d.source.size)} (압축 ${formatBytes(d.source.packedSize)})`));
     }
     if (b) {
-      docRows.push(row('범위 크기', `${fmtNum(b.max[0] - b.min[0])} × ${fmtNum(b.max[1] - b.min[1])} × ${fmtNum(b.max[2] - b.min[2])} ${u}`.trim()));
-      docRows.push(row('최소', fmtPt(b.min)), row('최대', fmtPt(b.max)));
+      const f = this.host.fmt;
+      docRows.push(row('범위 크기', `${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])} ${f.unit}`.trim()));
+      docRows.push(row('최소', f.pt(b.min)), row('최대', f.pt(b.max)));
     }
     docRows.push(row('삼각형', fmtCount(c.triangles), '놓인 자리를 모두 센 삼각형 수'));
     this.body.append(section('문서', ...docRows));
@@ -549,7 +560,8 @@ export class Panel {
       if (r.some(Boolean)) this.body.append(section('파일 머리', ...r));
     }
 
-    this.body.append(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름')));
+    const fu = this.host.fmt;
+    this.body.append(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름'), row('표시 단위', fu.unit || '—'), row('소수 자리', String(fu.decimals))));
 
     const st = info.stats;
     const statRows: HTMLElement[] = [];
@@ -591,7 +603,8 @@ export class Panel {
       return;
     }
     const lines: HTMLElement[] = [];
-    const u = unitLabel(d.scene.units);
+    const fm = this.host.fmt;
+    const u = fm.unit;
     const p = d.pick;
     const fitBtn = (): HTMLButtonElement => {
       const b = h('button', { type: 'button', class: 'btn small foot-fit', title: '고른 것으로 맞춰 보기' });
@@ -606,8 +619,8 @@ export class Panel {
       const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item?.name ?? p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
-      lines.push(h('div', { class: 'dim' }, `${p.section ? '단면(자른 면) 위 점' : '점'} ${fmtPt(p.point)} ${u}${p.normal ? ` · 법선 ${fmtPt(p.normal)}` : ''}`));
-      if (d.face) lines.push(...faceLines(d.face, u));
+      lines.push(h('div', { class: 'dim' }, `${p.section ? '단면(자른 면) 위 점' : '점'} ${fm.pt(p.point)} ${u}${p.normal ? ` · 법선 ${fm.dir(p.normal)}` : ''}`));
+      if (d.face) lines.push(...faceLines(d.face, fm));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
       if (node) {
@@ -619,7 +632,7 @@ export class Panel {
     }
     if (d.measure) {
       const m = d.measure;
-      lines.push(h('div', {}, h('b', {}, '거리 '), `${fmtNum(m.distance)} ${u}`, h('span', { class: 'dim' }, ` · dx ${fmtNum(m.dx)} · dy ${fmtNum(m.dy)} · dz ${fmtNum(m.dz)}`)));
+      lines.push(h('div', {}, h('b', {}, '거리 '), fm.len(m.distance), h('span', { class: 'dim' }, ` · dx ${fm.lenNum(m.dx)} · dy ${fm.lenNum(m.dy)} · dz ${fm.lenNum(m.dz)}`)));
     } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, panelMeasureHint(this.host.touch)));
     f.hidden = !lines.length;
     f.append(...lines);
@@ -627,20 +640,18 @@ export class Panel {
 }
 
 /** 고른 면 정보 줄 */
-function faceLines(fp: FacePick, u: string): HTMLElement[] {
-  const unit = u ? ` ${u}` : '';
-  const area = u ? ` ${u}²` : '';
+function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   const out: HTMLElement[] = [h('div', { class: 'foot-face' }, h('b', {}, '고른 면 '), faceKindLabel(fp.kind), h('span', { class: 'dim' }, ` · #${fp.stepId} · 삼각형 ${fmtCount(fp.triangles)}`))];
   const geo: string[] = [];
-  if (fp.radius !== undefined) geo.push(`${fp.kind === 'torus' ? '큰 반지름' : '반지름'} ${fmtNum(fp.radius)}${unit}`);
-  if (fp.minorRadius !== undefined) geo.push(`작은 반지름 ${fmtNum(fp.minorRadius)}${unit}`);
-  if (fp.halfAngleDeg !== undefined) geo.push(`반각 ${fmtNum(fp.halfAngleDeg)}°`);
-  if (fp.radius !== undefined && (fp.kind === 'cylinder' || fp.kind === 'sphere')) geo.push(`지름 ${fmtNum(fp.radius * 2)}${unit}`);
-  if (fp.normal) geo.push(`법선 ${fmtPt(fp.normal)}`);
-  if (fp.axis) geo.push(`축 ${fmtPt(fp.axis)}`);
-  if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${fmtPt(fp.origin)}`);
+  if (fp.radius !== undefined) geo.push(`${fp.kind === 'torus' ? '큰 반지름' : '반지름'} ${f.len(fp.radius)}`);
+  if (fp.minorRadius !== undefined) geo.push(`작은 반지름 ${f.len(fp.minorRadius)}`);
+  if (fp.halfAngleDeg !== undefined) geo.push(`반각 ${f.deg(fp.halfAngleDeg)}`);
+  if (fp.radius !== undefined && (fp.kind === 'cylinder' || fp.kind === 'sphere')) geo.push(`지름 ${f.len(fp.radius * 2)}`);
+  if (fp.normal) geo.push(`법선 ${f.dir(fp.normal)}`);
+  if (fp.axis) geo.push(`축 ${f.dir(fp.axis)}`);
+  if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${f.pt(fp.origin)}`);
   if (geo.length) out.push(h('div', { class: 'dim' }, geo.join(' · ')));
   const approx = fp.exact ? '' : '≈ ';
-  out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${fmtNum(fp.area)}${area} · 둘레 ${approx}${fmtNum(fp.perimeter)}${unit}`));
+  out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${f.area(fp.area)} · 둘레 ${approx}${f.len(fp.perimeter)}`));
   return out;
 }
