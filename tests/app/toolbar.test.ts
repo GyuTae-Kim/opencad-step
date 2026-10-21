@@ -153,7 +153,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     expect(sec.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('그리기 모드 메뉴: 숨은선 제거·단색과 그리기 선택(숨은 모서리 점선은 숨은선 모드에서만, 외곽선·부품 색·분해)', () => {
+  it('그리기 모드 메뉴: 숨은선 제거·단색과 그리기 선택(숨은 모서리 점선은 숨은선 모드에서만, 외곽선은 숨은선 모드에서 켜진 채 잠김, 부품 색·분해)', () => {
     const h = { ...host(), renderMode: 'hiddenLine' as const, partColors: true };
     const tb = new Toolbar(h);
     document.body.append(tb.el);
@@ -169,7 +169,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
       ['숨은선 제거', 'true', false],
       ['단색', 'false', false],
       ['숨은 모서리 점선', 'false', false],
-      ['외곽선 강조', 'false', false],
+      ['외곽선 강조', 'true', true],
       ['부품 색 구분', 'true', false],
       ['분해 보기', 'false', false],
     ]);

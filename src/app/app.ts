@@ -1555,13 +1555,26 @@ export class StepApp {
 
   setRenderMode(m: RenderMode): void {
     this.viewer?.setRenderMode(m);
+    this.applyProfiles();
     this.toolbar.refresh();
   }
 
   /** 숨은선 모드에서 가려진 모서리를 흐린 점선으로(코어 hiddenEdges) */
   hiddenEdges = false;
-  /** 외곽선(실루엣) 강조(코어 profiles) */
+  /** 외곽선(실루엣) 강조(코어 profiles) — 사용자가 켠 것. 숨은선 모드는 이것과 상관없이 늘 켠다(profilesOn) */
   profiles = false;
+
+  /**
+   * 외곽선을 그리는지: 사용자가 켰거나 숨은선 모드. 숨은선은 B-rep 모서리만 그려(삼각형 변 없음, 코어 0.7.1) 모서리가 없는 매끈한 면(원환 고리·구)은
+   * 외곽선이 없으면 바탕색 덩어리로 사라진다 — Fusion의 "보이는 모서리만"처럼 실루엣을 함께 그린다
+   */
+  get profilesOn(): boolean {
+    return this.profiles || this.renderMode === 'hiddenLine';
+  }
+
+  private applyProfiles(): void {
+    this.viewer?.setRenderOptions({ profiles: this.profilesOn });
+  }
 
   toggleHiddenEdges(on = !this.hiddenEdges): void {
     this.hiddenEdges = on;
@@ -1571,7 +1584,7 @@ export class StepApp {
 
   toggleProfiles(on = !this.profiles): void {
     this.profiles = on;
-    this.viewer?.setRenderOptions({ profiles: on });
+    this.applyProfiles();
     this.toolbar.refresh();
   }
 

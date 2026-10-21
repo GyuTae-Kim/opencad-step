@@ -204,7 +204,8 @@ export class Toolbar {
     const H = this.host;
     return [
       { label: '숨은 모서리 점선', checked: H.hiddenEdges, toggle: true, sep: true, disabled: H.renderMode !== 'hiddenLine', run: () => H.toggleHiddenEdges() },
-      { label: '외곽선 강조', checked: H.profiles, toggle: true, run: () => H.toggleProfiles() },
+      // 숨은선 모드는 외곽선을 늘 그린다(모서리 없는 매끈한 면이 사라지지 않게) — 켜진 채 잠근다
+      { label: '외곽선 강조', checked: H.profiles || H.renderMode === 'hiddenLine', toggle: true, disabled: H.renderMode === 'hiddenLine', run: () => H.toggleProfiles() },
       { label: '부품 색 구분', checked: H.partColors, toggle: true, sep: true, run: () => H.togglePartColors() },
       { label: '분해 보기', checked: H.explodeOpen, toggle: true, run: () => H.toggleExplode() },
     ];
