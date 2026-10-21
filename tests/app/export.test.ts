@@ -30,6 +30,18 @@ describe('내보내기: STL·OBJ·CSV', () => {
     expect(csvCell('a,b')).toBe('"a,b"');
     expect(csvCell('say "hi"')).toBe('"say ""hi"""');
     expect(toCsv([['a', 1.5], ['b', 2]])).toBe('a,1.5\r\nb,2\r\n');
+    // 수식 주입: = + - @ 탭·CR로 시작하는 글은 '를 앞에(수·점 좌표 글은 그대로)
+    expect(csvCell('=HYPERLINK("http://x","y")')).toBe('"\'=HYPERLINK(""http://x"",""y"")"');
+    expect(csvCell('+1+cmd|calc')).toBe("'+1+cmd|calc");
+    expect(csvCell('-2+3')).toBe("'-2+3");
+    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvCell('\t=1')).toBe("'\t=1");
+    expect(csvCell('\r=1')).toBe('"\'\r=1"');
+    expect(csvCell('a=b')).toBe('a=b');
+    expect(csvCell(-3.5)).toBe('-3.5');
+    expect(csvCell('-3.5')).toBe('-3.5');
+    expect(csvCell('-12.5 3 -4e-7')).toBe('-12.5 3 -4e-7');
+    expect(csvCell('+.5')).toBe('+.5');
     const rows = measureRows(
       [
         { type: 'distance', a: [0, 0, 0], b: [25.4, 0, 0], distance: 25.4, dx: 25.4, dy: 0, dz: 0 },

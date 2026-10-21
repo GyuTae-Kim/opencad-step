@@ -96,9 +96,18 @@ function num(v: number): string {
   return Number.isFinite(v) ? String(Number(v.toPrecision(9))) : '0';
 }
 
-/** CSV 칸 하나(쉼표·따옴표·줄바꿈이 있으면 따옴표로) */
+/** 표 프로그램이 수식으로 읽는 첫 글자 */
+const FORMULA_START = /^[=+\-@\t\r]/;
+/** 수(또는 빈칸으로 나눈 수들, 점 좌표 글) — 수식이 될 수 없다 */
+const NUMBERS = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?: [-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)*$/;
+
+/**
+ * CSV 칸 하나(쉼표·따옴표·줄바꿈이 있으면 따옴표로). 파일에서 온 글(부품·PMI 이름 등)이 = + - @ 탭·CR로 시작하면
+ * 엑셀 등이 수식으로 실행하지 않게 앞에 '를 붙인다(수와 점 좌표 글은 그대로)
+ */
 export function csvCell(v: string | number): string {
-  const s = typeof v === 'number' ? num(v) : v;
+  let s = typeof v === 'number' ? num(v) : v;
+  if (typeof v === 'string' && FORMULA_START.test(s) && !NUMBERS.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
