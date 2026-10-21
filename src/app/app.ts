@@ -943,7 +943,8 @@ export class StepApp {
     const d = this.doc;
     if (!v || !d) return;
     const cam = v.getCamera();
-    const a = dirToAngles(view.dir, cam.yaw);
+    // 위·아래에서 똑바로 보는 보기는 방향만으로 돌림(yaw)을 정할 수 없다 — 보기의 위쪽(up)이 화면 위가 되게
+    const a = dirToAngles(view.dir, Math.atan2(-view.up[0], view.up[1]));
     let distance = view.distance;
     if (view.projection === 'orthographic' || !(distance > 0)) distance = view.height > 0 ? view.height / 2 / Math.tan(cam.fovY / 2) : cam.distance;
     v.setProjection(view.projection);
