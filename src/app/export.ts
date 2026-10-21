@@ -110,7 +110,8 @@ export function toCsv(rows: readonly (readonly (string | number)[])[]): string {
 /** 측정 기록 한 줄(장면 단위 값 — CSV를 만들 때 표시 단위로 바꾼다) */
 export type MeasureRecord =
   | { type: 'distance'; a: V3; b: V3; distance: number; dx: number; dy: number; dz: number }
-  | { type: 'face'; kind: string; stepId: number; radius?: number; area: number; perimeter: number; exact: boolean };
+  | { type: 'face'; kind: string; stepId: number; radius?: number; area: number; perimeter: number; exact: boolean }
+  | { type: 'edge'; kind: string; stepId: number; length: number; radius?: number };
 
 /** 측정 기록 → CSV 줄(머리 줄 포함). f는 표시 단위로 바꾸는 배율과 단위 글, label은 이름표 번역 */
 export function measureRows(records: readonly MeasureRecord[], f: { factor: number; unit: string }, label: (ko: string) => string = (x) => x): (string | number)[][] {
@@ -121,7 +122,9 @@ export function measureRows(records: readonly MeasureRecord[], f: { factor: numb
   const rows: (string | number)[][] = [[label('순번'), label('종류'), label('값'), label('단위'), 'dx', 'dy', 'dz', label('점 A'), label('점 B'), label('넓이'), label('둘레')]];
   records.forEach((r, i) => {
     if (r.type === 'distance') rows.push([i + 1, label('거리'), sc(r.distance), u, sc(r.dx), sc(r.dy), sc(r.dz), r.a.map((x) => num(sc(x))).join(' '), r.b.map((x) => num(sc(x))).join(' '), '', '']);
-    else rows.push([i + 1, `${label('면')} ${r.kind} #${r.stepId}`, r.radius !== undefined ? sc(r.radius * 2) : '', r.radius !== undefined ? `${u} (Ø)` : '', '', '', '', '', '', `${r.exact ? '' : '≈'}${num(r.area * k0 * k0)}`, `${r.exact ? '' : '≈'}${num(sc(r.perimeter))}`]);
+    else if (r.type === 'face') rows.push([i + 1, `${label('면')} ${r.kind} #${r.stepId}`, r.radius !== undefined ? sc(r.radius * 2) : '', r.radius !== undefined ? `${u} (Ø)` : '', '', '', '', '', '', `${r.exact ? '' : '≈'}${num(r.area * k0 * k0)}`, `${r.exact ? '' : '≈'}${num(sc(r.perimeter))}`]);
+    // 모서리: 값 = 길이, 원·원호면 종류 칸에 반지름
+    else rows.push([i + 1, `${label('모서리')} ${r.kind} #${r.stepId}${r.radius !== undefined ? ` R${num(sc(r.radius))}` : ''}`, sc(r.length), u, '', '', '', '', '', '', '']);
   });
   return rows;
 }

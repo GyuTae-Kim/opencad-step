@@ -14,9 +14,10 @@ import { nodePath, partRows, type PropRow } from './partinfo';
 import { MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
 import { selectRow } from './dialog';
+import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
-import { panelMeasureHint } from './measure';
+import { edgeTitle, panelMeasureHint } from './measure';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
 
@@ -779,13 +780,17 @@ export class Panel {
     };
     if (p) {
       const node = d.selKey ? productAt(d.products, d.selKey) : null;
-      const item = p.kind === 'mesh' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
+      // 윤곽선(모서리) 고르기의 id는 그물 id
+      const item = p.kind === 'mesh' || p.kind === 'edge' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
       const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item?.name ?? p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
-      lines.push(h('div', { class: 'dim' }, `${p.section ? '단면(자른 면) 위 점' : '점'} ${fm.pt(p.point)} ${u}${p.normal ? ` · 법선 ${fm.dir(p.normal)}` : ''}`));
+      // 점·법선 조각을 따로 번역되게 나눈다
+      const at = `${p.section ? '단면(자른 면) 위 점' : p.kind === 'edge' ? '모서리 위 점' : '점'} ${fm.pt(p.point)} ${u}`.trim();
+      lines.push(h('div', { class: 'dim' }, h('span', {}, at), ...(p.normal ? [' · ', h('span', {}, `법선 ${fm.dir(p.normal)}`)] : [])));
       if (d.face) lines.push(...faceLines(d.face, fm));
+      else if (d.edge) lines.push(...edgeLines(d.edge, fm));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
       if (node) {
@@ -802,6 +807,23 @@ export class Panel {
     f.hidden = !lines.length;
     f.append(...lines);
   }
+}
+
+/** 고른 모서리 정보 줄: 종류·STEP 번호, 길이(곡선 적분)·지름·반지름·중심·축·호 각, 두 끝점 */
+function edgeLines(ep: EdgePick, f: Fmt): HTMLElement[] {
+  const out: HTMLElement[] = [h('div', { class: 'foot-face' }, h('b', {}, '고른 모서리 '), edgeTitle(ep), h('span', { class: 'dim' }, ` · #${ep.stepId} · 선분 ${fmtCount(ep.segCount)}`))];
+  const geo: string[] = [`길이 ${f.len(ep.length)}`];
+  if (ep.radius !== undefined) {
+    if (ep.kind === 'circle') geo.push(`반지름 ${f.len(ep.radius)}`, `지름 ${f.len(ep.radius * 2)}`);
+    else geo.push(`긴 반지름 ${f.len(ep.radius)}`);
+  }
+  if (ep.minorRadius !== undefined) geo.push(`짧은 반지름 ${f.len(ep.minorRadius)}`);
+  if (ep.kind === 'circle' && !isFullCircle(ep) && ep.sweepDeg !== undefined) geo.push(`호 각 ${f.deg(ep.sweepDeg)}`);
+  if (ep.center) geo.push(`중심 ${f.pt(ep.center)}`);
+  if (ep.axis) geo.push(`축 ${f.dir(ep.axis)}`);
+  out.push(h('div', { class: 'dim' }, ...geo.flatMap((g, i) => (i ? [' · ', h('span', {}, g)] : [h('span', {}, g)]))));
+  if (!isFullCircle(ep)) out.push(h('div', { class: 'dim' }, h('span', {}, `시작 ${f.pt(ep.ends[0])}`), ' · ', h('span', {}, `끝 ${f.pt(ep.ends[1])}`)));
+  return out;
 }
 
 /** 고른 면 정보 줄 */

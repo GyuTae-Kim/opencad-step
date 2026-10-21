@@ -7,6 +7,7 @@ import type { MeasureResult } from 'opencad-viewer3d';
 import { boxIsEmpty, boxSize, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
 import type { Scene3d } from 'opencad-viewer3d/types';
 import type { Fmt } from './display';
+import { edgeKindLabel, isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
 
 /** 측정 안내(찍은 점 수 0~2, 결과가 있는지) */
@@ -21,9 +22,9 @@ export function panelMeasureHint(touch = false): string {
   return touch ? '측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다) · 길게 누르면 정밀 조준' : '측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기';
 }
 
-/** 면 고르기 안내(아직 고른 면이 없을 때) */
+/** 면 고르기 안내(아직 고른 면이 없을 때) — 모서리 가까이 누르면 모서리를 고른다 */
 export function faceHint(touch = false): string {
-  return touch ? '면 고르기: 면을 누르십시오 · 길게 누르면 정밀 조준' : '면 고르기: 면을 누르십시오';
+  return touch ? '면 고르기: 면이나 모서리를 누르십시오 · 길게 누르면 정밀 조준' : '면 고르기: 면이나 모서리를 누르십시오';
 }
 
 /** 측정 결과 글: 거리(굵게)와 축별 길이(패널 아래 띠와 같은 꼴, 표시 단위·소수 자리) */
@@ -58,6 +59,35 @@ export function faceSummary(fp: FacePick, f: Fmt): FaceSummary {
   facts.push(['넓이', `${approx}${f.area(fp.area)}`]);
   if (!main && fp.kind !== 'cone') facts.push(['둘레', `${approx}${f.len(fp.perimeter)}`]);
   return { kind: faceKindLabel(fp.kind), main, facts };
+}
+
+/** 모서리 이름: 한 바퀴 원은 "원 모서리", 그 밖은 종류 이름 */
+export function edgeTitle(ep: Pick<EdgePick, 'kind' | 'sweepDeg'>): string {
+  return isFullCircle(ep) ? '원 모서리' : edgeKindLabel(ep.kind);
+}
+
+/**
+ * 고른 모서리의 주요 치수: 원은 지름(Ø)과 반지름·둘레, 원호는 반지름(R)·호 각·호 길이, 타원은 두 반지름과 길이,
+ * 직선·곡선은 길이. 길이는 해석기가 곡선에서 적분한 정확한 값이다.
+ */
+export function edgeSummary(ep: EdgePick, f: Fmt): FaceSummary {
+  const facts: [string, string][] = [];
+  let main: string | null = null;
+  const r = ep.radius;
+  if (ep.kind === 'circle' && r !== undefined) {
+    if (isFullCircle(ep)) {
+      main = `Ø${f.len(r * 2)}`;
+      facts.push(['반지름', f.len(r)], ['둘레', f.len(ep.length)]);
+    } else {
+      main = `R${f.len(r)}`;
+      facts.push(['호 각', f.deg(ep.sweepDeg)], ['호 길이', f.len(ep.length)]);
+    }
+  } else if (ep.kind === 'ellipse' && r !== undefined) {
+    facts.push(['긴 반지름', f.len(r)]);
+    if (ep.minorRadius !== undefined) facts.push(['짧은 반지름', f.len(ep.minorRadius)]);
+    facts.push(['길이', f.len(ep.length)]);
+  } else main = f.len(ep.length);
+  return { kind: edgeTitle(ep), main, facts };
 }
 
 /** 고른 항목들(그물·선)의 외형 크기 — 축에 나란한 범위의 X·Y·Z 길이(장면 단위). 고른 형상이 없으면 null */

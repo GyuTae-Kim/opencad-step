@@ -5,9 +5,10 @@
 import type { CameraState, MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
 import type { StepProductProps } from '../props';
-import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
+import type { StepEdgeTable, StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
 import type { MeasureRecord } from './export';
 import type { InterferenceResult } from './interference';
+import type { EdgePick } from './edges';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
@@ -38,6 +39,14 @@ export interface DocPmi {
 export interface FaceIndex {
   kinds: readonly string[];
   tables: StepFaceTable[];
+  /** 그물 id → 표 번호 */
+  tableOf: Map<string, number>;
+}
+
+/** 모서리 고르기용 표(meta.edgeKinds·edgeTables·meshEdgeTable) */
+export interface EdgeIndex {
+  kinds: readonly string[];
+  tables: StepEdgeTable[];
   /** 그물 id → 표 번호 */
   tableOf: Map<string, number>;
 }
@@ -85,12 +94,16 @@ export interface StepDoc {
   readonly pmi: DocPmi;
   /** 면 표(없으면 null — 면 고르기를 못 한다) */
   readonly faces: FaceIndex | null;
+  /** 모서리 표(없으면 null — 모서리 고르기를 못 한다) */
+  readonly edges: EdgeIndex | null;
   /** 압축을 풀어 열었으면 그 내력 */
   readonly source: ParseSource | null;
   /** 보이기 상태(나무 눈 단추·레이어·PMI) */
   readonly vis: Visibility;
   /** 3D에서 고른 면 */
   face: FacePick | null;
+  /** 3D에서 고른 모서리(면 고르기 중 모서리 가까이 눌렀을 때) */
+  edge: EdgePick | null;
   /** 레이어·PMI 목록에서 고른 항목 */
   items: ItemSelection | null;
   /** 제품 나무 이름 거르기 */
@@ -135,9 +148,11 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     layers,
     pmi,
     faces: stepFaceIndex(res.scene),
+    edges: stepEdgeIndex(res.scene),
     source: res.source ?? null,
     vis: createVisibility(layers, pmi),
     face: null,
+    edge: null,
     items: null,
     treeFilter: '',
     treeLimit: TREE_LIMIT,
@@ -293,6 +308,23 @@ export function stepFaceIndex(scene: Scene3d): FaceIndex | null {
   });
   return { kinds: kinds.map(String), tables, tableOf };
 }
+/** meta의 모서리 표를 읽는다(꼴이 맞지 않으면 null) */
+export function stepEdgeIndex(scene: Scene3d): EdgeIndex | null {
+  const m = (scene.meta ?? {}) as Record<string, unknown>;
+  const kinds = m.edgeKinds;
+  const tables = m.edgeTables;
+  const mt = m.meshEdgeTable;
+  if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
+  const ok = (t: unknown): t is StepEdgeTable =>
+    !!t && typeof t === 'object' && (t as StepEdgeTable).segStart instanceof Uint32Array && (t as StepEdgeTable).kinds instanceof Uint8Array && (t as StepEdgeTable).params instanceof Float32Array && (t as StepEdgeTable).length instanceof Float64Array;
+  if (!tables.every(ok)) return null;
+  const tableOf = new Map<string, number>();
+  scene.meshes.forEach((mesh, i) => {
+    const t = mt[i] ?? -1;
+    if (t >= 0 && t < tables.length) tableOf.set(mesh.id, t);
+  });
+  return { kinds: kinds.map(String), tables, tableOf };
+}
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
@@ -423,7 +455,8 @@ export function productAt(nodes: readonly ProductNode[], key: string): ProductNo
 export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'>): string[] {
   const node = d.selKey ? productAt(d.products, d.selKey) : null;
   if (node) return subtreeMeshIds(node);
-  return d.pick?.kind === 'mesh' ? [d.pick.id] : [];
+  // 윤곽선(모서리)을 골랐어도 그 그물
+  return d.pick?.kind === 'mesh' || d.pick?.kind === 'edge' ? [d.pick.id] : [];
 }
 
 /**

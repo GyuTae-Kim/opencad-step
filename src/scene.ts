@@ -11,7 +11,7 @@
  * LineSet3d), 표현 PMI 선과 의미 PMI 목록(pmi.ts), 면 표(그물 삼각형 → B-rep 면, 면 단위 고르기용).
  */
 import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
-import { BrepMesher, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
+import { BrepMesher, EDGE_KINDS, EDGE_PARAMS, type EdgeTableData, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
 import { Geometry } from './geometry';
 import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
@@ -27,7 +27,9 @@ import { isWireItemType, type WireGeom, WireSampler } from './wire';
 export type { StepPmiSemantic } from './pmi';
 /** 면 표(meta.faceTables의 한 칸): 그물 삼각형 → B-rep 면. 뜻은 brep.ts FaceTableData */
 export type StepFaceTable = FaceTableData;
-export { FACE_KINDS, FACE_PARAMS } from './brep';
+/** 모서리 표(meta.edgeTables의 한 칸): 윤곽선 선분 → B-rep 모서리. 뜻은 brep.ts EdgeTableData */
+export type StepEdgeTable = EdgeTableData;
+export { EDGE_KINDS, EDGE_PARAMS, FACE_KINDS, FACE_PARAMS } from './brep';
 
 export interface StepOptions {
   /** 장면 이름(기본: 파일 머리의 FILE_NAME 또는 'STEP') */
@@ -152,6 +154,12 @@ export interface StepMeta {
   faceTables?: StepFaceTable[];
   /** scene.meshes와 같은 순서로 그물마다 면 표 번호(-1 = 없음) */
   meshFaceTable?: Int32Array;
+  /** 모서리 표 종류 이름(EDGE_KINDS) */
+  edgeKinds?: readonly string[];
+  /** 모서리 표들(면 표처럼 같은 형상이면 함께 쓴다) */
+  edgeTables?: StepEdgeTable[];
+  /** scene.meshes와 같은 순서로 그물마다 모서리 표 번호(-1 = 없음) */
+  meshEdgeTable?: Int32Array;
 }
 
 interface RepInfo {
@@ -486,6 +494,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       const edges = m.edges.map((x) => x * k);
       sm = { ...m, positions: pos, edges, bbox: m.bbox ? [scaleV(m.bbox[0], k), scaleV(m.bbox[1], k)] : null };
       if (m.faceTable) sm.faceTable = scaleFaceTable(m.faceTable, k);
+      if (m.edgeTable) sm.edgeTable = scaleEdgeTable(m.edgeTable, k);
       if (m.origin) sm.origin = scaleV(m.origin, k);
       scaledMeshes.set(key, sm);
     }
@@ -495,6 +504,9 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   const faceTables: FaceTableData[] = [];
   const faceTableOf = new Map<FaceTableData, number>();
   const meshFaceTable: number[] = [];
+  const edgeTables: EdgeTableData[] = [];
+  const edgeTableOf = new Map<EdgeTableData, number>();
+  const meshEdgeTable: number[] = [];
   const instance = (item: number, r: RepInfo, matrix: M4, node: StepProductNode, inheritedColor: Rgba | undefined) => {
     if (styles.hidden.has(item)) return;
     const m = getMesh(item, r.units);
@@ -538,6 +550,17 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       }
     }
     meshFaceTable.push(ti);
+    let ei = -1;
+    if (wantFaces && m.edgeTable && mesh.edges) {
+      const t = m.edgeTable;
+      ei = edgeTableOf.get(t) ?? -1;
+      if (ei < 0) {
+        ei = edgeTables.length;
+        edgeTables.push(t);
+        edgeTableOf.set(t, ei);
+      }
+    }
+    meshEdgeTable.push(ei);
   };
 
   // ── 선 형상(와이어프레임·곡선) ──
@@ -984,6 +1007,11 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     meta.faceTables = faceTables;
     meta.meshFaceTable = Int32Array.from(meshFaceTable);
   }
+  if (wantFaces && edgeTables.length) {
+    meta.edgeKinds = EDGE_KINDS;
+    meta.edgeTables = edgeTables;
+    meta.meshEdgeTable = Int32Array.from(meshEdgeTable);
+  }
   progress(1, '완료');
   const scene: Scene3d = {
     name: opts.name ?? (baseName(f.header.name) || 'STEP'),
@@ -1045,6 +1073,18 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
   if (t.area) out.area = t.area.map((a) => a * k * k);
   if (t.perimeter) out.perimeter = t.perimeter.map((x) => x * k);
   return out;
+}
+
+/** 단위를 바꾼 그물의 모서리 표(반지름·중심·길이에 배율) */
+function scaleEdgeTable(t: EdgeTableData, k: number): EdgeTableData {
+  const params = new Float32Array(t.params);
+  for (let i = 0; i < t.kinds.length; i++) {
+    const o = i * EDGE_PARAMS;
+    params[o] = params[o]! * k;
+    params[o + 1] = params[o + 1]! * k;
+    for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
+  }
+  return { ...t, params, length: t.length.map((x) => x * k) };
 }
 
 function hasGeometricLink(f: StepFile, id: number): boolean {

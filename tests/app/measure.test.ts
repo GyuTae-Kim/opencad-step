@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Fmt } from '../../src/app/display';
 import type { FacePick } from '../../src/app/faces';
-import { faceHint, faceSummary, measureHint, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
+import type { EdgePick } from '../../src/app/edges';
+import { edgeSummary, faceHint, faceSummary, measureHint, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
 
 const MM = new Fmt('mm');
 const NONE = new Fmt('unknown');
@@ -34,6 +35,7 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
     expect(measureHint(1, false)).toBe('측정: 끝점을 누르십시오 · Esc 취소');
     expect(measureHint(2, false)).toContain('Esc 지우기');
     expect(faceHint(true)).toContain('길게 누르면 정밀 조준');
+    expect(faceHint(false)).toBe('면 고르기: 면이나 모서리를 누르십시오');
     expect(faceHint(false)).not.toContain('길게');
     // 패널 아래 띠: 마우스 글은 예전 그대로, 손가락 기기는 Esc 대신 길게 누르기
     expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기');
@@ -71,6 +73,51 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
       ['넓이', '≈ 150.796 mm²'],
       ['둘레', '≈ 62.832 mm'],
     ]);
+  });
+});
+
+describe('고른 모서리 요약(면 고르기 띠)', () => {
+  const edge = (kind: string, extra: Partial<EdgePick> = {}): EdgePick => ({
+    meshId: 'm',
+    edge: 0,
+    stepId: 5,
+    kind,
+    segStart: 0,
+    segCount: 8,
+    length: 31.41593,
+    ends: [
+      [10, 0, 0],
+      [10, 0, 0],
+    ],
+    mid: [-10, 0, 0],
+    segs: new Float32Array(),
+    segOrigin: [0, 0, 0],
+    ...extra,
+  });
+  it('원은 지름·반지름·둘레, 원호는 R·호 각·호 길이, 타원은 두 반지름, 직선은 길이', () => {
+    expect(edgeSummary(edge('circle', { radius: 5, sweepDeg: 360 }), MM)).toEqual({
+      kind: '원 모서리',
+      main: 'Ø10 mm',
+      facts: [
+        ['반지름', '5 mm'],
+        ['둘레', '31.416 mm'],
+      ],
+    });
+    expect(edgeSummary(edge('circle', { radius: 20, sweepDeg: 90 }), MM)).toEqual({
+      kind: '원호 모서리',
+      main: 'R20 mm',
+      facts: [
+        ['호 각', '90°'],
+        ['호 길이', '31.416 mm'],
+      ],
+    });
+    expect(edgeSummary(edge('ellipse', { radius: 6, minorRadius: 3 }), MM).facts).toEqual([
+      ['긴 반지름', '6 mm'],
+      ['짧은 반지름', '3 mm'],
+      ['길이', '31.416 mm'],
+    ]);
+    expect(edgeSummary(edge('line', { length: 12.5 }), MM)).toEqual({ kind: '직선 모서리', main: '12.5 mm', facts: [] });
+    expect(edgeSummary(edge('bspline', { length: 3 }), NONE)).toEqual({ kind: 'B-스플라인 모서리', main: '3', facts: [] });
   });
 });
 

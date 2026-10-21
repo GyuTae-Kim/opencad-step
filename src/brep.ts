@@ -7,7 +7,7 @@
  * TRIANGULATED_SURFACE_SET·COMPLEX_TRIANGULATED_SURFACE_SET)은 있는 삼각형을 그대로 쓴다.
  */
 import type { Rgba } from 'opencad-viewer3d/types';
-import { CircleCurve, type Curve, LineCurve, type Tol } from './curves';
+import { BSplineCurve, CircleCurve, type Curve, EllipseCurve, LineCurve, type Tol } from './curves';
 import type { Geometry } from './geometry';
 import { isClosedMesh } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
@@ -49,6 +49,31 @@ export interface FaceTableData {
   exact?: Uint8Array;
 }
 
+/** 모서리 종류(모서리 표 kinds의 번호 → 이름) */
+export const EDGE_KINDS = ['line', 'circle', 'ellipse', 'bspline', 'other'] as const;
+export type EdgeKind = (typeof EDGE_KINDS)[number];
+
+/** 모서리 표 매개변수 개수(모서리마다): [r1, r2, nx, ny, nz, cx, cy, cz] — 원은 반지름·법선(원 평면)·중심, 타원은 긴·짧은 반지름 */
+export const EDGE_PARAMS = 8;
+
+/**
+ * 모서리 표: 그물 윤곽선(ItemMesh.edges·Mesh3d.edges) 선분 → B-rep 모서리(EDGE_CURVE). 모서리 i의 선분은 [segStart[i], segStart[i+1]).
+ * 이음선(한 면 안에서 두 번 쓰인 모서리)은 윤곽선에 없으므로 표에도 없다.
+ */
+export interface EdgeTableData {
+  segStart: Uint32Array;
+  /** 모서리의 STEP 인스턴스 번호(#n, EDGE_CURVE) */
+  stepIds: Uint32Array;
+  /** EDGE_KINDS 번호 */
+  kinds: Uint8Array;
+  /** EDGE_PARAMS개씩(형상 항목 좌표·단위, 묶음 원점을 뺀 중심) */
+  params: Float32Array;
+  /** 곡선 길이(적분, 형상 항목 단위) */
+  length: Float64Array;
+  /** 원호가 도는 각(라디안, 원이 아니면 0 — 한 바퀴는 2π) */
+  sweep: Float32Array;
+}
+
 /** 한 형상 항목(입체·껍질 등)의 그물(형상 항목 좌표·단위 그대로) */
 export interface ItemMesh {
   positions: Float32Array;
@@ -70,6 +95,8 @@ export interface ItemMesh {
   failures: Map<string, number>;
   /** 삼각형 → 면 표 */
   faceTable?: FaceTableData;
+  /** 윤곽선 선분 → 모서리 표(면 표를 만들 때만) */
+  edgeTable?: EdgeTableData;
   /** 닫힌 입체이고 삼각형이 틈 없이 맞물렸는지(Mesh3d.closed — 단면 채우기) */
   solid?: boolean;
   /**
@@ -169,6 +196,7 @@ function integrate(ts: readonly number[], f: (t: number) => number): number {
 }
 
 const KIND_INDEX = new Map<string, number>(FACE_KINDS.map((k, i) => [k, i]));
+const EDGE_KIND_INDEX = new Map<string, number>(EDGE_KINDS.map((k, i) => [k, i]));
 
 /** 곡면·면 방향 → 면 표 종류와 매개변수 */
 function surfaceInfo(surf: Surface | null, sameSense: boolean, poly: boolean, info: FaceInfo): void {
@@ -376,18 +404,54 @@ export class BrepMesher {
     }
     const nTri = b.indices.length / 3;
     if (table) triStart[nf] = nTri;
-    // 모서리 선
+    // 모서리 선(과 모서리 표: 선분 범위·곡선 종류·원 중심·반지름·길이)
     const lines: number[] = [];
+    const eStart: number[] = [];
+    const eIds: number[] = [];
+    const eKinds: number[] = [];
+    const eParams: number[] = [];
+    const eLen: number[] = [];
+    const eSweep: number[] = [];
     for (const [eid] of edgeUse) {
       if (seams.has(eid)) continue;
       const poly = this.edgeCache.get(eid);
       if (!poly) continue;
+      if (table) {
+        eStart.push(lines.length / 6);
+        eIds.push(eid);
+        const ep = this.edgeParams.get(eid);
+        const c = ep?.c;
+        const p = [0, 0, 0, 0, 0, 0, 0, 0];
+        let kind: EdgeKind = 'other';
+        let sweep = 0;
+        // 매개변수가 없으면(직선·꼭짓점이 곡선에서 먼 모서리) 다각선 그대로: 두 점이면 직선, 아니면 곡선
+        if (!c) kind = poly.length <= 2 ? 'line' : 'other';
+        else if (c instanceof LineCurve) kind = 'line';
+        else if (c instanceof CircleCurve) {
+          kind = 'circle';
+          p[0] = Math.abs(c.r);
+          p.splice(2, 3, ...c.f.z);
+          p.splice(5, 3, ...c.f.o.map((v, k) => v - (origin?.[k] ?? 0)));
+          sweep = Math.abs(ep!.t[ep!.t.length - 1]! - ep!.t[0]!);
+        } else if (c instanceof EllipseCurve) {
+          kind = 'ellipse';
+          p[0] = Math.abs(c.a);
+          p[1] = Math.abs(c.b);
+          p.splice(2, 3, ...c.f.z);
+          p.splice(5, 3, ...c.f.o.map((v, k) => v - (origin?.[k] ?? 0)));
+        } else if (c instanceof BSplineCurve) kind = 'bspline';
+        eKinds.push(EDGE_KIND_INDEX.get(kind)!);
+        eParams.push(...p);
+        eLen.push(this.edgeLength(eid, poly));
+        eSweep.push(sweep);
+      }
       for (let i = 1; i < poly.length; i++) {
         const a = poly[i - 1]!;
         const c = poly[i]!;
         lines.push(a[0], a[1], a[2], c[0], c[1], c[2]);
       }
     }
+    if (table) eStart.push(lines.length / 6);
     // 색: 면 색이 모두 같으면 전체 색, 다르면 정점 색
     let color: Rgba | undefined;
     let colors: Float32Array | undefined;
@@ -432,6 +496,16 @@ export class BrepMesher {
       bbox: Number.isFinite(lo[0]) ? [lo, hi] : boxOf(b.positions),
       failures,
       faceTable: table ? { triStart, stepIds, kinds, params, area: areas, perimeter: perimeters, exact } : undefined,
+      edgeTable: table
+        ? {
+            segStart: Uint32Array.from(eStart),
+            stepIds: Uint32Array.from(eIds),
+            kinds: Uint8Array.from(eKinds),
+            params: Float32Array.from(eParams),
+            length: Float64Array.from(eLen),
+            sweep: Float32Array.from(eSweep),
+          }
+        : undefined,
     };
     if (solid) out.solid = true;
     if (origin) out.origin = origin;

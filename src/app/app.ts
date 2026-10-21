@@ -25,6 +25,7 @@ import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
+import { edgeAt, edgeDetails, type EdgePick } from './edges';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { dirToAngles } from 'opencad-viewer3d/camera';
@@ -32,7 +33,7 @@ import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, ste
 import { consumeLaunchQueue, registerServiceWorker } from './pwa';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
-import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
+import { edgeSummary, edgeTitle, faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -103,6 +104,8 @@ export interface AppState {
   faceMode: boolean;
   /** 고른 면(종류·STEP 번호·넓이) */
   face: { kind: string; stepId: number; area: number; boundarySegments: number } | null;
+  /** 고른 모서리(종류·STEP 번호·길이·반지름) */
+  edge: { kind: string; stepId: number; length: number; radius: number | null; segments: number } | null;
   /** 선 묶음(곡선·PMI)·레이어·표현 PMI 수 */
   lines: number;
   layers: number;
@@ -701,6 +704,7 @@ export class StepApp {
     d.pick = p;
     d.items = null;
     d.face = null;
+    d.edge = null;
     if (!p) {
       d.selKey = null;
       this.viewer?.highlight(null);
@@ -715,25 +719,46 @@ export class StepApp {
       if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && d.panelTab !== 'props' && this.panel.open) this.panel.setTab('tree');
       // 잘린 면(단면 채움)을 누르면 면 고르기 대신 부품만(아래 띠에 "단면" 표시)
       if (p.kind === 'mesh' && wantFace && !p.section) d.face = this.findFace(d, p);
+      // 윤곽선(모서리)을 눌렀으면(면 고르기 중에만 코어가 고른다) 그 B-rep 모서리
+      if (p.kind === 'edge' && wantFace) d.edge = this.findEdge(d, p);
       if (d.face) logMeasure(d, { type: 'face', kind: d.face.kind, stepId: d.face.stepId, ...(d.face.radius !== undefined ? { radius: d.face.radius } : {}), area: d.face.area, perimeter: d.face.perimeter, exact: d.face.exact });
-      // 면을 골랐으면 부품 통째 강조 대신 그 면만(나무에서는 부품이 골라져 있다)
-      if (d.face) this.viewer?.highlight(null);
+      if (d.edge) logMeasure(d, { type: 'edge', kind: d.edge.kind, stepId: d.edge.stepId, length: d.edge.length, ...(d.edge.radius !== undefined ? { radius: d.edge.radius } : {}) });
+      // 면·모서리를 골랐으면 부품 통째 강조 대신 그것만(나무에서는 부품이 골라져 있다)
+      if (d.face || d.edge) this.viewer?.highlight(null);
     }
-    this.showFace(d.face);
+    this.showFace(d.face, d.edge);
     this.selectionChanged(true);
   }
 
-  /** 고른 면 강조: 면 삼각형 범위(highlightRanges) + 경계 모서리(부품 강조색과 다른 색). null이면 둘 다 푼다 */
-  private showFace(face: FacePick | null): void {
+  /**
+   * 고른 면·모서리 강조: 면은 삼각형 범위(highlightRanges) + 경계 모서리, 모서리는 윤곽선 범위 + 그 선(부품 강조색과 다른 색).
+   * 둘 다 null이면 푼다
+   */
+  private showFace(face: FacePick | null, edge: EdgePick | null = null): void {
     const v = this.viewer;
     if (!v) return;
-    if (!face) {
+    if (face) {
+      v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
+      v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
+    } else if (edge) {
+      v.highlightRanges({ [edge.meshId]: { edges: [{ start: edge.segStart, count: edge.segCount }] } });
+      v.setHighlightSegments(edge.segs, { width: 4, hidden: 0.3, color: FACE_EDGE, origin: edge.segOrigin });
+    } else {
       v.highlightRanges(null);
       v.setHighlightSegments(null);
-      return;
     }
-    v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
-    v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
+  }
+
+  /** 누른 윤곽선 선분의 B-rep 모서리(모서리 표가 없거나 못 찾으면 null) */
+  private findEdge(d: StepDoc, p: Pick3d): EdgePick | null {
+    const ex = d.edges;
+    const ti = ex?.tableOf.get(p.id);
+    if (!ex || ti === undefined) return null;
+    const mesh = d.scene.meshes.find((m) => m.id === p.id);
+    const table = ex.tables[ti];
+    if (!mesh || !table) return null;
+    const e = edgeAt(table, p.raw ?? p.index);
+    return e < 0 ? null : edgeDetails(mesh, table, e, ex.kinds);
   }
 
   /** 누른 삼각형의 B-rep 면(면 표가 없거나 못 찾으면 null) */
@@ -835,9 +860,12 @@ export class StepApp {
     if (on !== this.faceMode) this.aim?.cancel();
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
-    if (!on && this.doc?.face) {
+    // 면 고르기 중에는 모서리 가까이 누르면 모서리(윤곽선)를 고른다
+    this.viewer?.setPickEdges(on);
+    if (!on && (this.doc?.face || this.doc?.edge)) {
       const d = this.doc;
       d.face = null;
+      d.edge = null;
       this.showFace(null);
       if (d.pick) this.viewer?.highlight([d.pick.id]);
       this.selectionChanged();
@@ -875,6 +903,7 @@ export class StepApp {
     d.pick = null;
     d.items = null;
     d.face = null;
+    d.edge = null;
     this.showFace(null);
     this.viewer?.highlight(node ? subtreeItemIds(node) : null);
     this.selectionChanged();
@@ -887,6 +916,7 @@ export class StepApp {
     d.selKey = null;
     d.pick = null;
     d.face = null;
+    d.edge = null;
     d.items = ids && ids.length ? { ids: [...ids], label } : null;
     this.showFace(null);
     this.viewer?.highlight(d.items ? d.items.ids : null);
@@ -928,6 +958,7 @@ export class StepApp {
     d.selKey = null;
     d.pick = null;
     d.face = null;
+    d.edge = null;
     d.items = { ids, label };
     v.setHighlightSegments(null);
     v.highlight(null);
@@ -1031,6 +1062,7 @@ export class StepApp {
     d.selKey = null;
     d.pick = null;
     d.face = null;
+    d.edge = null;
     d.items = { ids: [p.a, p.b], label: `${name(p.a)} ↔ ${name(p.b)}` };
     v.setHighlightSegments(null);
     v.highlight(null);
@@ -1063,7 +1095,7 @@ export class StepApp {
 
   private clearSelection(): boolean {
     const d = this.doc;
-    if (!d || (!d.selKey && !d.pick && !d.items && !d.face)) return false;
+    if (!d || (!d.selKey && !d.pick && !d.items && !d.face && !d.edge)) return false;
     this.selectKey(null);
     return true;
   }
@@ -1345,12 +1377,16 @@ export class StepApp {
     if (on) {
       this.viewer?.highlight(null);
       this.showFace(null);
-      if (this.faceMode) this.faceMode = false;
+      if (this.faceMode) {
+        this.faceMode = false;
+        this.viewer?.setPickEdges(false);
+      }
       if (this.doc) {
         this.doc.pick = null;
         this.doc.selKey = null;
         this.doc.items = null;
         this.doc.face = null;
+        this.doc.edge = null;
       }
       this.panel.onSelection();
     }
@@ -1776,7 +1812,9 @@ export class StepApp {
     } else {
       this.statusDoc.append(h('span', {}, 'STEP 파일을 열거나 끌어다 놓으세요'));
     }
-    this.statusSel.textContent = d ? this.selectionText(d) : '';
+    const sel = d ? this.selectionText(d) : '';
+    const detail = d && sel ? this.selectionDetail(d) : [];
+    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]));
     this.refreshBar();
   }
 
@@ -1812,8 +1850,8 @@ export class StepApp {
         t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
       } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
       this.measureClear.disabled = !d.measure && !v.measurePointCount;
-    } else if (d.face) {
-      const f = faceSummary(d.face, fm);
+    } else if (d.face || d.edge) {
+      const f = d.face ? faceSummary(d.face, fm) : edgeSummary(d.edge!, fm);
       const facts: (Node | string)[] = [];
       f.facts.forEach(([k, val], i) => facts.push(...(i ? [' · '] : []), h('span', {}, k), ` ${val}`));
       t.append(h('b', { class: 'mb-value' }, h('span', {}, f.kind), f.main ? ` ${f.main}` : null), h('span', { class: 'mb-sub' }, ...facts));
@@ -1844,24 +1882,33 @@ export class StepApp {
     return d.items?.label ?? '';
   }
 
+  /** 상태 막대 오른쪽: 거리·측정 안내 또는 고른 것(이름) — 고른 면·모서리는 조각마다 따로 번역되게 덧붙인다 */
   private selectionText(d: StepDoc): string {
     const fm = this.fmt;
     if (d.measure) return `거리 ${fm.len(d.measure.distance)}`.trim();
     if (this.measuring) return '측정: 두 점을 누르십시오';
-    const face = d.face ? ` · 면 ${faceKindLabel(d.face.kind)}${d.face.radius !== undefined ? ` R${fm.len(d.face.radius)}` : ''}` : '';
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
     if (node) {
       const n = nodeLabel(node);
-      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}${face}`;
+      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
     }
     if (d.pick) {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
       if (pm) return `고른 PMI: ${pm.name || pmiTypeLabel(pm.type)}`;
       const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
-      return `고른 것: ${m?.name ?? d.pick.id}${face}`;
+      return `고른 것: ${m?.name ?? d.pick.id}`;
     }
     if (d.items) return `고른 것: ${d.items.label}`;
     return '';
+  }
+
+  /** 고른 면·모서리 조각(종류 이름, 치수) — 측정 중이 아닐 때만 */
+  private selectionDetail(d: StepDoc): string[] {
+    if (d.measure || this.measuring) return [];
+    const fm = this.fmt;
+    if (d.face) return [faceKindLabel(d.face.kind), ...(d.face.radius !== undefined ? [`R${fm.len(d.face.radius)}`] : [])];
+    if (d.edge) return [edgeTitle(d.edge), d.edge.radius !== undefined ? `R${fm.len(d.edge.radius)}` : fm.len(d.edge.length)];
+    return [];
   }
 
   // ───────────────────────── 자동 확인 ─────────────────────────
@@ -1897,6 +1944,7 @@ export class StepApp {
       picked: d?.pick?.id ?? null,
       faceMode: this.faceMode,
       face: d?.face ? { kind: d.face.kind, stepId: d.face.stepId, area: d.face.area, boundarySegments: d.face.boundary.length / 6 } : null,
+      edge: d?.edge ? { kind: d.edge.kind, stepId: d.edge.stepId, length: d.edge.length, radius: d.edge.radius ?? null, segments: d.edge.segCount } : null,
       lines: d?.scene.lines.length ?? 0,
       layers: d?.layers.length ?? 0,
       pmi: d?.pmi.presentations.length ?? 0,

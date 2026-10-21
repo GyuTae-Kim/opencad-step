@@ -148,7 +148,7 @@ export class Toolbar {
     this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube(), 'wide-only');
     this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes(), 'wide-only');
     this.sep();
-    this.toggle('face', '면 고르기', '누른 면(B-rep 면)을 골라 종류·넓이·법선을 보고 경계를 강조합니다 (Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
+    this.toggle('face', '면 고르기', '누른 면(B-rep 면)이나 모서리를 골라 종류·넓이·지름·길이를 보고 강조합니다 (면은 Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
     this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
     const exp = this.add('image', '내보내기', '내보내기: PNG 그림 · STL·OBJ(보이는 것·고른 것) · 측정 기록·PMI 표 CSV 복사 · 보기 링크 복사', () => openMenu(exp.el, H.exportItems(), '내보내기'), undefined, 'wide-only');
     exp.el.setAttribute('aria-haspopup', 'menu');

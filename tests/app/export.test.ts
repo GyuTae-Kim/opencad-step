@@ -34,12 +34,17 @@ describe('내보내기: STL·OBJ·CSV', () => {
       [
         { type: 'distance', a: [0, 0, 0], b: [25.4, 0, 0], distance: 25.4, dx: 25.4, dy: 0, dz: 0 },
         { type: 'face', kind: 'cylinder', stepId: 7, radius: 2, area: 10, perimeter: 4, exact: false },
+        { type: 'edge', kind: 'circle', stepId: 9, length: 50.8, radius: 25.4 },
+        { type: 'edge', kind: 'line', stepId: 11, length: 12.7 },
       ],
       { factor: 1 / 25.4, unit: 'in' },
     );
     expect(rows[1]!.slice(0, 5)).toEqual([1, '거리', 1, 'in', 1]);
     expect(rows[2]![2]).toBeCloseTo(4 / 25.4, 9);
     expect(String(rows[2]![9]).startsWith('≈')).toBe(true);
+    // 모서리: 값은 길이, 원은 종류 칸에 반지름(표시 단위)
+    expect(rows[3]!.slice(0, 4)).toEqual([3, '모서리 circle #9 R1', 2, 'in']);
+    expect(rows[4]!.slice(0, 4)).toEqual([4, '모서리 line #11', 0.5, 'in']);
   });
 });
 
