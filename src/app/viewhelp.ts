@@ -17,6 +17,12 @@ const norm = (a: V3): V3 | null => {
   return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : null;
 };
 
+/** 화면에서 옮겨 그린(분해 보기) 그물의 면: 가운데·축 위 점·경계를 d만큼 옮긴 면(경계는 원점만 옮긴다) */
+export function movedFace<F extends Pick<FacePick, 'center' | 'origin' | 'boundaryOrigin'>>(f: F, d: readonly number[]): F {
+  const add = (p: readonly number[]): V3 => [p[0]! + d[0]!, p[1]! + d[1]!, p[2]! + d[2]!];
+  return { ...f, center: add(f.center), ...(f.origin ? { origin: add(f.origin) } : {}), boundaryOrigin: add(f.boundaryOrigin ?? [0, 0, 0]) };
+}
+
 /** 면 경계와 가운데로 잡은 범위(세계 좌표) */
 export function faceBox(f: Pick<FacePick, 'boundary' | 'boundaryOrigin' | 'center'>): Box3 {
   const o = f.boundaryOrigin ?? [0, 0, 0];

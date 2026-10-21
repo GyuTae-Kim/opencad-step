@@ -45,7 +45,7 @@ import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, t
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
-import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir } from './viewhelp';
+import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
 import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
@@ -208,6 +208,8 @@ export class StepApp {
   partColors = false;
   /** 코어에 건 겉모습(그물 id → 비교 열쇠) — 새 장면이면 비운다(코어가 푼다) */
   private readonly appliedLooks = new Map<string, string>();
+  /** 분해 보기로 옮겨 그린 그물의 이동량(정면으로 보기가 보이는 자리의 면을 본다) */
+  private lookMoves = new Map<string, [number, number, number]>();
   // ── 분해 막대 ──
   private readonly explodeBar: HTMLElement;
   private readonly explodeSlider: HTMLInputElement;
@@ -667,6 +669,7 @@ export class StepApp {
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.appliedLooks.clear();
+    this.lookMoves.clear();
     if (!carry) this.explodeOpen = false;
     v.highlight(null);
     this.showFace(null);
@@ -877,10 +880,12 @@ export class StepApp {
 
   // ───────────────────────── 면 기준 보기·자르기, 홈 뷰 ─────────────────────────
 
-  /** 면을 정면으로 보기(평면은 바깥 법선 쪽에서, 축이 있는 면은 축 방향에서) */
+  /** 면을 정면으로 보기(평면은 바깥 법선 쪽에서, 축이 있는 면은 축 방향에서). 분해 보기면 옮겨 그린 자리의 면을 본다 */
   lookAtFace(face: FacePick | null = this.doc?.face ?? null): boolean {
     const v = this.viewer;
     if (!v || !face) return false;
+    const move = this.lookMoves.get(face.meshId);
+    if (move) face = movedFace(face, move);
     const cam = v.getCamera();
     const dir = faceViewDir(face, cameraBack(cam));
     if (!dir) {
@@ -891,7 +896,7 @@ export class StepApp {
     return true;
   }
 
-  /** 면으로 자르기(평면은 그 자리에서, 축이 있는 면은 축을 지나며 눈 쪽 절반을) */
+  /** 면으로 자르기(평면은 그 자리에서, 축이 있는 면은 축을 지나며 눈 쪽 절반을). 분해 보기면 접고 제자리 형상에서 자른다(측정과 같이) */
   sectionByFace(face: FacePick | null = this.doc?.face ?? null): boolean {
     const v = this.viewer;
     if (!v || !face) return false;
@@ -899,6 +904,10 @@ export class StepApp {
     if (!pl) {
       this.toast('이 면으로는 자를 평면을 정할 수 없습니다(평면이거나 축이 있는 면만).', 'warn');
       return false;
+    }
+    if (this.doc?.explode) {
+      this.collapseExplode();
+      this.toast('분해를 접고 제자리 형상에서 자릅니다.');
     }
     v.setSection(pl);
     return true;
@@ -1341,6 +1350,8 @@ export class StepApp {
       explode: d.explode,
       fixed: d.vis.pmiIds,
     });
+    this.lookMoves = new Map();
+    for (const [id, l] of want) if (l.matrix) this.lookMoves.set(id, [l.matrix[12]!, l.matrix[13]!, l.matrix[14]!]);
     for (const id of [...this.appliedLooks.keys()])
       if (!want.has(id)) {
         v.setItemOpacity(id, null);

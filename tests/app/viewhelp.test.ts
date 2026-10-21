@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultCamera } from 'opencad-viewer3d/camera';
-import { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir } from '../../src/app/viewhelp';
+import { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from '../../src/app/viewhelp';
 import { routeKey } from '../../src/app/keys';
 
 describe('면 기준 보기·자르기', () => {
@@ -9,6 +9,20 @@ describe('면 기준 보기·자르기', () => {
     expect(faceViewDir(f, [0, -1, 0])).toEqual([0, 0, 1]);
     expect(faceSectionPlane(f, [0, -1, 0])).toEqual({ normal: [0, 0, 1], offset: 3 });
     expect(faceBox(f)).toEqual({ min: [0, 0, 3], max: [2, 4, 3] });
+  });
+
+  it('분해 보기에서 옮겨 그린 면: 가운데·축 위 점·경계 범위가 함께 옮겨진다(경계 배열은 그대로)', () => {
+    const f = { normal: [0, 0, 1] as [number, number, number], center: [1, 2, 3] as [number, number, number], boundary: Float32Array.from([0, 0, 3, 2, 4, 3]) };
+    const m = movedFace(f, [10, 0, -1]);
+    expect(m.center).toEqual([11, 2, 2]);
+    expect(m.boundary).toBe(f.boundary);
+    expect(faceBox(m)).toEqual({ min: [10, 0, 2], max: [12, 4, 2] });
+    expect(faceSectionPlane(m, [0, -1, 0])).toEqual({ normal: [0, 0, 1], offset: 2 });
+    const c = { axis: [0, 0, 1] as [number, number, number], origin: [10, 5, 0] as [number, number, number], center: [10, 5, 1] as [number, number, number], boundaryOrigin: [10, 5, 1] as [number, number, number] };
+    const mc = movedFace(c, [1, 2, 3]);
+    expect(mc.origin).toEqual([11, 7, 3]);
+    expect(mc.boundaryOrigin).toEqual([11, 7, 4]);
+    expect(f.center).toEqual([1, 2, 3]);
   });
 
   it('원기둥: 지금 보는 쪽 축 방향에서 보고, 축을 지나며 눈 쪽 절반을 자른다', () => {
