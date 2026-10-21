@@ -30,6 +30,8 @@ export interface KeyInput {
   alt?: boolean;
   /** 글 입력 칸(input·textarea·select·contentEditable)에서 눌렀는지 */
   inText?: boolean;
+  /** 초점이 있는 조작 칸(controlOf): 밀대는 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
+  control?: Control | null;
   /** 열린 문서가 있는지 */
   hasDoc?: boolean;
 }
@@ -37,6 +39,8 @@ export interface KeyInput {
 /** 눌린 키 → 할 일(없으면 null) */
 export function routeKey(k: KeyInput): KeyAction | null {
   if (k.inText) return null;
+  if (k.control === 'range' && RANGE_KEYS.has(k.key)) return null;
+  if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);
   if (mod && !k.alt && (k.key === 'o' || k.key === 'O')) return 'open';
   if (mod || k.alt) return null;
@@ -47,6 +51,19 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.key === 'i' || k.key === 'I') return 'isolate';
   if (k.key === 'Home') return 'home';
   return 'viewer';
+}
+
+/** 키보드로 값을 바꾸는 조작 칸 */
+export type Control = 'range' | 'radio';
+
+const ARROW_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+const RANGE_KEYS = new Set([...ARROW_KEYS, 'Home', 'End', 'PageUp', 'PageDown']);
+
+/** 이벤트 대상이 밀대(range)·라디오면 그 종류(그 칸이 쓰는 키는 뷰어·홈 뷰로 보내지 않는다) */
+export function controlOf(t: EventTarget | null): Control | null {
+  if (!t || (t as HTMLElement).tagName !== 'INPUT') return null;
+  const type = ((t as HTMLInputElement).type || '').toLowerCase();
+  return type === 'range' || type === 'radio' ? type : null;
 }
 
 /** 이벤트 대상이 글 입력 칸인지 */
