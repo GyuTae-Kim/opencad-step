@@ -21,7 +21,10 @@ function host(): ToolbarHost & { calls: string[] } {
     panelOpen: false,
     faceMode: false,
     sectionAxis: null,
+    sectionOn: false,
     fit: call('fit'),
+    goHome: call('home'),
+    setHome: call('setHome'),
     fitSelection: call('fitSelection'),
     setView: call('setView'),
     setProjection: (p) => calls.push(`proj ${p}`),
@@ -112,5 +115,24 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     expect(document.activeElement?.textContent).toContain('PNG 저장');
     key('ArrowDown');
     expect(document.activeElement?.textContent).toContain('원근 투영');
+  });
+
+  it('표준 뷰 메뉴: 홈 뷰(Home)와 "지금 보기를 홈 뷰로", 면 단면이면 단면 단추가 켜짐 · "단면 면"', () => {
+    const h = host();
+    const tb = new Toolbar(h);
+    document.body.append(tb.el);
+    button(tb, '표준 뷰').click();
+    const labels = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].map((b) => b.querySelector('.menu-label')!.textContent);
+    expect(labels[0]).toBe('홈 뷰');
+    expect(labels[labels.length - 1]).toBe('지금 보기를 홈 뷰로');
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][0]!.click();
+    button(tb, '표준 뷰').click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].at(-1)!.click();
+    expect(h.calls).toEqual(['home', 'setHome']);
+    const on = { ...host(), sectionOn: true };
+    const tb2 = new Toolbar(on);
+    const sec = [...tb2.el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.querySelector('.btn-label')?.textContent?.startsWith('단면'))!;
+    expect(sec.querySelector('.btn-label')!.textContent).toBe('단면 면');
+    expect(sec.getAttribute('aria-pressed')).toBe('true');
   });
 });

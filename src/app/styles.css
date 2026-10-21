@@ -1641,3 +1641,75 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     max-width: calc(100% - 110px);
   }
 }
+
+/* ── 단면 위치 숫자·면 표시·끌기 손잡이 ── */
+.section-val {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.section-num {
+  width: 76px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.section-face {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.section-face[hidden] {
+  display: none;
+}
+.section-handle {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: 44px;
+  height: 44px;
+  cursor: grab;
+  touch-action: none;
+  transform-origin: 22px 22px;
+}
+.section-handle[hidden] {
+  display: none;
+}
+.section-handle.dragging {
+  cursor: grabbing;
+}
+.section-handle svg {
+  display: block;
+  overflow: visible;
+}
+.section-handle .sh-dot {
+  fill: var(--accent);
+  stroke: var(--card);
+  stroke-width: 2;
+}
+.section-handle .sh-arrow {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.section-handle .sh-arrow.back {
+  opacity: 0.45;
+}
+@media (pointer: coarse) {
+  .section-num {
+    height: 32px;
+    font-size: 16px;
+  }
+}

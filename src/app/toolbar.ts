@@ -38,12 +38,17 @@ export interface ToolbarHost {
   readonly panelOpen: boolean;
   /** 면 고르기 모드 */
   readonly faceMode: boolean;
-  /** 단면 축(꺼져 있으면 null) */
+  /** 단면 축(꺼져 있거나 면 단면이면 null) */
   readonly sectionAxis: SectionAxis | null;
+  /** 단면이 켜져 있는지(면 단면 포함) */
+  readonly sectionOn: boolean;
   fit(): void;
   /** 고른 부품으로 맞춰 보기 */
   fitSelection(): void;
   setView(v: ViewName): void;
+  /** 홈 뷰로, 지금 보기를 홈으로 */
+  goHome(): void;
+  setHome(): void;
   setProjection(p: Projection): void;
   setRenderMode(m: RenderMode): void;
   toggleGrid(): void;
@@ -80,7 +85,11 @@ export class Toolbar {
     const views = this.add('views', '표준 뷰', `표준 뷰 (${keyHelp})`, () =>
       openMenu(
         views.el,
-        VIEW_MENU.map((v) => ({ label: VIEW_LABELS[v], hint: viewKeyOf(v), run: () => H.setView(v) })),
+        [
+          { label: '홈 뷰', hint: 'Home', run: () => H.goHome() },
+          ...VIEW_MENU.map((v, i): MenuItem => ({ label: VIEW_LABELS[v], hint: viewKeyOf(v), sep: i === 0, run: () => H.setView(v) })),
+          { label: '지금 보기를 홈 뷰로', sep: true, run: () => H.setHome() },
+        ],
         '표준 뷰',
       ),
     );
@@ -115,14 +124,15 @@ export class Toolbar {
       () =>
         openMenu(
           section.el,
-          SECTION_AXES.map(([a, label]) => ({ label, checked: H.sectionAxis === a, run: () => H.setSectionAxis(a) })),
+          SECTION_AXES.map(([a, label]) => ({ label, checked: a === null ? !H.sectionOn : H.sectionAxis === a, run: () => H.setSectionAxis(a) })),
           '단면 보기',
         ),
       () => {
         const a = H.sectionAxis;
-        setLabel(section.el, a ? `단면 ${a.toUpperCase()}` : '단면');
-        section.el.classList.toggle('on', !!a);
-        section.el.setAttribute('aria-pressed', String(!!a));
+        const on = H.sectionOn;
+        setLabel(section.el, a ? `단면 ${a.toUpperCase()}` : on ? '단면 면' : '단면');
+        section.el.classList.toggle('on', on);
+        section.el.setAttribute('aria-pressed', String(on));
       },
     );
     section.el.setAttribute('aria-haspopup', 'menu');

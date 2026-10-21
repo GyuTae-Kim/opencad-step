@@ -34,6 +34,8 @@ import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
+import { SectionBar } from './sectionbar';
+import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir } from './viewhelp';
 import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
@@ -147,16 +149,16 @@ export class StepApp {
   private readonly resizer: PanelResizer;
   /** 면 고르기 모드(도구 막대) */
   faceMode = false;
-  // ── 단면 막대 ──
-  private readonly sectionBar: HTMLElement;
-  private readonly sectionSlider: HTMLInputElement;
-  private readonly sectionValue: HTMLElement;
-  private readonly sectionAxisBtns: Map<SectionAxis, HTMLButtonElement> = new Map();
-  private readonly sectionFlipBtn: HTMLButtonElement;
+  // ── 단면 막대·손잡이 ──
+  private readonly sectionBar: SectionBar;
   // ── 측정 띠(휴대폰·터치) ──
   private readonly measureBar: HTMLElement;
   private readonly selFit: HTMLButtonElement;
   private readonly selProps: HTMLButtonElement;
+  private readonly faceLook: HTMLButtonElement;
+  private readonly faceCut: HTMLButtonElement;
+  /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
+  private ctxFace: FacePick | null = null;
   private readonly measureText: HTMLElement;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
@@ -252,24 +254,8 @@ export class StepApp {
     );
     this.dropEl = h('div', { class: 'drop-hint', hidden: true, 'aria-hidden': 'true' }, h('div', {}, icon('upload', 40), h('p', {}, '놓으면 STEP 파일을 엽니다')));
     this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
-    // ── 단면 막대(단면을 켜면 3D 보기 왼쪽 위에): 축 · 위치 슬라이더 · 값 · 뒤집기 · 끄기 ──
-    const axes = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': '단면 축' });
-    for (const a of ['x', 'y', 'z'] as const) {
-      const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', title: `${a.toUpperCase()}축에 수직인 평면` }, a.toUpperCase());
-      b.addEventListener('click', () => this.setSectionAxis(a));
-      this.sectionAxisBtns.set(a, b);
-      axes.append(b);
-    }
-    this.sectionSlider = h('input', { type: 'range', class: 'section-slider', min: '0', max: '1000', step: '1', 'aria-label': '단면 위치' });
-    this.sectionSlider.addEventListener('input', () => this.viewer?.setSectionPosition(Number(this.sectionSlider.value) / 1000));
-    this.sectionValue = h('span', { class: 'section-val', 'aria-live': 'off' });
-    this.sectionFlipBtn = h('button', { type: 'button', class: 'icon-btn', title: '잘라 내는 쪽 뒤집기', 'aria-label': '잘라 내는 쪽 뒤집기', 'aria-pressed': 'false' });
-    this.sectionFlipBtn.append(icon('flip', 16));
-    this.sectionFlipBtn.addEventListener('click', () => this.viewer?.flipSection());
-    const secClose = h('button', { type: 'button', class: 'icon-btn', title: '단면 끄기', 'aria-label': '단면 끄기' });
-    secClose.append(icon('close', 16));
-    secClose.addEventListener('click', () => this.setSectionAxis(null));
-    this.sectionBar = h('div', { class: 'section-bar', role: 'group', 'aria-label': '단면 보기', hidden: true }, icon('section', 16), axes, this.sectionSlider, this.sectionValue, this.sectionFlipBtn, secClose);
+    // ── 단면 막대(단면을 켜면 3D 보기 왼쪽 위에): 축 · 위치 슬라이더 · 위치 숫자 · 뒤집기 · 끄기, 3D 보기 위 끌기 손잡이 ──
+    this.sectionBar = new SectionBar(this);
     // ── 측정 띠(좁은 화면·터치에서 측정·면 고르기 중): 안내·결과를 크게 보이고, Esc 대신 다시 재기·끝내기 단추 ──
     this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
     this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기' }, icon('reset', 16), h('span', {}, '다시 재기'));
@@ -283,13 +269,18 @@ export class StepApp {
     // 고른 부품 카드: 속성(패널 속성 탭을 연다 — 휴대폰은 아래 시트)
     this.selProps = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품의 속성' }, icon('info', 16), h('span', {}, '속성'));
     this.selProps.addEventListener('click', () => this.showProps());
+    // 면 고르기 띠: 고른 면을 정면으로 보기·그 면으로 자르기
+    this.faceLook = h('button', { type: 'button', class: 'mb-btn', title: '고른 면을 정면으로 보기' }, icon('focus', 16), h('span', {}, '정면'));
+    this.faceLook.addEventListener('click', () => this.lookAtFace());
+    this.faceCut = h('button', { type: 'button', class: 'mb-btn', title: '고른 면으로 자르기' }, icon('section', 16), h('span', {}, '자르기'));
+    this.faceCut.addEventListener('click', () => this.sectionByFace());
     this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
     this.measureClose.addEventListener('click', () => {
       if (this.measuring) this.toggleMeasure(false);
       else if (this.faceMode) this.toggleFaceMode(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.measureClose));
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -297,7 +288,7 @@ export class StepApp {
     const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
     isoOff.addEventListener('click', () => this.unisolate());
     this.isoBar = h('div', { class: 'iso-bar', role: 'status', hidden: true }, h('span', { class: 'iso-label' }, '이것만 보기'), this.isoText, isoOff);
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.isoBar, this.measureBar, this.toasts);
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.sectionBar.handle, this.startEl, this.busyEl, this.dropEl, this.sectionBar.el, this.isoBar, this.measureBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
@@ -576,7 +567,13 @@ export class StepApp {
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
     // 좁은 화면에서 시트가 보기 높이를 바꾸므로 크기가 정해진 뒤 다시 맞춘다
-    requestAnimationFrame(() => requestAnimationFrame(() => this.viewer?.fit(false)));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        this.viewer?.fit(false);
+        // 처음 맞춘 보기가 홈 뷰
+        if (this.doc === doc && this.viewer) doc.home = this.viewer.getCamera();
+      }),
+    );
   }
 
   private ensureViewer(): Viewer3d {
@@ -590,6 +587,8 @@ export class StepApp {
     v.onMeasure((m) => this.onMeasure(m));
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
     v.onSectionChange((st) => this.syncSection(st));
+    // 카메라가 바뀌면 단면 손잡이 자리를 다시 잡는다
+    v.onCameraChange(() => this.sectionBar.place());
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
     this.aim = new TouchAim(v.canvas, {
@@ -702,23 +701,62 @@ export class StepApp {
     this.viewer?.setSectionPosition(Math.max(0, Math.min(1, t)));
   }
 
-  /** 단면 막대·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서) */
+  /** 단면 막대·손잡이·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서) */
   private syncSection(st: SectionState | null): void {
-    this.sectionBar.hidden = !st || !this.doc;
-    if (st) {
-      for (const [a, b] of this.sectionAxisBtns) {
-        const on = st.axis === a;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-checked', String(on));
-      }
-      // 끄는 중인 슬라이더 값은 건드리지 않는다(되돌아가며 떨리지 않게)
-      if (document.activeElement !== this.sectionSlider) this.sectionSlider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
-      this.sectionValue.textContent = `${(st.axis ?? '').toUpperCase()} = ${this.fmt.len(st.position)}`;
-      this.sectionFlipBtn.setAttribute('aria-pressed', String(st.flip));
-      this.sectionFlipBtn.classList.toggle('on', st.flip);
-      this.sectionFlipBtn.title = st.flip ? `−${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기` : `+${(st.axis ?? '').toUpperCase()} 쪽을 잘라 냅니다 — 눌러서 뒤집기`;
-    }
+    this.sectionBar.sync(st);
     this.toolbar.refresh();
+  }
+
+  /** 단면이 켜져 있는지(축 단면이든 면 단면이든) */
+  get sectionOn(): boolean {
+    return !!this.viewer?.section;
+  }
+
+  // ───────────────────────── 면 기준 보기·자르기, 홈 뷰 ─────────────────────────
+
+  /** 면을 정면으로 보기(평면은 바깥 법선 쪽에서, 축이 있는 면은 축 방향에서) */
+  lookAtFace(face: FacePick | null = this.doc?.face ?? null): boolean {
+    const v = this.viewer;
+    if (!v || !face) return false;
+    const cam = v.getCamera();
+    const dir = faceViewDir(face, cameraBack(cam));
+    if (!dir) {
+      this.toast('이 면은 정면 방향을 정할 수 없습니다(평면과 원기둥·원뿔·원환 면만).', 'warn');
+      return false;
+    }
+    animateCamera(v, cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
+    return true;
+  }
+
+  /** 면으로 자르기(평면은 그 자리에서, 축이 있는 면은 축을 지나며 눈 쪽 절반을) */
+  sectionByFace(face: FacePick | null = this.doc?.face ?? null): boolean {
+    const v = this.viewer;
+    if (!v || !face) return false;
+    const pl = faceSectionPlane(face, cameraBack(v.getCamera()));
+    if (!pl) {
+      this.toast('이 면으로는 자를 평면을 정할 수 없습니다(평면이거나 축이 있는 면만).', 'warn');
+      return false;
+    }
+    v.setSection(pl);
+    return true;
+  }
+
+  /** 홈 뷰(처음 연 보기 또는 정해 둔 보기) */
+  goHome(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    if (d.home) animateCamera(v, d.home);
+    else v.fit();
+  }
+
+  /** 지금 보기를 홈 뷰로 */
+  setHome(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    d.home = v.getCamera();
+    this.toast('지금 보기를 홈 뷰로 정했습니다.');
   }
 
   /** 면 고르기 모드 켜고 끄기 */
@@ -978,6 +1016,8 @@ export class StepApp {
     const r = v.canvas.getBoundingClientRect();
     const p = v.pick(clientX - r.left, clientY - r.top, 'touch');
     if (p && !selectionItemIds(d).includes(p.id)) this.onPick(p, this.faceMode);
+    // 그 자리 B-rep 면(정면으로 보기·면으로 자르기)
+    this.ctxFace = p && p.kind === 'mesh' && !p.section ? this.findFace(d, p) : null;
     this.openContextMenu(clientX, clientY);
     return true;
   }
@@ -994,6 +1034,11 @@ export class StepApp {
       items.push({ label: '숨기기', hint: 'H', run: () => this.hideSelection() });
       items.push({ label: iso ? '격리 풀기' : '이것만 보기', hint: 'I', run: () => (iso ? this.unisolate() : this.isolateSelection()) });
       items.push({ label: '속성', run: () => this.showProps() });
+      const face = this.ctxFace ?? d.face;
+      if (face && (face.normal || face.axis)) {
+        items.push({ label: '정면으로 보기', sep: true, run: () => this.lookAtFace(face) });
+        items.push({ label: face.normal ? '이 면으로 자르기' : '축을 지나게 자르기', run: () => this.sectionByFace(face) });
+      }
     } else {
       items.push({ label: '전체 보기', hint: 'F', run: () => this.fit() });
       if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
@@ -1288,6 +1333,9 @@ export class StepApp {
       case 'isolate':
         if (!this.isolateSelection()) return;
         break;
+      case 'home':
+        this.goHome();
+        break;
       case 'escape':
         // 대화 상자·메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기
         if (closeDialog()) break;
@@ -1387,6 +1435,10 @@ export class StepApp {
       this.selFit.hidden = mode !== 'select';
       this.selProps.hidden = mode !== 'select';
     }
+    // 면 고르기에서 면을 골랐으면 정면·자르기(정할 수 있는 면만)
+    const faceOk = mode === 'face' && !!d?.face && !!(d.face.normal || d.face.axis);
+    this.faceLook.hidden = !faceOk;
+    this.faceCut.hidden = !faceOk;
     if (!mode || !d || !v) return;
     const fm = this.fmt;
     const t = this.measureText;

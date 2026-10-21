@@ -2,7 +2,7 @@
  * 열린 STEP 문서의 상태와 장면 meta(StepMeta) 읽기(순수, DOM 없음).
  * 워커에서 넘어온 meta는 구조적 복제를 거친 자료이므로 꼴을 하나씩 확인하며 읽는다.
  */
-import type { MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
+import type { CameraState, MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
 import type { StepProductProps } from '../props';
 import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode } from '../scene';
@@ -97,6 +97,8 @@ export interface StepDoc {
   density: number | null;
   /** 격리(이것만 보기)한 것의 이름(격리 띠) */
   isoLabel?: string;
+  /** 홈 뷰(처음 맞춘 보기 또는 "지금 보기를 홈으로") */
+  home?: CameraState;
 }
 
 /** 제품 나무 기본 줄 수 제한 */
