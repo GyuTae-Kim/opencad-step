@@ -27,6 +27,19 @@ export const RENDER_MODES: [RenderMode, string][] = [
 ];
 
 /** 도구 막대가 부르는 앱 쪽 기능 */
+/**
+ * 선 모드(와이어프레임·숨은선 제거): B-rep 모서리만 그려(삼각형 변 없음 — 코어 0.7.1 triangleEdges) 모서리가 없는 매끈한 면(원환 고리·구)이
+ * 사라지지 않게 1화소 외곽선을 늘 그린다(코어 0.7.2 — 와이어프레임 외곽선, 1화소 굵기)
+ */
+export function isLineMode(m: RenderMode): boolean {
+  return m === 'wireframe' || m === 'hiddenLine';
+}
+
+/** 코어 setRenderOptions의 profiles: 선 모드는 1화소(모서리와 같은 굵기), 그 밖은 사용자의 "외곽선 강조"(기본 굵기) */
+export function profilesFor(m: RenderMode, user: boolean): boolean | { width: number } {
+  return isLineMode(m) ? { width: 1 } : user;
+}
+
 export interface ToolbarHost {
   readonly hasDoc: boolean;
   /** 고른 제품(나무 마디·3D 고르기)이 있는지 */
@@ -204,8 +217,8 @@ export class Toolbar {
     const H = this.host;
     return [
       { label: '숨은 모서리 점선', checked: H.hiddenEdges, toggle: true, sep: true, disabled: H.renderMode !== 'hiddenLine', run: () => H.toggleHiddenEdges() },
-      // 숨은선 모드는 외곽선을 늘 그린다(모서리 없는 매끈한 면이 사라지지 않게) — 켜진 채 잠근다
-      { label: '외곽선 강조', checked: H.profiles || H.renderMode === 'hiddenLine', toggle: true, disabled: H.renderMode === 'hiddenLine', run: () => H.toggleProfiles() },
+      // 선 모드(와이어프레임·숨은선)는 1화소 외곽선을 늘 그린다(모서리 없는 매끈한 면이 사라지지 않게) — 켜진 채 잠근다
+      { label: '외곽선 강조', checked: H.profiles || isLineMode(H.renderMode), toggle: true, disabled: isLineMode(H.renderMode), run: () => H.toggleProfiles() },
       { label: '부품 색 구분', checked: H.partColors, toggle: true, sep: true, run: () => H.togglePartColors() },
       { label: '분해 보기', checked: H.explodeOpen, toggle: true, run: () => H.toggleExplode() },
     ];

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeMenu } from '../../src/app/menu';
-import { Toolbar, type ToolbarHost } from '../../src/app/toolbar';
+import { isLineMode, profilesFor, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 
 function host(): ToolbarHost & { calls: string[] } {
   const calls: string[] = [];
@@ -179,5 +179,20 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     mode.click();
     [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][5]!.click();
     expect(h.calls).toEqual(['hiddenEdges', 'explode', 'mode monochrome']);
+  });
+
+  it('선 모드(와이어프레임·숨은선)는 1화소 외곽선을 늘 켜고 "외곽선 강조"를 잠근다 — 다른 모드는 사용자 값(기본 굵기)', () => {
+    expect((['wireframe', 'hiddenLine'] as const).map(isLineMode)).toEqual([true, true]);
+    expect((['shaded', 'shadedEdges', 'xray', 'monochrome'] as const).map(isLineMode)).toEqual([false, false, false, false]);
+    expect(profilesFor('wireframe', false)).toEqual({ width: 1 });
+    expect(profilesFor('hiddenLine', true)).toEqual({ width: 1 });
+    expect(profilesFor('shadedEdges', true)).toBe(true);
+    expect(profilesFor('xray', false)).toBe(false);
+    const h = { ...host(), renderMode: 'wireframe' as const };
+    const tb = new Toolbar(h);
+    document.body.append(tb.el);
+    button(tb, '와이어프레임').click();
+    const item = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.querySelector('.menu-label')!.textContent === '외곽선 강조')!;
+    expect([item.getAttribute('aria-checked'), item.disabled]).toEqual(['true', true]);
   });
 });

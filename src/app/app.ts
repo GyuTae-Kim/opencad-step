@@ -49,7 +49,7 @@ import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, fa
 import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
-import { Toolbar } from './toolbar';
+import { isLineMode, profilesFor, Toolbar } from './toolbar';
 import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
 import { filterRows, nodeLabel, selectFromPick } from './tree';
 
@@ -1561,19 +1561,19 @@ export class StepApp {
 
   /** 숨은선 모드에서 가려진 모서리를 흐린 점선으로(코어 hiddenEdges) */
   hiddenEdges = false;
-  /** 외곽선(실루엣) 강조(코어 profiles) — 사용자가 켠 것. 숨은선 모드는 이것과 상관없이 늘 켠다(profilesOn) */
+  /** 외곽선(실루엣) 강조(코어 profiles) — 사용자가 켠 것. 선 모드(와이어프레임·숨은선)는 이것과 상관없이 1화소로 늘 켠다(profilesOn) */
   profiles = false;
 
   /**
-   * 외곽선을 그리는지: 사용자가 켰거나 숨은선 모드. 숨은선은 B-rep 모서리만 그려(삼각형 변 없음, 코어 0.7.1) 모서리가 없는 매끈한 면(원환 고리·구)은
-   * 외곽선이 없으면 바탕색 덩어리로 사라진다 — Fusion의 "보이는 모서리만"처럼 실루엣을 함께 그린다
+   * 외곽선을 그리는지: 사용자가 켰거나 선 모드. 선 모드는 B-rep 모서리만 그려(삼각형 변 없음, 코어 0.7.1) 모서리가 없는 매끈한 면(원환 고리·구)은
+   * 외곽선이 없으면 사라진다 — Fusion처럼 실루엣을 모서리와 같은 1화소로 함께 그린다(코어 0.7.2, profilesFor)
    */
   get profilesOn(): boolean {
-    return this.profiles || this.renderMode === 'hiddenLine';
+    return this.profiles || isLineMode(this.renderMode);
   }
 
   private applyProfiles(): void {
-    this.viewer?.setRenderOptions({ profiles: this.profilesOn });
+    this.viewer?.setRenderOptions({ profiles: profilesFor(this.renderMode, this.profiles) });
   }
 
   toggleHiddenEdges(on = !this.hiddenEdges): void {
