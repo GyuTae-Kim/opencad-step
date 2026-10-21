@@ -36,6 +36,11 @@ import { Toolbar } from './toolbar';
 import { filterRows, nodeLabel, selectFromPick } from './tree';
 
 const NARROW = '(max-width: 759.98px)';
+/**
+ * 휴대폰: 좁은 화면이거나 손가락 기기의 낮은 가로 화면(폭은 760px을 넘을 수 있다).
+ * 한 줄 도구 막대(styles.css)·작은 뷰 큐브·처음엔 닫힌 패널로 3D 보기 자리를 지킨다
+ */
+const PHONE = `${NARROW}, (pointer: coarse) and (max-height: 499.98px)`;
 /** 손가락이 주인 기기(휴대폰·태블릿): 안내 글·파일 고르기를 맞춘다 */
 const COARSE = '(pointer: coarse)';
 const TOOLS_URL = 'https://gyutae-kim.github.io/opencad';
@@ -103,6 +108,7 @@ export class StepApp {
   private storedTheme: Theme | null;
   private readonly systemDark: MediaQueryList | null;
   private readonly narrow: MediaQueryList | null;
+  private readonly phone: MediaQueryList | null;
   private readonly coarse: MediaQueryList | null;
   /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다) */
   private aim: TouchAim | null = null;
@@ -152,10 +158,11 @@ export class StepApp {
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     this.narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;
+    this.phone = typeof matchMedia === 'function' ? matchMedia(PHONE) : null;
     this.coarse = typeof matchMedia === 'function' ? matchMedia(COARSE) : null;
     this.storedTheme = readStoredTheme(safeLocalStorage());
     this.theme = resolveTheme(this.storedTheme, this.systemDark?.matches ?? true);
-    this.panelOpen = !this.narrow?.matches;
+    this.panelOpen = !this.phone?.matches;
     this.applyTheme();
 
     // ── 제목 막대 ──
@@ -499,9 +506,9 @@ export class StepApp {
     return v;
   }
 
-  /** 뷰 큐브 크기: 좁은 화면(시트)에서는 작게 */
+  /** 뷰 큐브 크기: 휴대폰(좁은 화면·낮은 가로 화면)에서는 작게 */
   private cubeSize(): number {
-    return this.narrow?.matches ? NARROW_CUBE : WIDE_CUBE;
+    return this.phone?.matches ? NARROW_CUBE : WIDE_CUBE;
   }
 
   // ───────────────────────── 고르기 ─────────────────────────
@@ -972,10 +979,10 @@ export class StepApp {
       this.theme = resolveTheme(null, this.systemDark?.matches ?? true);
       this.applyTheme();
     });
-    // 좁은 화면 ↔ 넓은 화면을 넘나들면 패널 기본값을 다시 정한다
-    this.narrow?.addEventListener('change', () => {
+    // 휴대폰 ↔ 넓은 화면을 넘나들면 패널 기본값을 다시 정한다(휴대폰을 세로에서 가로로 돌려도 패널이 저절로 열리지 않게)
+    this.phone?.addEventListener('change', () => {
       this.viewer?.setViewCubeSize(this.cubeSize());
-      this.togglePanel(!this.narrow?.matches);
+      this.togglePanel(!this.phone?.matches);
     });
   }
 
