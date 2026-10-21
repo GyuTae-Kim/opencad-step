@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Fmt } from '../../src/app/display';
 import type { FacePick } from '../../src/app/faces';
 import type { EdgePick } from '../../src/app/edges';
-import { edgeSummary, faceHint, faceSummary, measureHint, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
+import { edgeSummary, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, panelMeasureHint, selectionSize } from '../../src/app/measure';
 
 const MM = new Fmt('mm');
 const NONE = new Fmt('unknown');
@@ -41,6 +41,14 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
     expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기');
     expect(panelMeasureHint(true)).not.toMatch(/Esc/);
     expect(panelMeasureHint(true)).toContain('길게 누르면 정밀 조준');
+  });
+
+  it('3D 보기 위 측정 글(코어 setMeasureFormat): 표시 단위·소수 자리·언어, 이름표는 번역', () => {
+    expect(measureLabelLines({ distance: 25.4, dx: 25.4, dy: 0, dz: -12.7 }, MM)).toEqual(['거리 25.4 mm', 'ΔX 25.4  ΔY 0  ΔZ -12.7']);
+    const inch = new Fmt('mm', { unit: 'in', decimals: 2, quality: 'normal' });
+    expect(measureLabelLines({ distance: 25.4, dx: 25.4, dy: 0, dz: -12.7 }, inch, (k) => (k === '거리' ? 'Distance' : k))).toEqual(['Distance 1 in', 'ΔX 1  ΔY 0  ΔZ -0.5']);
+    const de = new Fmt('mm', { unit: 'mm', decimals: 3, quality: 'normal' }, 'de');
+    expect(measureLabelLines({ distance: 1234.5678, dx: 0.5, dy: 0, dz: 0 }, de)[0]).toBe('거리 1.234,568 mm');
   });
 
   it('거리와 dx·dy·dz(패널 아래 띠와 같은 꼴)', () => {

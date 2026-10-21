@@ -35,7 +35,7 @@ import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, ste
 import { consumeLaunchQueue, registerServiceWorker } from './pwa';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
-import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
+import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -692,6 +692,8 @@ export class StepApp {
       if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
     });
     v.onMeasure((m) => this.onMeasure(m));
+    // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
+    v.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
     v.onSectionChange((st) => this.syncSection(st));
     // 카메라가 바뀌면 단면 손잡이 자리를 다시 잡는다
@@ -1707,6 +1709,8 @@ export class StepApp {
   /** 수 꼴을 다시 만들고 숫자가 든 화면(패널·띠·상태 막대·단면 값)을 다시 그린다 */
   refreshFmt(): void {
     this.fmt = this.makeFmt();
+    // 코어 측정 글을 새 꼴로 다시 그린다(같은 함수를 다시 넘기면 다시 그린다)
+    this.viewer?.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
     // 개체 측정 덧그림 글도 새 단위·자리 수로
     if (this.entMeasuring && this.doc?.ent.picks.length) this.showEntities();
     this.panel.redraw();
@@ -1749,7 +1753,7 @@ export class StepApp {
       ],
       this.display.unit,
       (v) => this.setDisplay({ unit: v === 'mm' || v === 'in' ? v : 'file' }),
-      known ? '측정·면 정보·속성·단면 값에 씁니다. 3D 보기 위 측정 글자는 파일 단위 그대로입니다.' : '이 파일은 길이 단위를 모릅니다 — 값을 바꾸지 않고 그대로 보입니다.',
+      known ? '측정(3D 보기 위 글자 포함)·면 정보·속성·단면 값에 씁니다.' : '이 파일은 길이 단위를 모릅니다 — 값을 바꾸지 않고 그대로 보입니다.',
     );
     const decimals = selectRow(
       '소수 자리',
