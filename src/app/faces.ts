@@ -248,3 +248,35 @@ const FACE_LABELS: Record<string, string> = {
   triangulated: '삼각형 면',
   unknown: '알 수 없는 면',
 };
+
+/** 면 STEP 번호들 → 그물마다 삼각형 범위(그 면을 담은 모든 자리). 면 표가 없으면 빈 Map */
+export function faceRangesByStepId(
+  faces: { tables: readonly StepFaceTable[]; tableOf: ReadonlyMap<string, number> } | null,
+  meshIds: readonly string[],
+  stepIds: readonly number[],
+): Map<string, { start: number; count: number }[]> {
+  const out = new Map<string, { start: number; count: number }[]>();
+  if (!faces || !stepIds.length) return out;
+  const want = new Set(stepIds);
+  // 표마다 한 번만 찾는다(같은 형상을 여러 자리에 놓으면 표를 함께 쓴다)
+  const perTable = new Map<number, { start: number; count: number }[]>();
+  for (const id of meshIds) {
+    const ti = faces.tableOf.get(id);
+    if (ti === undefined) continue;
+    let r = perTable.get(ti);
+    if (!r) {
+      r = [];
+      const t = faces.tables[ti]!;
+      for (let f = 0; f < t.stepIds.length; f++) {
+        if (!want.has(t.stepIds[f]!)) continue;
+        const s0 = t.triStart[f]!;
+        const s1 = t.triStart[f + 1]!;
+        if (s1 > s0) r.push({ start: s0, count: s1 - s0 });
+      }
+      perTable.set(ti, r);
+    }
+    if (r.length) out.set(id, r);
+  }
+  return out;
+}
+

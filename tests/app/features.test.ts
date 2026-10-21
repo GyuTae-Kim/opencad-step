@@ -112,29 +112,36 @@ describe('문서 meta 읽기(레이어·PMI·면 표·선 묶음)', () => {
   // 워커가 넘기는 것처럼 구조적 복제를 거친다
   const copy = structuredClone(scene) as Scene3d;
 
-  it('예제: 레이어 셋, PMI(표현 2·의미 4), 면 표', () => {
+  it('예제: 레이어 셋, PMI(표현 3 — 글 주석 포함·의미 4·저장된 보기 1), 면 표', () => {
     const layers = stepLayers(copy);
     expect(layers.map((l) => [l.name, l.itemIds.length, l.visible])).toEqual([
       ['본체', 3, true],
       ['체결 부품', 2, true],
-      ['PMI 주석', 2, true],
+      ['PMI 주석', 3, true],
     ]);
     const pmi = stepPmi(copy);
-    expect(pmi.presentations.map((p) => p.plane)).toEqual(['바닥 평면', '윗면']);
+    expect(pmi.presentations.map((p) => p.plane)).toEqual(['바닥 평면', '윗면', '윗면']);
     expect(pmi.semantic.map((x) => x.value)).toEqual(['20 mm ±0.1', '4 mm +0.05/0', '0.02 mm', 'A']);
+    // 의미 PMI → 면(폭: 좌우 두 면, 구멍: 벽, 평면도: 윗면, 데이텀 A: 바닥)
+    expect(pmi.semantic.map((x) => x.faces?.length ?? 0)).toEqual([2, 1, 1, 1]);
+    expect(pmi.views.map((v) => [v.name, v.projection])).toEqual([['윗면 보기', 'orthographic']]);
+    expect(pmi.views[0]!.dir).toEqual([0, 0, 1]);
+    expect(pmi.views[0]!.target).toEqual([10, 5, 2]);
+    expect(pmi.views[0]!.height).toBe(14);
+    expect(pmi.views[0]!.pmiIds).toHaveLength(3);
     const fx = stepFaceIndex(copy)!;
     expect(fx.tableOf.size).toBe(5);
     expect(fx.tableOf.get(copy.meshes[1]!.id)).toBe(fx.tableOf.get(copy.meshes[2]!.id));
     const d = createDoc('s.stp', 10, { scene: copy, ms: 1 });
     expect(d.layers).toHaveLength(3);
-    expect(d.vis.pmiIds.size).toBe(2);
+    expect(d.vis.pmiIds.size).toBe(3);
     expect(d.faces).not.toBeNull();
   });
 
   it('꼴이 틀리면 빈 값', () => {
     const bad: Scene3d = { name: 'x', units: 'mm', meshes: [], lines: [], meta: { layers: 3, pmi: 'no', faceTables: [{}], faceKinds: [], meshFaceTable: new Int32Array(0) } };
     expect(stepLayers(bad)).toEqual([]);
-    expect(stepPmi(bad)).toEqual({ presentations: [], semantic: [] });
+    expect(stepPmi(bad)).toEqual({ presentations: [], semantic: [], views: [] });
     expect(stepFaceIndex(bad)).toBeNull();
   });
 

@@ -25,7 +25,9 @@ import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
-import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
+import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
+import type { StepSavedView } from '../scene';
+import { dirToAngles } from 'opencad-viewer3d/camera';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
 import { formatBytes, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
@@ -839,6 +841,50 @@ export class StepApp {
     if (!this.doc) return;
     this.doc.density = kgm3 && kgm3 > 0 ? kgm3 : null;
     this.panel.redraw();
+  }
+
+  /** 의미 PMI가 가리키는 B-rep 면을 강조하고 그 그물로 맞춰 본다(찾았으면 true) */
+  showPmiFaces(stepIds: readonly number[], label: string): boolean {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return false;
+    const ranges = faceRangesByStepId(d.faces, d.scene.meshes.map((m) => m.id), stepIds);
+    if (!ranges.size) {
+      this.toast('이 PMI에 이어진 면을 화면에서 찾지 못했습니다.', 'warn');
+      return false;
+    }
+    const ids = [...ranges.keys()];
+    d.selKey = null;
+    d.pick = null;
+    d.face = null;
+    d.items = { ids, label };
+    v.setHighlightSegments(null);
+    v.highlight(null);
+    v.highlightRanges(Object.fromEntries(ranges));
+    this.selectionChanged();
+    v.fitItems(ids);
+    return true;
+  }
+
+  /** 저장된 보기 적용: 카메라(투영·방향·대상·크기)와 그 보기의 표현 PMI만 보이기 */
+  applySavedView(view: StepSavedView): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    const cam = v.getCamera();
+    const a = dirToAngles(view.dir, cam.yaw);
+    let distance = view.distance;
+    if (view.projection === 'orthographic' || !(distance > 0)) distance = view.height > 0 ? view.height / 2 / Math.tan(cam.fovY / 2) : cam.distance;
+    v.setProjection(view.projection);
+    animateCamera(v, { ...v.getCamera(), target: [...view.target], distance, yaw: a.yaw, pitch: a.pitch, projection: view.projection });
+    if (view.pmiIds?.length) {
+      const show = new Set(view.pmiIds);
+      d.vis.pmiOff = false;
+      for (const id of d.vis.pmiIds) d.vis.setPmi(id, show.has(id));
+      this.applyVisibility([...d.vis.pmiIds]);
+      this.panel.onVisibility();
+    }
+    this.toolbar.refresh();
   }
 
   /** 패널을 열고 속성 탭으로 */

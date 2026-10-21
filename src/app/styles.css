@@ -1722,3 +1722,19 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     width: 60px;
   }
 }
+
+/* ── 저장된 보기 목록 ── */
+.view-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+tr.sel td {
+  background: var(--accent-soft);
+}

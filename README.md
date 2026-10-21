@@ -25,6 +25,10 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   EDGE_BASED·SHELL_BASED_WIREFRAME_MODEL, 형상 표현 안의 독립 곡선 — 선·원·잘린 곡선·복합 곡선·B-스플라인 등, 선 색 CURVE_STYLE) → `scene.lines`(점은 `scene.points`)
 - 표현 PMI(ANNOTATION_CURVE_OCCURRENCE·TESSELLATED_ANNOTATION_OCCURRENCE 등, ANNOTATION_PLANE·DRAUGHTING_CALLOUT 안까지)를
   그 부품 자리에 선으로, 의미 PMI(치수 값·± 공차, 기하 공차 크기·데이텀, 데이텀) 목록 → `meta.pmi`
+- PMI 글자(TEXT_LITERAL과 아형, COMPOSITE_TEXT 안까지)를 내장 한 획 글꼴(`src/strokefont.ts` — 숫자·영문·기호 ± ° Ø ×·GD&T 기호)로 선분으로 그립니다.
+  글자 높이는 TEXT_LITERAL_WITH_EXTENT 크기, 주석 양식의 BOX_HEIGHT, 없으면 2.5. 맞춤(centre·right·top)을 따릅니다(`src/pmitext.ts`)
+- 의미 PMI ↔ 면: 모양 측면 → GEOMETRIC_ITEM_SPECIFIC_USAGE → 면, 복합 측면·데이텀 ↔ 데이텀 형체는 SHAPE_ASPECT_RELATIONSHIP으로 따라가 `semantic[].faces`(면 STEP 번호)
+- 저장된 보기(CAMERA_USAGE → CAMERA_MODEL_D3·VIEW_VOLUME·보기 창): 대상·방향·투영·창 높이와 그 제도 모형의 표현 PMI → `meta.pmi.views`(`src/savedviews.ts`)
 - 면 표(그물 삼각형 → B-rep 면, 면 종류·곡면 매개변수, B-rep 넓이·둘레와 정확한지) → `meta.faceTables`·`meta.meshFaceTable`(면 단위 고르기)
 - 닫힌 입체(닫힌 껍질, 실패한 면 없음, 삼각형이 틈 없이 맞물림)의 그물에 `Mesh3d.closed = true` — 단면에서 잘린 면을 채웁니다
 - 큰 좌표(좌표 크기 1e4 단위 이상이면서 묶음 크기의 2000배 넘음 — 예: 공장·지도 좌표 1e5~1e6 mm)에 만든 형상은 묶음 가운데를
@@ -95,6 +99,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   - 레이어(있을 때) — 레이어마다 켜고 끄기·항목 수, "(레이어 없음)", 모두 켜기/끄기. 파일이 숨긴 레이어(INVISIBILITY)는 처음에 꺼져 있습니다.
     이름을 누르면 그 레이어의 형상을 강조하고, 두 번 누르면 맞춰 봅니다. 레이어·눈 단추·PMI 켜고 끄기는 서로 겹쳐 따집니다(모두 켜져야 보임).
   - PMI(있을 때) — 표현 PMI 모두/하나씩 켜고 끄기(주석 평면 이름과 함께, 이름을 누르면 강조), 의미 PMI 표(치수 값·± 공차, 기하 공차 크기 | 데이텀, 데이텀).
+    면에 이어진 의미 PMI는 이름을 누르면 그 면(모든 자리)을 강조하고 맞춰 봅니다(옆 숫자 = 이어진 면 수).
+    저장된 보기가 있으면 단추로 그 카메라(투영·방향·창 크기)로 옮기고 그 보기의 표현 PMI만 보입니다.
   - 정보 — 문서(크기·압축·범위·삼각형), 파일 머리(FILE_NAME·FILE_DESCRIPTION·FILE_SCHEMA 등), 단위, 통계(솔리드·면·삼각화 못 한 면·삼각형·인스턴스·선 형상·레이어·PMI·읽기/삼각화 시간), 해석기 경고.
   - 패널 왼쪽 가장자리(아래 시트는 위 가장자리)를 끌어 폭(높이)을 바꿉니다. 손잡이에 초점을 두고 화살표 키로도, 두 번 누르면 기본 크기. 이 브라우저에 기억합니다.
 - **상태 막대**: 형식·스키마·단위·파일 크기·삼각형·부품 수·읽은 시간과 고른 것·측정 거리.
@@ -175,8 +181,8 @@ npm run preview    # 빌드 결과 보기
 ## 남은 일
 
 - STEP-XML(.stpx, ISO 10303-28) 읽기
-- PMI: 글꼴로 쓰는 글자(ANNOTATION_TEXT·TEXT_LITERAL)와 기호(DEFINED_SYMBOL), 저장된 보기(카메라·보이기 묶음),
-  치수와 형상의 연결(어느 면의 치수인지 강조), 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
+- PMI: 정의된 기호(DEFINED_SYMBOL), 글꼴 파일의 글자 모양(내장 한 획 글꼴로 그림 — 한글 등 그 밖의 글자는 빈 상자),
+  저장된 보기의 보이기 묶음·자르기 평면, 모서리·점에 이어진 PMI 강조, 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
 - 경계가 없는 곡면(GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION의 B-스플라인·잘린 곡면)을 그물로 그리기
 - 면 고르기: 모서리 단위 고르기, 면 사이 거리·각도 재기
 - 레이어: 면 단위 레이어 배정(지금은 형상 항목·껍질·첫 면까지 보고 형상 항목 하나를 한 레이어에 넣는다)

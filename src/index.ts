@@ -13,6 +13,7 @@ export {
   type StepPmiPresentation,
   type StepPmiSemantic,
   type StepProductNode,
+  type StepSavedView,
 } from './scene';
 export { DERIVED, StepBinary, StepEnum, StepFile, StepRef, StepTyped, decodeStepString, type StepEntity, type StepHeader, type StepValue } from './part21';
 export { watertightness, meshArea, meshVolume, type WatertightReport } from './analysis';

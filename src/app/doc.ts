@@ -5,7 +5,7 @@
 import type { CameraState, MeasureResult, Pick3d, Scene3d } from 'opencad-viewer3d';
 import type { StepHeader } from '../part21';
 import type { StepProductProps } from '../props';
-import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode } from '../scene';
+import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
@@ -28,6 +28,8 @@ export interface DocLayer {
 export interface DocPmi {
   presentations: StepPmiPresentation[];
   semantic: StepPmiSemantic[];
+  /** 저장된 보기 */
+  views: StepSavedView[];
 }
 
 /** 면 고르기용 표(meta.faceKinds·faceTables·meshFaceTable) */
@@ -225,7 +227,7 @@ export function stepLayers(scene: Scene3d): DocLayer[] {
 /** meta.pmi를 안전하게 읽는다 */
 export function stepPmi(scene: Scene3d): DocPmi {
   const p = (scene.meta as { pmi?: unknown } | undefined)?.pmi as Record<string, unknown> | undefined;
-  if (!p || typeof p !== 'object') return { presentations: [], semantic: [] };
+  if (!p || typeof p !== 'object') return { presentations: [], semantic: [], views: [] };
   const rec = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
   const presentations: StepPmiPresentation[] = rec(p.presentations).map((x) => {
     const o: StepPmiPresentation = { id: String(x.id ?? ''), name: String(x.name ?? ''), type: String(x.type ?? ''), stepId: Number(x.stepId) || 0 };
@@ -233,14 +235,38 @@ export function stepPmi(scene: Scene3d): DocPmi {
     if (typeof x.model === 'string' && x.model) o.model = x.model;
     return o;
   });
-  const semantic: StepPmiSemantic[] = rec(p.semantic).map((x) => ({
-    kind: x.kind === 'tolerance' || x.kind === 'datum' ? x.kind : 'dimension',
-    type: String(x.type ?? ''),
-    name: String(x.name ?? ''),
-    value: String(x.value ?? ''),
-    stepId: Number(x.stepId) || 0,
-  }));
-  return { presentations, semantic };
+  const semantic: StepPmiSemantic[] = rec(p.semantic).map((x) => {
+    const o: StepPmiSemantic = {
+      kind: x.kind === 'tolerance' || x.kind === 'datum' ? x.kind : 'dimension',
+      type: String(x.type ?? ''),
+      name: String(x.name ?? ''),
+      value: String(x.value ?? ''),
+      stepId: Number(x.stepId) || 0,
+    };
+    if (Array.isArray(x.faces) && x.faces.length) o.faces = x.faces.map(Number).filter((n) => n > 0);
+    return o;
+  });
+  const v3 = (v: unknown): [number, number, number] | null => (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? (v as [number, number, number]) : null);
+  const views: StepSavedView[] = [];
+  for (const x of rec(p.views)) {
+    const target = v3(x.target);
+    const dir = v3(x.dir);
+    const up = v3(x.up);
+    if (!target || !dir || !up) continue;
+    const view: StepSavedView = {
+      id: Number(x.id) || 0,
+      name: String(x.name ?? ''),
+      target,
+      dir,
+      up,
+      distance: Number(x.distance) || 0,
+      projection: x.projection === 'perspective' ? 'perspective' : 'orthographic',
+      height: Number(x.height) || 0,
+    };
+    if (Array.isArray(x.pmiIds) && x.pmiIds.length) view.pmiIds = x.pmiIds.map(String);
+    views.push(view);
+  }
+  return { presentations, semantic, views };
 }
 
 /** meta의 면 표를 읽는다(꼴이 맞지 않으면 null) */

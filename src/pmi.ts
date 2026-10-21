@@ -40,6 +40,8 @@ export interface StepPmiSemantic {
   value: string;
   /** STEP 인스턴스 번호 */
   stepId: number;
+  /** 이 PMI가 가리키는 B-rep 면(ADVANCED_FACE 등)의 STEP 번호 — 모양 측면·GEOMETRIC_ITEM_SPECIFIC_USAGE를 따라간다 */
+  faces?: number[];
 }
 
 const ANNOTATION_TYPES = [
@@ -241,9 +243,76 @@ function datumLetters(f: StepFile, id: number, depth = 0): string {
   return '';
 }
 
+/**
+ * 모양 측면(SHAPE_ASPECT과 아형·데이텀·데이텀 형체) → 면 STEP 번호들.
+ * GEOMETRIC_ITEM_SPECIFIC_USAGE(name, description, definition = 모양 측면, used_representation, identified_item)가 측면과 형상 항목을 잇고,
+ * 복합 측면(COMPOSITE_SHAPE_ASPECT·ALL_AROUND·COMPOSITE_GROUP 등)과 데이텀 ↔ 데이텀 형체는 SHAPE_ASPECT_RELATIONSHIP으로 잇는다.
+ */
+export function aspectFaces(f: StepFile): (aspect: number) => number[] {
+  const direct = new Map<number, number[]>();
+  for (const id of f.idsOfType('GEOMETRIC_ITEM_SPECIFIC_USAGE')) {
+    const e = f.get(id);
+    if (!e) continue;
+    const args = e.parts ? (partOf(e, 'ITEM_IDENTIFIED_REPRESENTATION_USAGE')?.args ?? e.parts.flatMap((p) => p.args)) : e.args;
+    const def = refId(args[2]);
+    const items = args[4] instanceof StepRef ? [refId(args[4])] : refList(args[4]);
+    if (!def) continue;
+    let l = direct.get(def);
+    if (!l) direct.set(def, (l = []));
+    for (const it of items) if (it) l.push(it);
+  }
+  const fwd = new Map<number, number[]>();
+  const back = new Map<number, number[]>();
+  for (const t of ['SHAPE_ASPECT_RELATIONSHIP', 'SHAPE_ASPECT_DERIVING_RELATIONSHIP']) {
+    for (const id of f.idsOfType(t)) {
+      const e = f.get(id);
+      if (!e) continue;
+      const a = refId(e.args[2]);
+      const b = refId(e.args[3]);
+      if (!a || !b) continue;
+      (fwd.get(a) ?? fwd.set(a, []).get(a)!).push(b);
+      (back.get(b) ?? back.set(b, []).get(b)!).push(a);
+    }
+  }
+  const isFace = (id: number) => {
+    const t = f.typeOf(id);
+    return t === 'ADVANCED_FACE' || t === 'FACE_SURFACE' || t === 'FACE' || t === 'ORIENTED_FACE' || t.endsWith('TRIANGULATED_FACE');
+  };
+  const cache = new Map<number, number[]>();
+  return (aspect: number): number[] => {
+    const hit = cache.get(aspect);
+    if (hit) return hit;
+    const out = new Set<number>();
+    const seen = new Set<number>([aspect]);
+    const queue = [aspect];
+    while (queue.length && seen.size < 256) {
+      const x = queue.shift()!;
+      for (const it of direct.get(x) ?? []) if (isFace(it)) out.add(it);
+      // 복합 측면 → 구성 측면, 데이텀 → 데이텀 형체(데이텀을 가리키는 관계의 반대쪽)
+      const xe = f.get(x);
+      const next = [...(fwd.get(x) ?? []), ...(xe && isA(xe, 'DATUM') ? (back.get(x) ?? []) : [])];
+      for (const n of next)
+        if (!seen.has(n)) {
+          seen.add(n);
+          queue.push(n);
+        }
+    }
+    const l = [...out];
+    cache.set(aspect, l);
+    return l;
+  };
+}
+
 /** 의미 PMI 목록(많으면 limit개까지) */
 export function semanticPmi(f: StepFile, limit = 2000): StepPmiSemantic[] {
   const out: StepPmiSemantic[] = [];
+  const facesOf = aspectFaces(f);
+  /** 측면들 → 면(빈 것은 빼고) */
+  const faces = (...aspects: number[]) => {
+    const s = new Set<number>();
+    for (const a of aspects) if (a) for (const x of facesOf(a)) s.add(x);
+    return s.size ? [...s] : undefined;
+  };
   // 치수 → 값(공칭·위아래 한계), 공차
   const dimValue = new Map<number, string>();
   for (const id of f.idsOfType('DIMENSIONAL_CHARACTERISTIC_REPRESENTATION')) {
@@ -296,7 +365,10 @@ export function semanticPmi(f: StepFile, limit = 2000): StepPmiSemantic[] {
       const name = isSize ? text(part.args[1]) : text(part.args[0]);
       const tol = dimTol.get(id);
       const value = [dimValue.get(id) ?? '', tol ?? ''].filter(Boolean).join(' ');
-      out.push({ kind: 'dimension', type: part.type, name, value, stepId: id });
+      const row: StepPmiSemantic = { kind: 'dimension', type: part.type, name, value, stepId: id };
+      const fc = isSize ? faces(refId(part.args[0])) : faces(refId(part.args[2]), refId(part.args[3]));
+      if (fc) row.faces = fc;
+      out.push(row);
     }
   for (const t of GT_TYPES)
     for (const id of f.idsOfType(t)) {
@@ -315,7 +387,14 @@ export function semanticPmi(f: StepFile, limit = 2000): StepPmiSemantic[] {
       const mag = measureText(f, refId(gt[2]));
       const letters = datums.map((d) => datumLetters(f, d)).filter(Boolean);
       const value = [mag, ...letters].filter(Boolean).join(' | ');
-      out.push({ kind: 'tolerance', type, name: text(gt[0]), value, stepId: id });
+      const row: StepPmiSemantic = { kind: 'tolerance', type, name: text(gt[0]), value, stepId: id };
+      // 공차 대상(toleranced_shape_aspect): 모양 측면, 또는 치수(그 치수가 가리키는 측면)
+      const target = refId(gt[3]);
+      const te = target ? f.get(target) : undefined;
+      const tp = te ? (te.parts?.find((p) => DIM_TYPES.includes(p.type)) ?? (DIM_TYPES.includes(te.type) ? { type: te.type, args: te.args } : null)) : null;
+      const fc = tp ? (tp.type.includes('SIZE') ? faces(refId(tp.args[0])) : faces(refId(tp.args[2]), refId(tp.args[3]))) : faces(target);
+      if (fc) row.faces = fc;
+      out.push(row);
     }
   for (const t of ['DATUM', 'COMMON_DATUM'])
     for (const id of f.idsOfType(t)) {
@@ -324,7 +403,10 @@ export function semanticPmi(f: StepFile, limit = 2000): StepPmiSemantic[] {
       const e = f.get(id);
       if (!e) continue;
       const d = e.parts ? partOf(e, 'DATUM') : e;
-      out.push({ kind: 'datum', type: t, name: text(d?.args[0]), value: text(d?.args[4]), stepId: id });
+      const row: StepPmiSemantic = { kind: 'datum', type: t, name: text(d?.args[0]), value: text(d?.args[4]), stepId: id };
+      const fc = faces(id);
+      if (fc) row.faces = fc;
+      out.push(row);
     }
   return out;
 }

@@ -17,7 +17,9 @@ import { readLayers } from './layers';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
+import { styleTextHeight, textLiterals, textSegments } from './pmitext';
 import { readProductProps, type StepProductProps } from './props';
+import { readSavedViews } from './savedviews';
 import { type ContextColor, readStyles } from './styles';
 import { type ContextUnits, contextUnits, DEFAULT_UNITS, sceneUnitMm, sceneUnitOf } from './units';
 import { isWireItemType, type WireGeom, WireSampler } from './wire';
@@ -93,9 +95,29 @@ export interface StepPmiPresentation {
   stepId: number;
 }
 
+/** 저장된 보기(장면 좌표·단위) */
+export interface StepSavedView {
+  /** CAMERA_MODEL 번호 */
+  id: number;
+  name: string;
+  target: [number, number, number];
+  /** 대상 → 눈(단위) */
+  dir: [number, number, number];
+  up: [number, number, number];
+  /** 눈과 대상 사이(중심 투영), 평행이면 0 */
+  distance: number;
+  projection: 'orthographic' | 'perspective';
+  /** 보기 창 세로 크기(장면 단위), 모르면 0 */
+  height: number;
+  /** 이 보기의 제도 모형에 든 표현 PMI 선 묶음 id(있을 때만) */
+  pmiIds?: string[];
+}
+
 export interface StepPmi {
   presentations: StepPmiPresentation[];
   semantic: StepPmiSemantic[];
+  /** 저장된 보기(있을 때만) */
+  views?: StepSavedView[];
 }
 
 /** meta에 넣는 요약 */
@@ -748,7 +770,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   if (wantPmi) {
     const anns = findAnnotations(f, (id) => rep(id)?.items ?? null);
     const semantic = semanticPmi(f);
-    if (anns.length || semantic.length) {
+    const rawViews = readSavedViews(f, geom);
+    if (anns.length || semantic.length || rawViews.length) {
       pmiMeta = { presentations: [], semantic };
       // 제도 모형 → 놓을 자리(그 모형이 딸린 제품의 첫 자리)와 단위
       let links: Map<number, number[]> | null = null;
@@ -821,17 +844,24 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         return p;
       };
       let pmiSeq = 0;
+      /** 제도 모형 → 그 모형에 든 표현 PMI 선 묶음 id(저장된 보기용) */
+      const modelPmi = new Map<number, string[]>();
       for (const a of anns) {
         if (styles.hidden.has(a.id)) continue;
         const pl = place(a.model);
         geom.angleFactor = pl.angle;
         const w = a.item ? wire.sample(a.item) : null;
-        if (!w || !w.segs.length) {
-          if (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL'))) pmiText++;
+        // 글자(TEXT_LITERAL): 내장 획 글꼴로 선분(곡선과 함께 들어 있어도)
+        const lits = a.item ? textLiterals(f, a.item) : [];
+        const txt = lits.length ? textSegments(f, geom, lits, styleTextHeight(f, a.styles)) : null;
+        if (txt && txt.drawn < lits.length) pmiText += lits.length - txt.drawn;
+        const raw = [...(w?.segs ?? []), ...(txt?.segs ?? [])];
+        if (!raw.length) {
+          if (!lits.length && (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL')))) pmiText++;
           continue;
         }
         const segs: number[] = [];
-        appendWorld(segs, pl.k === 1 ? w.segs : w.segs.map((x) => x * pl.k), pl.m);
+        appendWorld(segs, pl.k === 1 ? raw : raw.map((x) => x * pl.k), pl.m);
         const id = `step-pmi-${++pmiSeq}`;
         const o = originOf(segs);
         const ls: LineSet3d = { id, name: a.name || 'PMI', positions: relativeFloat32(segs, o) };
@@ -847,6 +877,23 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         if (a.plane) pres.plane = a.plane;
         if (pl.name) pres.model = pl.name;
         pmiMeta.presentations.push(pres);
+        (modelPmi.get(a.model) ?? modelPmi.set(a.model, []).get(a.model)!).push(id);
+      }
+      // 저장된 보기: 카메라가 든 제도 모형 자리·단위로 옮기고, 그 모형의 표현 PMI를 함께
+      if (rawViews.length) {
+        const views: StepSavedView[] = [];
+        for (const rv of rawViews) {
+          const pl = place(rv.model);
+          const k = pl.k;
+          const m = pl.m;
+          const pt = (p: V3): V3 => transformPoint(m, [p[0] * k, p[1] * k, p[2] * k]);
+          const dv = (d: V3): V3 => normalize([m[0]! * d[0] + m[4]! * d[1] + m[8]! * d[2], m[1]! * d[0] + m[5]! * d[1] + m[9]! * d[2], m[2]! * d[0] + m[6]! * d[1] + m[10]! * d[2]]);
+          const v: StepSavedView = { id: rv.id, name: rv.name, target: pt(rv.target), dir: dv(rv.dir), up: dv(rv.up), distance: rv.distance * k, projection: rv.projection, height: rv.height * k };
+          const ids = modelPmi.get(rv.model);
+          if (ids?.length) v.pmiIds = ids;
+          views.push(v);
+        }
+        pmiMeta.views = views;
       }
     }
   }
@@ -867,7 +914,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   if (wire.unbounded) warnings.push(`끝이 없는 곡선(LINE 등) ${wire.unbounded}개는 그리지 않았다`);
   const skippedSurf = wire.skipped.get('곡면') ?? 0;
   if (skippedSurf) warnings.push(`선 형상 묶음 안의 곡면 ${skippedSurf}개는 그리지 않았다(경계가 없는 곡면)`);
-  if (pmiText) warnings.push(`PMI 글자(글꼴로 쓰는 ANNOTATION_TEXT 등) ${pmiText}개는 그리지 않았다`);
+  if (pmiText) warnings.push(`PMI 글자(ANNOTATION_TEXT 등) ${pmiText}개는 그리지 못했다(글이 비었거나 배치가 없음)`);
   if (!meshes.length && !lines.length && !points.length) warnings.push('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)');
 
   // 경계 상자
@@ -931,7 +978,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     });
     if (layers.length) meta.layers = layers;
   }
-  if (pmiMeta && (pmiMeta.presentations.length || pmiMeta.semantic.length)) meta.pmi = pmiMeta;
+  if (pmiMeta && (pmiMeta.presentations.length || pmiMeta.semantic.length || pmiMeta.views?.length)) meta.pmi = pmiMeta;
   if (wantFaces && faceTables.length) {
     meta.faceKinds = FACE_KINDS;
     meta.faceTables = faceTables;

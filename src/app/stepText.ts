@@ -309,8 +309,8 @@ export function torus(w: StepText, R: number, rr: number, name = 'torus'): numbe
   return w.solid([f], name);
 }
 
-/** 20×10×2 판에 (10,5) 중심 반지름 2 관통 구멍 */
-export function plateWithHole(w: StepText, name = 'plate'): number {
+/** 20×10×2 판에 (10,5) 중심 반지름 2 관통 구멍. faces를 주면 면 번호(바닥·윗면·앞·뒤·왼쪽·오른쪽·구멍 벽)를 담는다 */
+export function plateWithHole(w: StepText, name = 'plate', faces?: number[]): number {
   const W = 20;
   const D = 10;
   const H = 2;
@@ -336,7 +336,7 @@ export function plateWithHole(w: StepText, name = 'plate'): number {
   const Cb = w.edge(Hb, Hb, w.circle([c[0], c[1], 0], rad));
   const Ct = w.edge(Ht, Ht, w.circle([c[0], c[1], H], rad));
   const L = w.edge(Hb, Ht, w.line([c[0] + rad, c[1], 0], [c[0] + rad, c[1], H]));
-  const faces = [
+  const list = [
     // 바닥(법선 -Z): 평면 +Z, same_sense .F., 바깥 고리는 위에서 볼 때 시계, 구멍은 반시계
     w.face([w.bound(quad([0, 2, 3, 1])), w.bound(w.loop([w.oe(Cb, true)]), false)], w.plane([0, 0, 0]), false),
     w.face([w.bound(quad([4, 5, 7, 6])), w.bound(w.loop([w.oe(Ct, false)]), false)], w.plane([0, 0, H])),
@@ -351,5 +351,6 @@ export function plateWithHole(w: StepText, name = 'plate'): number {
       false,
     ),
   ];
-  return w.solid(faces, name);
+  if (faces) faces.push(...list);
+  return w.solid(list, name);
 }

@@ -6,6 +6,7 @@
  */
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
+import type { StepSavedView } from '../scene';
 import type { Fmt } from './display';
 import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
@@ -48,6 +49,10 @@ export interface PanelHost {
   setDensity(kgm3: number | null): void;
   /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
   openContextMenu(clientX: number, clientY: number): void;
+  /** 의미 PMI가 가리키는 면 강조·맞춰 보기 */
+  showPmiFaces(stepIds: readonly number[], label: string): boolean;
+  /** 저장된 보기 적용 */
+  applySavedView(view: StepSavedView): void;
 }
 
 const PMI_TYPE: Record<string, string> = {
@@ -198,7 +203,7 @@ export class Panel {
       ['props', '속성'],
     ];
     if (d.layers.length) tabs.push(['layers', `레이어 ${d.layers.length}`]);
-    if (d.pmi.presentations.length || d.pmi.semantic.length) tabs.push(['pmi', 'PMI']);
+    if (d.pmi.presentations.length || d.pmi.semantic.length || d.pmi.views.length) tabs.push(['pmi', 'PMI']);
     tabs.push(['info', `정보${d.scene.warnings?.length ? ` (경고 ${d.scene.warnings.length})` : ''}`]);
     if (!tabs.some(([k]) => k === d.panelTab)) d.panelTab = 'tree';
     for (const [k, label] of tabs) {
@@ -595,7 +600,16 @@ export class Panel {
       const tbody = h('tbody');
       const LIMIT = 1000;
       for (const x of sem.slice(0, LIMIT)) {
-        tbody.append(h('tr', {}, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), h('td', { translate: 'no' }, x.name || '—'), h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
+        // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
+        const label = `PMI ${x.name || semanticLabel(x.type)}`;
+        const selected = d.items?.label === label;
+        let nameCell: HTMLElement;
+        if (x.faces?.length) {
+          const b = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, h('span', { translate: 'no' }, x.name || '—'));
+          b.addEventListener('click', () => (selected ? this.host.selectItems(null, label) : this.host.showPmiFaces(x.faces!, label)));
+          nameCell = h('td', {}, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
+        } else nameCell = h('td', { translate: 'no' }, x.name || '—');
+        tbody.append(h('tr', { class: selected ? 'sel' : '' }, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), nameCell, h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
       }
       this.body.append(
         section(
@@ -606,7 +620,17 @@ export class Panel {
         ),
       );
     }
-    if (!pres.length && !sem.length) this.body.append(h('p', { class: 'empty' }, '이 파일에는 PMI가 없습니다.'));
+    const views = d.pmi.views;
+    if (views.length) {
+      const list = h('div', { class: 'view-list' });
+      for (const v of views) {
+        const b = h('button', { type: 'button', class: 'btn small view-btn', title: `${v.projection === 'perspective' ? '원근' : '평행'} · ${v.pmiIds?.length ? `PMI ${v.pmiIds.length}개` : 'PMI 없음'}` }, icon('views', 14), h('span', { translate: 'no' }, v.name || `#${v.id}`));
+        b.addEventListener('click', () => this.host.applySavedView(v));
+        list.append(b);
+      }
+      this.body.append(section(`저장된 보기 ${fmtCount(views.length)}개`, list, h('p', { class: 'hint' }, '누르면 그 보기의 카메라로 옮기고 그 보기에 든 표현 PMI만 보입니다(PMI 모두 보이기로 되돌립니다).')));
+    }
+    if (!pres.length && !sem.length && !views.length) this.body.append(h('p', { class: 'empty' }, '이 파일에는 PMI가 없습니다.'));
   }
 
   // ───────────────────────── 정보 탭 ─────────────────────────
