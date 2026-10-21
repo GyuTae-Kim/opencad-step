@@ -1431,6 +1431,19 @@ table.grid td.mono {
   .tree-filter {
     font-size: 16px;
   }
+  /* 제목 막대 단추(열기·예제·설정·OpenCAD 도구·GitHub)와 언어 단추: 누르는 자리를 40×40 이상으로 */
+  .title-actions .btn {
+    min-width: 40px;
+    height: 40px;
+  }
+  .titlebar .language-control {
+    flex-basis: 40px;
+    width: 40px;
+  }
+  .titlebar .language-trigger {
+    width: 40px;
+    height: 40px;
+  }
   /* 최근 문서: 줄과 ✕·모두 지우기를 손가락 크기(44px)로 */
   .recent-open {
     min-height: 48px;
@@ -1471,6 +1484,38 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 }
 @media (max-width: 767px) {
   .titlebar .title-actions .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+/*
+ * 휴대폰 세로(손가락 기기, 폭 420px 이하): 제목 막대 단추가 40px로 커진 만큼 앱 이름을 줄인다 —
+ * "OpenCAD" 글 대신 OpenCAD 아이콘, 그 뒤 "STEP 뷰어"(그래도 넘치면 말줄임). 화면 읽기 프로그램은 이름 전체를 읽는다
+ */
+@media (pointer: coarse) and (max-width: 420px) {
+  .titlebar {
+    gap: 4px;
+    padding: 0 4px 0 8px;
+  }
+  .title-actions {
+    gap: 0;
+  }
+  .brand-icon {
+    display: block;
+    flex: none;
+    margin-right: 2px;
+  }
+  .brand b {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .brand > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* 홈 화면 앱(standalone): 상태 막대·노치가 화면 위를 덮는 기기에서 제목 막대를 그만큼 내린다(덮지 않으면 0) */
