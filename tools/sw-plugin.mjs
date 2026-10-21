@@ -5,7 +5,9 @@ import { join, relative, sep } from 'node:path';
 /**
  * 오프라인용 서비스 워커(sw.js)를 빌드 끝(closeBundle)에 만든다.
  * - 앱 껍데기(언어 페이지·앱 정보·아이콘)와 빌드 결과(assets/*)를 미리 담고, 판 이름은 그 파일들의 내용 지문이다.
- * - HTML(이동 요청)은 네트워크 먼저(배포가 늘 보이게, 안 되면 담아 둔 것), 나머지 같은 출처 GET은 담아 둔 것 먼저.
+ * - HTML(이동 요청)은 네트워크 먼저(배포가 늘 보이게, 안 되면 담아 둔 것 — 담는 것은 미리 담을 목록의 페이지만).
+ * - 담아 둔 것 먼저는 미리 담을 목록과 빌드 결과(assets/)뿐이다. 그 밖(?open=으로 받는 STEP 파일 등)과 앱 범위 밖 주소는
+ *   손대지 않고 네트워크로 보낸다(바뀐 파일이 옛것으로 열리거나 큰 파일이 캐시에 쌓이지 않게).
  * - 새 판은 기다리다가(skipWaiting 없음) 페이지가 "새로 고침"을 고르면(SKIP_WAITING) 바뀐다.
  * - Android 공유 받기(share_target, POST …/share-target): 파일을 최근 문서 IndexedDB(opencad-step, 판 2)에 넣고 ?recent=<id>로 연다.
  */
@@ -40,6 +42,9 @@ export function serviceWorkerSource({ version, urls }) {
 'use strict';
 const CACHE = 'opencad-step-${version}';
 const PRECACHE = ${JSON.stringify(urls)};
+const SCOPE = self.registration.scope;
+/** 담아 둔 것 먼저 쓸 경로(미리 담을 목록) */
+const PRECACHE_PATHS = new Set(PRECACHE.map((u) => new URL(u, SCOPE).pathname));
 const RECENT_DB = 'opencad-step';
 const RECENT_MAX_SIZE = 60 * 1024 * 1024;
 
@@ -105,6 +110,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // 앱 범위 밖(같은 출처의 다른 앱·파일)은 손대지 않는다
+  if (!url.href.startsWith(SCOPE)) return;
   if (req.method === 'POST' && url.pathname.endsWith('/share-target')) {
     event.respondWith(shareTarget(req));
     return;
@@ -115,7 +122,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) {
+          if (res.ok && PRECACHE_PATHS.has(url.pathname)) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(new Request(url.origin + url.pathname), copy));
           }
@@ -125,7 +132,10 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  // 그 밖(내용 지문 이름의 빌드 결과·아이콘·앱 정보): 담아 둔 것 먼저, 없으면 받아서 담는다
+  // 미리 담을 목록(아이콘·앱 정보 등)과 내용 지문 이름의 빌드 결과(assets/)만: 담아 둔 것 먼저, 없으면 받아서 담는다.
+  // 그 밖(?open=으로 받는 STEP 파일 등)은 손대지 않는다 — 네트워크 그대로, 담지 않는다
+  const rel = url.pathname.slice(new URL(SCOPE).pathname.length);
+  if (!PRECACHE_PATHS.has(url.pathname) && !rel.startsWith('assets/')) return;
   event.respondWith(
     caches.match(req, { ignoreSearch: url.pathname.endsWith('.webmanifest') }).then(
       (hit) =>

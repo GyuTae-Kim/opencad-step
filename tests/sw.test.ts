@@ -101,6 +101,27 @@ describe('오프라인 서비스 워커(sw.js)', () => {
     expect(await sw.fire(req('https://other.test/x.js'))).toBeUndefined();
   });
 
+  it('담아 둔 것 먼저는 미리 담을 목록·assets/만: ?open= 파일·범위 밖 주소는 손대지 않고 담지도 않는다', async () => {
+    let n = 0;
+    const sw = runSw((url) => new Response(`net ${url} ${++n}`));
+    // ?open=으로 받는 같은 출처 STEP 파일: 가로채지 않는다(브라우저가 네트워크로)
+    expect(await sw.fire(req('https://x.test/app/models/part.stp'))).toBeUndefined();
+    expect(await sw.fire(req('https://x.test/app/models/part.stp?v=2'))).toBeUndefined();
+    // 같은 출처지만 앱 범위 밖
+    expect(await sw.fire(req('https://x.test/other/x.js'))).toBeUndefined();
+    expect(await sw.fire(req('https://x.test/other/', { mode: 'navigate' }))).toBeUndefined();
+    // 빌드 결과·미리 담은 앱 정보는 가로채(담아 둔 것 먼저) 응답한다
+    expect(await (await sw.fire(req('https://x.test/app/assets/b.js')))!.text()).toBe('net https://x.test/app/assets/b.js 1');
+    sw.stores.set('opencad-step-v1', new Map([['https://x.test/app/assets/a.js', new Response('cached js')]]));
+    expect(await (await sw.fire(req('https://x.test/app/assets/a.js')))!.text()).toBe('cached js');
+    const cached = [...sw.stores.values()].flatMap((m) => [...m.keys()]);
+    expect(cached.some((k) => k.includes('part.stp'))).toBe(false);
+    // 목록에 없는 페이지는 네트워크 먼저로 열되 담지 않는다
+    await sw.fire(req('https://x.test/app/extra.html', { mode: 'navigate' }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect([...sw.stores.values()].flatMap((m) => [...m.keys()]).some((k) => k.includes('extra.html'))).toBe(false);
+  });
+
   it('공유 받기: 파일을 최근 문서 저장소에 넣고 ?recent=<id>로 보낸다, 60MB 넘으면 까닭을 붙인다', async () => {
     const sw = runSw(() => new Response(''));
     const form = new FormData();
