@@ -30,7 +30,7 @@ import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, ste
 import { formatBytes, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
 import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
-import { closeMenu, openMenu } from './menu';
+import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
@@ -162,6 +162,9 @@ export class StepApp {
   private readonly measureClose: HTMLButtonElement;
   private barMode: 'measure' | 'face' | 'select' | null = null;
   private readonly aimLayer: HTMLElement;
+  // ── 격리 띠(이것만 보기 중) ──
+  private readonly isoBar: HTMLElement;
+  private readonly isoText: HTMLElement;
   // ── 최근 문서(시작 화면) ──
   private readonly recent = new RecentStore();
   private readonly recentList = h('ul', { class: 'recent-list' });
@@ -289,7 +292,12 @@ export class StepApp {
     this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.measureBar, this.toasts);
+    // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
+    this.isoText = h('span', { class: 'iso-text' });
+    const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
+    isoOff.addEventListener('click', () => this.unisolate());
+    this.isoBar = h('div', { class: 'iso-bar', role: 'status', hidden: true }, h('span', { class: 'iso-label' }, '이것만 보기'), this.isoText, isoOff);
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, this.sectionBar, this.isoBar, this.measureBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
@@ -563,6 +571,7 @@ export class StepApp {
     this.applyVisibility();
     // 새 장면은 단면이 꺼진 채로 온다(코어 setScene → onSectionChange가 막대를 맞춘다). 문서가 바뀐 것만 다시 그린다
     this.syncSection(v.section);
+    this.syncIsolate();
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
@@ -582,7 +591,25 @@ export class StepApp {
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
     v.onSectionChange((st) => this.syncSection(st));
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
-    this.aim = new TouchAim(v.canvas, { enabled: () => !!this.doc && (v.measureMode || this.faceMode), layer: this.aimLayer });
+    // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
+    this.aim = new TouchAim(v.canvas, {
+      enabled: () => !!this.doc && (v.measureMode || this.faceMode),
+      layer: this.aimLayer,
+      onHold: (x, y) => this.contextMenuAt(x, y),
+    });
+    // 오른쪽 누르기(끌어 이동하지 않았을 때)로 작업 메뉴. 코어는 캔버스의 기본 메뉴만 막는다
+    let rightDown: { x: number; y: number } | null = null;
+    this.hostEl.addEventListener('pointerdown', (e) => {
+      if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY };
+    });
+    this.hostEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const d = rightDown;
+      rightDown = null;
+      // 터치 길게 누르기의 contextmenu는 TouchAim이 이미 다뤘다
+      if ((e as PointerEvent).pointerType === 'touch' || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
+      this.contextMenuAt(e.clientX, e.clientY);
+    });
     // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
     this.hostEl.addEventListener('pointerup', () => {
       if (v.measureMode) this.refreshBar();
@@ -867,7 +894,7 @@ export class StepApp {
     this.panel.onVisibility();
   }
 
-  /** 숨긴 부품·묶음 모두 보이기(레이어·PMI 켜고 끄기는 그대로) */
+  /** 숨긴 부품·묶음 모두 보이기, 격리도 푼다(레이어·PMI 켜고 끄기는 그대로) */
   showAll(): void {
     const v = this.viewer;
     const d = this.doc;
@@ -875,8 +902,111 @@ export class StepApp {
     for (const g of v.groups()) if (!g.visible) v.setGroupVisible(g.name, true);
     const ids = [...d.vis.userHidden];
     d.vis.userHidden.clear();
-    this.applyVisibility(ids);
+    if (d.vis.isolated) {
+      d.vis.isolated = null;
+      this.applyVisibility();
+    } else this.applyVisibility(ids);
+    this.syncIsolate();
     this.panel.onVisibility();
+  }
+
+  // ───────────────────────── 숨기기·격리·작업 메뉴 ─────────────────────────
+
+  /** 고른 것 숨기기(H) — 고르기는 푼다 */
+  hideSelection(): boolean {
+    const d = this.doc;
+    if (!d) return false;
+    const ids = selectionItemIds(d);
+    if (!ids.length) return false;
+    this.clearSelection();
+    this.setItemsVisible(ids, false);
+    this.selectionChanged();
+    return true;
+  }
+
+  /** 격리 중인지 */
+  get isolated(): boolean {
+    return !!this.doc?.vis.isolated;
+  }
+
+  /** 고른 것만 보기(I). 이미 격리 중이면 푼다 */
+  isolateSelection(): boolean {
+    const d = this.doc;
+    if (!d) return false;
+    if (d.vis.isolated) {
+      this.unisolate();
+      return true;
+    }
+    const ids = selectionItemIds(d);
+    if (!ids.length) {
+      this.toast('먼저 부품을 고르십시오(3D에서 누르거나 제품 나무에서).');
+      return false;
+    }
+    d.vis.isolated = new Set(ids);
+    d.isoLabel = this.selectionName(d);
+    this.applyVisibility();
+    this.syncIsolate();
+    this.panel.onVisibility();
+    return true;
+  }
+
+  /** 격리 풀기 */
+  unisolate(): void {
+    const d = this.doc;
+    if (!d?.vis.isolated) return;
+    d.vis.isolated = null;
+    this.applyVisibility();
+    this.syncIsolate();
+    this.panel.onVisibility();
+  }
+
+  /** 격리 띠 맞추기 */
+  private syncIsolate(): void {
+    const d = this.doc;
+    const on = !!d?.vis.isolated;
+    this.isoBar.hidden = !on;
+    this.isoText.textContent = on ? (d!.isoLabel ?? '') : '';
+    this.isoText.setAttribute('translate', 'no');
+    this.toolbar.refresh();
+  }
+
+  /** 화면 점(client 좌표)에서 작업 메뉴: 그 자리 항목을 고르고(없으면 고르기 그대로) 메뉴를 연다. 열었으면 true */
+  contextMenuAt(clientX: number, clientY: number): boolean {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d || this.loading || v.measureMode) return false;
+    const r = v.canvas.getBoundingClientRect();
+    const p = v.pick(clientX - r.left, clientY - r.top, 'touch');
+    if (p && !selectionItemIds(d).includes(p.id)) this.onPick(p, this.faceMode);
+    this.openContextMenu(clientX, clientY);
+    return true;
+  }
+
+  /** 작업 메뉴 항목(고른 것이 있으면 그것에 대해) */
+  contextItems(): MenuItem[] {
+    const d = this.doc;
+    if (!d) return [];
+    const has = selectionItemIds(d).length > 0;
+    const iso = !!d.vis.isolated;
+    const items: MenuItem[] = [];
+    if (has) {
+      items.push({ label: '맞춰 보기', run: () => this.fitSelection() });
+      items.push({ label: '숨기기', hint: 'H', run: () => this.hideSelection() });
+      items.push({ label: iso ? '격리 풀기' : '이것만 보기', hint: 'I', run: () => (iso ? this.unisolate() : this.isolateSelection()) });
+      items.push({ label: '속성', run: () => this.showProps() });
+    } else {
+      items.push({ label: '전체 보기', hint: 'F', run: () => this.fit() });
+      if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
+    }
+    items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
+    if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
+    return items;
+  }
+
+  /** 작업 메뉴 열기(화면 점, 나무 줄에서도 쓴다) */
+  openContextMenu(clientX: number, clientY: number): void {
+    const items = this.contextItems();
+    if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴');
   }
 
   isVisible(id: string): boolean {
@@ -1151,6 +1281,12 @@ export class StepApp {
         return;
       case 'grid':
         this.toggleGrid();
+        break;
+      case 'hide':
+        if (!this.hideSelection()) return;
+        break;
+      case 'isolate':
+        if (!this.isolateSelection()) return;
         break;
       case 'escape':
         // 대화 상자·메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기

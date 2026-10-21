@@ -95,6 +95,8 @@ export interface StepDoc {
   treeLimit: number;
   /** 파일에 밀도가 없는 부품에 쓸 고른 재질 밀도(kg/m³), 안 골랐으면 null */
   density: number | null;
+  /** 격리(이것만 보기)한 것의 이름(격리 띠) */
+  isoLabel?: string;
 }
 
 /** 제품 나무 기본 줄 수 제한 */

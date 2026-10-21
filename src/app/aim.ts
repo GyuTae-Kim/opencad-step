@@ -1,6 +1,7 @@
 /**
  * 정밀 조준(터치 길게 누르기): 측정·면 고르기 중 한 손가락을 움직이지 않고(AIM_SLOP_PX 안 — 코어 터치 끌기 문턱과 같다) AIM_HOLD_MS 동안 누르면
  * 손가락 위 AIM_OFFSET_PX에 십자선을 띄우고, 끌면 궤도 대신 십자선이 따라간다. 떼면 십자선 자리를 누른 것으로 친다.
+ * 측정·면 고르기가 아닐 때는 HOLD_MENU_MS 동안 누르면 onHold(작업 메뉴)를 부른다.
  *
  * 코어(Viewer3d)는 고치지 않고 캔버스 부모(.v3d)의 캡처 단계에서 먼저 받는다(코어 듣기는 캔버스에 있다):
  * - 조준을 시작하면 코어에 pointercancel을 보내 그 손가락의 끌기 상태를 잊게 한다. 그 뒤 움직임은 막고(stopPropagation)
@@ -28,6 +29,8 @@ export const AIM_OFFSET_PX = 64;
 export const AIM_SLOP_PX = TOUCH_DRAG_START_PX;
 /** 십자선 자리의 미리 보기·누르기를 보낼 포인터 종류: 코어가 마우스·펜의 좁은 고르기 허용 거리로 다룬다(터치는 넓다) */
 export const AIM_POINTER_TYPE = 'pen';
+/** 측정·면 고르기가 아닐 때 이만큼(ms) 움직이지 않고 누르면 작업 메뉴(onHold) */
+export const HOLD_MENU_MS = 500;
 
 export interface AimOptions {
   /** 조준을 받을 때인지(측정·면 고르기 중) */
@@ -36,6 +39,11 @@ export interface AimOptions {
   layer: HTMLElement;
   /** 조준 시작·끝 알림 */
   onChange?: (aiming: boolean) => void;
+  /**
+   * 조준할 때가 아닐 때(측정·면 고르기 밖) 길게 누르기(HOLD_MENU_MS) — 화면 좌표. true를 돌려주면 그 손가락을 코어가 잊게 하고
+   * 뗄 때 누르기로 넘기지 않는다(작업 메뉴를 연 뒤 엉뚱한 고르기·회전이 없게)
+   */
+  onHold?: (x: number, y: number) => boolean;
 }
 
 interface Rect {
@@ -155,6 +163,9 @@ export class TouchAim {
     if (this.presses.size === 1 && this.opts.enabled()) {
       const id = e.pointerId;
       this.timer = setTimeout(() => this.start(id), AIM_HOLD_MS);
+    } else if (this.presses.size === 1 && this.opts.onHold) {
+      const id = e.pointerId;
+      this.timer = setTimeout(() => this.hold(id), HOLD_MENU_MS);
     }
   }
 
@@ -219,6 +230,21 @@ export class TouchAim {
       /* 진동을 막은 브라우저 */
     }
     this.opts.onChange?.(true);
+  }
+
+  /** 길게 누르기(조준 밖): 받아들이면 그 손가락은 코어가 잊고, 뗄 때 누르기로 넘기지 않는다 */
+  private hold(id: number): void {
+    this.timer = null;
+    const p = this.presses.get(id);
+    if (!p || p.moved || this.presses.size !== 1 || this.heldId !== null || this.opts.enabled()) return;
+    if (!this.opts.onHold?.(p.x, p.y)) return;
+    this.heldId = id;
+    this.relay('pointercancel', id, p);
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      /* 진동을 막은 브라우저 */
+    }
   }
 
   /** 손가락 자리 → 십자선 옮기기, 코어에 그 자리 움직임을 보내 미리 보기(측정 중 붙잡을 점) */

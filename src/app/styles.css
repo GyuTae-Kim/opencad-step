@@ -1598,3 +1598,46 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .prop-group .dlg-row {
   margin-top: 8px;
 }
+
+/* ── 격리 띠(이것만 보기 중, 3D 보기 위 가운데) ── */
+.iso-bar {
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 200px);
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text-dim);
+  font-size: 12px;
+  transform: translateX(-50%);
+}
+.iso-bar[hidden] {
+  display: none;
+}
+.iso-label {
+  flex: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+.iso-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.view:has(.section-bar:not([hidden])) .iso-bar {
+  top: 56px;
+}
+@media (max-width: 759.98px), (pointer: coarse) and (max-height: 499.98px) {
+  .iso-bar {
+    max-width: calc(100% - 110px);
+  }
+}

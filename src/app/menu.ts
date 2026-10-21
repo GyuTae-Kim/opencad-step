@@ -34,6 +34,25 @@ export function closeMenu(): boolean {
   return true;
 }
 
+/**
+ * 화면 점(client 좌표)에 메뉴를 연다(오른쪽 누르기·길게 누르기 작업 메뉴). 보이지 않는 1화소 기준점을 그 자리에 두고 연다
+ */
+export function openMenuAt(x: number, y: number, items: MenuItem[], label: string): void {
+  closeMenu();
+  const anchor = h('div', { class: 'menu-point', 'aria-hidden': 'true' });
+  anchor.style.cssText = `position:fixed;left:${Math.round(x)}px;top:${Math.round(y)}px;width:1px;height:1px;pointer-events:none`;
+  document.body.append(anchor);
+  openMenu(anchor, items, label);
+  const c = current as { close: () => void } | null;
+  if (c) {
+    const close = c.close;
+    c.close = () => {
+      close();
+      anchor.remove();
+    };
+  } else anchor.remove();
+}
+
 /** anchor 아래에 메뉴를 연다(같은 단추로 다시 누르면 닫는다) */
 export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string): void {
   if (current?.anchor === anchor) {

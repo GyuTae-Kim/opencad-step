@@ -18,9 +18,10 @@ export function viewKeyOf(v: ViewName): string | undefined {
  * - open: 열기 상자(Ctrl/⌘+O)
  * - escape: 앱 쪽 Esc 순서(메뉴 닫기 → 해석 취소 → 측정 지우기·끄기 → 고르기 풀기)
  * - grid: 격자(F7, 코어는 받지 않는 키)
+ * - hide: 고른 것 숨기기(H), isolate: 고른 것만 보기·격리 풀기(I)
  * - viewer: 뷰어 키일 수 있으니 `viewer.handleKey`에 넘긴다(F·1~7 등, 처리 여부는 코어가 정한다)
  */
-export type KeyAction = 'open' | 'grid' | 'escape' | 'viewer';
+export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'viewer';
 
 export interface KeyInput {
   key: string;
@@ -42,6 +43,8 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.key === 'Escape') return 'escape';
   if (!k.hasDoc) return null;
   if (k.key === 'F7') return 'grid';
+  if (k.key === 'h' || k.key === 'H') return 'hide';
+  if (k.key === 'i' || k.key === 'I') return 'isolate';
   return 'viewer';
 }
 

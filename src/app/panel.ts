@@ -46,6 +46,8 @@ export interface PanelHost {
   selectItems(ids: readonly string[] | null, label: string, fit?: boolean): void;
   /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³, null = 안 씀) */
   setDensity(kgm3: number | null): void;
+  /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
+  openContextMenu(clientX: number, clientY: number): void;
 }
 
 const PMI_TYPE: Record<string, string> = {
@@ -395,6 +397,12 @@ export class Panel {
     item.addEventListener('click', (ev) => {
       if (ev.detail === 2) this.host.fitKey(r.key);
       else if (ev.detail <= 1) this.host.selectKey(d.selKey === r.key ? null : r.key);
+    });
+    // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
+    item.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      if (d.selKey !== r.key) this.host.selectKey(r.key);
+      this.host.openContextMenu(ev.clientX, ev.clientY);
     });
     item.addEventListener('keydown', (ev) => {
       const refocus = () => (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
