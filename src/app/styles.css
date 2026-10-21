@@ -1261,7 +1261,23 @@ table.grid td.mono {
   .start-card h2 {
     font-size: 19px;
   }
-  /* 휴대폰: 보기·측정 단추만 한 줄(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널), 나머지는 "보기 설정" 메뉴 */
+}
+/*
+ * 휴대폰: 보기·측정 단추만 한 줄(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널), 나머지는 "보기 설정" 메뉴.
+ * 휴대폰 가로(손가락 기기에 높이 500px 미만)는 폭이 760px을 넘어도 같은 막대를 써서 3D 보기 높이를 지킨다(app.ts PHONE)
+ */
+@media (max-width: 759.98px), (pointer: coarse) and (max-height: 499.98px) {
+  .toolbar .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .toolbar .btn {
+    padding: 0 7px;
+  }
   .toolbar .wide-only {
     display: none;
   }
