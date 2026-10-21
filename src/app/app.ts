@@ -411,16 +411,23 @@ export class StepApp {
     return h('li', { class: 'recent-row' }, open, del);
   }
 
-  /** 최근 문서 다시 열기(다시 남기지 않고 순서만 맨 앞으로) */
+  /**
+   * 최근 문서 다시 열기(다시 남기지 않고 순서만 맨 앞으로). 파일이 없으면 목록에서 지우고,
+   * 잠깐 못 읽었으면(저장소 오류 — 휴대폰이 뒤에서 연결을 끊는 등) 항목을 남겨 다시 누를 수 있게 한다
+   */
   private async openRecent(r: RecentEntry): Promise<boolean> {
-    const file = await this.recent.get(r.id);
-    if (!file) {
+    const got = await this.recent.read(r.id);
+    if (got.kind === 'missing') {
       this.toast('저장해 둔 파일을 찾지 못해 목록에서 지웠습니다.', 'warn');
       await this.recent.remove(r.id);
       void this.refreshRecent();
       return false;
     }
-    const ok = await this.openFile(file, false);
+    if (got.kind === 'error') {
+      this.toast('저장해 둔 파일을 지금 읽지 못했습니다. 잠시 뒤 다시 눌러 보세요.', 'warn');
+      return false;
+    }
+    const ok = await this.openFile(got.file, false);
     if (ok) void this.recent.touch(r.id).then(() => this.refreshRecent());
     return ok;
   }

@@ -1,35 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { canRemember, newestFirst, overflowIds, RECENT_MAX, RECENT_MAX_SIZE, recentId, recentTimeLabel, RecentStore, type RecentBackend, type RecentRecord } from '../../src/app/recent';
+import { canRemember, newestFirst, overflowIds, RECENT_MAX, RECENT_MAX_SIZE, recentId, recentTimeLabel, RecentStore, type RecentBackend, type RecentEntry } from '../../src/app/recent';
 
-/** 시험용 메모리 저장소(IndexedDB 대신). fail이면 모든 일이 실패한다(비공개 창 흉내) */
-function memoryBackend(fail = false): RecentBackend & { rows: Map<string, RecentRecord> } {
-  const rows = new Map<string, RecentRecord>();
+/**
+ * 시험용 메모리 저장소(IndexedDB 대신): 목록과 바이트를 따로 두고, 바이트를 읽은 횟수를 센다.
+ * fail이면 모든 일이 실패하고(비공개 창 흉내), failData면 바이트 읽기만 실패한다(잠깐의 저장소 오류 흉내)
+ */
+function memoryBackend(opts: { fail?: boolean; failData?: boolean } = {}) {
+  const meta = new Map<string, RecentEntry>();
+  const bytes = new Map<string, Blob>();
+  const st = { meta, bytes, dataReads: 0, failData: !!opts.failData };
   const guard = () => {
-    if (fail) throw new DOMException('no storage', 'InvalidStateError');
+    if (opts.fail) throw new DOMException('no storage', 'InvalidStateError');
   };
-  return {
-    rows,
-    async all() {
+  const backend: RecentBackend = {
+    async entries() {
       guard();
-      return [...rows.values()];
+      return [...meta.values()].map((e) => ({ ...e }));
     },
-    async get(id) {
+    async put(entry, data) {
       guard();
-      return rows.get(id);
+      meta.set(entry.id, { ...entry });
+      bytes.set(entry.id, data);
     },
-    async put(r) {
+    async touch(entry) {
       guard();
-      rows.set(r.id, r);
+      meta.set(entry.id, { ...entry });
     },
-    async delete(ids) {
+    async data(id) {
       guard();
-      for (const id of ids) rows.delete(id);
+      st.dataReads++;
+      if (st.failData) throw new DOMException('Connection to Indexed Database server lost', 'UnknownError');
+      return bytes.get(id) ?? null;
+    },
+    async remove(ids) {
+      guard();
+      for (const id of ids) {
+        meta.delete(id);
+        bytes.delete(id);
+      }
     },
     async clear() {
       guard();
-      rows.clear();
+      meta.clear();
+      bytes.clear();
     },
   };
+  return { backend, st };
 }
 
 /** 부를 때마다 1초씩 가는 시계 */
@@ -79,14 +95,17 @@ describe('최근 문서 순수 함수', () => {
 });
 
 describe('RecentStore(바꿔 끼운 저장소)', () => {
-  it('새것부터 8개만 남기고, 같은 이름·크기는 하나로 맨 앞에', async () => {
-    const be = memoryBackend();
-    const store = new RecentStore(be, clock());
+  it('새것부터 8개만 남기고, 같은 이름·크기는 하나로 맨 앞에 — 목록·개수 줄이기는 파일 바이트를 읽지 않는다', async () => {
+    const { backend, st } = memoryBackend();
+    const store = new RecentStore(backend, clock());
     for (let i = 0; i < 10; i++) expect(await store.add(`m${i}.stp`, blob(10 + i))).toBe(true);
     let list = await store.list();
     expect(list).toHaveLength(RECENT_MAX);
     expect(list.map((e) => e.name)).toEqual(['m9.stp', 'm8.stp', 'm7.stp', 'm6.stp', 'm5.stp', 'm4.stp', 'm3.stp', 'm2.stp']);
-    expect(be.rows.size).toBe(RECENT_MAX);
+    // 넘친 것은 목록과 바이트 모두에서 지운다
+    expect(st.meta.size).toBe(RECENT_MAX);
+    expect(st.bytes.size).toBe(RECENT_MAX);
+    expect(st.bytes.has('m0.stp:10')).toBe(false);
     // 같은 파일을 다시 남기면 개수는 그대로, 맨 앞으로
     await store.add('m4.stp', blob(14));
     list = await store.list();
@@ -97,48 +116,72 @@ describe('RecentStore(바꿔 끼운 저장소)', () => {
     list = await store.list();
     expect(list.slice(0, 2).map((e) => e.id)).toEqual(['m4.stp:15', 'm4.stp:14']);
     expect(list.map((e) => e.name)).not.toContain('m2.stp');
-    // 목록에는 파일 바이트가 없다
+    // 목록에는 파일 바이트가 없고, 지금까지 바이트를 한 번도 읽지 않았다
     expect(Object.keys(list[0]!).sort()).toEqual(['id', 'name', 'size', 'time']);
+    expect(st.dataReads).toBe(0);
   });
 
   it('60MB 넘는 파일과 빈 파일은 남기지 않는다', async () => {
-    const be = memoryBackend();
-    const store = new RecentStore(be, clock());
+    const { backend } = memoryBackend();
+    const store = new RecentStore(backend, clock());
     const big = { size: RECENT_MAX_SIZE + 1 } as Blob;
     expect(await store.add('big.stp', big)).toBe(false);
     expect(await store.add('empty.stp', blob(0))).toBe(false);
     expect(await store.list()).toEqual([]);
   });
 
-  it('다시 열기: 파일을 돌려주고 touch로 맨 앞으로, 지우기·모두 지우기', async () => {
-    const store = new RecentStore(memoryBackend(), clock());
+  it('다시 열기: 그 파일 하나만 읽고, touch로 맨 앞으로(바이트는 다시 쓰지 않음), 지우기·모두 지우기', async () => {
+    const { backend, st } = memoryBackend();
+    const store = new RecentStore(backend, clock());
     await store.add('a.stp', new Blob(['ISO-10303-21;']));
     await store.add('b.stp', blob(3));
-    const file = await store.get('a.stp:13');
+    const got = await store.read('a.stp:13');
+    expect(got.kind).toBe('ok');
+    const file = (got as { kind: 'ok'; file: File }).file;
     expect(file).toBeInstanceOf(File);
-    expect(file!.name).toBe('a.stp');
-    expect(await file!.text()).toBe('ISO-10303-21;');
-    expect(await store.get('none')).toBeNull();
+    expect(file.name).toBe('a.stp');
+    expect(await file.text()).toBe('ISO-10303-21;');
+    expect(st.dataReads).toBe(1);
     expect((await store.list())[0]!.name).toBe('b.stp');
+    const before = st.bytes.get('a.stp:13');
     await store.touch('a.stp:13');
     expect((await store.list()).map((e) => e.name)).toEqual(['a.stp', 'b.stp']);
+    expect(st.bytes.get('a.stp:13')).toBe(before);
     await store.remove('a.stp:13');
     expect((await store.list()).map((e) => e.name)).toEqual(['b.stp']);
+    expect(st.bytes.has('a.stp:13')).toBe(false);
     await store.clear();
     expect(await store.list()).toEqual([]);
+    expect(st.bytes.size).toBe(0);
   });
 
-  it('저장소를 못 쓰면(비공개 창·IndexedDB 없음) 조용히 빈 목록', async () => {
-    const broken = new RecentStore(memoryBackend(true), clock());
+  it('다시 열기: 없음(목록 항목이나 바이트가 없음)과 못 읽음(잠깐의 오류)을 가린다', async () => {
+    const { backend, st } = memoryBackend();
+    const store = new RecentStore(backend, clock());
+    await store.add('a.stp', blob(5));
+    expect(await store.read('none:1')).toEqual({ kind: 'missing' });
+    st.bytes.delete('a.stp:5');
+    expect(await store.read('a.stp:5')).toEqual({ kind: 'missing' });
+    await store.add('b.stp', blob(6));
+    st.failData = true;
+    expect(await store.read('b.stp:6')).toEqual({ kind: 'error' });
+    // 못 읽었을 때 항목은 그대로 남는다(다시 누를 수 있다)
+    expect((await store.list()).map((e) => e.id)).toContain('b.stp:6');
+    st.failData = false;
+    expect((await store.read('b.stp:6')).kind).toBe('ok');
+  });
+
+  it('저장소를 못 쓰면(비공개 창·IndexedDB 없음) 조용히 빈 목록, 다시 열기는 못 읽음', async () => {
+    const broken = new RecentStore(memoryBackend({ fail: true }).backend, clock());
     expect(await broken.add('a.stp', blob(3))).toBe(false);
     expect(await broken.list()).toEqual([]);
-    expect(await broken.get('a.stp:3')).toBeNull();
+    expect(await broken.read('a.stp:3')).toEqual({ kind: 'error' });
     await expect(broken.touch('a.stp:3')).resolves.toBeUndefined();
     await expect(broken.remove('a.stp:3')).resolves.toBeUndefined();
     await expect(broken.clear()).resolves.toBeUndefined();
     const none = new RecentStore(null);
     expect(await none.add('a.stp', blob(3))).toBe(false);
     expect(await none.list()).toEqual([]);
-    expect(await none.get('a.stp:3')).toBeNull();
+    expect(await none.read('a.stp:3')).toEqual({ kind: 'error' });
   });
 });
