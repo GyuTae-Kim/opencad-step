@@ -325,15 +325,15 @@ export class StepApp {
       this.measureKindSeg.append(b);
     }
     // 고른 부품 카드(측정·면 고르기가 아닐 때): 맞춰 보기
-    this.selFit = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품 보기' }, icon('fit', 16), h('span', {}, '맞춰 보기'));
+    this.selFit = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품 보기', 'aria-label': '맞춰 보기' }, icon('fit', 16), h('span', {}, '맞춰 보기'));
     this.selFit.addEventListener('click', () => this.fitSelection());
     // 고른 부품 카드: 속성(패널 속성 탭을 연다 — 휴대폰은 아래 시트)
-    this.selProps = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품의 속성' }, icon('info', 16), h('span', {}, '속성'));
+    this.selProps = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품의 속성', 'aria-label': '속성' }, icon('info', 16), h('span', {}, '속성'));
     this.selProps.addEventListener('click', () => this.showProps());
     // 면 고르기 띠: 고른 면을 정면으로 보기·그 면으로 자르기
-    this.faceLook = h('button', { type: 'button', class: 'mb-btn', title: '고른 면을 정면으로 보기' }, icon('focus', 16), h('span', {}, '정면'));
+    this.faceLook = h('button', { type: 'button', class: 'mb-btn', title: '고른 면을 정면으로 보기', 'aria-label': '정면' }, icon('focus', 16), h('span', {}, '정면'));
     this.faceLook.addEventListener('click', () => this.lookAtFace());
-    this.faceCut = h('button', { type: 'button', class: 'mb-btn', title: '고른 면으로 자르기' }, icon('section', 16), h('span', {}, '자르기'));
+    this.faceCut = h('button', { type: 'button', class: 'mb-btn', title: '고른 면으로 자르기', 'aria-label': '자르기' }, icon('section', 16), h('span', {}, '자르기'));
     this.faceCut.addEventListener('click', () => this.sectionByFace());
     this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
     this.measureClose.addEventListener('click', () => {

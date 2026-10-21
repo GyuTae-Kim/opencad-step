@@ -773,6 +773,16 @@ select {
     bottom: 112px;
   }
 }
+@media (max-width: 479.98px) {
+  /* 좁은 휴대폰의 고른 부품·면 카드: 단추는 아이콘만(이름은 title·aria-label) — 영어처럼 긴 단추 이름에 부품 이름·크기 글이 눌리지 않게 */
+  .measure-bar:not(.measuring) .mb-btn > span {
+    display: none;
+  }
+  .measure-bar:not(.measuring) .mb-btn {
+    width: 38px;
+    padding: 0;
+  }
+}
 
 /* ───────────── 패널 ───────────── */
 .panel {
