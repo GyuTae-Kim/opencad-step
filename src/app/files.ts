@@ -56,6 +56,10 @@ export interface StartQuery {
   openError: string | null;
   /** ?sample — 예제 바로 열기 */
   sample: boolean;
+  /** ?recent=<id> — 최근 문서(공유 받기로 넣은 파일) 바로 열기 */
+  recent: string | null;
+  /** ?share-error=<까닭> — 공유 받기 실패(no-file·too-big·store) */
+  shareError: string | null;
 }
 
 /**
@@ -64,7 +68,7 @@ export interface StartQuery {
  */
 export function parseStartQuery(search: string, pageHref: string): StartQuery {
   const q = new URLSearchParams(search);
-  const out: StartQuery = { open: null, openError: null, sample: q.has('sample') };
+  const out: StartQuery = { open: null, openError: null, sample: q.has('sample'), recent: q.get('recent') || null, shareError: q.get('share-error') || null };
   const raw = q.get('open');
   if (raw !== null && raw.trim()) {
     const url = sameOriginUrl(raw.trim(), pageHref);
@@ -87,4 +91,12 @@ export function sameOriginUrl(raw: string, pageHref: string): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   if (url.origin !== page.origin) return null;
   return url.href;
+}
+
+/** 한 번 쓰고 지울 시작 인자(?recent·?share-error)를 뺀 주소 */
+export function withoutOnceParams(href: string): string {
+  const u = new URL(href);
+  u.searchParams.delete('recent');
+  u.searchParams.delete('share-error');
+  return u.pathname + (u.searchParams.toString() ? `?${u.searchParams}` : '') + u.hash;
 }

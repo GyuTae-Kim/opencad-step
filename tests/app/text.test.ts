@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName } from '../../src/app/files';
+import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName, withoutOnceParams } from '../../src/app/files';
 import { fmtCount, fmtNum, fmtPercent, fmtPt, formatBytes, formatMs, stageLabel } from '../../src/app/format';
 import { VIEW_KEYS } from 'opencad-viewer3d';
 import { isTextTarget, routeKey, VIEW_MENU, viewKeyOf } from '../../src/app/keys';
@@ -71,14 +71,18 @@ describe('파일 이름·주소 인자', () => {
 
   it('parseStartQuery: ?sample, 같은 출처 ?open만', () => {
     const page = 'https://gyutae-kim.github.io/opencad-step/?open=x';
-    expect(parseStartQuery('?sample', page)).toEqual({ open: null, openError: null, sample: true });
+    expect(parseStartQuery('?sample', page)).toEqual({ open: null, openError: null, sample: true, recent: null, shareError: null });
     expect(parseStartQuery('?open=models/a.stp', page).open).toBe('https://gyutae-kim.github.io/opencad-step/models/a.stp');
     expect(parseStartQuery('?open=/x/b.step', page).open).toBe('https://gyutae-kim.github.io/x/b.step');
     const bad = parseStartQuery('?open=https://evil.example/a.stp', page);
     expect(bad.open).toBeNull();
     expect(bad.openError).toMatch(/같은 사이트/);
     expect(parseStartQuery('?open=javascript:alert(1)', page).open).toBeNull();
-    expect(parseStartQuery('?open=', page)).toEqual({ open: null, openError: null, sample: false });
+    expect(parseStartQuery('?open=', page)).toEqual({ open: null, openError: null, sample: false, recent: null, shareError: null });
+    // 공유 받기(서비스 워커가 보낸 한 번짜리 인자)
+    expect(parseStartQuery('?recent=a.stp%3A12', page).recent).toBe('a.stp:12');
+    expect(parseStartQuery('?share-error=too-big', page).shareError).toBe('too-big');
+    expect(withoutOnceParams('https://x.test/app/?recent=a&sample&share-error=x#view=sel:0')).toBe('/app/?sample=#view=sel:0');
     expect(sameOriginUrl('//gyutae-kim.github.io/a.stp', page)).toBe('https://gyutae-kim.github.io/a.stp');
     expect(sameOriginUrl('a.stp', 'not a url')).toBeNull();
   });

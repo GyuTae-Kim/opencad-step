@@ -28,7 +28,8 @@ import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtr
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { dirToAngles } from 'opencad-viewer3d/camera';
-import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
+import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
+import { consumeLaunchQueue, registerServiceWorker } from './pwa';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
 import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
@@ -459,6 +460,17 @@ export class StepApp {
     const ok = await this.openFile(got.file, false);
     if (ok) void this.recent.touch(r.id).then(() => this.refreshRecent());
     return ok;
+  }
+
+  /** 최근 문서를 id로 열기(공유 받기 — 서비스 워커가 넣은 파일) */
+  private async openRecentId(id: string): Promise<boolean> {
+    const list = await this.recent.list();
+    const r = list.find((x) => x.id === id);
+    if (!r) {
+      this.toast('공유한 파일을 찾지 못했습니다.', 'warn');
+      return false;
+    }
+    return this.openRecent(r);
   }
 
   /** 예제 모형 열기 */
@@ -1720,11 +1732,16 @@ export class StepApp {
     this.updateAll();
   }
 
-  /** 잠깐 보이는 알림 */
-  toast(msg: string, kind: 'info' | 'warn' | 'error' = 'info', ms = 3500): void {
+  /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다) */
+  toast(msg: string, kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, msg), close);
+    const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, msg), act, close);
+    act?.addEventListener('click', () => {
+      t.remove();
+      action!.run();
+    });
     const remove = () => t.remove();
     close.addEventListener('click', remove);
     this.toasts.append(t);
@@ -1893,6 +1910,9 @@ export class StepApp {
   /** 시작 주소 인자(?open=·?sample) 처리 */
   async start(): Promise<void> {
     void this.refreshRecent();
+    // 홈 화면 앱: 오프라인 서비스 워커와 새 판 알림, 데스크톱 "연결 프로그램"으로 연 파일
+    registerServiceWorker((apply) => this.toast('새 버전이 있습니다.', 'info', 60_000, { label: '새로 고침', run: apply }));
+    consumeLaunchQueue((file) => void this.openFile(file));
     // 보기 링크(#view=…): 다음에 여는 문서에 적용, 문서가 열린 뒤 바뀌면 바로
     this.pendingView = decodeViewLink(location.hash);
     window.addEventListener('hashchange', () => {
@@ -1903,7 +1923,11 @@ export class StepApp {
     });
     const q = parseStartQuery(location.search, location.href);
     if (q.openError) this.showError(q.openError);
-    if (q.open) await this.openUrl(q.open);
+    // 공유 받기(?recent=·?share-error=)는 한 번만: 주소에서 지운다(다시 읽어도 또 열지 않게)
+    if (q.recent || q.shareError) history.replaceState(history.state, '', withoutOnceParams(location.href));
+    if (q.shareError) this.toast(q.shareError === 'too-big' ? '공유한 파일이 60MB보다 커서 받지 못했습니다 — 파일 열기로 여십시오.' : '공유한 파일을 받지 못했습니다 — 파일 열기로 여십시오.', 'warn', 8000);
+    if (q.recent) await this.openRecentId(q.recent);
+    else if (q.open) await this.openUrl(q.open);
     else if (q.sample) await this.openSample();
     else {
       // 파일을 고르는 동안 해석 워커와 3D 보기(WebGL 문맥·셰이더 준비)를 미리 띄운다
