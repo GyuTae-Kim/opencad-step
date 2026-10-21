@@ -1631,6 +1631,13 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   margin-top: 8px;
 }
 
+/* 대화 상자 아래 단추 줄 */
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ── 3D 보기 위 가운데 띠들(분해·격리 — 이것만 보기·나머지 흐리게): 위에서 차례로 쌓는다 ── */
 .top-bars {
   position: absolute;

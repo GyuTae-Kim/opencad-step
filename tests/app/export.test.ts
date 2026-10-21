@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csvCell, measureRows, meshesToObj, meshesToStl, toCsv } from '../../src/app/export';
+import { csvCell, imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv } from '../../src/app/export';
 import { decodeViewLink, encodeViewLink, viewUrl } from '../../src/app/viewlink';
 
 const tri = (extra: Record<string, unknown> = {}) => ({ id: 't', name: 'part a', positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: Uint32Array.from([0, 1, 2]), color: [1, 1, 1, 1] as [number, number, number, number], ...extra });
@@ -52,6 +52,15 @@ describe('내보내기: STL·OBJ·CSV', () => {
     expect(rows[5]!.slice(0, 4)).toEqual([5, '축 사이 거리 (원기둥 면 ↔ 원기둥 면)', 2, 'in']);
     expect(rows[6]!.slice(0, 4)).toEqual([6, '면 사이 각 (평면 ↔ 평면)', 45, '°']);
     expect(rows[7]!.slice(0, 4)).toEqual([7, '최소 거리 (곡면 ↔ 평면) ≈', 1, 'in']);
+  });
+});
+
+describe('큰·투명 그림 저장', () => {
+  it('크기 글은 실제 화소, 코어가 한도에 맞춰 줄이면 알린다 · 파일 이름에 배율·투명', () => {
+    expect(imageSizeLabel(2, { width: 2560, height: 1600, scale: 2 })).toBe('2배 — 2560 × 1600 화소');
+    expect(imageSizeLabel(4, { width: 4096, height: 2560, scale: 3.2 })).toBe('4배 — 4096 × 2560 화소(최대 크기로 줄임)');
+    expect(imageFileName('part', { scale: 1, transparent: false })).toBe('part.png');
+    expect(imageFileName('part', { scale: 3, transparent: true })).toBe('part@3x-transparent.png');
   });
 });
 

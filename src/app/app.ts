@@ -41,7 +41,7 @@ import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
+import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
@@ -1744,6 +1744,71 @@ export class StepApp {
     }
   }
 
+  /** 큰 그림 저장 선택(이 세션 동안 기억) */
+  private imageOpts = { scale: 2, transparent: false, overlays: true };
+
+  /** 그림 저장 크기 글(배율 k의 실제 화소) */
+  private imageSizeLabel(k: number): string {
+    const v = this.viewer;
+    return v ? imageSizeLabel(k, v.snapshotSize({ scale: k })) : `${k}배`;
+  }
+
+  /** 그림 저장 대화 상자: 크기(1~4배, 실제 화소 — 4096² 한도), 바탕(테마·투명), 덧그림(측정·좌표축·단면 표시) */
+  showImageDialog(): void {
+    const v = this.viewer;
+    if (!v || !this.doc) return;
+    const o = { ...this.imageOpts };
+    const scale = selectRow(
+      '크기',
+      [1, 2, 3, 4].map((k): [string, string] => [String(k), this.imageSizeLabel(k)]),
+      String(o.scale),
+      (x) => (o.scale = Number(x) || 1),
+      '화면 화소의 몇 배로 다시 그립니다. 선 굵기·글자도 같은 비율로 커지고, 아주 크면 기기 한도(4096 × 4096 화소)에 맞춰 줄입니다.',
+    );
+    const bg = selectRow(
+      '바탕',
+      [
+        ['theme', '화면 바탕'],
+        ['transparent', '투명(PNG 알파)'],
+      ],
+      o.transparent ? 'transparent' : 'theme',
+      (x) => (o.transparent = x === 'transparent'),
+    );
+    const ov = selectRow(
+      '덧그림',
+      [
+        ['on', '측정·좌표축·단면 표시 담기'],
+        ['off', '형상만'],
+      ],
+      o.overlays ? 'on' : 'off',
+      (x) => (o.overlays = x === 'on'),
+    );
+    const save = h('button', { type: 'button', class: 'btn primary' }, icon('image', 16), h('span', {}, '저장'));
+    save.addEventListener('click', () => {
+      this.imageOpts = { ...o };
+      closeDialog();
+      void this.saveImage(o);
+    });
+    openDialog('그림 저장', [scale, bg, ov, h('div', { class: 'dlg-actions' }, save)]);
+  }
+
+  /** 화면 밖에서 다시 그린 큰·투명 그림 저장(손가락 기기는 공유 시트) */
+  async saveImage(o: { scale: number; transparent: boolean; overlays: boolean }): Promise<void> {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    try {
+      const size = v.snapshotSize({ scale: o.scale });
+      const b = await v.toBlob({ type: 'image/png', scale: o.scale, transparent: o.transparent, overlays: o.overlays });
+      const how = await this.deliver(b, imageFileName(stemName(d.name), o));
+      if (how === 'cancelled') return;
+      trackExport('png');
+      this.toast(how === 'shared' ? `그림을 공유했습니다(${size.width} × ${size.height} 화소).` : `PNG를 저장했습니다(${size.width} × ${size.height} 화소).`);
+    } catch (e) {
+      this.toast(`그림을 저장하지 못했습니다: ${errorText(e)}`, 'error');
+    }
+  }
+
   // ───────────────────────── 내보내기·공유·보기 링크 ─────────────────────────
 
   /** 파일 건네기: 손가락 기기에서 파일 공유가 되면 공유 시트, 아니면 내려받기 */
@@ -1874,6 +1939,7 @@ export class StepApp {
     const sel = !!d && selectionItemIds(d).length > 0;
     return [
       { label: 'PNG 그림', run: () => void this.savePng() },
+      { label: 'PNG 크게·투명 배경…', run: () => this.showImageDialog() },
       { label: 'STL — 보이는 것', sep: true, run: () => void this.exportMesh('stl', 'visible') },
       { label: 'STL — 고른 것', disabled: !sel, run: () => void this.exportMesh('stl', 'selected') },
       { label: 'OBJ — 보이는 것', run: () => void this.exportMesh('obj', 'visible') },
