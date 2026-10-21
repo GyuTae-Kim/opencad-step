@@ -1,23 +1,28 @@
 /**
- * 정밀 조준(터치 길게 누르기): 측정·면 고르기 중 한 손가락을 움직이지 않고(AIM_SLOP_PX 안) AIM_HOLD_MS 동안 누르면
+ * 정밀 조준(터치 길게 누르기): 측정·면 고르기 중 한 손가락을 움직이지 않고(AIM_SLOP_PX 안 — 코어 터치 끌기 문턱과 같다) AIM_HOLD_MS 동안 누르면
  * 손가락 위 AIM_OFFSET_PX에 십자선을 띄우고, 끌면 궤도 대신 십자선이 따라간다. 떼면 십자선 자리를 누른 것으로 친다.
  *
  * 코어(Viewer3d)는 고치지 않고 캔버스 부모(.v3d)의 캡처 단계에서 먼저 받는다(코어 듣기는 캔버스에 있다):
  * - 조준을 시작하면 코어에 pointercancel을 보내 그 손가락의 끌기 상태를 잊게 한다. 그 뒤 움직임은 막고(stopPropagation)
  *   십자선 자리로 pointermove를 보낸다 — 측정 중이면 코어가 붙잡을 점·고무줄·거리를 마우스처럼 미리 그린다.
  * - 떼면 진짜 pointerup을 막고 십자선 자리에서 pointerdown·pointerup을 보내, 코어의 누르기 처리
- *   (4화소 안에서 떼면 click — 측정 점 찍기·고르기)를 그대로 쓴다. 이어 pointerleave로 미리 보기를 지운다.
+ *   (터치는 TOUCH_DRAG_START_PX 안에서 떼면 click — 측정 점 찍기·고르기, 고르기 허용 거리도 터치용)를 그대로 쓴다.
+ *   이어 pointerleave로 미리 보기를 지운다.
  * - 둘째 손가락이 닿으면 조준을 그만두고 첫 손가락을 지금 자리에서 다시 눌린 것으로 알려, 코어가 두 손가락 확대·이동을 한다.
  * - pointercancel은 그대로 넘기고 조준만 그만둔다. 밖에서 cancel()하면 그 손가락은 뗄 때까지 코어에 넘기지 않는다.
  * 보내는 이벤트는 같은 pointerId·pointerType 'touch'이고, PointerEvent가 없으면 MouseEvent에 두 값을 덧붙인다.
  */
+import { TOUCH_DRAG_START_PX } from 'opencad-viewer3d';
 
 /** 이만큼(ms) 움직이지 않고 누르고 있으면 정밀 조준 */
 export const AIM_HOLD_MS = 350;
 /** 십자선을 손가락 위로 띄우는 거리(화소) — 손가락에 가리지 않게 */
 export const AIM_OFFSET_PX = 64;
-/** 누르기로 볼 최대 움직임(화소, 코어 끌기 시작과 같다) */
-export const AIM_SLOP_PX = 4;
+/**
+ * 누르기로 볼 최대 움직임(화소): 코어의 터치 끌기 시작 거리(TOUCH_DRAG_START_PX = 10)와 같다.
+ * 손가락은 누르는 동안 몇 화소 떨리므로, 이 안에서는 코어도 궤도를 돌리지 않고 여기서도 길게 누르기를 이어 간다
+ */
+export const AIM_SLOP_PX = TOUCH_DRAG_START_PX;
 
 export interface AimOptions {
   /** 조준을 받을 때인지(측정·면 고르기 중) */

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AIM_HOLD_MS, AIM_OFFSET_PX, TouchAim, aimPoint, touchPointerEvent } from '../../src/app/aim';
+import { TOUCH_DRAG_START_PX } from 'opencad-viewer3d';
+import { AIM_HOLD_MS, AIM_OFFSET_PX, AIM_SLOP_PX, TouchAim, aimPoint, touchPointerEvent } from '../../src/app/aim';
 
 interface Seen {
   type: string;
@@ -13,7 +14,7 @@ interface Seen {
 const RECT = { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
 
 /**
- * 코어(Viewer3d) 포인터 처리를 줄인 가짜: 캔버스에서 듣고, 한 손가락은 끌기(4화소 넘으면 궤도),
+ * 코어(Viewer3d) 포인터 처리를 줄인 가짜: 캔버스에서 듣고, 한 손가락은 끌기(터치 끌기 문턱 TOUCH_DRAG_START_PX 넘으면 궤도),
  * 움직이지 않고 떼면 click, 두 손가락은 확대·이동, 끌기가 없을 때 움직임은 미리 보기(hover).
  */
 function fakeCore(canvas: HTMLElement) {
@@ -36,7 +37,7 @@ function fakeCore(canvas: HTMLElement) {
       st.pinches++;
       return;
     }
-    if (!drag.moved && Math.hypot(p.x - drag.sx, p.y - drag.sy) < 4) return;
+    if (!drag.moved && Math.hypot(p.x - drag.sx, p.y - drag.sy) < TOUCH_DRAG_START_PX) return;
     drag.moved = true;
     st.orbits++;
   });
@@ -149,19 +150,46 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     expect(reticle().hidden).toBe(true);
   });
 
-  it('누른 채 조금(4화소 안) 떨려도 조준하고, 보기 위쪽에서는 십자선이 위 가장자리에 멈춘다', () => {
+  it('문턱은 코어 터치 끌기 시작 거리(10화소)와 같다', () => {
+    expect(AIM_SLOP_PX).toBe(TOUCH_DRAG_START_PX);
+    expect(AIM_SLOP_PX).toBe(10);
+  });
+
+  it('누른 채 조금(10화소 안, 손가락 떨림 6~9화소) 떨려도 조준하고, 보기 위쪽에서는 십자선이 위 가장자리에 멈춘다', () => {
     fire('pointerdown', 50, 30);
-    fire('pointermove', 52, 31);
+    fire('pointermove', 56, 31);
+    fire('pointermove', 50, 39);
     vi.advanceTimersByTime(AIM_HOLD_MS);
     expect(aim.aiming).toBe(true);
-    expect(aim.point).toEqual({ x: 52, y: 0 });
-    fire('pointerup', 52, 31);
-    expect(core.clicks).toEqual([{ x: 52, y: 0 }]);
+    expect(core.orbits).toBe(0);
+    expect(aim.point).toEqual({ x: 50, y: 0 });
+    fire('pointerup', 50, 39);
+    expect(core.clicks).toEqual([{ x: 50, y: 0 }]);
+  });
+
+  it('조준 전에 10화소 이상 움직이면 끌기(궤도)로 보고 조준하지 않는다', () => {
+    fire('pointerdown', 100, 200);
+    fire('pointermove', 100 + AIM_SLOP_PX, 200);
+    vi.advanceTimersByTime(AIM_HOLD_MS * 2);
+    expect(aim.aiming).toBe(false);
+    expect(core.orbits).toBe(1);
+    fire('pointerup', 100 + AIM_SLOP_PX, 200);
+    expect(core.clicks).toEqual([]);
+  });
+
+  it('짧게 누르며 6~9화소 떨려도 코어의 누르기(궤도 없음)', () => {
+    fire('pointerdown', 100, 200);
+    fire('pointermove', 106, 203);
+    fire('pointermove', 109, 200);
+    fire('pointerup', 109, 200);
+    expect(aim.aiming).toBe(false);
+    expect(core.orbits).toBe(0);
+    expect(core.clicks).toEqual([{ x: 109, y: 200 }]);
   });
 
   it('누르자마자 끌면 조준하지 않는다(코어 궤도 그대로)', () => {
     fire('pointerdown', 100, 200);
-    fire('pointermove', 106, 200);
+    fire('pointermove', 112, 200);
     fire('pointermove', 140, 210);
     vi.advanceTimersByTime(AIM_HOLD_MS * 2);
     expect(aim.aiming).toBe(false);
