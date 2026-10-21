@@ -208,6 +208,9 @@ describe('다면체·삼각형 형식', () => {
     expect(m.indices!.length / 3).toBe(4);
     expect(watertightness(m.positions, m.indices).ratio).toBe(1);
     expect(meshVolume(m.positions, m.indices)).toBeCloseTo(1 / 6, 9);
+    // 다각 고리(POLY_LOOP) 면은 모서리 선이 없어 와이어프레임·숨은선에 삼각형 변을 그대로 그린다
+    expect(m.edges).toBeUndefined();
+    expect(m.triangleEdges).toBeUndefined();
   });
 
   it('AP242 TESSELLATED_SOLID: TRIANGULATED_FACE + COMPLEX_TRIANGULATED_FACE(띠)', () => {
@@ -224,6 +227,25 @@ describe('다면체·삼각형 형식', () => {
     expect(watertightness(m.positions, m.indices).ratio).toBe(1);
     expect(meshVolume(m.positions, m.indices)).toBeCloseTo(1 / 6, 9);
     expect(normalAgreement(m)).toBe(1);
+    // 삼각형이 곧 형상: 와이어프레임·숨은선에 삼각형 변을 그대로 그린다(triangleEdges 기본)
+    expect(m.triangleEdges).toBeUndefined();
+  });
+
+  it('B-rep 면 그물은 삼각형 변 없이 B-rep 모서리만(triangleEdges: false, 코어 0.7.1) — 모서리 없는 원환 고리도', () => {
+    const one = (build: (w: StepText) => number, opts = {}) => {
+      const w = new StepText();
+      w.product('p', [build(w)], w.context());
+      return stepToScene(w.bytes(), opts).meshes[0]!;
+    };
+    const box = one((w) => cube(w, 2).solid);
+    expect(box.triangleEdges).toBe(false);
+    expect(box.edges!.length / 6).toBe(12);
+    // 통째 원환: 모서리가 하나도 없어 숨은선에서 선이 없다(외곽선은 앱이 켠다)
+    const ring = one((w) => torus(w, 10, 2));
+    expect(ring.triangleEdges).toBe(false);
+    expect(ring.edges?.length ?? 0).toBe(0);
+    // 모서리 선을 끈 해석은 삼각형 변 그대로(선이 하나도 없지 않게)
+    expect(one((w) => cube(w, 2).solid, { edges: false }).triangleEdges).toBeUndefined();
   });
 });
 

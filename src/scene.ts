@@ -535,6 +535,9 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     };
     if (m.colors && !ov?.color) mesh.colors = m.colors;
     if (opts.edges !== false && m.edges.length) mesh.edges = m.edges;
+    // B-rep 면 그물: 와이어프레임·숨은선에 삼각형 변을 그리지 않고 B-rep 모서리만(코어 0.7.1) — 모서리 없는 매끈한 닫힌 면(원환 고리 등)이
+    // 숨은선에서 촘촘한 삼각형 그물로 보이지 않게. 모서리 선을 끈 해석(edges: false)·삼각형 형식·다각 고리 면은 삼각형 변 그대로
+    if (m.triangleEdges === false && opts.edges !== false) mesh.triangleEdges = false;
     if (!isIdentity(matrix)) mesh.matrix = matrix;
     // 닫힌 입체(틈 없이 맞물린 삼각형) — 단면에서 잘린 면을 채운다
     if (m.solid) mesh.closed = true;

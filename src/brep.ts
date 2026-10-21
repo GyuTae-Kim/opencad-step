@@ -100,6 +100,11 @@ export interface ItemMesh {
   /** 닫힌 입체이고 삼각형이 틈 없이 맞물렸는지(Mesh3d.closed — 단면 채우기) */
   solid?: boolean;
   /**
+   * false면 와이어프레임·숨은선에 삼각형 변을 그리지 않는다(Mesh3d.triangleEdges, 코어 0.7.1): 모서리 고리(EDGE_LOOP)로 된 B-rep 면 그물 —
+   * 모서리는 edges에 있고 삼각형 변은 형상이 아니다. 삼각형 형식(삼각형이 곧 형상)과 다각 고리(POLY_LOOP — 모서리 선이 없다) 면이 든 그물은 없다
+   */
+  triangleEdges?: false;
+  /**
    * 큰 좌표일 때만: 묶음 원점(형상 항목 좌표). positions·edges·면 표의 점 매개변수는 이 점을 뺀 값이다(float32 떨림 막기).
    * 기준은 needsOrigin.
    */
@@ -265,6 +270,8 @@ export class BrepMesher {
   /** 지원하지 않는 위상 개체 종류 → 개수 */
   readonly unsupported = new Map<string, number>();
   private edgeCache = new Map<number, V3[]>();
+  /** 다각 고리(POLY_LOOP)로 그린 면 수(그물에 모서리 선이 없는 면이 섞였는지 본다) */
+  private polyFaces = 0;
   /** 곡선 모서리의 매개변수(넓이·길이 적분용, 모서리 캐시와 함께 비운다) */
   private edgeParams = new Map<number, EdgeParam>();
   private tol: Tol = { chord: 1, angle: 0.35 };
@@ -353,6 +360,7 @@ export class BrepMesher {
     this.edgeCache = new Map();
     this.edgeParams = new Map();
     this.healTJunctions(faces);
+    const poly0 = this.polyFaces;
 
     const b = new Builder();
     const edgeUse = new Map<number, number>(); // 모서리 → 쓰인 면 수(이음선 판별은 면 안에서)
@@ -489,6 +497,7 @@ export class BrepMesher {
       colors,
       color,
       edges: relativeFloat32(lines, origin),
+      ...(this.polyFaces === poly0 ? { triangleEdges: false as const } : {}),
       faces: faces.length,
       failedFaces: failed,
       triangles: nTri,
@@ -778,6 +787,7 @@ export class BrepMesher {
           for (let i = 0; i < seq.length - 1; i++) pts.push(seq[i]!);
         }
       } else if (loop.type === 'POLY_LOOP') {
+        if (!poly) this.polyFaces++;
         poly = true;
         pts = refList(loop.args[1])
           .map((p) => this.g.point(p))
