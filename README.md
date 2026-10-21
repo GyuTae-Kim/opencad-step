@@ -156,19 +156,22 @@ const { bytes: step } = await unpackStep(fileBytes);
 
 | 경로 | 내용 |
 |---|---|
-| `index.html`, `public/` | 앱 진입 페이지, 아이콘 |
+| `index.html`, `public/` | 앱 진입 페이지, 아이콘, 앱 정보(공유 받기·파일 열기) |
+| `tools/sw-plugin.mjs` | 빌드 끝에 오프라인 서비스 워커(`dist/sw.js`)를 만드는 Vite 플러그인 |
 | `src/app/main.ts`, `src/app/app.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키 |
-| `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·레이어·PMI·정보 패널, 패널 크기 손잡이, 메뉴, DOM 도우미, 아이콘, 스타일 |
-| `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이, 보이기(눈 단추·레이어·PMI), 글 만들기, 파일 이름·주소 인자, 키 규칙, 테마 |
-| `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/worker/parse.worker.ts` | 해석 워커 메시지·이전 목록, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 해석 워커 |
+| `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
+| `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
+| `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/interference.ts`, `src/app/pwa.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV, 보기 링크, 간섭 검사, 홈 화면 앱(서비스 워커 등록·launchQueue) |
+| `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 해석 워커, 검사(간섭) 워커 |
 | `src/app/stepText.ts`, `src/app/sample.ts` | 작은 STEP 글쓴이(시험도 씀)와 예제 조립 모형 |
 | `src/index.ts` | 해석기 공개 입구 |
 | `src/archive.ts` | 압축 STEP 풀기(gzip·ZIP), STEP-XML 알아보기 |
 | `src/part21.ts` | ISO 10303-21 글 해석 |
 | `src/scene.ts`, `src/styles.ts`, `src/units.ts`, `src/layers.ts` | 제품·조립·색·단위·레이어 → `Scene3d` |
-| `src/wire.ts`, `src/pmi.ts` | 와이어프레임·곡선·PMI 그림 → 선분, PMI 찾기와 의미 PMI 읽기 |
+| `src/wire.ts`, `src/pmi.ts`, `src/pmitext.ts`, `src/strokefont.ts`, `src/savedviews.ts` | 와이어프레임·곡선·PMI 그림 → 선분, PMI 찾기와 의미 PMI 읽기(면 연결), PMI 글자 → 내장 획 글꼴 선분, 저장된 보기 |
+| `src/props.ts` | 제품 속성(설명·판·재질·밀도·사용자 속성) |
 | `src/brep.ts`, `src/geometry.ts`, `src/curves.ts`, `src/surfaces.ts`, `src/nurbs.ts` | B-rep 위상과 곡선·곡면 |
-| `src/tessellate.ts`, `src/math.ts` | 삼각화 |
+| `src/tessellate.ts`, `src/math.ts` | 삼각화(해석적 곡면은 매개변수 영역 넓이 적분도) |
 | `src/analysis.ts` | 틈·넓이·부피 검사 |
 
 ## 개발
@@ -201,7 +204,10 @@ npm run preview    # 빌드 결과 보기
 - PMI: 정의된 기호(DEFINED_SYMBOL), 글꼴 파일의 글자 모양(내장 한 획 글꼴로 그림 — 한글 등 그 밖의 글자는 빈 상자),
   저장된 보기의 보이기 묶음·자르기 평면, 모서리·점에 이어진 PMI 강조, 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
 - 경계가 없는 곡면(GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION의 B-스플라인·잘린 곡면)을 그물로 그리기
-- 면 고르기: 모서리 단위 고르기, 면 사이 거리·각도 재기
+- 측정(코어 v0.7.0 뒤): 모서리 고르기(길이·원호 지름·중심, 가운데·중심 붙잡기), 두 개체 사이 거리·각도(평면–평면, 원기둥 축 거리 등)와
+  주석 겹그림, 부품별 불투명도·나머지 흐리게, 숨은선 그리기, 부품 색 구분·분해 보기, 3D 보기 위 측정 글자의 표시 단위·언어, 큰·투명 배경 그림
+- 물리 속성: 관성 모멘트, B-rep에서 구한 정확한 부피(지금은 화면용 삼각형 ≈)
+- 간섭 검사: 한 부품이 다른 부품 안에 통째로 든 경우(겉면이 만나지 않음), 겹친 부피
 - 레이어: 면 단위 레이어 배정(지금은 형상 항목·껍질·첫 면까지 보고 형상 항목 하나를 한 레이어에 넣는다)
 
 ## 내력
