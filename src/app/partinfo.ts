@@ -56,16 +56,20 @@ export function placementOf(m: readonly number[] | undefined): Placement {
   const angle = Math.acos(c);
   let axis: V3 | null = null;
   if (angle > 1e-9) {
+    // 비대칭 부분 = 2·sinθ·축
     let a: V3 = [r(2, 1) - r(1, 2), r(0, 2) - r(2, 0), r(1, 0) - r(0, 1)];
-    let l = Math.hypot(...a);
-    if (l < 1e-9) {
-      // 180°: 대각 성분에서
-      const xx = Math.sqrt(Math.max(0, (r(0, 0) + 1) / 2));
-      const yy = Math.sqrt(Math.max(0, (r(1, 1) + 1) / 2));
-      const zz = Math.sqrt(Math.max(0, (r(2, 2) + 1) / 2));
-      a = [xx, r(0, 1) >= 0 ? yy : -yy, r(0, 2) >= 0 ? zz : -zz];
-      l = Math.hypot(...a);
+    if (angle > (3 * Math.PI) / 4) {
+      // 180° 가까이: sinθ가 작아 비대칭 부분이 흐리다 — 대칭 부분 (R + Rᵀ)/2 = cosθ·I + (1 − cosθ)·n nᵀ에서
+      // 가장 큰 대각 성분 k로 n_k를 구하고 나머지는 n_k n_j로 나눈다(축의 x가 0이어도 부호가 맞게). 방향은 비대칭 부분 쪽(정확히 180°면 n_k > 0)
+      const nn = (i: number, j: number) => ((r(i, j) + r(j, i)) / 2 - (i === j ? c : 0)) / (1 - c);
+      const k = [0, 1, 2].reduce((b, i) => (nn(i, i) > nn(b, b) ? i : b), 0);
+      const nk = Math.sqrt(Math.max(0, nn(k, k)));
+      const n: V3 = [0, 0, 0];
+      for (let j = 0; j < 3; j++) n[j] = j === k ? nk : nk > 0 ? nn(k, j) / nk : 0;
+      const sgn = n[0] * a[0] + n[1] * a[1] + n[2] * a[2] < 0 ? -1 : 1;
+      a = [n[0] * sgn, n[1] * sgn, n[2] * sgn];
     }
+    const l = Math.hypot(...a);
     axis = l > 0 ? [a[0] / l, a[1] / l, a[2] / l] : null;
   }
   return { origin: [m[12]!, m[13]!, m[14]!], axis, angleDeg: axis ? (angle * 180) / Math.PI : 0, scale };

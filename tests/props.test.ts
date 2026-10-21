@@ -69,4 +69,47 @@ describe('제품 속성(설명·재질·밀도·사용자 속성)', () => {
     expect(p.scale).toBeCloseTo(2, 9);
     expect(placementOf(undefined)).toEqual({ origin: [0, 0, 0], axis: null, angleDeg: 0, scale: 1 });
   });
+
+  it('placementOf: 축의 x가 0인 180° 회전도 축 부호가 맞고, 180° 가까운 각·여러 축에서 축·각을 되살린다', () => {
+    // 로드리게스: R = cosθ·I + sinθ·[n]× + (1 − cosθ)·n nᵀ (열 우선 4×4)
+    const rot = (n: [number, number, number], deg: number, s = 1): number[] => {
+      const l = Math.hypot(...n);
+      const [x, y, z] = n.map((q) => q / l) as [number, number, number];
+      const t = (deg * Math.PI) / 180;
+      const c = Math.cos(t);
+      const si = Math.sin(t);
+      const C = 1 - c;
+      const R = [
+        [c + x * x * C, x * y * C - z * si, x * z * C + y * si],
+        [y * x * C + z * si, c + y * y * C, y * z * C - x * si],
+        [z * x * C - y * si, z * y * C + x * si, c + z * z * C],
+      ];
+      const m = new Array<number>(16).fill(0);
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[j * 4 + i] = R[i]![j]! * s;
+      m[15] = 1;
+      return m;
+    };
+    // 리뷰에서 본 경우: (0, 1, −1)/√2 둘레 180°가 "0, 0.707, 0.707"로 나왔다
+    const p = placementOf(rot([0, 1, -1], 180));
+    expect(p.angleDeg).toBeCloseTo(180, 9);
+    const k = Math.SQRT1_2;
+    // 180°는 축 n과 −n이 같은 회전: 두 성분의 부호가 서로 달라야 한다
+    expect(Math.abs(p.axis![0])).toBeLessThan(1e-12);
+    expect(Math.abs(p.axis![1])).toBeCloseTo(k, 12);
+    expect(p.axis![1] * p.axis![2]).toBeCloseTo(-0.5, 12);
+    for (const n of [
+      [0, 1, -1],
+      [1, -2, 3],
+      [-3, 1, 0.5],
+      [0, 0, 1],
+      [1, 0, 0],
+    ] as [number, number, number][])
+      for (const deg of [30, 135, 170, 179.9, 179.9999]) {
+        const q = placementOf(rot(n, deg, 2));
+        const l = Math.hypot(...n);
+        expect(q.angleDeg).toBeCloseTo(deg, 6);
+        expect(q.scale).toBeCloseTo(2, 9);
+        for (let i = 0; i < 3; i++) expect(q.axis![i]).toBeCloseTo(n[i]! / l, 6);
+      }
+  });
 });
