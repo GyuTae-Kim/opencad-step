@@ -400,7 +400,7 @@
   "부품별 보이기": "Show by part",
   "부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.": "Select a part (in 3D or in the product tree) to see its properties.",
   "부피": "Volume",
-  "부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.": "Volume, mass, center of mass and bounding size are approximations (≈) measured on the display triangles. Surface area is the sum of B-rep face areas and is marked ≈ when approximate values are included.",
+  "부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)이라 곡면이 있으면 조금 작게 나옵니다(보통 품질에서 많게는 1~2%, 표시 설정에서 곡면 품질을 높이면 줄어듭니다). 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.": "Volume, mass, center of mass and bounding size are approximations (≈) measured on the display triangles, so curved parts come out slightly small (up to 1–2% at normal quality; raising Surface quality in Display settings reduces it). Surface area is the sum of B-rep face areas and is marked ≈ when approximate values are included.",
   "북동 등각": "NE isometric",
   "북서 등각": "NW isometric",
   "분해": "Explode",

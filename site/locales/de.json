@@ -400,7 +400,7 @@
   "부품별 보이기": "Nach Teil anzeigen",
   "부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.": "Wählen Sie ein Teil (in 3D oder im Produktbaum), um seine Eigenschaften zu sehen.",
   "부피": "Volumen",
-  "부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.": "Volumen, Masse, Schwerpunkt und Außenmaße sind Näherungen (≈) aus den Anzeigedreiecken. Die Oberfläche ist die Summe der B-Rep-Flächen und wird mit ≈ markiert, wenn Näherungswerte enthalten sind.",
+  "부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)이라 곡면이 있으면 조금 작게 나옵니다(보통 품질에서 많게는 1~2%, 표시 설정에서 곡면 품질을 높이면 줄어듭니다). 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.": "Volumen, Masse, Schwerpunkt und Außenmaße sind Näherungen (≈) aus den Anzeigedreiecken; gekrümmte Teile fallen daher etwas zu klein aus (bei normaler Qualität bis zu 1–2 %, eine höhere Flächenqualität in den Anzeigeeinstellungen verringert das). Die Oberfläche ist die Summe der B-Rep-Flächen und wird mit ≈ markiert, wenn Näherungswerte enthalten sind.",
   "북동 등각": "NO-Isometrie",
   "북서 등각": "NW-Isometrie",
   "분해": "Explosion",
