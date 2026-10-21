@@ -312,7 +312,7 @@ export function stepFaceIndex(scene: Scene3d): FaceIndex | null {
   const mt = m.meshFaceTable;
   if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
   const ok = (t: unknown): t is StepFaceTable =>
-    !!t && typeof t === 'object' && (t as StepFaceTable).triStart instanceof Uint32Array && (t as StepFaceTable).kinds instanceof Uint8Array && (t as StepFaceTable).params instanceof Float32Array && (t as StepFaceTable).stepIds instanceof Uint32Array;
+    !!t && typeof t === 'object' && (t as StepFaceTable).triStart instanceof Uint32Array && (t as StepFaceTable).kinds instanceof Uint8Array && (t as StepFaceTable).params instanceof Float64Array && (t as StepFaceTable).stepIds instanceof Uint32Array;
   if (!tables.every(ok)) return null;
   const tableOf = new Map<string, number>();
   scene.meshes.forEach((mesh, i) => {
@@ -329,7 +329,7 @@ export function stepEdgeIndex(scene: Scene3d): EdgeIndex | null {
   const mt = m.meshEdgeTable;
   if (!Array.isArray(kinds) || !Array.isArray(tables) || !(mt instanceof Int32Array)) return null;
   const ok = (t: unknown): t is StepEdgeTable =>
-    !!t && typeof t === 'object' && (t as StepEdgeTable).segStart instanceof Uint32Array && (t as StepEdgeTable).kinds instanceof Uint8Array && (t as StepEdgeTable).params instanceof Float32Array && (t as StepEdgeTable).length instanceof Float64Array;
+    !!t && typeof t === 'object' && (t as StepEdgeTable).segStart instanceof Uint32Array && (t as StepEdgeTable).kinds instanceof Uint8Array && (t as StepEdgeTable).params instanceof Float64Array && (t as StepEdgeTable).length instanceof Float64Array;
   if (!tables.every(ok)) return null;
   const tableOf = new Map<string, number>();
   scene.meshes.forEach((mesh, i) => {

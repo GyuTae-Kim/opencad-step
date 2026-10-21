@@ -34,7 +34,7 @@ export interface FaceTableData {
   stepIds: Uint32Array;
   /** FACE_KINDS 번호 */
   kinds: Uint8Array;
-  params: Float32Array;
+  params: Float64Array;
   /**
    * B-rep에서 구한 면 넓이(형상 항목 단위²). 평면은 경계 곡선을 따라 그린 정리로, 원기둥·원뿔·구·원환은 매개변수 영역 적분으로 구한다.
    * 못 구했으면 NaN(화면이 삼각형 넓이를 쓴다). 없으면(옛 결과) 모두 NaN으로 친다
@@ -67,11 +67,11 @@ export interface EdgeTableData {
   /** EDGE_KINDS 번호 */
   kinds: Uint8Array;
   /** EDGE_PARAMS개씩(형상 항목 좌표·단위, 묶음 원점을 뺀 중심) */
-  params: Float32Array;
+  params: Float64Array;
   /** 곡선 길이(적분, 형상 항목 단위) */
   length: Float64Array;
   /** 원호가 도는 각(라디안, 원이 아니면 0 — 한 바퀴는 2π) */
-  sweep: Float32Array;
+  sweep: Float64Array;
 }
 
 /** 한 형상 항목(입체·껍질 등)의 그물(형상 항목 좌표·단위 그대로) */
@@ -368,7 +368,7 @@ export class BrepMesher {
     const triStart = new Uint32Array(table ? nf + 1 : 0);
     const stepIds = new Uint32Array(table ? nf : 0);
     const kinds = new Uint8Array(table ? nf : 0);
-    const params = new Float32Array(table ? nf * FACE_PARAMS : 0);
+    const params = new Float64Array(table ? nf * FACE_PARAMS : 0);
     const areas = new Float64Array(table ? nf : 0);
     const perimeters = new Float64Array(table ? nf : 0);
     const exact = new Uint8Array(table ? nf : 0);
@@ -501,9 +501,9 @@ export class BrepMesher {
             segStart: Uint32Array.from(eStart),
             stepIds: Uint32Array.from(eIds),
             kinds: Uint8Array.from(eKinds),
-            params: Float32Array.from(eParams),
+            params: Float64Array.from(eParams),
             length: Float64Array.from(eLen),
-            sweep: Float32Array.from(eSweep),
+            sweep: Float64Array.from(eSweep),
           }
         : undefined,
     };
@@ -982,7 +982,7 @@ export class BrepMesher {
               triStart: Uint32Array.from([...triStart, b.indices.length / 3]),
               stepIds: Uint32Array.from(stepIds),
               kinds: new Uint8Array(stepIds.length).fill(KIND_INDEX.get('triangulated')!),
-              params: new Float32Array(stepIds.length * FACE_PARAMS),
+              params: new Float64Array(stepIds.length * FACE_PARAMS),
               // 삼각형 면은 삼각형이 곧 형상: 넓이는 삼각형 넓이, 둘레는 화면이 경계 변으로 잰다(NaN)
               area: Float64Array.from(stepIds.map((_, i) => facetRange(b, triStart[i]! * 3, (triStart[i + 1] ?? b.indices.length / 3) * 3))),
               perimeter: new Float64Array(stepIds.length).fill(NaN),

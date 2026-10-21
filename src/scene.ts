@@ -1061,7 +1061,7 @@ function appendWorld(out: number[], src: readonly number[], m: M4): void {
 
 /** 단위를 바꾼 그물의 면 표(길이 매개변수만 배율, 원뿔 반각은 그대로) */
 function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
-  const params = new Float32Array(t.params);
+  const params = new Float64Array(t.params);
   const cone = FACE_KINDS.indexOf('cone');
   for (let i = 0; i < t.kinds.length; i++) {
     const o = i * FACE_PARAMS;
@@ -1077,7 +1077,7 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
 
 /** 단위를 바꾼 그물의 모서리 표(반지름·중심·길이에 배율) */
 function scaleEdgeTable(t: EdgeTableData, k: number): EdgeTableData {
-  const params = new Float32Array(t.params);
+  const params = new Float64Array(t.params);
   for (let i = 0; i < t.kinds.length; i++) {
     const o = i * EDGE_PARAMS;
     params[o] = params[o]! * k;

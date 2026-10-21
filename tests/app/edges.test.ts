@@ -104,6 +104,29 @@ describe('모서리 표(윤곽선 선분 → B-rep 모서리)', () => {
     expect(c.map((e) => Math.round(e.center![2] * 10) / 10).sort((a, b) => a - b)).toEqual([0, 50.8]);
   });
 
+  it('매개변수는 배정밀도: 1인치 구멍 지름이 정확히 50.8 mm, 한 바퀴는 360°(단정밀도면 50.79999923…·360.00001)', () => {
+    const v = new StepText();
+    const mm = v.context('mm');
+    const inch = v.context('inch');
+    const pin = v.product('pin', [cylinder(v, 0.5, 2)], inch);
+    const at = v.ax2([0, 0, 0]);
+    const asm = v.product('asm', [at], mm, 'SHAPE_REPRESENTATION');
+    v.place(asm, pin, at, 'pin-1');
+    const s = stepToScene(v.bytes());
+    const t = meta(s).edgeTables![0]!;
+    expect(t.params).toBeInstanceOf(Float64Array);
+    expect(t.sweep).toBeInstanceOf(Float64Array);
+    const c = allEdges(s);
+    for (const e of c) {
+      expect(e.radius! * 2).toBe(25.4);
+      expect(e.sweepDeg).toBeCloseTo(360, 9);
+    }
+    expect(c.map((e) => e.center![2]).sort((a, b) => a - b)).toEqual([0, 50.8]);
+    const ft = meta(s).faceTables![0]!;
+    expect(ft.params).toBeInstanceOf(Float64Array);
+    expect(ft.params[2 * 8]).toBe(12.7);
+  });
+
   it('faceTable: false면 모서리 표도 없다', () => {
     const w = new StepText();
     w.product('cyl', [cylinder(w, 2, 5)], w.context());
