@@ -1713,3 +1713,12 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     font-size: 16px;
   }
 }
+@media (max-width: 759.98px), (pointer: coarse) and (max-height: 499.98px) {
+  /* 휴대폰: 축 단추가 축을 보이므로 "Z =" 이름표는 빼고 숫자 칸을 좁혀 한 줄(+ 슬라이더 줄)에 */
+  .section-lbl {
+    display: none;
+  }
+  .section-num {
+    width: 60px;
+  }
+}
