@@ -115,8 +115,14 @@ export interface StepDoc {
   treeLimit: number;
   /** 파일에 밀도가 없는 부품에 쓸 고른 재질 밀도(kg/m³), 안 골랐으면 null */
   density: number | null;
-  /** 격리(이것만 보기)한 것의 이름(격리 띠) */
+  /** 격리(이것만 보기·나머지 흐리게)한 것의 이름(격리 띠) */
   isoLabel?: string;
+  /** 격리의 "나머지 흐리게": 초점 항목(그 밖은 흐리고 고를 수 없다), 아니면 null */
+  dim: Set<string> | null;
+  /** 부품별 불투명도(그물·선 id → 0~1) */
+  opacity: Map<string, number>;
+  /** 분해 보기 0~1(0 = 제자리) */
+  explode: number;
   /** 홈 뷰(처음 맞춘 보기 또는 "지금 보기를 홈으로") */
   home?: CameraState;
   /** 측정 기록(거리·고른 면 — CSV 복사용) */
@@ -161,6 +167,9 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     treeFilter: '',
     treeLimit: TREE_LIMIT,
     density: null,
+    dim: null,
+    opacity: new Map(),
+    explode: 0,
     measureLog: [],
   };
 }
@@ -545,5 +554,9 @@ export function carryDocState(from: StepDoc, to: StepDoc): void {
   for (const id of from.vis.pmiHidden) if (to.vis.pmiIds.has(id)) to.vis.pmiHidden.add(id);
   to.vis.pmiOff = from.vis.pmiOff;
   if (from.vis.isolated) to.vis.isolated = new Set([...from.vis.isolated].filter((id) => ids.has(id)));
+  // 부품 겉모습(흐리게·불투명도·분해) — 코어는 새 장면에서 겉모습을 풀므로 앱이 다시 건다
+  if (from.dim) to.dim = new Set([...from.dim].filter((id) => ids.has(id)));
+  for (const [id, a] of from.opacity) if (ids.has(id)) to.opacity.set(id, a);
+  to.explode = from.explode;
 }
 

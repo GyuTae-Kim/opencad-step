@@ -50,6 +50,7 @@ import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { Toolbar } from './toolbar';
+import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
 import { filterRows, nodeLabel, selectFromPick } from './tree';
 
 const NARROW = '(max-width: 759.98px)';
@@ -198,9 +199,21 @@ export class StepApp {
   private readonly measureClose: HTMLButtonElement;
   private barMode: 'measure' | 'face' | 'select' | null = null;
   private readonly aimLayer: HTMLElement;
-  // ── 격리 띠(이것만 보기 중) ──
+  // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
   private readonly isoBar: HTMLElement;
   private readonly isoText: HTMLElement;
+  private readonly isoLabel: HTMLElement;
+  // ── 부품 겉모습(불투명도·흐리게·부품 색·분해) ──
+  /** 부품 색 구분(같은 제품은 같은 색) — 문서를 바꿔도 켜 둔다 */
+  partColors = false;
+  /** 코어에 건 겉모습(그물 id → 비교 열쇠) — 새 장면이면 비운다(코어가 푼다) */
+  private readonly appliedLooks = new Map<string, string>();
+  // ── 분해 막대 ──
+  private readonly explodeBar: HTMLElement;
+  private readonly explodeSlider: HTMLInputElement;
+  private readonly explodeValue: HTMLElement;
+  /** 분해 막대를 열었는지(문서를 바꾸면 닫는다) */
+  explodeOpen = false;
   // ── 최근 문서(시작 화면) ──
   private readonly recent = new RecentStore();
   private readonly recentList = h('ul', { class: 'recent-list' });
@@ -333,8 +346,18 @@ export class StepApp {
     this.isoText = h('span', { class: 'iso-text' });
     const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
     isoOff.addEventListener('click', () => this.unisolate());
-    this.isoBar = h('div', { class: 'iso-bar', role: 'status', hidden: true }, h('span', { class: 'iso-label' }, '이것만 보기'), this.isoText, isoOff);
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.sectionBar.handle, this.startEl, this.busyEl, this.dropEl, this.sectionBar.el, this.isoBar, this.measureBar, this.toasts);
+    this.isoLabel = h('span', { class: 'iso-label' }, '이것만 보기');
+    this.isoBar = h('div', { class: 'iso-bar', role: 'status', hidden: true }, this.isoLabel, this.isoText, isoOff);
+    // 분해 막대(3D 보기 위 가운데): 분해 정도 0~100%와 닫기(제자리로)
+    this.explodeSlider = h('input', { type: 'range', class: 'explode-slider', min: '0', max: '100', step: '1', value: '0', 'aria-label': '분해 정도' });
+    this.explodeSlider.addEventListener('input', () => this.setExplode(Number(this.explodeSlider.value) / 100));
+    this.explodeValue = h('span', { class: 'explode-val' }, '0%');
+    const explodeOff = h('button', { type: 'button', class: 'icon-btn', title: '분해 끄기(제자리로)', 'aria-label': '분해 끄기(제자리로)' });
+    explodeOff.append(icon('close', 16));
+    explodeOff.addEventListener('click', () => this.toggleExplode(false));
+    this.explodeBar = h('div', { class: 'explode-bar', role: 'group', 'aria-label': '분해 보기', hidden: true }, icon('explode', 16), h('span', { class: 'explode-label' }, '분해'), this.explodeSlider, this.explodeValue, explodeOff);
+    const topBars = h('div', { class: 'top-bars' }, this.explodeBar, this.isoBar);
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.sectionBar.handle, this.startEl, this.busyEl, this.dropEl, this.sectionBar.el, topBars, this.measureBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
@@ -639,6 +662,9 @@ export class StepApp {
         : {}),
     });
     if (carry) carryDocState(carry, doc);
+    // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
+    this.appliedLooks.clear();
+    if (!carry) this.explodeOpen = false;
     v.highlight(null);
     this.showFace(null);
     // 개체 측정 덧그림은 장면을 바꿔도 남으므로 지운다(새 문서는 개체가 비어 있다)
@@ -649,6 +675,8 @@ export class StepApp {
     this.fmt = this.makeFmt();
     // 파일이 숨긴 레이어 등 처음 보이기
     this.applyVisibility();
+    this.applyLooks();
+    this.syncExplode();
     // 새 장면은 단면이 꺼진 채로 온다(코어 setScene → onSectionChange가 막대를 맞춘다). 문서가 바뀐 것만 다시 그린다
     this.syncSection(v.section);
     this.syncIsolate();
@@ -896,6 +924,7 @@ export class StepApp {
     if (on !== this.faceMode) this.aim?.cancel();
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
+    if (on) this.collapseExplode();
     // 면 고르기 중에는 모서리 가까이 누르면 모서리(윤곽선)를 고른다
     this.viewer?.setPickEdges(on);
     if (!on && (this.doc?.face || this.doc?.edge)) {
@@ -1210,6 +1239,10 @@ export class StepApp {
       d.vis.isolated = null;
       this.applyVisibility();
     } else this.applyVisibility(ids);
+    if (d.dim) {
+      d.dim = null;
+      this.applyLooks();
+    }
     this.syncIsolate();
     this.panel.onVisibility();
   }
@@ -1228,16 +1261,19 @@ export class StepApp {
     return true;
   }
 
-  /** 격리 중인지 */
+  /** 격리 중인지(이것만 보기·나머지 흐리게) */
   get isolated(): boolean {
-    return !!this.doc?.vis.isolated;
+    return !!this.doc?.vis.isolated || !!this.doc?.dim;
   }
 
-  /** 고른 것만 보기(I). 이미 격리 중이면 푼다 */
-  isolateSelection(): boolean {
+  /**
+   * 고른 것만 보기(I, mode 'hide') 또는 나머지 흐리게(mode 'dim' — 다른 부품은 반투명하고 고를 수 없다).
+   * 이미 격리 중이면 푼다
+   */
+  isolateSelection(mode: 'hide' | 'dim' = 'hide'): boolean {
     const d = this.doc;
     if (!d) return false;
-    if (d.vis.isolated) {
+    if (d.vis.isolated || d.dim) {
       this.unisolate();
       return true;
     }
@@ -1246,20 +1282,31 @@ export class StepApp {
       this.toast('먼저 부품을 고르십시오(3D에서 누르거나 제품 나무에서).');
       return false;
     }
-    d.vis.isolated = new Set(ids);
     d.isoLabel = this.selectionName(d);
-    this.applyVisibility();
+    if (mode === 'dim') {
+      d.dim = new Set(ids);
+      this.applyLooks();
+    } else {
+      d.vis.isolated = new Set(ids);
+      this.applyVisibility();
+    }
     this.syncIsolate();
     this.panel.onVisibility();
     return true;
   }
 
-  /** 격리 풀기 */
+  /** 격리 풀기(이것만 보기·나머지 흐리게 모두) */
   unisolate(): void {
     const d = this.doc;
-    if (!d?.vis.isolated) return;
-    d.vis.isolated = null;
-    this.applyVisibility();
+    if (!d || (!d.vis.isolated && !d.dim)) return;
+    if (d.vis.isolated) {
+      d.vis.isolated = null;
+      this.applyVisibility();
+    }
+    if (d.dim) {
+      d.dim = null;
+      this.applyLooks();
+    }
     this.syncIsolate();
     this.panel.onVisibility();
   }
@@ -1267,10 +1314,127 @@ export class StepApp {
   /** 격리 띠 맞추기 */
   private syncIsolate(): void {
     const d = this.doc;
-    const on = !!d?.vis.isolated;
+    const on = !!d?.vis.isolated || !!d?.dim;
     this.isoBar.hidden = !on;
+    this.isoLabel.textContent = d?.dim ? '나머지 흐리게' : '이것만 보기';
     this.isoText.textContent = on ? (d!.isoLabel ?? '') : '';
     this.isoText.setAttribute('translate', 'no');
+    this.toolbar.refresh();
+  }
+
+  // ───────────────────────── 부품 겉모습(불투명도·부품 색·분해) ─────────────────────────
+
+  /** 문서의 겉모습(불투명도·흐리게·부품 색·분해)을 코어에 건다 — 바뀐 그물만 */
+  private applyLooks(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    const want = desiredLooks({
+      items: [...d.scene.meshes, ...d.scene.lines, ...(d.scene.points ?? [])],
+      products: d.products,
+      opacity: d.opacity,
+      dim: d.dim,
+      partColors: this.partColors,
+      explode: d.explode,
+      fixed: d.vis.pmiIds,
+    });
+    for (const id of [...this.appliedLooks.keys()])
+      if (!want.has(id)) {
+        v.setItemOpacity(id, null);
+        v.setItemColor(id, null);
+        v.setItemMatrix(id, null);
+        this.appliedLooks.delete(id);
+      }
+    for (const [id, l] of want) {
+      const k = lookKey(l);
+      if (this.appliedLooks.get(id) === k) continue;
+      v.setItemOpacity(id, l.alpha, { pickable: l.pickable });
+      v.setItemColor(id, l.color);
+      v.setItemMatrix(id, l.matrix);
+      this.appliedLooks.set(id, k);
+    }
+  }
+
+  /** 고른 것의 불투명도(1 또는 null = 되돌리기) */
+  setSelectionOpacity(alpha: number | null): void {
+    const d = this.doc;
+    if (!d) return;
+    const ids = selectionItemIds(d);
+    if (!ids.length) return;
+    for (const id of ids) {
+      if (alpha === null || alpha >= 1) d.opacity.delete(id);
+      else d.opacity.set(id, Math.max(0.02, alpha));
+    }
+    this.applyLooks();
+  }
+
+  /** 모든 부품 불투명도 되돌리기 */
+  resetOpacity(): void {
+    const d = this.doc;
+    if (!d || !d.opacity.size) return;
+    d.opacity.clear();
+    this.applyLooks();
+  }
+
+  /** 고른 것의 불투명도 메뉴(작업 메뉴를 연 자리에 다시 연다) */
+  private openOpacityMenu(x: number, y: number): void {
+    const d = this.doc;
+    if (!d) return;
+    const ids = selectionItemIds(d);
+    const vals = new Set(ids.map((id) => d.opacity.get(id) ?? 1));
+    const cur = vals.size === 1 ? [...vals][0]! : NaN;
+    openMenuAt(
+      x,
+      y,
+      OPACITY_STEPS.map((a, i): MenuItem => ({ label: i === 0 ? '100% (불투명)' : `${Math.round(a * 100)}%`, checked: Math.abs(cur - a) < 1e-6, run: () => this.setSelectionOpacity(a) })),
+      '불투명도',
+    );
+  }
+
+  /** 부품 색 구분 켜고 끄기(같은 제품은 같은 색) */
+  togglePartColors(on = !this.partColors): void {
+    this.partColors = on;
+    this.applyLooks();
+    this.toolbar.refresh();
+  }
+
+  /** 분해 정도(0~1) */
+  setExplode(t: number): void {
+    const d = this.doc;
+    if (!d) return;
+    const k = Math.max(0, Math.min(1, t));
+    if (k > 0 && (this.measuring || this.faceMode)) {
+      // 측정·면 정보는 제자리 형상으로 잰다
+      if (this.measuring) this.toggleMeasure(false);
+      if (this.faceMode) this.toggleFaceMode(false);
+      this.toast('분해 보기 동안은 측정·면 고르기를 끕니다(제자리 형상으로 잽니다).');
+    }
+    d.explode = k;
+    this.applyLooks();
+    this.syncExplode();
+  }
+
+  /** 분해 막대 열고 닫기(닫으면 제자리로) */
+  toggleExplode(on = !this.explodeOpen): void {
+    this.explodeOpen = on && !!this.doc;
+    if (!this.explodeOpen && this.doc?.explode) this.setExplode(0);
+    else if (this.explodeOpen && this.doc && !this.doc.explode) this.setExplode(0.5);
+    this.syncExplode();
+  }
+
+  /** 측정·면 고르기를 켜면 분해를 접는다(제자리 형상으로 잰다) */
+  private collapseExplode(): void {
+    if (!this.doc?.explode) return;
+    this.doc.explode = 0;
+    this.applyLooks();
+    this.syncExplode();
+  }
+
+  private syncExplode(): void {
+    const t = this.doc?.explode ?? 0;
+    this.explodeBar.hidden = !this.explodeOpen || !this.doc;
+    if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
+    this.explodeValue.textContent = `${Math.round(t * 100)}%`;
     this.toolbar.refresh();
   }
 
@@ -1293,12 +1457,18 @@ export class StepApp {
     const d = this.doc;
     if (!d) return [];
     const has = selectionItemIds(d).length > 0;
-    const iso = !!d.vis.isolated;
+    const iso = !!d.vis.isolated || !!d.dim;
     const items: MenuItem[] = [];
     if (has) {
       items.push({ label: '맞춰 보기', run: () => this.fitSelection() });
       items.push({ label: '숨기기', hint: 'H', run: () => this.hideSelection() });
-      items.push({ label: iso ? '격리 풀기' : '이것만 보기', hint: 'I', run: () => (iso ? this.unisolate() : this.isolateSelection()) });
+      if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
+      else {
+        items.push({ label: '이것만 보기', hint: 'I', run: () => this.isolateSelection('hide') });
+        items.push({ label: '나머지 흐리게', run: () => this.isolateSelection('dim') });
+      }
+      const at = this.ctxAt;
+      items.push({ label: '불투명도…', run: () => this.openOpacityMenu(at.x, at.y) });
       items.push({ label: '속성', run: () => this.showProps() });
       const face = this.ctxFace ?? d.face;
       if (face && (face.normal || face.axis)) {
@@ -1310,12 +1480,17 @@ export class StepApp {
       if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
     }
     items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
+    if (d.opacity.size) items.push({ label: '불투명도 모두 되돌리기', run: () => this.resetOpacity() });
     if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
     return items;
   }
 
+  /** 작업 메뉴를 연 화면 점(불투명도 메뉴를 같은 자리에 연다) */
+  private ctxAt = { x: 0, y: 0 };
+
   /** 작업 메뉴 열기(화면 점, 나무 줄에서도 쓴다) */
   openContextMenu(clientX: number, clientY: number): void {
+    this.ctxAt = { x: clientX, y: clientY };
     const items = this.contextItems();
     if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴');
   }
@@ -1369,6 +1544,23 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  /** 숨은선 모드에서 가려진 모서리를 흐린 점선으로(코어 hiddenEdges) */
+  hiddenEdges = false;
+  /** 외곽선(실루엣) 강조(코어 profiles) */
+  profiles = false;
+
+  toggleHiddenEdges(on = !this.hiddenEdges): void {
+    this.hiddenEdges = on;
+    this.viewer?.setRenderOptions({ hiddenEdges: on });
+    this.toolbar.refresh();
+  }
+
+  toggleProfiles(on = !this.profiles): void {
+    this.profiles = on;
+    this.viewer?.setRenderOptions({ profiles: on });
+    this.toolbar.refresh();
+  }
+
   // 격자·뷰 큐브·좌표축 상태는 뷰어(코어)가 든다. 뷰어가 아직 없으면 코어 기본값(켜짐)
 
   get gridOn(): boolean {
@@ -1409,6 +1601,8 @@ export class StepApp {
     if (!v) return;
     if (on !== this.measuring) this.aim?.cancel();
     const ent = on && this.measureKind === 'entities';
+    // 측정은 제자리 형상으로(분해를 접는다)
+    if (on) this.collapseExplode();
     // 두 점은 코어 측정 모드, 개체는 코어 측정을 끄고 고르기 알림(윤곽선 포함)으로 모은다
     v.setMeasureMode(on && !ent);
     this.setEntMeasuring(ent);

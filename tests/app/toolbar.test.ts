@@ -22,6 +22,10 @@ function host(): ToolbarHost & { calls: string[] } {
     faceMode: false,
     sectionAxis: null,
     sectionOn: false,
+    hiddenEdges: false,
+    profiles: false,
+    partColors: false,
+    explodeOpen: false,
     fit: call('fit'),
     goHome: call('home'),
     setHome: call('setHome'),
@@ -29,6 +33,10 @@ function host(): ToolbarHost & { calls: string[] } {
     setView: call('setView'),
     setProjection: (p) => calls.push(`proj ${p}`),
     setRenderMode: (m) => calls.push(`mode ${m}`),
+    toggleHiddenEdges: call('hiddenEdges'),
+    toggleProfiles: call('profiles'),
+    togglePartColors: call('partColors'),
+    toggleExplode: call('explode'),
     toggleGrid: call('grid'),
     toggleCube: call('cube'),
     toggleAxes: call('axes'),
@@ -82,13 +90,20 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
       ['음영 + 모서리', 'menuitemradio', 'true', false],
       ['와이어프레임', 'menuitemradio', 'false', false],
       ['X-ray', 'menuitemradio', 'false', false],
+      ['숨은선 제거', 'menuitemradio', 'false', false],
+      ['단색', 'menuitemradio', 'false', false],
+      // 숨은 모서리 점선은 숨은선 모드에서만
+      ['숨은 모서리 점선', 'menuitemcheckbox', 'false', true],
+      ['외곽선 강조', 'menuitemcheckbox', 'false', false],
+      ['부품 색 구분', 'menuitemcheckbox', 'false', false],
+      ['분해 보기', 'menuitemcheckbox', 'false', false],
       ['격자', 'menuitemcheckbox', 'true', false],
       ['뷰 큐브', 'menuitemcheckbox', 'false', false],
       ['좌표축', 'menuitemcheckbox', 'true', false],
       ['PNG 저장', 'menuitem', null, false],
       ['내보내기…', 'menuitem', null, false],
     ]);
-    expect(menu.querySelectorAll('.menu-sep[role=separator]')).toHaveLength(4);
+    expect(menu.querySelectorAll('.menu-sep[role=separator]')).toHaveLength(6);
     // 첫 초점은 고른 항목(쓸 수 없는 것은 건너뛴다)
     expect(document.activeElement?.textContent).toContain('원근 투영');
 
@@ -136,5 +151,33 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     const sec = [...tb2.el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.querySelector('.btn-label')?.textContent?.startsWith('단면'))!;
     expect(sec.querySelector('.btn-label')!.textContent).toBe('단면 면');
     expect(sec.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('그리기 모드 메뉴: 숨은선 제거·단색과 그리기 선택(숨은 모서리 점선은 숨은선 모드에서만, 외곽선·부품 색·분해)', () => {
+    const h = { ...host(), renderMode: 'hiddenLine' as const, partColors: true };
+    const tb = new Toolbar(h);
+    document.body.append(tb.el);
+    const mode = button(tb, '숨은선 제거');
+    expect(mode).toBeDefined();
+    mode.click();
+    const items = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(items.map((b) => [b.querySelector('.menu-label')!.textContent, b.getAttribute('aria-checked'), b.disabled])).toEqual([
+      ['음영', 'false', false],
+      ['음영 + 모서리', 'false', false],
+      ['와이어프레임', 'false', false],
+      ['X-ray', 'false', false],
+      ['숨은선 제거', 'true', false],
+      ['단색', 'false', false],
+      ['숨은 모서리 점선', 'false', false],
+      ['외곽선 강조', 'false', false],
+      ['부품 색 구분', 'true', false],
+      ['분해 보기', 'false', false],
+    ]);
+    items[6]!.click();
+    mode.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][9]!.click();
+    mode.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][5]!.click();
+    expect(h.calls).toEqual(['hiddenEdges', 'explode', 'mode monochrome']);
   });
 });

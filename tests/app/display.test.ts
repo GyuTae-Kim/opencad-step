@@ -69,7 +69,14 @@ describe('곡면 품질(다시 삼각화)', () => {
     da.vis.isolated = new Set([a.scene.meshes[0]!.id]);
     da.density = 7850;
     da.panelTab = 'props';
+    // 부품 겉모습(흐리게·불투명도·분해)도 이어 간다
+    da.dim = new Set([a.scene.meshes[1]!.id, 'gone']);
+    da.opacity.set(a.scene.meshes[3]!.id, 0.25);
+    da.explode = 0.4;
     carryDocState(da, db);
+    expect([...db.dim!]).toEqual([b.scene.meshes[1]!.id]);
+    expect([...db.opacity]).toEqual([[b.scene.meshes[3]!.id, 0.25]]);
+    expect(db.explode).toBe(0.4);
     expect(db.selKey).toBe('0/1');
     expect([...db.vis.userHidden]).toEqual([b.scene.meshes[2]!.id]);
     expect([...db.vis.isolated!]).toEqual([b.scene.meshes[0]!.id]);

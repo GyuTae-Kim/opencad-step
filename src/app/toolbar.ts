@@ -1,5 +1,5 @@
 /**
- * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·단면·격자·뷰 큐브·좌표축·면 고르기·측정·내보내기·패널.
+ * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드(외곽선·부품 색 구분·분해 보기 포함)·단면·격자·뷰 큐브·좌표축·면 고르기·측정·내보내기·패널.
  * 넓은 화면은 아이콘 + 글, 920px 이하는 아이콘만(styles.css).
  * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널)만 한 줄에 두고,
  * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
@@ -22,6 +22,8 @@ export const RENDER_MODES: [RenderMode, string][] = [
   ['shadedEdges', '음영 + 모서리'],
   ['wireframe', '와이어프레임'],
   ['xray', 'X-ray'],
+  ['hiddenLine', '숨은선 제거'],
+  ['monochrome', '단색'],
 ];
 
 /** 도구 막대가 부르는 앱 쪽 기능 */
@@ -42,6 +44,14 @@ export interface ToolbarHost {
   readonly sectionAxis: SectionAxis | null;
   /** 단면이 켜져 있는지(면 단면 포함) */
   readonly sectionOn: boolean;
+  /** 숨은선 모드에서 가려진 모서리를 흐린 점선으로 */
+  readonly hiddenEdges: boolean;
+  /** 외곽선(실루엣) 강조 */
+  readonly profiles: boolean;
+  /** 부품 색 구분 */
+  readonly partColors: boolean;
+  /** 분해 막대가 열려 있는지 */
+  readonly explodeOpen: boolean;
   fit(): void;
   /** 고른 부품으로 맞춰 보기 */
   fitSelection(): void;
@@ -51,6 +61,10 @@ export interface ToolbarHost {
   setHome(): void;
   setProjection(p: Projection): void;
   setRenderMode(m: RenderMode): void;
+  toggleHiddenEdges(): void;
+  toggleProfiles(): void;
+  togglePartColors(): void;
+  toggleExplode(): void;
   toggleGrid(): void;
   toggleCube(): void;
   toggleAxes(): void;
@@ -111,10 +125,10 @@ export class Toolbar {
       setLabel(proj.el, persp ? '원근' : '평행', persp ? 'perspective' : 'ortho');
       proj.el.title = persp ? '지금 원근 투영 — 눌러서 평행 투영으로' : '지금 평행 투영 — 눌러서 원근 투영으로';
     }, 'wide-only');
-    const mode = this.add('shade', '음영 + 모서리', '그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray', () =>
+    const mode = this.add('shade', '음영 + 모서리', '그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray · 숨은선 제거 · 단색, 외곽선·부품 색 구분·분해 보기', () =>
       openMenu(
         mode.el,
-        RENDER_MODES.map(([m, label]) => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })),
+        [...RENDER_MODES.map(([m, label]): MenuItem => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })), ...this.displayItems()],
         '그리기 모드',
       ),
     () => setLabel(mode.el, RENDER_MODES.find(([m]) => m === H.renderMode)?.[1] ?? '그리기'), 'wide-only');
@@ -175,12 +189,24 @@ export class Toolbar {
       { label: '원근 투영', checked: H.projection === 'perspective', sep: true, run: () => H.setProjection('perspective') },
       { label: '평행 투영', checked: H.projection === 'orthographic', run: () => H.setProjection('orthographic') },
       ...RENDER_MODES.map(([m, label], i): MenuItem => ({ label, checked: H.renderMode === m, sep: i === 0, run: () => H.setRenderMode(m) })),
+      ...this.displayItems(),
       { label: '격자', checked: H.gridOn, toggle: true, sep: true, run: () => H.toggleGrid() },
       { label: '뷰 큐브', checked: H.cubeOn, toggle: true, run: () => H.toggleCube() },
       { label: '좌표축', checked: H.axesOn, toggle: true, run: () => H.toggleAxes() },
       { label: 'PNG 저장', sep: true, run: () => H.savePng() },
       // 내보내기 메뉴는 같은 단추(보기 설정) 자리에 다시 연다
       { label: '내보내기…', run: () => openMenu(this.moreBtn!, H.exportItems(), '내보내기') },
+    ];
+  }
+
+  /** 그리기 선택(그리기 모드 메뉴·보기 설정 메뉴): 숨은 모서리 점선(숨은선 모드에서만), 외곽선, 부품 색 구분, 분해 보기 */
+  private displayItems(): MenuItem[] {
+    const H = this.host;
+    return [
+      { label: '숨은 모서리 점선', checked: H.hiddenEdges, toggle: true, sep: true, disabled: H.renderMode !== 'hiddenLine', run: () => H.toggleHiddenEdges() },
+      { label: '외곽선 강조', checked: H.profiles, toggle: true, run: () => H.toggleProfiles() },
+      { label: '부품 색 구분', checked: H.partColors, toggle: true, sep: true, run: () => H.togglePartColors() },
+      { label: '분해 보기', checked: H.explodeOpen, toggle: true, run: () => H.toggleExplode() },
     ];
   }
 
