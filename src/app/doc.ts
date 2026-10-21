@@ -9,6 +9,7 @@ import type { StepEdgeTable, StepFaceTable, StepMeta, StepPmiPresentation, StepP
 import type { MeasureRecord } from './export';
 import type { InterferenceResult } from './interference';
 import type { EdgePick } from './edges';
+import type { Picked, PickedMeasure } from './entpick';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
@@ -104,6 +105,8 @@ export interface StepDoc {
   face: FacePick | null;
   /** 3D에서 고른 모서리(면 고르기 중 모서리 가까이 눌렀을 때) */
   edge: EdgePick | null;
+  /** 개체 측정: 누른 개체(0~2)와 두 개 사이 결과 */
+  ent: { picks: Picked[]; result: PickedMeasure | null };
   /** 레이어·PMI 목록에서 고른 항목 */
   items: ItemSelection | null;
   /** 제품 나무 이름 거르기 */
@@ -153,6 +156,7 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     vis: createVisibility(layers, pmi),
     face: null,
     edge: null,
+    ent: { picks: [], result: null },
     items: null,
     treeFilter: '',
     treeLimit: TREE_LIMIT,

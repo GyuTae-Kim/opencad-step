@@ -25,15 +25,17 @@ import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
-import { edgeAt, edgeDetails, type EdgePick } from './edges';
+import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
+import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { dirToAngles } from 'opencad-viewer3d/camera';
+import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { consumeLaunchQueue, registerServiceWorker } from './pwa';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { isTextTarget, routeKey } from './keys';
-import { edgeSummary, edgeTitle, faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
+import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -92,6 +94,10 @@ export interface AppState {
   projection: Projection;
   grid: boolean;
   measuring: boolean;
+  /** 측정 종류: 두 점(코어) · 개체(면·모서리·꼭짓점 두 개) */
+  measureKind: MeasureKind;
+  /** 개체 측정: 누른 개체 이름과 결과 줄(값은 장면 단위·도) */
+  entity: { picks: string[]; lines: { label: string; unit: string; value: number }[] } | null;
   /** 정밀 조준 중(터치 길게 누르기) */
   aiming: boolean;
   triangles: number;
@@ -115,6 +121,9 @@ export interface AppState {
   /** 단면(꺼져 있으면 null) */
   section: { axis: string | null; t: number; position: number; flip: boolean } | null;
 }
+
+/** 측정 종류 */
+export type MeasureKind = 'points' | 'entities';
 
 export class StepApp {
   doc: StepDoc | null = null;
@@ -162,6 +171,12 @@ export class StepApp {
   private readonly resizer: PanelResizer;
   /** 면 고르기 모드(도구 막대) */
   faceMode = false;
+  /** 측정 종류(측정 띠에서 고른다): 두 점(코어 측정) · 개체(앱이 잰다) */
+  measureKind: MeasureKind = 'points';
+  /** 개체 측정 중(코어 측정 모드는 꺼 두고 고르기 알림으로 개체를 모은다) */
+  private entMeasuring = false;
+  private readonly measureKindBtns = new Map<MeasureKind, HTMLButtonElement>();
+  private readonly measureKindSeg: HTMLElement;
   // ── 단면 막대·손잡이 ──
   private readonly sectionBar: SectionBar;
   // ── 측정 띠(휴대폰·터치) ──
@@ -279,9 +294,21 @@ export class StepApp {
     this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
     this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기' }, icon('reset', 16), h('span', {}, '다시 재기'));
     this.measureClear.addEventListener('click', () => {
-      this.viewer?.clearMeasure();
+      if (this.entMeasuring) this.clearEntities();
+      else this.viewer?.clearMeasure();
       this.refreshBar();
     });
+    // 측정 종류(두 점 · 개체)
+    this.measureKindSeg = h('div', { class: 'seg mb-kind', role: 'radiogroup', 'aria-label': '측정 종류' });
+    for (const [k, label, title] of [
+      ['points', '두 점', '두 점 사이 거리와 dx·dy·dz'],
+      ['entities', '개체', '면·모서리·꼭짓점 두 개 사이 거리·각(평행 면 거리, 구멍 축 거리 등)'],
+    ] as const) {
+      const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', title }, label);
+      b.addEventListener('click', () => this.setMeasureKind(k));
+      this.measureKindBtns.set(k, b);
+      this.measureKindSeg.append(b);
+    }
     // 고른 부품 카드(측정·면 고르기가 아닐 때): 맞춰 보기
     this.selFit = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품 보기' }, icon('fit', 16), h('span', {}, '맞춰 보기'));
     this.selFit.addEventListener('click', () => this.fitSelection());
@@ -299,7 +326,7 @@ export class StepApp {
       else if (this.faceMode) this.toggleFaceMode(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -614,6 +641,8 @@ export class StepApp {
     if (carry) carryDocState(carry, doc);
     v.highlight(null);
     this.showFace(null);
+    // 개체 측정 덧그림은 장면을 바꿔도 남으므로 지운다(새 문서는 개체가 비어 있다)
+    v.setAnnotations(null);
     this.aim?.cancel();
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
@@ -653,6 +682,11 @@ export class StepApp {
     if (this.viewer) return this.viewer;
     const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     v.onPick((p, e) => {
+      // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
+      if (this.entMeasuring) {
+        this.onEntityPick(p, e.pointerType);
+        return;
+      }
       this.onPick(p, this.faceMode || e.altKey);
       // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
       if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
@@ -665,7 +699,7 @@ export class StepApp {
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
     this.aim = new TouchAim(v.canvas, {
-      enabled: () => !!this.doc && (v.measureMode || this.faceMode),
+      enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
     });
@@ -1242,7 +1276,7 @@ export class StepApp {
   contextMenuAt(clientX: number, clientY: number): boolean {
     const v = this.viewer;
     const d = this.doc;
-    if (!v || !d || this.loading || v.measureMode) return false;
+    if (!v || !d || this.loading || v.measureMode || this.entMeasuring) return false;
     const r = v.canvas.getBoundingClientRect();
     const p = v.pick(clientX - r.left, clientY - r.top, 'touch');
     if (p && !selectionItemIds(d).includes(p.id)) this.onPick(p, this.faceMode);
@@ -1307,7 +1341,7 @@ export class StepApp {
   }
 
   get measuring(): boolean {
-    return !!this.viewer?.measureMode;
+    return !!this.viewer?.measureMode || this.entMeasuring;
   }
 
   /** 손가락이 주인 기기인지: 안내에서 키(Esc) 설명을 빼고 길게 누르기(정밀 조준)를 알린다 */
@@ -1371,16 +1405,16 @@ export class StepApp {
   toggleMeasure(on = !this.measuring): void {
     const v = this.viewer;
     if (!v) return;
-    if (on !== v.measureMode) this.aim?.cancel();
-    v.setMeasureMode(on);
+    if (on !== this.measuring) this.aim?.cancel();
+    const ent = on && this.measureKind === 'entities';
+    // 두 점은 코어 측정 모드, 개체는 코어 측정을 끄고 고르기 알림(윤곽선 포함)으로 모은다
+    v.setMeasureMode(on && !ent);
+    this.setEntMeasuring(ent);
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
       this.viewer?.highlight(null);
       this.showFace(null);
-      if (this.faceMode) {
-        this.faceMode = false;
-        this.viewer?.setPickEdges(false);
-      }
+      if (this.faceMode) this.faceMode = false;
       if (this.doc) {
         this.doc.pick = null;
         this.doc.selKey = null;
@@ -1390,9 +1424,112 @@ export class StepApp {
       }
       this.panel.onSelection();
     }
+    v.setPickEdges(ent || this.faceMode);
     this.panel.onMeasure();
     this.toolbar.refresh();
     this.updateStatus();
+  }
+
+  /** 측정 종류 바꾸기(측정 중이면 그 종류로 다시 시작) */
+  setMeasureKind(k: MeasureKind): void {
+    if (this.measureKind === k) return;
+    this.measureKind = k;
+    if (this.measuring) {
+      this.toggleMeasure(false);
+      this.toggleMeasure(true);
+    } else this.refreshBar();
+  }
+
+  /** 개체 측정 켜고 끄기(끄면 누른 개체·덧그림을 지운다) */
+  private setEntMeasuring(on: boolean): void {
+    const v = this.viewer;
+    if (this.entMeasuring && !on) this.clearEntities();
+    this.entMeasuring = on;
+    if (v) v.canvas.style.cursor = on || v.measureMode ? 'crosshair' : '';
+  }
+
+  /** 개체 측정: 누른 개체와 결과·강조·덧그림 지우기 */
+  clearEntities(): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (d) d.ent = { picks: [], result: null };
+    v?.setAnnotations(null);
+    v?.highlightRanges(null);
+    this.panel.onMeasure();
+    this.updateStatus();
+  }
+
+  /** 누른 것 → 개체(면·모서리·꼭짓점·가운데 점·단면·점) */
+  private toPicked(d: StepDoc, v: Viewer3d, p: Pick3d, pointerType: string): Picked | null {
+    if (p.section && p.normal) return pickedSection(p.id, [...p.point], [...p.normal]);
+    if (p.kind === 'edge') {
+      const ep = this.findEdge(d, p);
+      if (!ep) return pickedPoint(p.id, [...p.point], '모서리 위 점');
+      // 화면에서 끝점·가운데 점 가까이면 그 점(터치는 넓게)
+      const snap = snapOnEdge(ep, p.point, (q) => v.project(q), pointerType === 'touch' ? 18 : 9);
+      return pickedEdge(ep, [...p.point], snap);
+    }
+    if (p.kind === 'mesh') {
+      const fp = this.findFace(d, p);
+      return fp ? pickedFace(fp, [...p.point]) : pickedPoint(p.id, [...p.point], '면 위 점');
+    }
+    return pickedPoint(p.id, [...p.point]);
+  }
+
+  /** 개체 측정의 누르기: 둘째 개체면 재고, 셋째면 새로 시작한다(빈 곳은 무시) */
+  private onEntityPick(p: Pick3d | null, pointerType: string): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v || !p) return;
+    const picked = this.toPicked(d, v, p, pointerType);
+    if (!picked) return;
+    if (d.ent.picks.length >= 2) d.ent = { picks: [], result: null };
+    d.ent.picks.push(picked);
+    if (d.ent.picks.length === 2) {
+      const [a, b] = d.ent.picks as [Picked, Picked];
+      const diag = this.sceneDiag(d);
+      const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
+      d.ent.result = measurePicked(a, b, {
+        size: armSize(a, b, diag),
+        closest: (x, y) => pickedClosest(x, y, meshOf),
+        parts: (x, y) => v.closestPoints(x, y),
+      });
+      for (const l of d.ent.result.lines) logMeasure(d, { type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title });
+    } else d.ent.result = null;
+    this.showEntities();
+    this.panel.onMeasure();
+    this.updateStatus();
+  }
+
+  private diagOf = new WeakMap<StepDoc, number>();
+  /** 장면 범위 대각선(문서마다 한 번 잰다) */
+  private sceneDiag(d: StepDoc): number {
+    let r = this.diagOf.get(d);
+    if (r === undefined) {
+      const b = d.scene.bounds && !boxIsEmpty(d.scene.bounds) ? d.scene.bounds : sceneBounds(d.scene);
+      r = boxIsEmpty(b) ? 0 : Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+      this.diagOf.set(d, r);
+    }
+    return r;
+  }
+
+  /** 개체 측정 강조(누른 면 삼각형·모서리 윤곽선)와 덧그림(거리·각 선, 값 글, 원 중심) */
+  private showEntities(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v || !d) return;
+    const ranges = new Map<string, { prims: { start: number; count: number }[]; edges: { start: number; count: number }[] }>();
+    for (const p of d.ent.picks) {
+      const r = ranges.get(p.meshId) ?? { prims: [], edges: [] };
+      if (p.what === 'face' && p.face) r.prims.push({ start: p.face.triStart, count: p.face.triangles });
+      else if (p.what === 'edge' && p.edge) r.edges.push({ start: p.edge.segStart, count: p.edge.segCount });
+      else continue;
+      ranges.set(p.meshId, r);
+    }
+    v.highlight(null);
+    v.setHighlightSegments(null);
+    v.highlightRanges(ranges.size ? ranges : null);
+    v.setAnnotations(d.ent.picks.length ? pickedAnnotations(d.ent.picks, d.ent.result, this.fmt) : null);
   }
 
   /** 지금 화면을 PNG로(손가락 기기는 공유 시트가 되면 공유, 아니면 내려받기) */
@@ -1570,6 +1707,8 @@ export class StepApp {
   /** 수 꼴을 다시 만들고 숫자가 든 화면(패널·띠·상태 막대·단면 값)을 다시 그린다 */
   refreshFmt(): void {
     this.fmt = this.makeFmt();
+    // 개체 측정 덧그림 글도 새 단위·자리 수로
+    if (this.entMeasuring && this.doc?.ent.picks.length) this.showEntities();
     this.panel.redraw();
     this.updateStatus();
     if (this.viewer) this.syncSection(this.viewer.section);
@@ -1737,6 +1876,12 @@ export class StepApp {
           this.cancel();
           break;
         }
+        if (this.entMeasuring) {
+          // 누른 개체가 있으면 지우고, 없으면 측정을 끝낸다
+          if (this.doc?.ent.picks.length) this.clearEntities();
+          else this.toggleMeasure(false);
+          break;
+        }
         if (v?.measureMode) {
           if (v.measurePointCount > 0 && v.handleKey(ev)) return;
           this.toggleMeasure(false);
@@ -1825,8 +1970,16 @@ export class StepApp {
   private refreshBar(): void {
     const d = this.doc;
     const v = this.viewer;
-    const mode = !d || !v || this.loading ? null : v.measureMode ? 'measure' : this.faceMode ? 'face' : !this.panelOpen && selectionItemIds(d).length ? 'select' : null;
+    const mode = !d || !v || this.loading ? null : this.measuring ? 'measure' : this.faceMode ? 'face' : !this.panelOpen && selectionItemIds(d).length ? 'select' : null;
     this.measureBar.hidden = !mode;
+    // 측정 중에는 넓은 화면에도 띠를 보인다(측정 종류 고르기)
+    this.measureBar.classList.toggle('measuring', mode === 'measure');
+    this.measureKindSeg.hidden = mode !== 'measure';
+    for (const [k, b] of this.measureKindBtns) {
+      const on = k === this.measureKind;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
     if (mode !== this.barMode) {
       this.barMode = mode;
       const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : '측정 끝내기';
@@ -1844,7 +1997,10 @@ export class StepApp {
     const fm = this.fmt;
     const t = this.measureText;
     t.replaceChildren();
-    if (mode === 'measure') {
+    if (mode === 'measure' && this.entMeasuring) {
+      this.entityBarText(d, t);
+      this.measureClear.disabled = !d.ent.picks.length;
+    } else if (mode === 'measure') {
       if (d.measure) {
         const m = measureLines(d.measure, fm);
         t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
@@ -1868,6 +2024,27 @@ export class StepApp {
     }
   }
 
+  /** 측정 띠의 개체 측정 글: 안내, 첫 개체(이름·주요 치수), 결과(첫 줄 굵게, 나머지와 두 개체 이름) */
+  private entityBarText(d: StepDoc, t: HTMLElement): void {
+    const fm = this.fmt;
+    const { picks, result } = d.ent;
+    if (result && picks.length === 2) {
+      const [first, ...rest] = result.lines;
+      if (first) t.append(h('b', { class: 'mb-value' }, h('span', {}, first.label), ` ${lineValue(first, fm)}`));
+      const sub: (Node | string)[] = [];
+      for (const l of rest) sub.push(h('span', {}, l.label), ` ${lineValue(l, fm)} · `);
+      sub.push(h('span', {}, picks[0]!.title), ' ↔ ', h('span', {}, picks[1]!.title));
+      t.append(h('span', { class: 'mb-sub' }, ...sub));
+      return;
+    }
+    const p = picks[0];
+    if (p) {
+      const main = p.face ? faceSummary(p.face, fm).main : p.edge && p.what === 'edge' ? edgeSummary(p.edge, fm).main : null;
+      t.append(h('b', { class: 'mb-value' }, h('span', {}, p.title), main ? ` ${main}` : null));
+    }
+    t.append(h('span', { class: p ? 'mb-sub' : 'mb-hint' }, entityHint(picks.length, this.touch)));
+  }
+
   /** 고른 것의 이름(고른 부품 카드 제목) */
   private selectionName(d: StepDoc): string {
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
@@ -1886,6 +2063,7 @@ export class StepApp {
   private selectionText(d: StepDoc): string {
     const fm = this.fmt;
     if (d.measure) return `거리 ${fm.len(d.measure.distance)}`.trim();
+    if (this.entMeasuring) return '개체 측정';
     if (this.measuring) return '측정: 두 점을 누르십시오';
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
     if (node) {
@@ -1904,8 +2082,12 @@ export class StepApp {
 
   /** 고른 면·모서리 조각(종류 이름, 치수) — 측정 중이 아닐 때만 */
   private selectionDetail(d: StepDoc): string[] {
-    if (d.measure || this.measuring) return [];
     const fm = this.fmt;
+    if (this.entMeasuring) {
+      const l = d.ent.result?.lines[0];
+      return l ? [l.label, lineValue(l, fm)] : d.ent.picks.map((p) => p.title);
+    }
+    if (d.measure || this.measuring) return [];
     if (d.face) return [faceKindLabel(d.face.kind), ...(d.face.radius !== undefined ? [`R${fm.len(d.face.radius)}`] : [])];
     if (d.edge) return [edgeTitle(d.edge), d.edge.radius !== undefined ? `R${fm.len(d.edge.radius)}` : fm.len(d.edge.length)];
     return [];
@@ -1935,6 +2117,8 @@ export class StepApp {
       projection: this.projection,
       grid: this.gridOn,
       measuring: this.measuring,
+      measureKind: this.measureKind,
+      entity: this.entMeasuring && d ? { picks: d.ent.picks.map((p) => p.title), lines: (d.ent.result?.lines ?? []).map((l) => ({ label: l.label, unit: l.unit, value: l.value })) } : null,
       aiming: !!this.aim?.aiming,
       triangles: Math.round(triangles),
       meshes: d?.scene.meshes.length ?? 0,

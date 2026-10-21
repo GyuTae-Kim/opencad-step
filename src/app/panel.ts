@@ -17,13 +17,16 @@ import { selectRow } from './dialog';
 import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
-import { edgeTitle, panelMeasureHint } from './measure';
+import { lineValue } from './entpick';
+import { edgeSummary, edgeTitle, entityHint, faceSummary, panelMeasureHint } from './measure';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
   readonly measuring: boolean;
+  /** 측정 종류(두 점 · 개체) */
+  readonly measureKind: 'points' | 'entities';
   /** 손가락이 주인 기기인지(안내에서 키 설명을 뺀다) */
   readonly touch: boolean;
   /** 수 꼴(표시 단위·소수 자리·언어) */
@@ -800,13 +803,27 @@ export class Panel {
     } else if (d.items) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     }
-    if (d.measure) {
+    if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
+    else if (d.measure) {
       const m = d.measure;
       lines.push(h('div', {}, h('b', {}, '거리 '), fm.len(m.distance), h('span', { class: 'dim' }, ` · dx ${fm.lenNum(m.dx)} · dy ${fm.lenNum(m.dy)} · dz ${fm.lenNum(m.dz)}`)));
     } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, panelMeasureHint(this.host.touch)));
     f.hidden = !lines.length;
     f.append(...lines);
   }
+}
+
+/** 개체 측정 줄: 누른 개체(A·B — 이름과 주요 치수)와 결과(이름표 값), 아직이면 안내 */
+function entityLines(d: StepDoc, f: Fmt, touch: boolean): HTMLElement[] {
+  const { picks, result } = d.ent;
+  const out: HTMLElement[] = [];
+  picks.forEach((p, i) => {
+    const main = p.face ? faceSummary(p.face, f).main : p.edge && p.what === 'edge' ? edgeSummary(p.edge, f).main : null;
+    out.push(h('div', { class: 'foot-face' }, h('b', {}, i ? 'B ' : 'A '), h('span', {}, p.title), main ? h('span', { class: 'dim' }, ` ${main}`) : null));
+  });
+  if (result) for (const l of result.lines) out.push(h('div', {}, h('b', {}, l.label), ` ${lineValue(l, f)}`));
+  else out.push(h('div', { class: 'dim' }, entityHint(picks.length, touch)));
+  return out;
 }
 
 /** 고른 모서리 정보 줄: 종류·STEP 번호, 길이(곡선 적분)·지름·반지름·중심·축·호 각, 두 끝점 */

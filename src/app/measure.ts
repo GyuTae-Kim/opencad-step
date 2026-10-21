@@ -27,6 +27,12 @@ export function faceHint(touch = false): string {
   return touch ? '면 고르기: 면이나 모서리를 누르십시오 · 길게 누르면 정밀 조준' : '면 고르기: 면이나 모서리를 누르십시오';
 }
 
+/** 개체 측정 안내(고른 개체 수 0~1) */
+export function entityHint(picked: number, touch = false): string {
+  if (picked >= 1) return touch ? '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오' : '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오 · Esc 지우기';
+  return touch ? '개체 측정: 면·모서리·꼭짓점을 누르십시오 · 길게 누르면 정밀 조준' : '개체 측정: 면·모서리·꼭짓점을 누르십시오(끝점·가운데 점에 붙습니다)';
+}
+
 /** 측정 결과 글: 거리(굵게)와 축별 길이(패널 아래 띠와 같은 꼴, 표시 단위·소수 자리) */
 export function measureLines(m: Pick<MeasureResult, 'distance' | 'dx' | 'dy' | 'dz'>, f: Fmt): { value: string; axes: string } {
   return { value: f.len(m.distance), axes: `dx ${f.lenNum(m.dx)} · dy ${f.lenNum(m.dy)} · dz ${f.lenNum(m.dz)}` };

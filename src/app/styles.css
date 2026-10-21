@@ -732,6 +732,21 @@ select {
   opacity: 0.42;
   cursor: default;
 }
+/* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기) */
+.measure-bar.measuring:not([hidden]) {
+  display: flex;
+}
+.view:has(.measure-bar.measuring:not([hidden])) .toasts {
+  bottom: 68px;
+}
+.mb-kind[hidden] {
+  display: none;
+}
+.mb-kind .seg-btn {
+  height: 38px;
+  padding: 0 10px;
+  font-size: 13px;
+}
 @media (max-width: 759.98px), (pointer: coarse) {
   .measure-bar:not([hidden]) {
     display: flex;
@@ -739,6 +754,23 @@ select {
   /* 띠가 있으면 알림은 그 위로 */
   .view:has(.measure-bar:not([hidden])) .toasts {
     bottom: 68px;
+  }
+}
+@media (max-width: 759.98px) {
+  /* 휴대폰 측정 띠: 첫 줄은 측정 종류와 단추, 둘째 줄은 안내·결과 */
+  .measure-bar.measuring {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .measure-bar.measuring .mb-acts {
+    margin-left: auto;
+  }
+  .measure-bar.measuring .mb-text {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .view:has(.measure-bar.measuring:not([hidden])) .toasts {
+    bottom: 112px;
   }
 }
 

@@ -36,6 +36,9 @@ describe('내보내기: STL·OBJ·CSV', () => {
         { type: 'face', kind: 'cylinder', stepId: 7, radius: 2, area: 10, perimeter: 4, exact: false },
         { type: 'edge', kind: 'circle', stepId: 9, length: 50.8, radius: 25.4 },
         { type: 'edge', kind: 'line', stepId: 11, length: 12.7 },
+        { type: 'entity', label: '축 사이 거리', unit: 'length', value: 50.8, a: '원기둥 면', b: '원기둥 면' },
+        { type: 'entity', label: '면 사이 각', unit: 'angle', value: 45, a: '평면', b: '평면' },
+        { type: 'entity', label: '최소 거리', unit: 'length', value: 25.4, approx: true, a: '곡면', b: '평면' },
       ],
       { factor: 1 / 25.4, unit: 'in' },
     );
@@ -45,6 +48,10 @@ describe('내보내기: STL·OBJ·CSV', () => {
     // 모서리: 값은 길이, 원은 종류 칸에 반지름(표시 단위)
     expect(rows[3]!.slice(0, 4)).toEqual([3, '모서리 circle #9 R1', 2, 'in']);
     expect(rows[4]!.slice(0, 4)).toEqual([4, '모서리 line #11', 0.5, 'in']);
+    // 개체 측정: 이름표(두 개체), 길이는 표시 단위·각은 도, 근삿값은 ≈
+    expect(rows[5]!.slice(0, 4)).toEqual([5, '축 사이 거리 (원기둥 면 ↔ 원기둥 면)', 2, 'in']);
+    expect(rows[6]!.slice(0, 4)).toEqual([6, '면 사이 각 (평면 ↔ 평면)', 45, '°']);
+    expect(rows[7]!.slice(0, 4)).toEqual([7, '최소 거리 (곡면 ↔ 평면) ≈', 1, 'in']);
   });
 });
 
