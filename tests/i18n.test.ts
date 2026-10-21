@@ -26,6 +26,16 @@ describe('language URLs and UI presentation', () => {
     expect(translate(example,'en')).toContain('FILE_A.skp');
     expect(translate(example,'en')).not.toBe(example);
   });
+  it('has no machine-translation leftovers: stray extra lines or wrong-sense words', () => {
+    for (const {code} of languages.filter(item => item.code !== 'ko'))
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        expect(value.split('\n').length, `${code}: ${key}`).toBe(key.split('\n').length);
+        // 해석기(parser)를 통역사로, 그릴(draw)을 석쇠로, 자리(placement)를 맞춤으로 옮긴 말
+        expect(value, `${code}: ${key}`).not.toMatch(/译员|Dolmetsch|Grill|grill|グリル|烤架|Justification/);
+      }
+    expect(translate('삼각화 못 한 면', 'en')).toBe('Faces that could not be triangulated');
+    expect(translate('삼각형 1,234', 'en')).toBe('Triangles 1,234');
+  });
   it('translates every piece of a " · "-joined sentence, even when a short pattern would swallow the rest', () => {
     const hangul = /[가-힣]/;
     // "제품 번호 {0}"·"중심 {0}"·"시작 {0}"·"축 {0}"이 문장 끝까지 잡아 나머지가 한국어로 남던 줄(제품 나무 말풍선·고른 면 설명)
