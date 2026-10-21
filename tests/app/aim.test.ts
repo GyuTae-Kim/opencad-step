@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TOUCH_DRAG_START_PX } from 'opencad-viewer3d';
-import { AIM_HOLD_MS, AIM_OFFSET_PX, AIM_SLOP_PX, TouchAim, aimPoint, touchPointerEvent } from '../../src/app/aim';
+import { PICK_TOLERANCE_PX, SNAP_PX, TOUCH_DRAG_START_PX, TOUCH_PICK_TOLERANCE_PX, pickTolerance } from 'opencad-viewer3d';
+import { AIM_HOLD_MS, AIM_OFFSET_PX, AIM_POINTER_TYPE, AIM_SLOP_PX, TouchAim, aimPoint, touchPointerEvent } from '../../src/app/aim';
 
 interface Seen {
   type: string;
@@ -20,7 +20,8 @@ const RECT = { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300
 function fakeCore(canvas: HTMLElement) {
   const pointers = new Map<number, { x: number; y: number }>();
   let drag: { mode: 'orbit' | 'touch'; sx: number; sy: number; moved: boolean } | null = null;
-  const st = { clicks: [] as { x: number; y: number }[], orbits: 0, pinches: 0, hover: null as { x: number; y: number } | null, pointers };
+  // clickTypes·hoverType: 코어가 고르기 허용 거리를 가르는 포인터 종류(터치 = 넓게, 그 밖 = 좁게)
+  const st = { clicks: [] as { x: number; y: number }[], clickTypes: [] as string[], orbits: 0, pinches: 0, hover: null as { x: number; y: number } | null, hoverType: '', pointers };
   const on = (type: string, fn: (e: PointerEvent) => void): void => canvas.addEventListener(type, fn as EventListener);
   on('pointerdown', (e) => {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -29,7 +30,10 @@ function fakeCore(canvas: HTMLElement) {
   on('pointermove', (e) => {
     const p = { x: e.clientX, y: e.clientY };
     if (!drag || !pointers.has(e.pointerId)) {
-      if (!drag) st.hover = p;
+      if (!drag) {
+        st.hover = p;
+        st.hoverType = e.pointerType;
+      }
       return;
     }
     pointers.set(e.pointerId, p);
@@ -44,7 +48,10 @@ function fakeCore(canvas: HTMLElement) {
   const up = (e: PointerEvent, cancel: boolean): void => {
     const had = pointers.delete(e.pointerId);
     if (!had || !drag) return;
-    if (drag.mode === 'orbit' && !cancel && !drag.moved) st.clicks.push({ x: e.clientX, y: e.clientY });
+    if (drag.mode === 'orbit' && !cancel && !drag.moved) {
+      st.clicks.push({ x: e.clientX, y: e.clientY });
+      st.clickTypes.push(e.pointerType);
+    }
     if (!pointers.size) drag = null;
   };
   on('pointerup', (e) => up(e, false));
@@ -142,7 +149,11 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     const n2 = seen.length;
     fire('pointerup', 160, 240);
     expect(since(n2)).toEqual([`pointerleave 1 160,${240 - AIM_OFFSET_PX}`, `pointerdown 1 160,${240 - AIM_OFFSET_PX}`, `pointerup 1 160,${240 - AIM_OFFSET_PX}`]);
-    expect(seen.slice(n2).every((s) => s.pointerType === 'touch')).toBe(true);
+    // 미리 보기와 찍기는 같은 좁은 허용 거리(펜)로 — 코어가 손가락을 잊게 하는 취소만 터치
+    expect(seen.slice(n0, n1).map((s) => s.pointerType)).toEqual(['touch', AIM_POINTER_TYPE]);
+    expect(core.hoverType).toBe(AIM_POINTER_TYPE);
+    expect(seen.slice(n2).every((s) => s.pointerType === AIM_POINTER_TYPE)).toBe(true);
+    expect(core.clickTypes).toEqual([AIM_POINTER_TYPE]);
     expect(core.clicks).toEqual([{ x: 160, y: 240 - AIM_OFFSET_PX }]);
     expect(core.orbits).toBe(0);
     expect(core.pointers.size).toBe(0);
@@ -199,13 +210,22 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     expect(core.clicks).toEqual([]);
   });
 
-  it('짧게 누르면 그대로 코어의 누르기(손가락 자리)', () => {
+  it('짧게 누르면 그대로 코어의 누르기(손가락 자리, 터치의 넓은 허용 거리)', () => {
     fire('pointerdown', 100, 200);
     vi.advanceTimersByTime(AIM_HOLD_MS / 2);
     fire('pointerup', 100, 200);
     vi.advanceTimersByTime(AIM_HOLD_MS);
     expect(aim.aiming).toBe(false);
     expect(core.clicks).toEqual([{ x: 100, y: 200 }]);
+    expect(core.clickTypes).toEqual(['touch']);
+  });
+
+  it('십자선 찍기는 코어에서 마우스·펜의 좁은 허용 거리, 그냥 누르기는 터치의 넓은 허용 거리', () => {
+    expect(AIM_POINTER_TYPE).not.toBe('touch');
+    expect(pickTolerance(AIM_POINTER_TYPE, PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX)).toEqual({ tol: PICK_TOLERANCE_PX, snap: SNAP_PX });
+    expect(pickTolerance('touch', PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX)).toEqual({ tol: TOUCH_PICK_TOLERANCE_PX, snap: Math.max(SNAP_PX, TOUCH_PICK_TOLERANCE_PX) });
+    expect(PICK_TOLERANCE_PX).toBeLessThan(TOUCH_PICK_TOLERANCE_PX);
+    expect(touchPointerEvent('pointerdown', 3, 1, 2, AIM_POINTER_TYPE)).toMatchObject({ pointerId: 3, pointerType: AIM_POINTER_TYPE, button: 0 });
   });
 
   it('둘째 손가락이 닿으면 조준을 그만두고, 첫 손가락을 지금 자리에서 다시 알려 코어가 두 손가락으로 다룬다', () => {
@@ -218,6 +238,8 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     expect(aim.aiming).toBe(false);
     expect(reticle().hidden).toBe(true);
     expect(since(n)).toEqual([`pointerleave 1 120,${220 - AIM_OFFSET_PX}`, 'pointerdown 1 120,220', 'pointerdown 2 250,100']);
+    // 첫 손가락은 터치로 다시 알려야 코어가 두 손가락 몸짓으로 다룬다
+    expect(seen[n + 1]!.pointerType).toBe('touch');
     expect(core.pointers.get(1)).toEqual({ x: 120, y: 220 });
     // 이제 첫 손가락 움직임도 코어에 간다(확대·이동)
     fire('pointermove', 125, 225);
