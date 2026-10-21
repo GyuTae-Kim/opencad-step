@@ -40,7 +40,7 @@ export interface FaceSummary {
 
 /**
  * 고른 면의 주요 치수: 원기둥·구는 지름(Ø)과 반지름, 원환은 큰 반지름(R)과 작은 반지름, 원뿔은 반각,
- * 그 밖(평면·곡면)은 둘레. 넓이는 늘 보인다.
+ * 그 밖(평면·곡면)은 둘레. 넓이는 늘 보인다. B-rep에서 정확히 구하지 못한 넓이·둘레(B-스플라인 등)는 "≈"를 붙인다.
  */
 export function faceSummary(fp: FacePick, u: string): FaceSummary {
   const unit = u ? ` ${u}` : '';
@@ -54,8 +54,10 @@ export function faceSummary(fp: FacePick, u: string): FaceSummary {
     main = `R${fmtNum(r)}${unit}`;
     if (fp.minorRadius !== undefined) facts.push(['작은 반지름', `${fmtNum(fp.minorRadius)}${unit}`]);
   } else if (fp.kind === 'cone' && fp.halfAngleDeg !== undefined) facts.push(['반각', `${fmtNum(fp.halfAngleDeg)}°`]);
-  facts.push(['넓이', `${fmtNum(fp.area)}${u ? ` ${u}²` : ''}`]);
-  if (!main && fp.kind !== 'cone') facts.push(['둘레', `${fmtNum(fp.perimeter)}${unit}`]);
+  // 정확하지 않은(화면용 삼각형으로 잰) 값은 ≈
+  const approx = fp.exact ? '' : '≈ ';
+  facts.push(['넓이', `${approx}${fmtNum(fp.area)}${u ? ` ${u}²` : ''}`]);
+  if (!main && fp.kind !== 'cone') facts.push(['둘레', `${approx}${fmtNum(fp.perimeter)}${unit}`]);
   return { kind: faceKindLabel(fp.kind), main, facts };
 }
 

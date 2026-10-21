@@ -7,7 +7,7 @@
  * TRIANGULATED_SURFACE_SET·COMPLEX_TRIANGULATED_SURFACE_SET)은 있는 삼각형을 그대로 쓴다.
  */
 import type { Rgba } from 'opencad-viewer3d/types';
-import type { Tol } from './curves';
+import { CircleCurve, type Curve, LineCurve, type Tol } from './curves';
 import type { Geometry } from './geometry';
 import { isClosedMesh } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
@@ -35,6 +35,18 @@ export interface FaceTableData {
   /** FACE_KINDS 번호 */
   kinds: Uint8Array;
   params: Float32Array;
+  /**
+   * B-rep에서 구한 면 넓이(형상 항목 단위²). 평면은 경계 곡선을 따라 그린 정리로, 원기둥·원뿔·구·원환은 매개변수 영역 적분으로 구한다.
+   * 못 구했으면 NaN(화면이 삼각형 넓이를 쓴다). 없으면(옛 결과) 모두 NaN으로 친다
+   */
+  area?: Float64Array;
+  /** 경계 길이(형상 항목 단위): 모서리 곡선 길이를 적분해 더한다(이음선 제외). 못 구했으면 NaN */
+  perimeter?: Float64Array;
+  /**
+   * 1이면 넓이·둘레가 정확한 값(평면, 경계가 선·원인 해석적 곡면, 다각형·삼각형 면),
+   * 0이면 근삿값(B-스플라인 등 — 삼각형 또는 꺾인 매개변수 경계를 쓴다. 화면은 "≈"로 보인다)
+   */
+  exact?: Uint8Array;
 }
 
 /** 한 형상 항목(입체·껍질 등)의 그물(형상 항목 좌표·단위 그대로) */
@@ -117,6 +129,43 @@ interface FaceInfo {
   stepId: number;
   kind: number;
   params: number[];
+  /** B-rep 넓이(못 구하면 NaN) */
+  area: number;
+  /** 경계 길이(못 구하면 NaN) */
+  perimeter: number;
+  exact: boolean;
+}
+
+/** 모서리 곡선과 다각선 매개변수(시작 꼭짓점 → 끝 꼭짓점 방향, 안쪽 나눔 점 포함) */
+interface EdgeParam {
+  c: Curve;
+  /** t[0] = 시작, t[n-1] = 끝(곡선 매개변수, 끝이 작을 수 있다) */
+  t: number[];
+}
+
+/** 5점 가우스-르장드르(구간 [-1, 1]) */
+const GAUSS5: readonly [number, number][] = [
+  [0, 0.5688888888888889],
+  [-0.5384693101056831, 0.4786286704993665],
+  [0.5384693101056831, 0.4786286704993665],
+  [-0.906179845938664, 0.2369268850561891],
+  [0.906179845938664, 0.2369268850561891],
+];
+
+/** ∫ f(t) dt를 나눔 점 사이마다 5점 가우스로(끝이 시작보다 작으면 부호가 바뀐다) */
+function integrate(ts: readonly number[], f: (t: number) => number): number {
+  let s = 0;
+  for (let i = 1; i < ts.length; i++) {
+    const a = ts[i - 1]!;
+    const b = ts[i]!;
+    const h = (b - a) / 2;
+    if (h === 0) continue;
+    const m = (a + b) / 2;
+    let q = 0;
+    for (const [x, w] of GAUSS5) q += w * f(m + h * x);
+    s += q * h;
+  }
+  return s;
 }
 
 const KIND_INDEX = new Map<string, number>(FACE_KINDS.map((k, i) => [k, i]));
@@ -188,6 +237,8 @@ export class BrepMesher {
   /** 지원하지 않는 위상 개체 종류 → 개수 */
   readonly unsupported = new Map<string, number>();
   private edgeCache = new Map<number, V3[]>();
+  /** 곡선 모서리의 매개변수(넓이·길이 적분용, 모서리 캐시와 함께 비운다) */
+  private edgeParams = new Map<number, EdgeParam>();
   private tol: Tol = { chord: 1, angle: 0.35 };
   private eps = 1e-6;
 
@@ -272,6 +323,7 @@ export class BrepMesher {
     this.tol = { chord, angle: this.opts.angle };
     this.eps = Math.max(chord * 1e-3, diag * 1e-9);
     this.edgeCache = new Map();
+    this.edgeParams = new Map();
     this.healTJunctions(faces);
 
     const b = new Builder();
@@ -289,7 +341,10 @@ export class BrepMesher {
     const stepIds = new Uint32Array(table ? nf : 0);
     const kinds = new Uint8Array(table ? nf : 0);
     const params = new Float32Array(table ? nf * FACE_PARAMS : 0);
-    const info: FaceInfo = { stepId: 0, kind: KIND_INDEX.get('unknown')!, params: new Array<number>(FACE_PARAMS).fill(0) };
+    const areas = new Float64Array(table ? nf : 0);
+    const perimeters = new Float64Array(table ? nf : 0);
+    const exact = new Uint8Array(table ? nf : 0);
+    const info: FaceInfo = { stepId: 0, kind: KIND_INDEX.get('unknown')!, params: new Array<number>(FACE_PARAMS).fill(0), area: NaN, perimeter: NaN, exact: false };
     for (let fi = 0; fi < nf; fi++) {
       const fr = faces[fi]!;
       onFace?.();
@@ -300,6 +355,9 @@ export class BrepMesher {
         info.stepId = fr.id;
         info.kind = KIND_INDEX.get('unknown')!;
         info.params.fill(0);
+        info.area = NaN;
+        info.perimeter = NaN;
+        info.exact = false;
       }
       const r = this.meshFace(fr, b, edgeUse, seams, table ? info : null);
       if (r) fail(r);
@@ -309,6 +367,11 @@ export class BrepMesher {
         // 점 매개변수(평면·원기둥·원뿔·구·원환의 원점)도 묶음 원점 기준으로
         if (origin && info.kind <= KIND_INDEX.get('torus')!) for (let q = 0; q < 3; q++) info.params[5 + q] = info.params[5 + q]! - origin[q]!;
         params.set(info.params, fi * FACE_PARAMS);
+        // 삼각화에 실패한 면은 넓이·둘레도 비운다(고를 수 없다)
+        const ok = !r;
+        areas[fi] = ok ? info.area : NaN;
+        perimeters[fi] = ok ? info.perimeter : NaN;
+        exact[fi] = ok && info.exact ? 1 : 0;
       }
     }
     const nTri = b.indices.length / 3;
@@ -368,7 +431,7 @@ export class BrepMesher {
       closed,
       bbox: Number.isFinite(lo[0]) ? [lo, hi] : boxOf(b.positions),
       failures,
-      faceTable: table ? { triStart, stepIds, kinds, params } : undefined,
+      faceTable: table ? { triStart, stepIds, kinds, params, area: areas, perimeter: perimeters, exact } : undefined,
     };
     if (solid) out.solid = true;
     if (origin) out.origin = origin;
@@ -380,6 +443,7 @@ export class BrepMesher {
     this.tol = { chord, angle: this.opts.angle };
     this.eps = Math.max(chord * 1e-3, 1e-12);
     this.edgeCache = new Map();
+    this.edgeParams = new Map();
   }
 
   /**
@@ -543,13 +607,52 @@ export class BrepMesher {
         t2 = same ? c.t1 : c.t0;
       }
       const ts: number[] = [];
-      if (Number.isFinite(t1) && Number.isFinite(t2) && t1 !== t2) c.sample(t1, t2, this.tol, ts);
+      if (Number.isFinite(t1) && Number.isFinite(t2) && t1 !== t2) {
+        c.sample(t1, t2, this.tol, ts);
+        // 넓이·길이 적분용(나눔 점 사이마다 가우스) — 꼭짓점이 곡선 위에 있을 때만(멀면 다각선 그대로 잰다)
+        const tol = Math.max(this.tol.chord, this.eps * 10);
+        if (dist(c.point(t1), P1) <= tol && dist(c.point(t2), P2) <= tol) this.edgeParams.set(edgeId, { c, t: [t1, ...ts, t2] });
+      }
       poly = [P1];
       for (const t of ts) poly.push(c.point(t));
       poly.push(P2);
     }
     this.edgeCache.set(edgeId, poly);
     return poly;
+  }
+
+  /** 모서리 길이: 곡선이면 |c'(t)| 적분, 아니면 다각선 길이(이음 꼭짓점을 넣어도 같다) */
+  private edgeLength(edgeId: number, poly: V3[]): number {
+    const ep = this.edgeParams.get(edgeId);
+    if (ep) return Math.abs(integrate(ep.t, (t) => len(ep.c.d1(t))));
+    let s = 0;
+    for (let i = 1; i < poly.length; i++) s += dist(poly[i - 1]!, poly[i]!);
+    return s;
+  }
+
+  /**
+   * 평면 위 모서리 하나의 그린 적분 ½∮(x dy − y dx)(시작 → 끝 방향, 평면 좌표 x·y = 틀의 x·y 축).
+   * 곡선이면 매개변수로 적분하고, 직선·다각선은 토막마다 정확히 더한다
+   */
+  private edgeGreen(edgeId: number, poly: V3[], o: V3, ex: V3, ey: V3): number {
+    const ep = this.edgeParams.get(edgeId);
+    if (ep && !(ep.c instanceof LineCurve)) {
+      const c = ep.c;
+      return integrate(ep.t, (t) => {
+        const p = sub(c.point(t), o);
+        const d = c.d1(t);
+        const x = dot(p, ex);
+        const y = dot(p, ey);
+        return (x * dot(d, ey) - y * dot(d, ex)) / 2;
+      });
+    }
+    let s = 0;
+    for (let i = 1; i < poly.length; i++) {
+      const a = sub(poly[i - 1]!, o);
+      const b = sub(poly[i]!, o);
+      s += (dot(a, ex) * dot(b, ey) - dot(b, ex) * dot(a, ey)) / 2;
+    }
+    return s;
   }
 
   /** 면 하나(실패하면 이유) */
@@ -569,6 +672,9 @@ export class BrepMesher {
     const loops: V3[][] = [];
     const inFace = new Map<number, number>();
     let poly = false;
+    // 넓이·둘레용: 고리마다 모서리(다각선, 고리를 도는 방향 ±1)와 바깥 고리인지
+    const loopEdges: { eid: number; poly: V3[]; dir: number }[][] = [];
+    const loopOuter: boolean[] = [];
     for (const bid of refList(fe.args[1])) {
       const bnd = this.f.get(bid);
       if (!bnd) continue;
@@ -576,6 +682,7 @@ export class BrepMesher {
       if (!loop) continue;
       const orient = bool(bnd.args[2], true);
       let pts: V3[] = [];
+      const edges: { eid: number; poly: V3[]; dir: number }[] = [];
       if (loop.type === 'EDGE_LOOP') {
         for (const oid of refList(loop.args[1])) {
           const oe = this.f.get(oid);
@@ -592,6 +699,7 @@ export class BrepMesher {
           const pl = this.edgePolyline(eid);
           if (!pl) continue;
           inFace.set(eid, (inFace.get(eid) ?? 0) + 1);
+          edges.push({ eid, poly: pl, dir: fwd ? 1 : -1 });
           const seq = fwd ? pl : pl.slice().reverse();
           for (let i = 0; i < seq.length - 1; i++) pts.push(seq[i]!);
         }
@@ -610,6 +718,8 @@ export class BrepMesher {
       }
       if (!orient) pts.reverse();
       loops.push(pts);
+      loopEdges.push(edges);
+      loopOuter.push(bnd.type === 'FACE_OUTER_BOUND');
     }
     for (const [eid, n] of inFace) {
       edgeUse.set(eid, (edgeUse.get(eid) ?? 0) + 1);
@@ -623,6 +733,7 @@ export class BrepMesher {
       for (const l of loops) l.reverse();
     }
     if (info) surfaceInfo(surf, sameSense, poly, info);
+    const triStart = b.indices.length;
     if (!surf || poly) {
       // 평면 다각형으로(곡면을 모르거나 다각 고리)
       let hint: V3 | null = null;
@@ -632,12 +743,79 @@ export class BrepMesher {
         if (!isPlanar(loops, this.tol.chord)) return `지원하지 않는 곡면 ${this.f.typeOf(surfId)}`;
       }
       const n = tessellatePlanarLoops(loops, hint, b);
-      return n ? null : '평면 삼각화 실패';
+      if (!n) return '평면 삼각화 실패';
+      // 다각 고리 면은 다각형 자체가 형상이다
+      if (info && poly) {
+        info.area = facetArea(b, triStart);
+        info.perimeter = loops.reduce((s, l) => s + ringLength(l), 0);
+        info.exact = true;
+      }
+      return null;
     }
-    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b);
+    const acc = { area: 0 };
+    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info ? acc : undefined);
     if (r.error) return r.error;
     if (!r.triangles) return '삼각형 없음';
+    if (info) this.faceMetrics(surf, loopEdges, loopOuter, inFace, acc.area, facetArea(b, triStart), info);
     return null;
+  }
+
+  /**
+   * 면 넓이·둘레(B-rep): 둘레는 이음선을 뺀 모서리 곡선 길이의 합. 넓이는 평면이면 고리마다 그린 적분(|바깥| − Σ|구멍|),
+   * 원기둥·원뿔·구·원환이면 매개변수 영역 적분(uvArea), 그 밖은 비워 둔다(화면이 삼각형 넓이를 "≈"로 보인다).
+   * 삼각형 넓이의 절반~두 배(+ 경계 띠 여유) 밖이면 무언가 어긋난 것으로 보고 버린다.
+   */
+  private faceMetrics(
+    surf: Surface,
+    loopEdges: { eid: number; poly: V3[]; dir: number }[][],
+    loopOuter: boolean[],
+    inFace: Map<number, number>,
+    uvArea: number,
+    facet: number,
+    info: FaceInfo,
+  ): void {
+    let perimeter = 0;
+    let perimExact = true;
+    for (const l of loopEdges)
+      for (const e of l) {
+        if ((inFace.get(e.eid) ?? 0) >= 2) continue;
+        perimeter += this.edgeLength(e.eid, e.poly);
+        if (!this.edgeParams.has(e.eid) && e.poly.length > 2) perimExact = false;
+      }
+    info.perimeter = perimeter;
+    // 크게 어긋난 값(고리 방향·바깥 고리 판단이 틀린 경우 등)만 버린다. 작은 면은 입체 크기에 맞춘 현 허용 오차로 거칠게
+    // 나뉘어 삼각형 넓이가 몇 % 넘게 다를 수 있으므로(경계 띠 ≈ 둘레 × 현 높이) 그만큼 넉넉히 둔다
+    const slack = 2 * perimeter * this.tol.chord + 1e-12;
+    const sane = (a: number) => Number.isFinite(a) && a > 0 && a <= facet * 2 + slack && a >= facet * 0.5 - slack;
+    // 모서리가 모두 직선·원이고(원은 매개변수로 적분할 수 있어야) — 해석적 곡면 넓이가 정확한 조건
+    const simple = loopEdges.every((l) =>
+      l.every((e) => {
+        const ep = this.edgeParams.get(e.eid);
+        return ep ? ep.c instanceof CircleCurve || ep.c instanceof LineCurve : e.poly.length <= 2;
+      }),
+    );
+    let area = NaN;
+    let areaExact = false;
+    if (surf instanceof PlaneSurface) {
+      const fr = surf.f;
+      const sums = loopEdges.map((l) => Math.abs(l.reduce((s, e) => s + e.dir * this.edgeGreen(e.eid, e.poly, fr.o, fr.x, fr.y), 0)));
+      if (sums.length) {
+        let outer = loopOuter.indexOf(true);
+        if (outer < 0 || loopOuter.indexOf(true, outer + 1) >= 0) outer = sums.indexOf(Math.max(...sums));
+        area = sums.reduce((s, a, i) => (i === outer ? s + a : s - a), 0);
+        areaExact = perimExact;
+      }
+    } else if (uvArea > 0) {
+      area = uvArea;
+      areaExact = simple;
+    }
+    if (!sane(area)) {
+      area = NaN;
+      areaExact = false;
+    }
+    info.area = area;
+    // 넓이·둘레 모두 정확할 때만 정확(하나라도 근사면 화면은 "≈")
+    info.exact = areaExact && perimExact;
   }
 
   /** AP242 삼각형 형식 */
@@ -731,6 +909,10 @@ export class BrepMesher {
               stepIds: Uint32Array.from(stepIds),
               kinds: new Uint8Array(stepIds.length).fill(KIND_INDEX.get('triangulated')!),
               params: new Float32Array(stepIds.length * FACE_PARAMS),
+              // 삼각형 면은 삼각형이 곧 형상: 넓이는 삼각형 넓이, 둘레는 화면이 경계 변으로 잰다(NaN)
+              area: Float64Array.from(stepIds.map((_, i) => facetRange(b, triStart[i]! * 3, (triStart[i + 1] ?? b.indices.length / 3) * 3))),
+              perimeter: new Float64Array(stepIds.length).fill(NaN),
+              exact: new Uint8Array(stepIds.length).fill(1),
             },
     };
     // 삼각형 입체(TESSELLATED_SOLID)는 파일의 삼각형이 정말 닫혔을 때만
@@ -850,4 +1032,36 @@ function boxOf(pos: number[]): [V3, V3] | null {
       hi[k] = Math.max(hi[k]!, pos[i + k]!);
     }
   return [lo, hi];
+}
+
+/** 이번 면이 더한 삼각형(색인 triStart부터)의 넓이 */
+function facetArea(b: Builder, triStart: number): number {
+  return facetRange(b, triStart, b.indices.length);
+}
+
+/** 색인 [from, to)의 삼각형 넓이 */
+function facetRange(b: Builder, from: number, to: number): number {
+  const P = b.positions;
+  const I = b.indices;
+  let s = 0;
+  for (let t = from; t + 2 < to; t += 3) {
+    const a = I[t]! * 3;
+    const c = I[t + 1]! * 3;
+    const d = I[t + 2]! * 3;
+    const ux = P[c]! - P[a]!;
+    const uy = P[c + 1]! - P[a + 1]!;
+    const uz = P[c + 2]! - P[a + 2]!;
+    const vx = P[d]! - P[a]!;
+    const vy = P[d + 1]! - P[a + 1]!;
+    const vz = P[d + 2]! - P[a + 2]!;
+    s += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  }
+  return s;
+}
+
+/** 닫힌 고리 둘레 */
+function ringLength(l: readonly V3[]): number {
+  let s = 0;
+  for (let i = 0; i < l.length; i++) s += dist(l[i]!, l[(i + 1) % l.length]!);
+  return s;
 }

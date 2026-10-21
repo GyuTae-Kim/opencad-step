@@ -640,6 +640,7 @@ function faceLines(fp: FacePick, u: string): HTMLElement[] {
   if (fp.axis) geo.push(`축 ${fmtPt(fp.axis)}`);
   if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${fmtPt(fp.origin)}`);
   if (geo.length) out.push(h('div', { class: 'dim' }, geo.join(' · ')));
-  out.push(h('div', { class: 'dim' }, `넓이 ${fmtNum(fp.area)}${area} · 둘레 ${fmtNum(fp.perimeter)}${unit}`));
+  const approx = fp.exact ? '' : '≈ ';
+  out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${fmtNum(fp.area)}${area} · 둘레 ${approx}${fmtNum(fp.perimeter)}${unit}`));
   return out;
 }

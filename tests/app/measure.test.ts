@@ -11,6 +11,7 @@ const face = (kind: string, extra: Partial<FacePick> = {}): FacePick => ({
   triangles: 4,
   area: 150.79645,
   perimeter: 62.83185,
+  exact: true,
   center: [0, 0, 0],
   boundary: new Float32Array(),
   ...extra,
@@ -61,6 +62,11 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
         ['둘레', '62.832'],
       ],
     });
+    // B-rep에서 정확히 구하지 못한 값(B-스플라인 등)은 ≈
+    expect(faceSummary(face('bspline', { exact: false }), 'mm').facts).toEqual([
+      ['넓이', '≈ 150.796 mm²'],
+      ['둘레', '≈ 62.832 mm'],
+    ]);
   });
 });
 

@@ -841,7 +841,53 @@ export function faceDomain(s: Surface, loops: V3[][], sameSense: boolean, tol: T
  * @param sameSense 면 법선이 곡면 법선과 같은 방향인지
  * @param eps 같은 점으로 볼 거리
  */
-export function tessellateFace(s: Surface, loops: V3[][], sameSense: boolean, tol: Tol, eps: number, out: MeshOut, maxTris = 400_000): FaceResult {
+/** 해석적 곡면(넓이를 매개변수 영역 적분으로 구할 곡면) */
+const QUADRATURE_KINDS = new Set(['cylinder', 'cone', 'sphere', 'torus']);
+
+/**
+ * 매개변수 삼각형들의 곡면 넓이: 삼각형마다 ∬|Su×Sv| du dv를 3점 공식(2차 정확)으로. 원기둥·원뿔은 넓이 요소가 v에 일차라
+ * 정확하고, 구·원환도 화면용 삼각형(면을 현으로 근사)보다 훨씬 작은 오차다. 매개변수 영역의 경계가 등매개선(원·모선)이면
+ * 영역도 정확하다.
+ */
+export function uvArea(s: Surface, u: readonly number[], v: readonly number[], tris: readonly number[]): number {
+  const A = 2 / 3;
+  const B = 1 / 6;
+  let total = 0;
+  for (let t = 0; t + 2 < tris.length; t += 3) {
+    const a = tris[t]!;
+    const b = tris[t + 1]!;
+    const c = tris[t + 2]!;
+    const du1 = u[b]! - u[a]!;
+    const dv1 = v[b]! - v[a]!;
+    const du2 = u[c]! - u[a]!;
+    const dv2 = v[c]! - v[a]!;
+    const jac = Math.abs(du1 * dv2 - du2 * dv1) / 2;
+    if (!(jac > 0)) continue;
+    let g = 0;
+    for (const [wa, wb, wc] of [
+      [A, B, B],
+      [B, A, B],
+      [B, B, A],
+    ] as const) {
+      const [, su, sv] = s.derivs(wa * u[a]! + wb * u[b]! + wc * u[c]!, wa * v[a]! + wb * v[b]! + wc * v[c]!);
+      g += len(cross(su, sv));
+    }
+    total += (jac * g) / 3;
+  }
+  return total;
+}
+
+export function tessellateFace(
+  s: Surface,
+  loops: V3[][],
+  sameSense: boolean,
+  tol: Tol,
+  eps: number,
+  out: MeshOut,
+  maxTris = 400_000,
+  /** 넓이 누적(해석적 곡면만 — 매개변수 영역 적분) */
+  acc?: { area: number },
+): FaceResult {
   const polys = faceDomain(s, loops, sameSense, tol, eps);
   if (typeof polys === 'string') return { triangles: 0, error: polys };
 
@@ -880,6 +926,7 @@ export function tessellateFace(s: Surface, loops: V3[][], sameSense: boolean, to
       lawson(tris, vs.xy, 2);
       tris = refineMesh(vs, tris, tol, maxTris);
     }
+    if (acc && QUADRATURE_KINDS.has(s.kind)) acc.area += uvArea(s, vs.u, vs.v, tris);
     total += emit(vs, tris, sameSense, out);
   }
   return { triangles: total };

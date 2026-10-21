@@ -985,7 +985,10 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
     if (t.kinds[i] !== cone) params[o + 1] = params[o + 1]! * k;
     for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
   }
-  return { ...t, params };
+  const out: FaceTableData = { ...t, params };
+  if (t.area) out.area = t.area.map((a) => a * k * k);
+  if (t.perimeter) out.perimeter = t.perimeter.map((x) => x * k);
+  return out;
 }
 
 function hasGeometricLink(f: StepFile, id: number): boolean {

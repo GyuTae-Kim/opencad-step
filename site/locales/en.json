@@ -547,6 +547,7 @@
   "홈": "Home",
   "화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.": "Overall size measured from the triangles drawn on screen. Check exact hole and cylinder diameters with face picking.",
   "화면에 올리는 중": "Placing on screen",
+  "화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).": "Approximate value measured on the display triangles (B-spline etc.).",
   "확인": "Confirm",
   "회전 곡면": "Surface of revolution"
 }

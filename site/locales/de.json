@@ -547,6 +547,7 @@
   "홈": "Startseite",
   "화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.": "Außenmaße, gemessen an den auf dem Bildschirm gezeichneten Dreiecken. Genaue Durchmesser von Bohrungen und Zylindern prüfen Sie mit der Flächenauswahl.",
   "화면에 올리는 중": "Auf Bildschirm hochladen",
+  "화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).": "Näherungswert, gemessen an den Anzeigedreiecken (B-Spline usw.).",
   "확인": "Bestätigen",
   "회전 곡면": "Drehung Oberfläche"
 }
