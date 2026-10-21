@@ -439,16 +439,22 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       else onPath.delete(x);
     }
   };
-  const overridesOf = new Map<number, ContextColor[]>();
+  // 길에 오를 수 있는 개체: NAUO·그 자리 변환 관계·사상 항목. context가 이 밖의 것(표현·묶음·층 등 — 스키마가 허용한다)만이면
+  // 어느 자리 길에도 나타나지 않으니 예전처럼 항목 전체에 쓴다(섞여 있으면 길에 오를 수 있는 것만 맞춘다)
+  const pathable = new Set<number>(f.idsOfType('MAPPED_ITEM'));
+  for (const l of children.values()) for (const u of l) pathable.add(u.nauo);
+  for (const x of nauoRel.values()) pathable.add(x);
+  const overridesOf = new Map<number, { c: ContextColor; need: number[] }[]>();
   for (const c of styles.contextColors) {
     let l = overridesOf.get(c.item);
     if (!l) overridesOf.set(c.item, (l = []));
-    l.push(c);
+    l.push({ c, need: c.context.filter((x) => pathable.has(x)) });
   }
-  /** 이 자리에서 항목(표현·형상 항목)에 쓸 덮어쓰기 */
+  /** 이 자리에서 항목(표현·형상 항목)에 쓸 덮어쓰기: 길이 맞는 것 먼저, 없으면 길과 상관없는 것 */
   const contextOverride = (item: number): ContextColor | undefined => {
     const l = overridesOf.get(item);
-    return l?.find((c) => c.context.every((x) => onPath.has(x)));
+    if (!l) return undefined;
+    return (l.find((o) => o.need.length > 0 && o.need.every((x) => onPath.has(x))) ?? l.find((o) => o.need.length === 0))?.c;
   };
   /** 따라가는 표현·사상 항목에서 물려받은 덮어쓰기 */
   let curOverride: ContextColor | undefined;

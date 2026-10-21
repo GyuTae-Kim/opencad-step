@@ -73,4 +73,34 @@ describe('자리별 색 덮어쓰기(CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM)'
     expect(s.meshes[0]!.color.slice(0, 3)).toEqual([1, 1, 0]);
     expect(s.meshes[1]!.color.slice(0, 3)).toEqual([0, 1, 0]);
   });
+
+  it('context가 어느 자리 길에도 없는 것(표현·묶음 등)이면 예전처럼 항목 전체에, 섞여 있으면 길에 있는 것만 맞춘다', () => {
+    const build = (ctxOf: (w: StepText, m1: number, src: number) => string) => {
+      const w = new StepText();
+      const ctx = w.context();
+      const solid = cube(w, 5).solid;
+      w.color(solid, [0, 1, 0]);
+      const src = w.add('ADVANCED_BREP_SHAPE_REPRESENTATION', `'src',(#${solid},#${w.ax2([0, 0, 0])}),#${ctx}`);
+      const map = w.add('REPRESENTATION_MAP', `#${w.ax2([0, 0, 0])},#${src}`);
+      const m1 = w.add('MAPPED_ITEM', `'m1',#${map},#${w.ax2([0, 0, 0])}`);
+      const m2 = w.add('MAPPED_ITEM', `'m2',#${map},#${w.ax2([10, 0, 0])}`);
+      w.product('asm', [m1, m2], ctx, 'SHAPE_REPRESENTATION');
+      w.add('CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM', `'',(#${fillStyle(w, [1, 1, 0])}),#${solid},$,(${ctxOf(w, m1, src)})`);
+      return stepToScene(w.bytes()).meshes.map((m) => m.color.slice(0, 3));
+    };
+    // 표현(REPRESENTATION)과 묶음(GROUP)을 context로: 두 자리 모두
+    expect(build((_, __, src) => `#${src}`)).toEqual([
+      [1, 1, 0],
+      [1, 1, 0],
+    ]);
+    expect(build((w) => `#${w.add('GROUP', `'g',$`)}`)).toEqual([
+      [1, 1, 0],
+      [1, 1, 0],
+    ]);
+    // 사상 항목 + 표현: 사상 항목 자리에만
+    expect(build((_, m1, src) => `#${m1},#${src}`)).toEqual([
+      [1, 1, 0],
+      [0, 1, 0],
+    ]);
+  });
 });
