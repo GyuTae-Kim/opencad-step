@@ -7,8 +7,11 @@
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
 import type { Fmt } from './display';
-import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
+import { MATERIALS, massText, meshNodes, physProps } from './physics';
+import { sceneMm } from './display';
+import { selectRow } from './dialog';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import { panelMeasureHint } from './measure';
@@ -41,6 +44,8 @@ export interface PanelHost {
   setPmiVisible(id: string | null, on: boolean): void;
   /** 레이어·PMI 목록에서 항목 묶음 고르기(강조, null = 풀기) */
   selectItems(ids: readonly string[] | null, label: string, fit?: boolean): void;
+  /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³, null = 안 씀) */
+  setDensity(kgm3: number | null): void;
 }
 
 const PMI_TYPE: Record<string, string> = {
@@ -432,12 +437,62 @@ export class Panel {
     const key = this.propsKey(d);
     const path = key ? nodePath(d.products, key) : [];
     const node = path[path.length - 1];
-    if (!node) {
-      this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.')));
-      return;
+    if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.')));
+    else {
+      const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
+      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
     }
-    const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
-    this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
+    this.body.append(this.physSection(d, node ? subtreeMeshIds(node) : null));
+  }
+
+  /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
+  private physSection(d: StepDoc, ids: string[] | null): HTMLElement {
+    const f = this.host.fmt;
+    const owner = meshNodes(d.products);
+    const pp = physProps(d.scene.meshes, ids ? new Set(ids) : null, {
+      faces: d.faces,
+      sceneMm: sceneMm(d.scene.units),
+      densityOf: (id) => owner.get(id)?.props?.density,
+      picked: d.density,
+    });
+    const u = f.unit ? ` ${f.unit}` : '';
+    const rows: HTMLElement[] = [];
+    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
+    if (pp.closed) r('부피', `≈ ${f.vol(pp.volume)}`);
+    r('겉넓이', `${pp.areaExact ? '' : '≈ '}${f.area(pp.area)}`);
+    if (pp.mass !== null) r('질량', `≈ ${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
+    if (pp.centroid) r('무게중심', `${f.pt(pp.centroid)}${u}`);
+    const b = pp.bounds;
+    if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
+    r('닫힌 입체 · 열린 그물', `${fmtCount(pp.closed)} · ${fmtCount(pp.open)}`);
+    const notes: (HTMLElement | null)[] = [];
+    if (!pp.closed) notes.push(h('p', { class: 'hint' }, '닫힌 입체가 없어 부피·질량·무게중심을 구하지 못했습니다(열린 면·얇은 판).'));
+    else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 그물(닫히지 않은 면)은 부피·질량에서 뺐습니다.'));
+    if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량을 보입니다.'));
+    else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
+    // 재질 고르기(파일에 밀도가 없는 부품에 쓴다)
+    const opts: [string, string][] = [['', '고르지 않음'], ...MATERIALS.map(([name, rho]): [string, string] => [String(rho), `${name} · ${f.num(rho / 1000, 2)} g/cm³`])];
+    const cur = d.density === null ? '' : MATERIALS.some(([, rho]) => rho === d.density) ? String(d.density) : 'custom';
+    if (cur === 'custom') opts.push(['custom', `${f.num(d.density! / 1000, 3)} g/cm³`]);
+    const pick = selectRow('재질(밀도가 없는 부품)', opts, cur, (v) => {
+      if (v !== 'custom') this.host.setDensity(v ? Number(v) : null);
+    });
+    // 밀도 직접 넣기(g/cm³)
+    const inp = h('input', { type: 'number', class: 'dlg-input', min: '0', step: '0.01', inputmode: 'decimal', 'aria-label': '밀도 직접 입력(g/cm³)', placeholder: 'g/cm³' }) as HTMLInputElement;
+    if (d.density !== null) inp.value = String(Number((d.density / 1000).toPrecision(6)));
+    inp.addEventListener('change', () => {
+      const g = Number(inp.value.replace(',', '.'));
+      this.host.setDensity(Number.isFinite(g) && g > 0 ? g * 1000 : null);
+    });
+    const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
+    return section(
+      ids ? '물리 속성' : '모형 전체 물리 속성',
+      ...rows,
+      ...notes,
+      pick,
+      custom,
+      h('p', { class: 'hint' }, '부피·질량·무게중심·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.'),
+    );
   }
 
   // ───────────────────────── 레이어 탭 ─────────────────────────

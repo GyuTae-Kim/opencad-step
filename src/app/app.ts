@@ -769,6 +769,13 @@ export class StepApp {
     return !!this.doc && selectionItemIds(this.doc).length > 0;
   }
 
+  /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³) — 속성 탭 다시 그리기 */
+  setDensity(kgm3: number | null): void {
+    if (!this.doc) return;
+    this.doc.density = kgm3 && kgm3 > 0 ? kgm3 : null;
+    this.panel.redraw();
+  }
+
   /** 패널을 열고 속성 탭으로 */
   showProps(): void {
     if (!this.doc) return;

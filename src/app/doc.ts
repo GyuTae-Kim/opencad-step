@@ -93,6 +93,8 @@ export interface StepDoc {
   treeFilter: string;
   /** 제품 나무에 그리는 최대 줄 수 */
   treeLimit: number;
+  /** 파일에 밀도가 없는 부품에 쓸 고른 재질 밀도(kg/m³), 안 골랐으면 null */
+  density: number | null;
 }
 
 /** 제품 나무 기본 줄 수 제한 */
@@ -127,6 +129,7 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     items: null,
     treeFilter: '',
     treeLimit: TREE_LIMIT,
+    density: null,
   };
 }
 
