@@ -144,4 +144,14 @@ describe('개체 측정: 누른 면·모서리 → 개체 → 두 개 사이', (
     expect(armSize(a, pickedPoint('b', [100, 0, 0]), 1000)).toBeCloseTo(500, 9);
     expect(armSize(a, pickedPoint('b', [900, 0, 0]), 1000)).toBeCloseTo(1250, 9);
   });
+
+  it('타원 모서리: 하나만 고르면 반지름 선 대신 두 지름(긴 × 짧은), 측정은 중심으로', () => {
+    const ep = { meshId: 'm', edge: 0, stepId: 1, kind: 'ellipse', segStart: 0, segCount: 4, length: 30, radius: 6, minorRadius: 3, center: [0, 0, 0], axis: [0, 0, 1], ends: [[6, 0, 0], [6, 0, 0]], mid: [-6, 0, 0], segs: new Float32Array(), segOrigin: [0, 0, 0] } as EdgePick;
+    const p = pickedEdge(ep, [6, 0, 0]);
+    expect(p.entity?.type).toBe('circle');
+    const anns = pickedAnnotations([p], null, MM);
+    expect(anns.map((a) => a.kind)).toEqual(['point', 'point']);
+    expect(anns[1]!.label).toBe('12 mm × 6 mm');
+    expect(anns.some((a) => a.kind === 'radius')).toBe(false);
+  });
 });

@@ -199,8 +199,11 @@ export function pickedAnnotations(picks: readonly Picked[], m: PickedMeasure | n
     if (e?.type === 'point' && (p.what === 'vertex' || p.what === 'mid' || p.what === 'point' || p.what === 'face')) out.push({ kind: 'point', a: e.point, label: '' });
     else if (e?.type === 'circle') {
       out.push({ kind: 'point', a: e.center, label: '' });
-      // 하나만 골랐을 때 원 모서리는 지름 원(한 바퀴)·원호는 반지름 선
-      if (!m && p.edge) {
+      // 하나만 골랐을 때 원 모서리는 지름 원(한 바퀴)·원호는 반지름 선, 타원은 가운데 점에 두 지름(긴 × 짧은)
+      if (!m && p.edge?.kind === 'ellipse') {
+        const ep = p.edge;
+        out.push({ kind: 'point', a: ep.mid, label: ep.minorRadius !== undefined ? `${f.len(e.radius * 2)} × ${f.len(ep.minorRadius * 2)}` : f.len(ep.length) });
+      } else if (!m && p.edge) {
         const full = isFullCircle(p.edge);
         out.push({ kind: 'radius', a: e.center, b: p.edge.ends[0], ...(full ? { normal: e.normal } : {}), label: full ? `Ø${f.len(e.radius * 2)}` : `R${f.len(e.radius)}` });
       }
