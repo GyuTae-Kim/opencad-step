@@ -7,6 +7,7 @@
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
+import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
 import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
@@ -53,6 +54,10 @@ export interface PanelHost {
   showPmiFaces(stepIds: readonly number[], label: string): boolean;
   /** 저장된 보기 적용 */
   applySavedView(view: StepSavedView): void;
+  /** 간섭 검사(보이는 그물끼리) 돌리기·지우기, 한 쌍 보기 */
+  runInterference(): void;
+  clearInterference(): void;
+  showInterference(p: InterferencePair): void;
 }
 
 const PMI_TYPE: Record<string, string> = {
@@ -124,6 +129,8 @@ export class Panel {
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
   private filterTimer = 0;
+  /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
+  private interferenceEl: HTMLElement | null = null;
 
   constructor(private readonly host: PanelHost) {
     this.tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '패널 탭' });
@@ -165,6 +172,41 @@ export class Panel {
 
   onMeasure(): void {
     this.renderFoot();
+  }
+
+  /** 간섭 검사 진행·결과가 바뀜: 제품 탭의 그 묶음만 다시 그린다(없으면 탭을 다시 그림) */
+  onInterference(): void {
+    const d = this.doc;
+    if (!d || d.panelTab !== 'tree') return;
+    if (this.interferenceEl && d.interference) {
+      const el = this.interferenceSection(d);
+      this.interferenceEl.replaceWith(el);
+      this.interferenceEl = el;
+    } else this.renderBody();
+  }
+
+  private interferenceSection(d: StepDoc): HTMLElement {
+    const st = d.interference!;
+    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
+    const kids: HTMLElement[] = [];
+    const clear = h('button', { type: 'button', class: 'btn small' }, st.running ? '멈추기' : '결과 지우기');
+    clear.addEventListener('click', () => this.host.clearInterference());
+    if (st.running) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사 중…'), ` ${st.total ? `${fmtCount(st.done)} / ${fmtCount(st.total)}` : ''}`));
+    else if (st.error) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
+    else if (st.result) {
+      const r = st.result;
+      kids.push(h('p', { class: 'hint' }, h('span', {}, '범위가 겹친 쌍'), ` ${fmtCount(r.tested)} · `, h('span', {}, '간섭'), ` ${fmtCount(r.pairs.length)} · ${fmtCount(r.ms)} ms`));
+      const LIMIT = 200;
+      for (const p of r.pairs.slice(0, LIMIT)) {
+        const label = `${name(p.a)} ↔ ${name(p.b)}`;
+        const sel = d.items?.label === label;
+        const b = h('button', { type: 'button', class: `link-btn${sel ? ' sel' : ''}`, title: '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
+        b.addEventListener('click', () => this.host.showInterference(p));
+        kids.push(h('div', { class: 'prop-row' }, b, h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count))));
+      }
+      if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않고, 한 부품이 다른 부품 안에 통째로 든 경우는 찾지 못합니다.'));
+    }
+    return section('간섭 검사', ...kids, h('div', { class: 'tree-tools' }, clear));
   }
 
   /** 수 꼴(표시 단위·소수 자리·언어)이 바뀜: 본문과 아래 띠를 다시 그린다 */
@@ -320,6 +362,7 @@ export class Panel {
       this.renderBody();
     });
     mk('모두 보이기', '숨긴 부품을 모두 다시 보입니다(레이어로 끈 것은 레이어 탭에서 켭니다)', () => this.host.showAll());
+    if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가는 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
 
     const list = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
     for (const r of rows) list.append(this.treeRow(d, r, counts));
@@ -339,6 +382,11 @@ export class Panel {
     }
     this.body.append(section('제품 나무', search, filterInfo, tools, list, more));
     if (!filtering) this.drawnExpanded = new Set(d.expanded);
+    this.interferenceEl = null;
+    if (d.interference) {
+      this.interferenceEl = this.interferenceSection(d);
+      this.body.append(this.interferenceEl);
+    }
 
     // 부품별(묶음): 같은 이름의 부품 자리를 한꺼번에 숨기고 보인다
     const groups = this.host.groups();

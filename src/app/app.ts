@@ -39,6 +39,7 @@ import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
+import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir } from './viewhelp';
 import { PanelResizer } from './resize';
@@ -900,6 +901,86 @@ export class StepApp {
       this.panel.onVisibility();
     }
     this.toolbar.refresh();
+  }
+
+  // ───────────────────────── 간섭 검사(워커) ─────────────────────────
+
+  private checkWorker: Worker | null = null;
+  private checkSeq = 0;
+
+  /** 보이는 그물끼리 간섭 검사(워커). 다시 부르면 앞의 검사를 멈추고 새로 */
+  runInterference(): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return;
+    this.checkWorker?.terminate();
+    const meshes = d.scene.meshes.filter((m) => v.isVisible(m.id));
+    if (meshes.length < 2) {
+      this.toast('보이는 그물이 둘 이상이어야 간섭을 검사합니다.', 'warn');
+      return;
+    }
+    const id = ++this.checkSeq;
+    d.interference = { running: true, done: 0, total: 0 };
+    this.panel.onInterference();
+    let w: Worker;
+    try {
+      w = new Worker(new URL('../worker/check.worker.ts', import.meta.url), { type: 'module', name: 'opencad-step-check' });
+    } catch (e) {
+      d.interference = { running: false, done: 0, total: 0, error: errorText(e) };
+      this.panel.onInterference();
+      return;
+    }
+    this.checkWorker = w;
+    w.onmessage = (ev: MessageEvent<CheckResponse>) => {
+      const m = ev.data;
+      if (m.id !== id || this.doc !== d) return;
+      if (m.type === 'progress') d.interference = { running: true, done: m.done, total: m.total };
+      else {
+        d.interference = m.type === 'done' ? { running: false, done: 0, total: 0, result: m.result } : { running: false, done: 0, total: 0, error: m.message };
+        w.terminate();
+        if (this.checkWorker === w) this.checkWorker = null;
+        if (m.type === 'done') this.toast(m.result.pairs.length ? `간섭 ${fmtCount(m.result.pairs.length)}쌍을 찾았습니다.` : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', m.result.pairs.length ? 'warn' : 'info');
+      }
+      this.panel.onInterference();
+    };
+    w.onerror = (ev) => {
+      ev.preventDefault();
+      d.interference = { running: false, done: 0, total: 0, error: ev.message || '검사 워커가 멈췄습니다' };
+      w.terminate();
+      this.panel.onInterference();
+    };
+    const req: CheckRequest = {
+      id,
+      type: 'interference',
+      meshes: meshes.map((m) => ({ id: m.id, positions: m.positions, ...(m.indices ? { indices: m.indices } : {}), ...(m.matrix ? { matrix: Array.from(m.matrix) } : {}), ...(m.origin ? { origin: [...m.origin] } : {}) })),
+    };
+    w.postMessage(req);
+  }
+
+  /** 간섭 검사 멈추기·결과 지우기 */
+  clearInterference(): void {
+    this.checkWorker?.terminate();
+    this.checkWorker = null;
+    if (this.doc) this.doc.interference = undefined;
+    this.viewer?.highlightRanges(null);
+    this.panel.onInterference();
+  }
+
+  /** 간섭 한 쌍: 교차 삼각형을 강조하고 두 그물로 맞춰 본다 */
+  showInterference(p: InterferencePair): void {
+    const d = this.doc;
+    const v = this.viewer;
+    if (!d || !v) return;
+    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
+    d.selKey = null;
+    d.pick = null;
+    d.face = null;
+    d.items = { ids: [p.a, p.b], label: `${name(p.a)} ↔ ${name(p.b)}` };
+    v.setHighlightSegments(null);
+    v.highlight(null);
+    v.highlightRanges({ [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
+    this.selectionChanged();
+    v.fitItems([p.a, p.b]);
   }
 
   /** 패널을 열고 속성 탭으로 */

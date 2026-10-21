@@ -7,6 +7,7 @@ import type { StepHeader } from '../part21';
 import type { StepProductProps } from '../props';
 import type { StepFaceTable, StepMeta, StepPmiPresentation, StepPmiSemantic, StepProductNode, StepSavedView } from '../scene';
 import type { MeasureRecord } from './export';
+import type { InterferenceResult } from './interference';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource } from './protocol';
@@ -104,6 +105,8 @@ export interface StepDoc {
   home?: CameraState;
   /** 측정 기록(거리·고른 면 — CSV 복사용) */
   measureLog: MeasureRecord[];
+  /** 간섭 검사 상태·결과(돌린 적이 없으면 없음) */
+  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string };
 }
 
 /** 제품 나무 기본 줄 수 제한 */
