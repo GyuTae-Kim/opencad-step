@@ -37,6 +37,8 @@ export const ICONS = {
   search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>',
   section: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z" opacity=".45"/><path d="M3 12.5 12 9l9 3.5L12 16Z" fill="currentColor" stroke="none" opacity=".35"/><path d="M3 12.5 12 9l9 3.5L12 16Z"/>',
   flip: '<path d="M7 4v16M17 4v16"/><path d="m10 9-3-3-3 3M14 15l3 3 3-3"/>',
+  sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  reset: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 3.5v5h5"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

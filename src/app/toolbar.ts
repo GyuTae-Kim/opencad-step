@@ -1,12 +1,14 @@
 /**
  * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드·단면·격자·뷰 큐브·좌표축·면 고르기·측정·PNG 저장·패널.
- * 넓은 화면은 아이콘 + 글, 좁은 화면은 아이콘만 보이고 넘치면 가로로 스크롤한다(styles.css).
+ * 넓은 화면은 아이콘 + 글, 920px 이하는 아이콘만(styles.css).
+ * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널)만 한 줄에 두고,
+ * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
  */
 import { VIEW_KEYS, VIEW_LABELS, type Projection, type RenderMode, type SectionAxis, type ViewName } from 'opencad-viewer3d';
 import { h, iconButton } from './dom';
 import type { IconName } from './icons';
 import { VIEW_MENU, viewKeyOf } from './keys';
-import { openMenu } from './menu';
+import { openMenu, type MenuItem } from './menu';
 
 export const SECTION_AXES: [SectionAxis | null, string][] = [
   [null, '끔'],
@@ -71,7 +73,7 @@ export class Toolbar {
     this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit());
     const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (제품 나무에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
       focus.el.disabled = !H.hasDoc || !H.hasSelection;
-    });
+    }, 'wide-only');
     const keyHelp = Object.entries(VIEW_KEYS)
       .map(([k, v]) => `${k} ${VIEW_LABELS[v]}`)
       .join(' · ');
@@ -85,20 +87,24 @@ export class Toolbar {
     views.el.setAttribute('aria-haspopup', 'menu');
     views.el.setAttribute('aria-expanded', 'false');
     views.el.classList.add('has-menu');
+    const more = this.add('sliders', '보기 설정', '보기 설정', () => openMenu(more.el, this.moreItems(), '보기 설정'), undefined, 'narrow-only');
+    more.el.setAttribute('aria-haspopup', 'menu');
+    more.el.setAttribute('aria-expanded', 'false');
+    more.el.classList.add('has-menu');
     this.sep();
 
     const proj = this.add('perspective', '원근', '원근 / 평행 투영 바꾸기', () => H.setProjection(H.projection === 'perspective' ? 'orthographic' : 'perspective'), () => {
       const persp = H.projection === 'perspective';
       setLabel(proj.el, persp ? '원근' : '평행', persp ? 'perspective' : 'ortho');
       proj.el.title = persp ? '지금 원근 투영 — 눌러서 평행 투영으로' : '지금 평행 투영 — 눌러서 원근 투영으로';
-    });
+    }, 'wide-only');
     const mode = this.add('shade', '음영 + 모서리', '그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray', () =>
       openMenu(
         mode.el,
         RENDER_MODES.map(([m, label]) => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })),
         '그리기 모드',
       ),
-    () => setLabel(mode.el, RENDER_MODES.find(([m]) => m === H.renderMode)?.[1] ?? '그리기'));
+    () => setLabel(mode.el, RENDER_MODES.find(([m]) => m === H.renderMode)?.[1] ?? '그리기'), 'wide-only');
     mode.el.setAttribute('aria-haspopup', 'menu');
     mode.el.setAttribute('aria-expanded', 'false');
     mode.el.classList.add('has-menu');
@@ -122,15 +128,15 @@ export class Toolbar {
     section.el.setAttribute('aria-haspopup', 'menu');
     section.el.setAttribute('aria-expanded', 'false');
     section.el.classList.add('has-menu');
-    this.sep();
+    this.sep('wide-only');
 
-    this.toggle('grid', '격자', '바닥 격자 (F7)', () => H.gridOn, () => H.toggleGrid());
-    this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube());
-    this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes());
+    this.toggle('grid', '격자', '바닥 격자 (F7)', () => H.gridOn, () => H.toggleGrid(), 'wide-only');
+    this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube(), 'wide-only');
+    this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes(), 'wide-only');
     this.sep();
     this.toggle('face', '면 고르기', '누른 면(B-rep 면)을 골라 종류·넓이·법선을 보고 경계를 강조합니다 (Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
     this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
-    this.add('image', 'PNG 저장', '지금 화면을 PNG 그림으로 저장', () => H.savePng());
+    this.add('image', 'PNG 저장', '지금 화면을 PNG 그림으로 저장', () => H.savePng(), undefined, 'wide-only');
     this.sep();
     this.toggle('panel', '패널', '제품·정보 패널 열기/닫기', () => H.panelOpen, () => H.togglePanel());
     this.refresh();
@@ -144,8 +150,23 @@ export class Toolbar {
     }
   }
 
-  private add(ic: IconName, label: string, title: string, run: () => void, refresh: () => void = () => {}): Tool {
-    const el = iconButton(ic, label, { title, cls: 'tool' });
+  /** 좁은 화면의 보기 설정 메뉴: 넓은 화면 도구 막대에만 있는 단추(고른 부품 보기, 투영, 그리기 모드, 격자·뷰 큐브·좌표축, PNG) */
+  private moreItems(): MenuItem[] {
+    const H = this.host;
+    return [
+      { label: '고른 부품 보기', disabled: !H.hasSelection, run: () => H.fitSelection() },
+      { label: '원근 투영', checked: H.projection === 'perspective', sep: true, run: () => H.setProjection('perspective') },
+      { label: '평행 투영', checked: H.projection === 'orthographic', run: () => H.setProjection('orthographic') },
+      ...RENDER_MODES.map(([m, label], i): MenuItem => ({ label, checked: H.renderMode === m, sep: i === 0, run: () => H.setRenderMode(m) })),
+      { label: '격자', checked: H.gridOn, toggle: true, sep: true, run: () => H.toggleGrid() },
+      { label: '뷰 큐브', checked: H.cubeOn, toggle: true, run: () => H.toggleCube() },
+      { label: '좌표축', checked: H.axesOn, toggle: true, run: () => H.toggleAxes() },
+      { label: 'PNG 저장', sep: true, run: () => H.savePng() },
+    ];
+  }
+
+  private add(ic: IconName, label: string, title: string, run: () => void, refresh: () => void = () => {}, cls = ''): Tool {
+    const el = iconButton(ic, label, { title, cls: `tool ${cls}`.trim() });
     el.addEventListener('click', run);
     const t = { el, refresh };
     this.tools.push(t);
@@ -153,17 +174,17 @@ export class Toolbar {
     return t;
   }
 
-  private toggle(ic: IconName, label: string, title: string, on: () => boolean, run: () => void): Tool {
+  private toggle(ic: IconName, label: string, title: string, on: () => boolean, run: () => void, cls = ''): Tool {
     const t = this.add(ic, label, title, run, () => {
       const v = on();
       t.el.setAttribute('aria-pressed', String(v));
       t.el.classList.toggle('on', v);
-    });
+    }, cls);
     return t;
   }
 
-  private sep(): void {
-    this.el.append(h('span', { class: 'tool-sep', 'aria-hidden': 'true' }));
+  private sep(cls = ''): void {
+    this.el.append(h('span', { class: `tool-sep ${cls}`.trim(), 'aria-hidden': 'true' }));
   }
 }
 
