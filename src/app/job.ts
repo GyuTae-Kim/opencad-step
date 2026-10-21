@@ -4,7 +4,7 @@
  */
 import { isStepXml, sniffContainer, STEP_XML_MESSAGE, unpackStep } from '../archive';
 import { stepToScene } from '../scene';
-import { sniffStep, type ParseResult, type ParseSource } from './protocol';
+import { sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
 
 /** 압축 풀기가 차지하는 진행률 몫(압축 파일일 때) */
 const UNPACK_SHARE = 0.15;
@@ -13,7 +13,7 @@ const UNPACK_SHARE = 0.15;
  * 파일 하나 해석. progress(0~1, 단계 이름)를 부른다. 압축 STEP(gzip·ZIP)은 '압축 풀기' 단계로 먼저 푼다.
  * STEP이 아니면(STEP-XML 포함) 알기 쉬운 오류를 던진다.
  */
-export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array, progress: (fraction: number, stage: string) => void = () => {}): Promise<ParseResult> {
+export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array, progress: (fraction: number, stage: string) => void = () => {}, options: ParseOptions = {}): Promise<ParseResult> {
   const t0 = performance.now();
   let bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   const head = bytes.subarray(0, 64 * 1024);
@@ -40,7 +40,12 @@ export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array
     if (source) throw new Error(`압축을 풀었지만 STEP 글이 아닙니다. ${sniff.reason}`);
     throw new Error(sniff.reason);
   }
-  const scene = stepToScene(bytes, { name: sceneName, onProgress: (f, stage) => progress(base + f * (1 - base), stage) });
+  const scene = stepToScene(bytes, {
+    name: sceneName,
+    onProgress: (f, stage) => progress(base + f * (1 - base), stage),
+    ...(options.tolerance ? { tolerance: options.tolerance } : {}),
+    ...(options.angleTolerance ? { angleTolerance: options.angleTolerance } : {}),
+  });
   if (notes.length) scene.warnings = [...notes, ...(scene.warnings ?? [])];
   const res: ParseResult = { scene, ms: performance.now() - t0 };
   if (source) res.source = source;

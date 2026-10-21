@@ -490,3 +490,23 @@ export function docStatus(d: StepDoc): StatusItem[] {
   });
   return items;
 }
+
+/** 다시 삼각화한 문서에 앞 문서의 상태(펼침·고르기·보이기·격리·밀도·홈 뷰·측정 기록·패널 탭)를 옮긴다 — 그물 id·나무 열쇠는 해석 순서가 같아 그대로다 */
+export function carryDocState(from: StepDoc, to: StepDoc): void {
+  to.expanded = new Set(from.expanded);
+  to.selKey = from.selKey && productAt(to.products, from.selKey) ? from.selKey : null;
+  to.panelTab = from.panelTab;
+  to.treeFilter = from.treeFilter;
+  to.density = from.density;
+  if (from.home) to.home = from.home;
+  to.measureLog = from.measureLog;
+  if (from.isoLabel) to.isoLabel = from.isoLabel;
+  const ids = new Set([...to.scene.meshes.map((m) => m.id), ...to.scene.lines.map((l) => l.id), ...(to.scene.points ?? []).map((p) => p.id)]);
+  for (const id of from.vis.userHidden) if (ids.has(id)) to.vis.userHidden.add(id);
+  to.vis.layerHidden.clear();
+  for (const l of from.vis.layerHidden) to.vis.layerHidden.add(l);
+  for (const id of from.vis.pmiHidden) if (to.vis.pmiIds.has(id)) to.vis.pmiHidden.add(id);
+  to.vis.pmiOff = from.vis.pmiOff;
+  if (from.vis.isolated) to.vis.isolated = new Set([...from.vis.isolated].filter((id) => ids.has(id)));
+}
+

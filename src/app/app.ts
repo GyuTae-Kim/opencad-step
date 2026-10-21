@@ -22,9 +22,9 @@ import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
 import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
-import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
+import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
+import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { dirToAngles } from 'opencad-viewer3d/camera';
@@ -63,6 +63,9 @@ const APP_TITLE = document.title;
 /** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
 const WIDE_CUBE = 112;
 const NARROW_CUBE = 76;
+/** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
+const BIG_TRIANGLES = 400_000;
+const BIG_MESHES = 3000;
 /** 고른 면 경계 색(청록) */
 const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
 
@@ -167,6 +170,10 @@ export class StepApp {
   private ctxFace: FacePick | null = null;
   /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
   private pendingView: ViewLink | null = null;
+  /** 연 문서를 다시 읽을 방법(곡면 품질을 바꿔 다시 삼각화) */
+  private source: { name: string; read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>; input: InputKind } | null = null;
+  /** 큰 장면을 GPU에 나눠 올리는 중이면 0~1 */
+  private upload: number | null = null;
   private readonly measureText: HTMLElement;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
@@ -505,7 +512,14 @@ export class StepApp {
     this.toast('열기를 취소했습니다.');
   }
 
-  private async load(name: string, read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>, input: InputKind = 'local', attempt: OpenAttempt = beginOpen(input, name.split('.').pop() ?? 'other')): Promise<boolean> {
+  private async load(
+    name: string,
+    read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>,
+    input: InputKind = 'local',
+    attempt: OpenAttempt = beginOpen(input, name.split('.').pop() ?? 'other'),
+    /** 같은 파일을 다시 삼각화할 때(곡면 품질) 앞 문서 — 보기·고르기·보이기를 이어 간다 */
+    carry: StepDoc | null = null,
+  ): Promise<boolean> {
     let reading = true;
     closeMenu();
     const seq = ++this.loadSeq;
@@ -522,9 +536,14 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       reading = false;
       const size = buf.byteLength;
-      const res = await this.client.parse(name, buf, (f, stage) => {
-        if (seq === this.loadSeq) this.setLoading({ name, fraction: f, stage: stageLabel(stage) });
-      });
+      const res = await this.client.parse(
+        name,
+        buf,
+        (f, stage) => {
+          if (seq === this.loadSeq) this.setLoading({ name, fraction: f, stage: stageLabel(stage) });
+        },
+        QUALITY_OPTIONS[this.display.quality],
+      );
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
         attempt.error('empty');
@@ -535,7 +554,8 @@ export class StepApp {
       await nextPaint();
       if (seq !== this.loadSeq) return false;
       const doc = createDoc(name, size, res);
-      this.showDoc(doc);
+      this.showDoc(doc, carry);
+      this.source = { name, read, input };
       doc.openMs = performance.now() - t0;
       this.lastError = null;
       this.updateAll();
@@ -557,9 +577,26 @@ export class StepApp {
     }
   }
 
-  private showDoc(doc: StepDoc): void {
+  private showDoc(doc: StepDoc, carry: StepDoc | null = null): void {
     const v = this.ensureViewer();
-    v.setScene(doc.scene);
+    // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다
+    let tris = 0;
+    for (const m of doc.scene.meshes) tris += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
+    const big = tris > BIG_TRIANGLES || doc.scene.meshes.length > BIG_MESHES;
+    this.upload = null;
+    v.setScene(doc.scene, {
+      keepView: !!carry,
+      ...(big
+        ? {
+            incremental: { budgetMs: 8 },
+            onProgress: (done: number, total: number) => {
+              this.upload = done < total ? done / Math.max(1, total) : null;
+              this.updateStatus();
+            },
+          }
+        : {}),
+    });
+    if (carry) carryDocState(carry, doc);
     v.highlight(null);
     this.showFace(null);
     this.aim?.cancel();
@@ -574,6 +611,12 @@ export class StepApp {
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
+    if (carry) {
+      // 다시 삼각화: 카메라·단면은 그대로(keepView), 고른 것·격리를 다시 그린다
+      if (doc.selKey) this.viewer?.highlight(selectionItemIds(doc));
+      this.toast(`곡면 품질을 바꿔 다시 삼각화했습니다(삼각형 ${fmtCount(Math.round(tris))}개).`);
+      return;
+    }
     // 좁은 화면에서 시트가 보기 높이를 바꾸므로 크기가 정해진 뒤 다시 맞춘다
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -1483,11 +1526,21 @@ export class StepApp {
     if (this.viewer) this.syncSection(this.viewer.section);
   }
 
-  /** 표시 설정 바꾸기(기억한다) */
+  /** 표시 설정 바꾸기(기억한다). 곡면 품질이 바뀌면 연 문서를 다시 삼각화한다 */
   setDisplay(next: Partial<DisplaySettings>): void {
+    const quality = this.display.quality;
     this.display = { ...this.display, ...next };
     writeDisplaySettings(safeLocalStorage(), this.display);
     this.refreshFmt();
+    if (this.display.quality !== quality) void this.retessellate();
+  }
+
+  /** 연 문서를 지금 곡면 품질로 다시 삼각화(같은 파일을 다시 읽는다 — 보기·고르기·보이기는 이어 간다) */
+  async retessellate(): Promise<boolean> {
+    const src = this.source;
+    const d = this.doc;
+    if (!src || !d || this.loading) return false;
+    return this.load(src.name, src.read, src.input, { success() {}, error() {} }, d);
   }
 
   get displaySettings(): DisplaySettings {
@@ -1516,7 +1569,18 @@ export class StepApp {
       String(this.display.decimals),
       (v) => this.setDisplay({ decimals: Number(v) }),
     );
-    openDialog('표시 설정', [unit, decimals]);
+    const quality = selectRow(
+      '곡면 품질',
+      [
+        ['normal', '보통(빠름)'],
+        ['fine', '세밀(각 10°)'],
+        ['finest', '아주 세밀(각 5°)'],
+      ],
+      this.display.quality,
+      (v) => this.setDisplay({ quality: v === 'fine' || v === 'finest' ? v : 'normal' }),
+      '곡면을 나누는 삼각형을 촘촘히 해 둥근 면이 매끈해지고 부피·측정 점이 정확해집니다. 바꾸면 연 파일을 다시 삼각화합니다(큰 파일은 오래 걸리고 메모리를 더 씁니다).',
+    );
+    openDialog('표시 설정', [unit, decimals, quality]);
   }
 
   // ───────────────────────── 테마 ─────────────────────────
@@ -1689,6 +1753,7 @@ export class StepApp {
     if (this.loading) {
       this.statusDoc.append(h('span', {}, `${this.loading.name} 여는 중… ${fmtPercent(this.loading.fraction)}`));
     } else if (d) {
+      if (this.upload !== null) this.statusDoc.append(h('span', {}, `화면에 올리는 중 ${fmtPercent(this.upload)}`));
       for (const it of docStatus(d)) this.statusDoc.append(h('span', { title: it.title ?? null }, it.text));
     } else {
       this.statusDoc.append(h('span', {}, 'STEP 파일을 열거나 끌어다 놓으세요'));
@@ -1873,4 +1938,3 @@ function logMeasure(d: StepDoc, r: MeasureRecord): void {
 function translateUi(ko: string): string {
   return translateCatalog(ko, document.documentElement.lang || 'ko');
 }
-

@@ -14,6 +14,14 @@ export interface ParseRequest {
   name: string;
   /** 파일 바이트(이전된다) */
   bytes: ArrayBuffer;
+  /** 삼각화 선택(곡면 품질) */
+  options?: ParseOptions;
+}
+
+/** 삼각화 선택: 크기 대비 현 높이(기본 0.001)와 이웃 법선 사이 최대 각(도, 기본 20) */
+export interface ParseOptions {
+  tolerance?: number;
+  angleTolerance?: number;
 }
 
 export type ParseResponse =

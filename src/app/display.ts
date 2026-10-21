@@ -1,5 +1,5 @@
 /**
- * 표시 설정(순수, DOM 없음): 길이 단위(파일 단위·mm·인치)와 소수 자리, 화면 언어에 맞춘 수 꼴.
+ * 표시 설정(순수, DOM 없음): 길이 단위(파일 단위·mm·인치)와 소수 자리, 곡면 품질(삼각화 세밀함), 화면 언어에 맞춘 수 꼴.
  * 모든 화면 글(측정 띠·패널·상태 막대·단면 값·속성)은 Fmt 하나로 숫자를 만든다.
  * 장면 좌표는 장면 단위(Scene3d.units) 그대로 두고, 보일 때만 배율(factor)을 곱한다.
  * 설정은 이 브라우저(localStorage)에 기억한다.
@@ -9,13 +9,24 @@ import type { Scene3d } from 'opencad-viewer3d/types';
 /** 길이 단위 고르기: 파일 단위 그대로, 밀리미터, 인치 */
 export type UnitChoice = 'file' | 'mm' | 'in';
 
+/** 곡면 품질(삼각화 세밀함): 보통(기본)·세밀·아주 세밀 */
+export type Quality = 'normal' | 'fine' | 'finest';
+
 export interface DisplaySettings {
   unit: UnitChoice;
   /** 소수 자리(0~6) */
   decimals: number;
+  quality: Quality;
 }
 
-export const DEFAULT_DISPLAY: DisplaySettings = { unit: 'file', decimals: 3 };
+export const DEFAULT_DISPLAY: DisplaySettings = { unit: 'file', decimals: 3, quality: 'normal' };
+
+/** 곡면 품질 → 삼각화 선택(크기 대비 현 높이, 최대 각 — 기본은 해석기 기본값) */
+export const QUALITY_OPTIONS: Record<Quality, { tolerance?: number; angleTolerance?: number }> = {
+  normal: {},
+  fine: { tolerance: 0.0003, angleTolerance: 10 },
+  finest: { tolerance: 0.0001, angleTolerance: 5 },
+};
 export const DISPLAY_KEY = 'opencad-step-display';
 export const MAX_DECIMALS = 6;
 
@@ -29,7 +40,8 @@ export function readDisplaySettings(store: Store): DisplaySettings {
     const o = JSON.parse(raw) as Partial<DisplaySettings>;
     const unit: UnitChoice = o.unit === 'mm' || o.unit === 'in' ? o.unit : 'file';
     const d = Number(o.decimals);
-    return { unit, decimals: Number.isInteger(d) ? Math.max(0, Math.min(MAX_DECIMALS, d)) : DEFAULT_DISPLAY.decimals };
+    const quality: Quality = o.quality === 'fine' || o.quality === 'finest' ? o.quality : 'normal';
+    return { unit, decimals: Number.isInteger(d) ? Math.max(0, Math.min(MAX_DECIMALS, d)) : DEFAULT_DISPLAY.decimals, quality };
   } catch {
     return { ...DEFAULT_DISPLAY };
   }
@@ -37,7 +49,7 @@ export function readDisplaySettings(store: Store): DisplaySettings {
 
 export function writeDisplaySettings(store: Store, s: DisplaySettings): void {
   try {
-    store?.setItem(DISPLAY_KEY, JSON.stringify({ unit: s.unit, decimals: s.decimals }));
+    store?.setItem(DISPLAY_KEY, JSON.stringify({ unit: s.unit, decimals: s.decimals, quality: s.quality }));
   } catch {
     /* 저장소를 못 쓰는 환경 */
   }
