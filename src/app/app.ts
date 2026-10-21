@@ -34,7 +34,7 @@ import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { consumeLaunchQueue, registerServiceWorker } from './pwa';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
-import { isTextTarget, routeKey } from './keys';
+import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
@@ -644,6 +644,9 @@ export class StepApp {
 
   private showDoc(doc: StepDoc, carry: StepDoc | null = null): void {
     const v = this.ensureViewer();
+    // 앞 문서의 간섭 검사는 결과를 쓸 곳이 없다 — 워커를 멈춘다(돌던 채로 CPU를 쓰지 않게)
+    this.checkWorker?.terminate();
+    this.checkWorker = null;
     // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다
     let tris = 0;
     for (const m of doc.scene.meshes) tris += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
@@ -2108,7 +2111,7 @@ export class StepApp {
 
   private onKey(ev: KeyboardEvent): void {
     if (ev.defaultPrevented) return;
-    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, inText: isTextTarget(ev.target), hasDoc: this.hasDoc });
+    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc });
     if (!action) return;
     const v = this.viewer;
     switch (action) {
