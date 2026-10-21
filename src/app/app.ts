@@ -23,7 +23,7 @@ import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type Ope
 import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
-import { openDialog, selectRow } from './dialog';
+import { closeDialog, openDialog, selectRow } from './dialog';
 import { createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
 import { faceAt, faceDetails, faceKindLabel, type FacePick } from './faces';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName } from './files';
@@ -1153,7 +1153,8 @@ export class StepApp {
         this.toggleGrid();
         break;
       case 'escape':
-        // 메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기
+        // 대화 상자·메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기
+        if (closeDialog()) break;
         if (closeMenu()) break;
         if (this.loading) {
           this.cancel();
