@@ -20,7 +20,10 @@ for(const{code}of languages){
  const manifest=JSON.parse(readFileSync('dist/'+manifestUrl.pathname.slice(appPath.length),'utf8'));
  assert.equal(manifest.lang,code);assert.equal(manifest.display,'standalone');
  assert.equal(new URL(manifest.start_url,manifestUrl).href,metadata.url,`${code}: manifest start_url`);
- assert.equal(new URL(manifest.id,new URL(manifest.start_url,manifestUrl)).href,metadata.url,`${code}: manifest id`);
+ // 브라우저처럼 id를 푼다: start_url의 출처에 대고(없으면 start_url) — 앱 경로 밖(사이트 뿌리 등)이면 다른 앱과 겹친다
+ const start=new URL(manifest.start_url,manifestUrl);const id=manifest.id?new URL(manifest.id,start.origin):start;
+ assert.ok(id.href.startsWith(metadataForLanguage('ko').url),`${code}: manifest id outside the app (${id.href})`);
+ assert.equal(id.href,metadata.url,`${code}: manifest id`);
  assert.equal(new URL(manifest.scope,manifestUrl).href,metadataForLanguage('ko').url,`${code}: manifest scope`);
  if(code!=='ko')assert.doesNotMatch(manifest.name+manifest.short_name+manifest.description+doc.querySelector('meta[name="apple-mobile-web-app-title"]').content,/[가-힣]/,`${code}: untranslated manifest`);
  for(const icon of manifest.icons){const src=new URL(icon.src,manifestUrl);assert.ok(existsSync('dist/'+src.pathname.slice(appPath.length)),`${code}: icon ${icon.src}`);}

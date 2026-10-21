@@ -31,12 +31,16 @@ export function localizeHtml(html, language) {
   return html;
 }
 const MANIFEST=new URL('../public/manifest.webmanifest',import.meta.url);
-/** 언어 페이지(<언어>/)의 앱 정보: 이름·설명을 옮기고, 시작 주소(id)는 그 언어 페이지, 범위·아이콘은 앱 뿌리 */
+/**
+ * 언어 페이지(<언어>/)의 앱 정보: 이름·설명을 옮기고, 시작 주소는 그 언어 페이지, 범위·아이콘은 앱 뿌리.
+ * id는 두지 않는다 — 브라우저는 id를 start_url의 출처(https://gyutae-kim.github.io/)에 대고 풀므로 "./"는 사이트 뿌리가 되어
+ * 다른 OpenCAD 앱·포트폴리오와 같은 앱으로 친다. 없으면 start_url(/opencad-step/, /opencad-step/en/ …)이 id다
+ */
 export function localizeManifest(manifest, language) {
   if (language === 'ko') return manifest;
   const up = src => /^[a-z]+:|^\//i.test(src) ? src : '../' + src.replace(/^\.\//, '');
   return { ...manifest, name: translate(manifest.name, language), short_name: translate(manifest.short_name, language),
-    description: translate(manifest.description, language), lang: language, id: './', start_url: './', scope: '../',
+    description: translate(manifest.description, language), lang: language, start_url: './', scope: '../',
     icons: manifest.icons.map(icon => ({ ...icon, src: up(icon.src) })) };
 }
 const manifestJson=language=>JSON.stringify(localizeManifest(JSON.parse(readFileSync(MANIFEST,'utf8')),language),null,2)+'\n';
