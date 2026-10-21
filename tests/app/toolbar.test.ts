@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeMenu } from '../../src/app/menu';
 import { isLineMode, profilesFor, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
+import { translate } from '../../site/i18n.mjs';
 
 function host(): ToolbarHost & { calls: string[] } {
   const calls: string[] = [];
@@ -194,5 +195,17 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     button(tb, '와이어프레임').click();
     const item = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.querySelector('.menu-label')!.textContent === '외곽선 강조')!;
     expect([item.getAttribute('aria-checked'), item.disabled]).toEqual(['true', true]);
+  });
+});
+
+describe('도구 막대 말풍선 번역', () => {
+  it('표준 뷰 단추의 단축키 안내가 다른 언어에서 한국어 없이', () => {
+    document.body.innerHTML = '';
+    const tb = new Toolbar(host());
+    document.body.append(tb.el);
+    const title = button(tb, '표준 뷰').title;
+    expect(title).toMatch(/^표준 뷰 \(1 앞 · 2 뒤 · .* · 7 남동 등각\)$/);
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) expect(translate(title, lang), lang).not.toMatch(/[가-힣]/);
+    expect(translate(title, 'en')).toBe('Standard Views (1 Front · 2 Back · 3 Left · 4 Right · 5 Top · 6 Bottom · 7 SE isometric)');
   });
 });

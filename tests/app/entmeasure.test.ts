@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { closestSegments, measureEntities, type Entity } from '../../src/app/entmeasure';
+import { translate } from '../../site/i18n.mjs';
 
 const plane = (point: [number, number, number], normal: [number, number, number]): Entity => ({ type: 'plane', label: 'p', point, normal });
 const axis = (origin: [number, number, number], dir: [number, number, number], radius = 1): Entity => ({ type: 'axis', label: 'a', origin, dir, radius });
@@ -113,5 +114,16 @@ describe('두 개체 사이 측정(해석적)', () => {
     const pt = point([3, 4, 9]);
     const all: Entity[] = [P, x, z, l, c, c2, pt];
     for (const a of all) for (const b of all) if (a !== b) expect(measureEntities(a, b).lines).toEqual(measureEntities(b, a).lines);
+  });
+
+  it('측정 줄 이름은 모두 다섯 언어 사전에 있다(측정 띠·기록에 한국어가 남지 않게)', () => {
+    const tilted = plane([0, 0, 0], [0, Math.SQRT1_2, Math.SQRT1_2]);
+    const all: Entity[] = [plane([0, 0, 1], [0, 0, 1]), plane([0, 0, 5], [0, 0, 1]), tilted, axis([0, 0, 0], [1, 0, 0]), axis([0, 0, 0], [0, 0, 1]), axis([0, 5, 0], [0, 0, 1]),
+      circle([10, 0, 0], [0, 0, 1]), circle([3, 4, 7], [0, 0, -1]), line([0, 5, 0], [0, 5, 10]), line([0, 0, 0], [10, 0, 0]), line([0, 0, 0], [0, 0, 0]), point([3, 4, 9])];
+    const labels = new Set<string>();
+    for (const a of all) for (const b of all) if (a !== b) for (const l of measureEntities(a, b).lines) labels.add(l.label);
+    expect(labels).toContain('중심–모서리 거리');
+    expect(labels).toContain('중심–축 거리');
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) for (const l of labels) expect(translate(l, lang), `${lang}: ${l}`).not.toMatch(/[가-힣]/);
   });
 });
