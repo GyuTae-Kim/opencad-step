@@ -815,7 +815,8 @@ function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   if (fp.normal) geo.push(`법선 ${f.dir(fp.normal)}`);
   if (fp.axis) geo.push(`축 ${f.dir(fp.axis)}`);
   if (fp.origin && fp.kind !== 'plane') geo.push(`${fp.kind === 'sphere' || fp.kind === 'torus' ? '중심' : '축 위 점'} ${f.pt(fp.origin)}`);
-  if (geo.length) out.push(h('div', { class: 'dim' }, geo.join(' · ')));
+  // 조각마다 따로 번역되게(반지름 …·지름 …·축 …) 글 마디를 나눈다
+  if (geo.length) out.push(h('div', { class: 'dim' }, ...geo.flatMap((g, i) => (i ? [' · ', h('span', {}, g)] : [h('span', {}, g)]))));
   const approx = fp.exact ? '' : '≈ ';
   out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${f.area(fp.area)} · 둘레 ${approx}${f.len(fp.perimeter)}`));
   return out;
