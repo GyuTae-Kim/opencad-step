@@ -13,6 +13,8 @@
  * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
  * - 휴대폰·터치: 측정·면 고르기 중에는 3D 보기 아래 가운데 띠(measure.ts)에 안내·거리·고른 면 치수와 다시 재기·끝내기 단추를 두고,
  *   길게 누르면 손가락 위 십자선으로 정밀 조준한다(aim.ts — 코어 포인터 처리를 그대로 쓴다).
+ * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
+ *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
@@ -29,6 +31,7 @@ import { faceHint, faceSummary, measureHint, measureLines, selectionSize } from 
 import { closeMenu, openMenu } from './menu';
 import { Panel, pmiTypeLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
+import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { PanelResizer } from './resize';
 import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
@@ -152,9 +155,18 @@ export class StepApp {
   private readonly measureClose: HTMLButtonElement;
   private barMode: 'measure' | 'face' | 'select' | null = null;
   private readonly aimLayer: HTMLElement;
+  // ── 최근 문서(시작 화면) ──
+  private readonly recent = new RecentStore();
+  private readonly recentList = h('ul', { class: 'recent-list' });
+  private readonly recentCard = h('section', { class: 'recent', 'aria-labelledby': 'recent-title', hidden: true });
+  private recentSeq = 0;
 
   constructor(root: HTMLElement) {
-    root.addEventListener('languagechange', () => { if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize); });
+    root.addEventListener('languagechange', () => {
+      if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize);
+      // 시각 표기(오후 3:04 ↔ 3:04 PM)를 새 언어로
+      void this.refreshRecent();
+    });
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     this.narrow = typeof matchMedia === 'function' ? matchMedia(NARROW) : null;
@@ -298,6 +310,13 @@ export class StepApp {
     drop.addEventListener('click', (e) => {
       if (e.target === drop) this.pickFile();
     });
+    const clearRecent = h('button', { type: 'button', class: 'recent-clear' }, '모두 지우기');
+    clearRecent.addEventListener('click', () => void this.recent.clear().then(() => this.refreshRecent()));
+    this.recentCard.append(
+      h('div', { class: 'recent-head' }, h('h3', { id: 'recent-title' }, '최근 문서'), clearRecent),
+      this.recentList,
+      h('p', { class: 'recent-note' }, icon('lock', 14), h('span', {}, '파일은 이 기기의 이 브라우저에만 남고 서버로 보내지 않습니다.')),
+    );
     return h(
       'div',
       { class: 'start' },
@@ -308,6 +327,7 @@ export class StepApp {
         h('p', { class: 'lead' }, 'STEP(ISO 10303-21) 파일을 열어 돌려 보고, 부품을 고르고, 거리를 잽니다.'),
         drop,
         this.startError,
+        this.recentCard,
         h(
           'ul',
           { class: 'start-facts' },
@@ -329,9 +349,9 @@ export class StepApp {
 
   /**
    * 파일 열기. 확장자가 STEP이 아니면 앞부분을 보고 가린다: STEP 글·gzip·ZIP(워커가 푼다)은 열고,
-   * STEP-XML(.stpx)과 그 밖의 것은 알기 쉬운 이유로 거절한다.
+   * STEP-XML(.stpx)과 그 밖의 것은 알기 쉬운 이유로 거절한다. remember면 잘 열었을 때 최근 문서에 남긴다(고르기·끌어다 놓기).
    */
-  async openFile(file: File): Promise<boolean> {
+  async openFile(file: File, remember = true): Promise<boolean> {
     const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
     if (isStepXmlName(file.name)) {
       attempt.error('unsupported');
@@ -360,7 +380,56 @@ export class StepApp {
         return false;
       }
     }
-    return this.load(file.name, () => file.arrayBuffer(), 'local', attempt);
+    const ok = await this.load(file.name, () => file.arrayBuffer(), 'local', attempt);
+    if (ok && remember)
+      void this.recent.add(file.name, file).then((saved) => {
+        if (saved) void this.refreshRecent();
+      });
+    return ok;
+  }
+
+  // ───────────────────────── 최근 문서 ─────────────────────────
+
+  /** 시작 화면의 최근 문서 목록을 다시 그린다(비었으면 카드를 숨긴다) */
+  private async refreshRecent(): Promise<void> {
+    const seq = ++this.recentSeq;
+    const list = await this.recent.list();
+    if (seq !== this.recentSeq) return;
+    const now = Date.now();
+    const locale = document.documentElement.lang || 'ko';
+    this.recentList.replaceChildren(...list.map((r) => this.recentRow(r, now, locale)));
+    this.recentCard.hidden = !list.length;
+  }
+
+  private recentRow(r: RecentEntry, now: number, locale: string): HTMLElement {
+    // 파일 이름은 번역하지 않는다
+    const open = h('button', { type: 'button', class: 'recent-open' }, h('span', { class: 'recent-name', translate: 'no' }, r.name), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
+    open.addEventListener('click', () => void this.openRecent(r));
+    const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${r.name}` });
+    del.append(icon('close', 16));
+    del.addEventListener('click', () => void this.recent.remove(r.id).then(() => this.refreshRecent()));
+    return h('li', { class: 'recent-row' }, open, del);
+  }
+
+  /**
+   * 최근 문서 다시 열기(다시 남기지 않고 순서만 맨 앞으로). 파일이 없으면 목록에서 지우고,
+   * 잠깐 못 읽었으면(저장소 오류 — 휴대폰이 뒤에서 연결을 끊는 등) 항목을 남겨 다시 누를 수 있게 한다
+   */
+  private async openRecent(r: RecentEntry): Promise<boolean> {
+    const got = await this.recent.read(r.id);
+    if (got.kind === 'missing') {
+      this.toast('저장해 둔 파일을 찾지 못해 목록에서 지웠습니다.', 'warn');
+      await this.recent.remove(r.id);
+      void this.refreshRecent();
+      return false;
+    }
+    if (got.kind === 'error') {
+      this.toast('저장해 둔 파일을 지금 읽지 못했습니다. 잠시 뒤 다시 눌러 보세요.', 'warn');
+      return false;
+    }
+    const ok = await this.openFile(got.file, false);
+    if (ok) void this.recent.touch(r.id).then(() => this.refreshRecent());
+    return ok;
   }
 
   /** 예제 모형 열기 */
@@ -1208,6 +1277,7 @@ export class StepApp {
 
   /** 시작 주소 인자(?open=·?sample) 처리 */
   async start(): Promise<void> {
+    void this.refreshRecent();
     const q = parseStartQuery(location.search, location.href);
     if (q.openError) this.showError(q.openError);
     if (q.open) await this.openUrl(q.open);
