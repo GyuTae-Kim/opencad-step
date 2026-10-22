@@ -18,6 +18,7 @@ import {
   unitLabel,
   type ProductNode,
 } from '../../src/app/doc';
+import { translate } from '../../site/i18n.mjs';
 import { SAMPLE_NAME, sampleStepBytes } from '../../src/app/sample';
 import { stepToScene } from '../../src/index';
 
@@ -141,5 +142,14 @@ describe('예제 문서', () => {
     expect(items[4]).toMatch(/^삼각형 [\d,]+$/);
     expect(items[5]).toBe('부품 5');
     expect(items[6]).toBe('읽기 42 ms');
+  });
+
+  it('docStatus 읽기 시간 말풍선: 다른 언어에서 해석·삼각화 조각까지 그 언어로', () => {
+    const title = docStatus(doc).at(-1)!.title!;
+    expect(title).toMatch(/^해석 .+ · 삼각화 .+ · 워커 전체 .+ · 화면까지 /);
+    const plain = docStatus({ ...doc, info: { ...doc.info, stats: null } }).at(-1)!.title!;
+    expect(plain).toMatch(/^워커 전체 .+ · 화면까지 /);
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) for (const t of [title, plain]) expect(translate(t, lang), `${lang}: ${t}`).not.toMatch(/[가-힣]/);
+    expect(translate(title, 'en')).toMatch(/^Parse .+ · Triangulation .+ · Worker total 42 ms · To screen /);
   });
 });
