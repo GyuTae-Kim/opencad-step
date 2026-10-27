@@ -7,7 +7,8 @@ import { stepToScene } from '../src/index';
 import { FLUX, PROPS_BREP, PROPS_LEN, PROPS_TIMEOUT, addSliverFlux, faceFlux, lineCurve, trianglesFlux } from '../src/massprops';
 import type { StepFaceTable } from '../src/scene';
 import { scaleProps } from '../src/scene';
-import { localProps } from '../src/app/physics';
+import { createDoc } from '../src/app/doc';
+import { accuracyText, localProps, physProps } from '../src/app/physics';
 import { cone, cube, cylinder, plateWithHole, sphere, StepText, torus, type P3 } from './stepText';
 
 type Sym = [number, number, number, number, number, number];
@@ -223,6 +224,50 @@ describe('B-rep 질량 속성(곡면 적분)', () => {
 
   it('질량 속성을 끄면(props: false) 면 표에 없다', () => {
     expect(open((w) => cylinder(w, 5, 20), { props: false }).props).toBeUndefined();
+  });
+
+  it('physProps: B-rep 값이면 정확(≈ 없음) — 원기둥 강철의 질량·관성, 자리 돌림(90°)과 옮김', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    const part = w.product('cyl', [cylinder(w, 5, 10)], ctx);
+    // x축으로 90° 돌려(z → -y) (100, 0, 0)에
+    const at = w.ax2([100, 0, 0], [1, 0, 0], [0, 0, 1]);
+    const root = w.product('asm', [at], ctx, 'SHAPE_REPRESENTATION');
+    w.place(root, part, at, 'c1');
+    const s = stepToScene(w.bytes());
+    const doc = createDoc('c.stp', 1, { scene: s, ms: 0 });
+    const p = physProps(s.meshes, null, { faces: doc.faces, sceneMm: 1, picked: 7850 });
+    expect(p.exact).toBe(true);
+    expect(p.volumeBound).not.toBeNull();
+    const V = Math.PI * 25 * 10;
+    expect(Math.abs(p.volume - V) / V).toBeLessThan(1e-12);
+    const m = 7850 * V * 1e-9;
+    expect(Math.abs(p.mass! - m) / m).toBeLessThan(1e-12);
+    const r = 0.005;
+    const h = 0.01;
+    // 주 관성: 축 둘레 m r²/2(하나), 가로 m(3r² + h²)/12(둘)
+    const Ia = (m * r * r) / 2;
+    const It = (m * (3 * r * r + h * h)) / 12;
+    const want = [Ia, It, It].sort((a, b) => a - b);
+    p.inertia!.principal.forEach((x, i) => expect(Math.abs(x - want[i]!) / want[i]!).toBeLessThan(1e-9));
+    // 무게중심: 놓인 자리 원점 + 돌린 축의 가운데
+    const cz = 5;
+    const cen = p.centroid!;
+    expect(Math.hypot(cen[0] - 100, cen[1], cen[2]) - cz).toBeLessThan(1e-9);
+    // 면 표 없이(옛 결과)는 삼각형 값 — 어림 오차를 모른다
+    const old = physProps(s.meshes, null, { sceneMm: 1, picked: 7850 });
+    expect(old.exact).toBe(false);
+    expect(old.volumeBound).toBeNull();
+  });
+
+  it('정확도 글: 정확 · 근삿값(±유효 두 자리 %) · 아주 작으면 미만 · 어림 오차를 모르면 화면용 삼각형', () => {
+    expect(accuracyText({ exact: true, volumeBound: 0, volume: 1 }).text).toBe('정확(B-rep 곡면 적분)');
+    expect(accuracyText({ exact: false, volumeBound: 0.00083, volume: 1 }).text).toBe('근삿값(±0.083%)');
+    expect(accuracyText({ exact: false, volumeBound: 0.0123, volume: 1 }).text).toBe('근삿값(±1.2%)');
+    expect(accuracyText({ exact: false, volumeBound: 1e-9, volume: 1 }).text).toBe('근삿값(±0.001% 미만)');
+    expect(accuracyText({ exact: false, volumeBound: null, volume: 1 }).text).toBe('근삿값(화면용 삼각형)');
+    // 표시 언어의 수 꼴(소수점 쉼표 등)은 넘겨준 함수로
+    expect(accuracyText({ exact: false, volumeBound: 0.0123, volume: 1 }, (v) => String(v).replace('.', ',')).text).toBe('근삿값(±1,2%)');
   });
 
   it('faceFlux·trianglesFlux·띠: 평면 정사각형 면 하나와 그 삼각형 둘이 같은 흐름 값, 곧은 띠는 0', () => {

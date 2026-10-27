@@ -1,14 +1,17 @@
 /**
  * 물리 속성(순수, DOM 없음): 그물마다 부피·무게중심·겉넓이를 구하고 자리 변환(Mesh3d.matrix·origin)을 반영해 고른 것끼리 더한다.
  *
- * - 부피와 1차 모멘트는 닫힌 그물(Mesh3d.closed)의 삼각형으로 원점 사면체를 더해 구한다(발산 정리). 화면용 삼각형이라
- *   곡면은 조금 작게 나온다 — 화면은 "≈"로 보인다. 잰 값(원기둥·구·원뿔·원환): 보통 품질 0.03~1.2%(각 허용 20°라 가는
- *   원기둥·원환이 가장 크고, 각만 걸리면 많게는 약 2%), 세밀 0.3%·아주 세밀 0.1% 안. 열린 그물은 부피에서 뺀다.
+ * - 부피·1차·2차 모멘트는 해석 워커가 면 표에 남긴 B-rep 질량 속성(FaceTableData.props — massprops.ts, 곡면과 모서리 곡선의 경계 적분)을
+ *   먼저 쓴다. 평면·원기둥·원뿔·구·원환과 직선·원·타원 모서리로 된 입체는 반올림 수준으로 정확하고, B-스플라인 같은 면이 섞이면
+ *   그 면만 화면용 삼각형으로 재고 부피 어림 오차(bound)를 함께 준다 — 화면은 "정확" 또는 "근삿값(±…%)"으로 보인다.
+ * - 면 표 질량 속성이 없으면(옛 결과·면 표를 끈 해석) 닫힌 그물(Mesh3d.closed)의 삼각형으로 사면체를 더해 구한다(발산 정리).
+ *   화면용 삼각형이라 곡면은 조금 작게 나오고 어림 오차를 모른다("≈"). 열린 그물은 부피에서 뺀다.
  * - 겉넓이는 면 표에 B-rep 넓이(area)가 모든 면에 있으면 그 합(정확), 아니면 삼각형 넓이(≈).
  * - 같은 형상을 여러 자리에 놓으면(같은 positions) 형상 좌표 값은 한 번만 구한다(WeakMap).
  * - 질량 = 밀도(kg/m³) × 부피(m³). 밀도는 그 그물이 든 제품의 파일 밀도, 없으면 고른 재질 밀도.
  */
 import type { Box3, Mesh3d } from 'opencad-viewer3d/types';
+import { PROPS_TIMEOUT } from '../massprops';
 import type { FaceIndex, ProductNode } from './doc';
 
 type V3 = [number, number, number];
@@ -16,25 +19,54 @@ type V3 = [number, number, number];
 /** 형상 좌표(origin 포함, matrix 전)에서 구한 값 */
 interface LocalProps {
   volume: number;
-  /** 1차 모멘트(부피 × 무게중심) */
+  /** 1차 모멘트(부피 × (무게중심 − ref)) */
   moment: V3;
-  /** 원점 기준 2차 모멘트 ∫x_i x_j dV: [xx, yy, zz, xy, yz, zx] */
+  /** ref 기준 2차 모멘트 ∫y_i y_j dV(y = x − ref): [xx, yy, zz, xy, yz, zx] */
   second: [number, number, number, number, number, number];
+  /** 모멘트 기준점(형상 좌표) */
+  ref: V3;
   /** 삼각형 넓이 */
   facetArea: number;
+  /** 부피 어림 오차(형상 단위³, 0이면 정확) — 모르면 NaN(삼각형으로만 잰 값) */
+  bound: number;
+  /** 시간 한도 때문에 곡면 적분 대신 삼각형으로 구했는지 */
+  timedOut: boolean;
 }
+
+/** 정확으로 볼 상대 어림 오차(부피 대비) */
+export const EXACT_REL = 1e-9;
 
 const cache = new WeakMap<ArrayLike<number>, Map<ArrayLike<number> | null, LocalProps>>();
 
-/** 그물 하나의 형상 좌표 부피·모멘트·삼각형 넓이(positions + origin) */
-export function localProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'>): LocalProps {
+/**
+ * 그물 하나의 형상 좌표 부피·모멘트·삼각형 넓이(positions + origin — 모멘트는 묶음 원점 기준이라 큰 좌표에서도 자릿수를 잃지 않는다).
+ * faces를 주면 면 표의 B-rep 질량 속성(있으면)을 쓴다
+ */
+export function localProps(mesh: Pick<Mesh3d, 'id' | 'positions' | 'indices' | 'origin'>, faces?: FaceIndex | null): LocalProps {
+  const tri = triangleProps(mesh);
+  const ti = faces?.tableOf.get(mesh.id);
+  const p = ti === undefined ? undefined : faces!.tables[ti]?.props;
+  if (!p || !(p[0]! > 0)) return tri;
+  return {
+    volume: p[0]!,
+    moment: [p[1]!, p[2]!, p[3]!],
+    second: [p[4]!, p[5]!, p[6]!, p[7]!, p[8]!, p[9]!],
+    ref: [p[10]!, p[11]!, p[12]!],
+    facetArea: tri.facetArea,
+    bound: p[13]!,
+    timedOut: p[14] === PROPS_TIMEOUT,
+  };
+}
+
+/** 삼각형으로 잰 값(같은 positions·indices는 한 번만) */
+function triangleProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'>): LocalProps {
   const key = mesh.indices ?? null;
   let byIdx = cache.get(mesh.positions);
   const hit = byIdx?.get(key);
-  if (hit && !mesh.origin) return hit;
+  const o: V3 = mesh.origin ? [mesh.origin[0], mesh.origin[1], mesh.origin[2]] : [0, 0, 0];
+  if (hit) return { ...hit, ref: o };
   const P = mesh.positions;
   const I = mesh.indices;
-  const o = mesh.origin ?? [0, 0, 0];
   const n = I ? I.length : P.length / 3;
   let vol = 0;
   let mx = 0;
@@ -46,9 +78,9 @@ export function localProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'
     const a = (I ? I[t]! : t) * 3;
     const b = (I ? I[t + 1]! : t + 1) * 3;
     const c = (I ? I[t + 2]! : t + 2) * 3;
-    const ax = P[a]! + o[0], ay = P[a + 1]! + o[1], az = P[a + 2]! + o[2];
-    const bx = P[b]! + o[0], by = P[b + 1]! + o[1], bz = P[b + 2]! + o[2];
-    const cx = P[c]! + o[0], cy = P[c + 1]! + o[1], cz = P[c + 2]! + o[2];
+    const ax = P[a]!, ay = P[a + 1]!, az = P[a + 2]!;
+    const bx = P[b]!, by = P[b + 1]!, bz = P[b + 2]!;
+    const cx = P[c]!, cy = P[c + 1]!, cz = P[c + 2]!;
     // 원점 사면체 부피(부호 있음)
     const v = (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
     vol += v;
@@ -68,11 +100,9 @@ export function localProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'
     const wx = cx - ax, wy = cy - ay, wz = cz - az;
     area += Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
   }
-  const out: LocalProps = { volume: vol, moment: [mx, my, mz], second: [sxx, syy, szz, sxy, syz, szx], facetArea: area };
-  if (!mesh.origin) {
-    if (!byIdx) cache.set(mesh.positions, (byIdx = new Map()));
-    byIdx.set(key, out);
-  }
+  const out: LocalProps = { volume: vol, moment: [mx, my, mz], second: [sxx, syy, szz, sxy, syz, szx], ref: o, facetArea: area, bound: NaN, timedOut: false };
+  if (!byIdx) cache.set(mesh.positions, (byIdx = new Map()));
+  byIdx.set(key, out);
   return out;
 }
 
@@ -117,9 +147,18 @@ export interface PhysProps {
   bounds: Box3 | null;
   /**
    * 무게중심 기준 관성(질량을 알 때만, kg·m²): 텐서 대각 Ixx·Iyy·Izz(장면 축), 주 관성 모멘트(작은 것부터)와 그 축(세계, 단위).
-   * 닫힌 그물의 삼각형으로 구한 근삿값(≈)
+   * 정확도는 부피와 같은 길(volumeBound)
    */
   inertia: Inertia | null;
+  /**
+   * 부피 어림 오차 합(장면 단위³): 닫힌 그물이 모두 B-rep 질량 속성을 가졌을 때만, 하나라도 삼각형으로만 쟀으면 null(모름).
+   * 0에 가까우면(부피의 EXACT_REL 이하) 부피·질량·무게중심·관성이 정확하다(exact)
+   */
+  volumeBound: number | null;
+  /** 부피·질량·무게중심·관성이 정확한지(B-rep 적분, 어림 오차가 반올림 수준) */
+  exact: boolean;
+  /** 시간 한도 때문에 곡면 적분 대신 삼각형으로 구한 닫힌 그물 수 */
+  timedOut: number;
 }
 
 export interface Inertia {
@@ -202,9 +241,12 @@ export function physProps(
   const m2 = Number.isFinite(opts.sceneMm) ? (opts.sceneMm / 1000) ** 2 : NaN;
   /** 질량 가중 원점 기준 2차 모멘트 Σρ∫x xᵀ dV(kg·장면 단위²) — 행 우선 9개 */
   const J = new Array<number>(9).fill(0);
+  let bound = 0;
+  let boundKnown = true;
+  let timedOut = 0;
   for (const mesh of meshes) {
     if (ids && !ids.has(mesh.id)) continue;
-    const lp = localProps(mesh);
+    const lp = mesh.closed ? localProps(mesh, opts.faces) : triangleProps(mesh);
     const M = mesh.matrix;
     const det = M ? det3(M) : 1;
     const s2 = Math.cbrt(Math.abs(det)) ** 2;
@@ -228,7 +270,11 @@ export function physProps(
     }
     closed++;
     const v = Math.abs(lp.volume * det);
-    const c0: V3 = [lp.moment[0] / lp.volume, lp.moment[1] / lp.volume, lp.moment[2] / lp.volume];
+    if (Number.isFinite(lp.bound)) bound += lp.bound * Math.abs(det);
+    else boundKnown = false;
+    if (lp.timedOut) timedOut++;
+    const r = lp.ref;
+    const c0: V3 = [r[0] + lp.moment[0] / lp.volume, r[1] + lp.moment[1] / lp.volume, r[2] + lp.moment[2] / lp.volume];
     const c: V3 = M ? [M[0]! * c0[0] + M[4]! * c0[1] + M[8]! * c0[2] + M[12]!, M[1]! * c0[0] + M[5]! * c0[1] + M[9]! * c0[2] + M[13]!, M[2]! * c0[0] + M[6]! * c0[1] + M[10]! * c0[2] + M[14]!] : c0;
     volume += v;
     for (let k = 0; k < 3; k++) wv[k] = wv[k]! + c[k]! * v;
@@ -248,7 +294,9 @@ export function physProps(
       const mv = lp.moment.map((x) => x * sg) as V3;
       const V0 = lp.volume * sg;
       const A = M ? [M[0]!, M[4]!, M[8]!, M[1]!, M[5]!, M[9]!, M[2]!, M[6]!, M[10]!] : [1, 0, 0, 0, 1, 0, 0, 0, 1];
-      const t: V3 = M ? [M[12]!, M[13]!, M[14]!] : [0, 0, 0];
+      // 모멘트는 ref 기준: x = ref + y → x' = A y + (A ref + t)
+      const t0: V3 = M ? [M[12]!, M[13]!, M[14]!] : [0, 0, 0];
+      const t: V3 = [0, 1, 2].map((i) => A[i * 3]! * r[0] + A[i * 3 + 1]! * r[1] + A[i * 3 + 2]! * r[2] + t0[i]!) as V3;
       const Am: V3 = [0, 1, 2].map((i) => A[i * 3]! * mv[0] + A[i * 3 + 1]! * mv[1] + A[i * 3 + 2]! * mv[2]) as V3;
       const ad = Math.abs(det);
       const kk = rho * m3; // kg / 장면 단위³
@@ -272,6 +320,7 @@ export function physProps(
     const e = symEigen3(I);
     inertia = { tensor: [I[0]!, I[4]!, I[8]!, I[1]!, I[5]!, I[2]!], principal: e.values, axes: e.vectors };
   }
+  const volumeBound = closed && boundKnown ? bound : null;
   return {
     volume,
     area,
@@ -284,6 +333,9 @@ export function physProps(
     densityFrom: from,
     bounds: Number.isFinite(lo[0]) ? { min: lo, max: hi } : null,
     inertia,
+    volumeBound,
+    exact: volumeBound !== null && volume > 0 && volumeBound <= EXACT_REL * volume,
+    timedOut,
   };
 }
 
@@ -298,6 +350,20 @@ export function meshNodes(roots: readonly ProductNode[]): Map<string, ProductNod
   };
   walk(roots);
   return out;
+}
+
+/**
+ * 부피·질량·관성의 정확도 글: 정확(B-rep 곡면 적분) · 근삿값(±x%, 부피 어림 오차) · 근삿값(화면용 삼각형 — 어림 오차를 모를 때)
+ */
+export function accuracyText(p: Pick<PhysProps, 'exact' | 'volumeBound' | 'volume'>, num: (v: number, digits: number) => string = (v, d) => String(Number(v.toFixed(d)))): { text: string; title: string } {
+  if (p.exact) return { text: '정확(B-rep 곡면 적분)', title: '곡면과 모서리 곡선을 적분해 반올림 오차 수준으로 맞는 값입니다.' };
+  if (p.volumeBound === null || !(p.volume > 0)) return { text: '근삿값(화면용 삼각형)', title: '화면에 그리는 삼각형으로 잰 값이라 곡면이 있으면 조금 작게 나옵니다.' };
+  const pct = (p.volumeBound / p.volume) * 100;
+  const title = '곡면 적분을 못 한 면(B-스플라인 등)만 화면용 삼각형으로 잰 어림 오차입니다(부피 기준).';
+  if (pct < 0.001) return { text: '근삿값(±0.001% 미만)', title };
+  // 유효 숫자 두 자리(지수 표기 없이)
+  const d = Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(pct))));
+  return { text: `근삿값(±${num(Number(pct.toFixed(d)), d)}%)`, title };
 }
 
 /** 질량(kg) → "12.3 g" / "1.23 kg" */
