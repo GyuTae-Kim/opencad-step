@@ -39,7 +39,7 @@ import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
-import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
+import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { circleCenters, edgeSnapPoints, snapPair } from './snap';
@@ -136,6 +136,8 @@ export class StepApp {
   private loadSeq = 0;
   private abort: AbortController | null = null;
   private lastError: string | null = null;
+  /** 마지막 오류의 문장 조각(시작 화면에 조각마다 번역되게) */
+  private lastErrorParts: string[] = [];
   private theme: Theme;
   private storedTheme: Theme | null;
   private readonly systemDark: MediaQueryList | null;
@@ -444,7 +446,7 @@ export class StepApp {
     const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
     if (isStepXmlName(file.name)) {
       attempt.error('unsupported');
-      this.showError(`${file.name}: ${STEP_XML_MESSAGE}`);
+      this.showError([`${file.name}:`, STEP_XML_MESSAGE]);
       return false;
     }
     if (!isStepName(file.name)) {
@@ -452,20 +454,20 @@ export class StepApp {
       try {
         head = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
       } catch (e) {
-        this.showError(`${file.name}: 파일을 읽지 못했습니다. ${errorText(e)}`);
+        this.showError([`${file.name}: 파일을 읽지 못했습니다.`, friendlyError(errorText(e))]);
         attempt.error('read_error');
         return false;
       }
       const kind = sniffContainer(head);
       if (kind === 'xml') {
         attempt.error('unsupported');
-        this.showError(`${file.name}: ${isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.'}`);
+        this.showError([`${file.name}:`, isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.']);
         return false;
       }
       if (kind !== 'step' && kind !== 'gzip' && kind !== 'zip') {
         attempt.error('unsupported');
         const sn = sniffStep(head);
-        this.showError(`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다. ${sn.ok ? '' : sn.reason}`.trim());
+        this.showError([`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다.`, ...(sn.ok ? [] : [sn.reason])]);
         return false;
       }
     }
@@ -618,9 +620,7 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
         attempt.error('empty');
-        // 끊긴 파일이면 그것이 까닭이다(면 실패·형상 없음은 그 결과)
-        const why = res.scene.warnings?.find((w) => w === TRUNCATED_WARNING) ?? res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
-        throw new Error(`그릴 형상(B-rep·삼각형)을 찾지 못했습니다.${why ? ` (${why})` : ''}`);
+        throw Object.assign(new Error('그릴 형상(B-rep·삼각형)을 찾지 못했습니다.'), { detail: emptyReason(res.scene) });
       }
       this.setLoading({ name, fraction: 1, stage: '화면에 올리는 중' });
       await nextPaint();
@@ -640,7 +640,9 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       if (e instanceof ParseCancelled || (e instanceof DOMException && e.name === 'AbortError')) return false;
       attempt.error(reading ? (input === 'url' ? 'fetch_error' : 'read_error') : 'parse_error');
-      this.showError(`${name}: 파일을 열지 못했습니다. ${friendlyError(errorText(e))}`);
+      // 조각마다 따로 번역되게(파일 이름은 그대로) 문장 단위로 나눠 보인다
+      const detail = (e as { detail?: string } | null)?.detail;
+      this.showError([`${name}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])]);
       return false;
     } finally {
       if (seq === this.loadSeq) {
@@ -2270,18 +2272,20 @@ export class StepApp {
     this.updateStatus();
   }
 
-  private showError(msg: string): void {
-    this.lastError = msg;
-    this.toast(msg, 'error', 9000);
+  /** 오류 알림: 문장 조각(번역층이 조각마다 옮긴다 — 한 글로 이으면 뒤 조각이 변수로 잡혀 한국어로 남는다) */
+  private showError(parts: string[]): void {
+    this.lastErrorParts = parts;
+    this.lastError = parts.join(' ');
+    this.toast(parts, 'error', 9000);
     this.updateAll();
   }
 
   /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다) */
-  toast(msg: string, kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
+  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, msg), act, close);
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : [msg])), act, close);
     act?.addEventListener('click', () => {
       t.remove();
       action!.run();
@@ -2299,7 +2303,7 @@ export class StepApp {
     // 문서가 없을 때 시작 화면 뒤에 미리 만든 캔버스로 초점이 가지 않게
     this.hostEl.inert = !d;
     this.startError.hidden = !this.lastError || !!d;
-    this.startError.textContent = this.lastError ?? '';
+    this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : []));
     this.docNameEl.textContent = d ? d.name : '';
     this.docNameEl.title = d ? d.name : '';
     if (!d) document.title = APP_TITLE;
@@ -2521,7 +2525,7 @@ export class StepApp {
       else this.pendingView = link;
     });
     const q = parseStartQuery(location.search, location.href);
-    if (q.openError) this.showError(q.openError);
+    if (q.openError) this.showError([q.openError]);
     // 공유 받기(?recent=·?share-error=)는 한 번만: 주소에서 지운다(다시 읽어도 또 열지 않게)
     if (q.recent || q.shareError) history.replaceState(history.state, '', withoutOnceParams(location.href));
     if (q.shareError) this.toast(q.shareError === 'too-big' ? '공유한 파일이 60MB보다 커서 받지 못했습니다 — 파일 열기로 여십시오.' : '공유한 파일을 받지 못했습니다 — 파일 열기로 여십시오.', 'warn', 8000);

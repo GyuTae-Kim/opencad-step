@@ -88,3 +88,15 @@ describe('오류 글', () => {
     expect(friendlyError('STEP 파일이 아닙니다')).toBe('STEP 파일이 아닙니다');
   });
 });
+
+describe('형상이 없을 때 까닭(emptyReason)', () => {
+  it('끊긴 파일이 먼저, 제품 구조만 있으면 그렇다고, 아니면 형상 없음 말고 첫 경고', async () => {
+    const { emptyReason } = await import('../../src/app/protocol');
+    const { TRUNCATED_WARNING } = await import('../../src/messages');
+    const none = '그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)';
+    expect(emptyReason({ warnings: [TRUNCATED_WARNING, '삼각화하지 못한 면 3개 / 3개 (x 3)'] })).toBe(TRUNCATED_WARNING);
+    expect(emptyReason({ warnings: [none], meta: { products: [{}] } })).toMatch(/^제품 구조만 있고 형상이 없는 파일입니다/);
+    expect(emptyReason({ warnings: ['삼각화하지 못한 면 3개 / 3개 (x 3)', none], meta: { products: [{}] } })).toBe('삼각화하지 못한 면 3개 / 3개 (x 3)');
+    expect(emptyReason({ warnings: [none] })).toBeUndefined();
+  });
+});

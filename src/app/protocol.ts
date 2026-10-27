@@ -6,6 +6,7 @@
  * 이전 목록에는 버퍼마다 한 번만 넣는다(같은 버퍼를 두 번 넣으면 postMessage가 실패한다).
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
+import { TRUNCATED_WARNING } from '../messages';
 
 export interface ParseRequest {
   id: number;
@@ -155,6 +156,20 @@ export function headSchemas(head: Uint8Array): string[] {
   const m = /FILE_SCHEMA\s*\(\s*\(([^;]*?)\)\s*\)\s*;/i.exec(text);
   if (!m) return [];
   return [...m[1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]!.trim().toUpperCase()).filter(Boolean);
+}
+
+/**
+ * 그릴 형상이 없을 때 까닭 한 문장: 끊긴 파일이면 그것(면 실패·형상 없음은 그 결과), 제품 구조만 있으면 그렇다고,
+ * 아니면 해석기 경고 가운데 첫 것(형상 없음이라는 같은 말은 빼고). 없으면 undefined
+ */
+export function emptyReason(s: Pick<Scene3d, 'warnings' | 'meta'>): string | undefined {
+  const w = s.warnings ?? [];
+  if (w.includes(TRUNCATED_WARNING)) return TRUNCATED_WARNING;
+  const other = w.filter((x) => !x.startsWith('그릴 형상을 찾지 못했다'));
+  // 다른 경고 없이 형상이 없는데 제품 나무는 있다 — 제품 구조(PRODUCT…)만 내보낸 파일
+  if (!other.length && ((s.meta as { products?: unknown[] } | undefined)?.products?.length ?? 0) > 0)
+    return '제품 구조만 있고 형상이 없는 파일입니다 — CAD에서 형상(솔리드·면)을 함께 내보내 보십시오.';
+  return other[0];
 }
 
 /** 워커·해석기 오류 글 → 화면에 보일 알기 쉬운 글 */
