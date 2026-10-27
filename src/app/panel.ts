@@ -19,6 +19,7 @@ import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import { lineValue } from './entpick';
 import { edgeSummary, edgeTitle, entityHint, faceSummary, panelMeasureHint } from './measure';
+import { snapPair } from './snap';
 import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
 import { NO_LAYER } from './visibility';
 
@@ -807,6 +808,8 @@ export class Panel {
     else if (d.measure) {
       const m = d.measure;
       lines.push(h('div', {}, h('b', {}, '거리 '), fm.len(m.distance), h('span', { class: 'dim' }, ` · dx ${fm.lenNum(m.dx)} · dy ${fm.lenNum(m.dy)} · dz ${fm.lenNum(m.dz)}`)));
+      const sp = snapPair(m);
+      if (sp) lines.push(h('div', { class: 'dim' }, h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])));
     } else if (this.host.measuring) lines.push(h('div', { class: 'dim' }, panelMeasureHint(this.host.touch)));
     f.hidden = !lines.length;
     f.append(...lines);

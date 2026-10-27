@@ -16,7 +16,7 @@
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
-import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
+import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type SnapPoint, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
@@ -42,6 +42,7 @@ import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
+import { circleCenters, edgeSnapPoints, snapPair } from './snap';
 import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -189,6 +190,8 @@ export class StepApp {
   private readonly faceCut: HTMLButtonElement;
   /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
   private ctxFace: FacePick | null = null;
+  /** 문서마다 두 점 측정 붙잡기 점(원·원호 중심) */
+  private readonly snapCenters = new WeakMap<StepDoc, SnapPoint[]>();
   /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
   private pendingView: ViewLink | null = null;
   /** 연 문서를 다시 읽을 방법(곡면 품질을 바꿔 다시 삼각화) */
@@ -682,6 +685,7 @@ export class StepApp {
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
     this.fmt = this.makeFmt();
+    this.syncMeasureSnap();
     // 파일이 숨긴 레이어 등 처음 보이기
     this.applyVisibility();
     this.applyLooks();
@@ -1626,6 +1630,39 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  /**
+   * 두 점 측정 붙잡기(코어 0.8.0 setMeasureSnap): 측정 중에만 윤곽선도 고르고(면 고르기 밖에서는 pickEdges가 꺼져 있다),
+   * 모든 원·원호 중심을 늘 후보로, 고른 모서리에는 곡선 가운데 점·끝점·중심을 더한다. 코어의 선분 가운데 점은 곡선 모서리에서
+   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다)
+   */
+  private syncMeasureSnap(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v) return;
+    if (!d) {
+      v.setMeasureSnap(null);
+      return;
+    }
+    let centers = this.snapCenters.get(d);
+    if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
+    const byId = new Map(d.scene.meshes.map((m) => [m.id, m] as const));
+    let lastKey = '';
+    let last: SnapPoint[] | null = null;
+    v.setMeasureSnap({
+      edges: true,
+      points: centers,
+      pointsFor: (p) => {
+        if (p.kind !== 'edge') return null;
+        const key = `${p.id}:${p.raw ?? p.index}`;
+        if (key !== lastKey) {
+          lastKey = key;
+          last = edgeSnapPoints(p, byId, d.edges);
+        }
+        return last;
+      },
+    });
+  }
+
   toggleMeasure(on = !this.measuring): void {
     const v = this.viewer;
     if (!v) return;
@@ -2253,7 +2290,8 @@ export class StepApp {
     }
     const sel = d ? this.selectionText(d) : '';
     const detail = d && sel ? this.selectionDetail(d) : [];
-    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]));
+    const sp = d?.measure ? snapPair(d.measure) : null;
+    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]), ...(sp ? [' · ', h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])] : []));
     this.refreshBar();
   }
 
@@ -2298,6 +2336,9 @@ export class StepApp {
       if (d.measure) {
         const m = measureLines(d.measure, fm);
         t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
+        // 붙잡은 종류(끝점·가운데 점·중심 — 이름마다 따로 번역되게 조각으로)
+        const sp = snapPair(d.measure);
+        if (sp) t.append(h('span', { class: 'mb-sub mb-snap' }, h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])));
       } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
       this.measureClear.disabled = !d.measure && !v.measurePointCount;
     } else if (d.face || d.edge) {

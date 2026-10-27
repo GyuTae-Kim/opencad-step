@@ -38,7 +38,7 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
     expect(faceHint(false)).toBe('면 고르기: 면이나 모서리를 누르십시오');
     expect(faceHint(false)).not.toContain('길게');
     // 패널 아래 띠: 마우스 글은 예전 그대로, 손가락 기기는 Esc 대신 길게 누르기
-    expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기');
+    expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다). Esc = 지우기');
     expect(panelMeasureHint(true)).not.toMatch(/Esc/);
     expect(panelMeasureHint(true)).toContain('길게 누르면 정밀 조준');
   });

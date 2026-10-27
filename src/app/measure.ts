@@ -19,7 +19,9 @@ export function measureHint(points: number, hasResult: boolean, touch = false): 
 
 /** 패널 아래 띠의 측정 안내(아직 결과가 없을 때) */
 export function panelMeasureHint(touch = false): string {
-  return touch ? '측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다) · 길게 누르면 정밀 조준' : '측정: 모형 위 두 점을 누르십시오(꼭짓점 가까우면 붙습니다). Esc = 지우기';
+  return touch
+    ? '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다) · 길게 누르면 정밀 조준'
+    : '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다). Esc = 지우기';
 }
 
 /** 면 고르기 안내(아직 고른 면이 없을 때) — 모서리 가까이 누르면 모서리를 고른다 */
