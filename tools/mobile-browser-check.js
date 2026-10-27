@@ -1,0 +1,65 @@
+async (page) => {
+  const origin = new URL('./', page.url()).href;
+  const assert = (value, message) => { if (!value) throw new Error(message); };
+  const state = () => page.evaluate(() => window.opencadApp.state);
+  const ready = () => page.waitForFunction(() => !!window.opencadApp && !!document.querySelector('.start'), undefined, {timeout:30000});
+  const loaded = (name) => page.waitForFunction((n) => { const s = window.opencadApp?.state; return !!s && s.loaded && !s.loading && !s.error && (!n || s.docName === n); }, name, {timeout:30000});
+  const fresh = async (query='') => { await page.goto(origin+query); await ready(); };
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  // 합성 표본(tools/mobile-sample.stp — 정육면체·원기둥 두 부품 조립)을 같은 출처 주소로도 준다(?open=·끌어다 놓기)
+  await page.context().route('**/mobile-sample.stp', (route) => route.fulfill({path:'tools/mobile-sample.stp', contentType:'application/octet-stream'}));
+  await loaded('mobile-sample.stp');
+  let s = await state();
+  assert(s.meshes === 2 && s.products[0] === 'mobile-check' && s.warnings === 0, 'File picker opened the two-part sample without warnings');
+  await page.waitForFunction(() => document.querySelector('canvas')?.width > 0, undefined, {timeout:10000});
+  await page.screenshot({path:'.runtime/performance/picked-mobile.png'});
+  await fresh();
+  assert(await page.getByRole('main').count() === 1, 'Viewer has main landmark');
+  assert(await page.locator('.start .drop-title.coarse-only').isVisible() && await page.locator('.start .drop-title.fine-only').isHidden(), 'Phone start screen asks to pick a file instead of dragging');
+  assert(await page.evaluate(() => getComputedStyle(document.documentElement).overscrollBehaviorY === 'none'), 'Dragging bars cannot pull-to-refresh the open model');
+  assert(await page.evaluate(async () => {
+    const link = document.querySelector('link[rel=manifest]');
+    const manifest = await (await fetch(link.href)).json();
+    const icons = await Promise.all([...manifest.icons.map(icon => new URL(icon.src, link.href)), document.querySelector('link[rel=apple-touch-icon]').href].map(url => fetch(url).then(r => r.ok && r.headers.get('content-type') === 'image/png')));
+    return manifest.display === 'standalone' && icons.every(Boolean);
+  }), 'Home-screen manifest and icons load');
+  assert(await page.evaluate(() => window.opencadApp.state.docName === null && !window.opencadApp.state.loading), 'Fresh visit starts without a document');
+  assert(await noOverflow(), 'No horizontal overflow on the start screen');
+  await page.screenshot({path:'.runtime/performance/start-mobile.png'});
+  await page.locator('.recent .recent-open').filter({hasText:'mobile-sample.stp'}).click();
+  await loaded('mobile-sample.stp');
+  assert((await state()).meshes === 2, 'IndexedDB recent document reopened');
+  await fresh();
+  await page.locator('.start').getByRole('button', {name:'예제 열기', exact:true}).click();
+  await loaded('opencad-sample.stp');
+  s = await state();
+  assert(s.meshes > 2 && s.warnings === 0, 'Built-in sample assembly opens');
+  assert(await noOverflow(), 'No horizontal overflow with a model open');
+  assert(await page.evaluate(() => [['.toolbar button', 38], ['.titlebar .btn', 40]].every(([sel, min]) => { const shown = [...document.querySelectorAll(sel)].filter(b => b.offsetParent); return shown.length > 3 && shown.every(b => { const r = b.getBoundingClientRect(); return r.width >= min && r.height >= min; }); })), 'Toolbar (38px) and title bar (40px) buttons keep their touch targets');
+  await page.locator('.toolbar button[title^="두 점 거리"]').click();
+  assert((await state()).measuring, 'Measure tool starts from the toolbar');
+  const canvas = await page.locator('.view canvas').first().boundingBox();
+  await page.touchscreen.tap(canvas.x + canvas.width * 0.5, canvas.y + canvas.height * 0.5);
+  await page.touchscreen.tap(canvas.x + canvas.width * 0.42, canvas.y + canvas.height * 0.58);
+  await page.locator('.measure-bar').waitFor();
+  assert(/\d+\.\d+ mm/.test(await page.locator('.measure-bar').textContent()), 'Two taps show a distance in the measure bar');
+  await page.screenshot({path:'.runtime/performance/measure-mobile.png'});
+  await fresh();
+  await page.evaluate(async () => {
+    const response = await fetch('mobile-sample.stp');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([await response.arrayBuffer()], 'drop.stp'));
+    window.dispatchEvent(new DragEvent('drop', {bubbles:true, cancelable:true, dataTransfer:transfer}));
+  });
+  await loaded('drop.stp');
+  assert((await state()).meshes === 2, 'Drop opened the file');
+  await page.goto(origin+'?open=mobile-sample.stp'); await loaded('mobile-sample.stp');
+  await page.goto(origin+'?sample'); await loaded('opencad-sample.stp');
+  await page.context().route('**/missing.stp', (route) => route.fulfill({status:404, body:'missing'}));
+  await page.goto(origin+'?open=missing.stp');
+  await page.locator('.start-error[role=alert]').filter({hasText:'HTTP 404'}).waitFor();
+  assert((await state()).docName === null, 'A missing ?open file shows an alert and leaves the start screen usable');
+  await page.locator('.start').getByRole('button', {name:'예제 열기', exact:true}).click();
+  await loaded('opencad-sample.stp');
+  return 'MOBILE_BROWSER_CHECK_PASSED';
+}

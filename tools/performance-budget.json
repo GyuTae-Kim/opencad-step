@@ -1,0 +1,13 @@
+{
+  "note": "Candidate medians from tools/performance-summary.mjs (three cold mobile Lighthouse loads, gzip). Local medians on 2026-10-27: performance 99, accessibility 100, SEO 100, FCP 1654 ms, LCP 1810 ms, TBT 3 ms, CLS 0, JS 133.5 KiB; with CPU slowdown x12 (a slower CI runner): FCP 1652 ms, LCP 1857 ms, TBT 112 ms.",
+  "budget": {
+    "performance": { "min": 90 },
+    "accessibility": { "min": 100 },
+    "seo": { "min": 100 },
+    "fcp": { "max": 2000 },
+    "lcp": { "max": 2200 },
+    "tbt": { "max": 300 },
+    "cls": { "max": 0.02 },
+    "jsBytes": { "max": 143360 }
+  }
+}

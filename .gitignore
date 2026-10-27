@@ -3,3 +3,4 @@ dist/
 .runtime/
 .DS_Store
 *.log
+.playwright-cli/
