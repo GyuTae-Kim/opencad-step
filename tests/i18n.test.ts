@@ -96,6 +96,26 @@ describe('language URLs and UI presentation', () => {
     expect(root.querySelector('[translate="no"]:not(.language-control):not(.language-list)')!.textContent).toBe('열기');
     dispose();dispose=undefined;dom.window.close();
   });
+  it.each(['en', 'ja', 'zh-CN', 'de'])('localizes toolbar and status refreshed by the initial languagechange event in %s', async code => {
+    const dom = new JSDOM('<!doctype html><html><head><title>OpenCAD</title></head><body><div id="app"><header class="titlebar"></header><button id="projection">원근</button><p id="status"></p><span class="docname">원근.step</span></div></body></html>', {url:languageUrl(metadataForLanguage('ko').url,code)});
+    for (const name of ['window','document','Node','Element','HTMLAnchorElement','MutationObserver','location','history','localStorage','CustomEvent']) vi.stubGlobal(name,(dom.window as unknown as Record<string,unknown>)[name]);
+    const root = document.getElementById('app')!;
+    const projection = document.getElementById('projection')!;
+    const status = document.getElementById('status')!;
+    // App.onLanguageChange refreshes these after the first presentation pass.
+    root.addEventListener('languagechange', () => {
+      projection.textContent = '원근';
+      projection.title = '지금 원근 투영 — 눌러서 평행 투영으로';
+      status.replaceChildren(Object.assign(document.createElement('span'), {textContent:'STEP 파일을 열거나 끌어다 놓으세요'}));
+    });
+    dispose=await installLocalization(root);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(projection.textContent).toBe(translate('원근',code));
+    expect(projection.title).toBe(translate('지금 원근 투영 — 눌러서 평행 투영으로',code));
+    expect(status.textContent).toBe(translate('STEP 파일을 열거나 끌어다 놓으세요',code));
+    expect(root.querySelector('.docname')!.textContent).toBe('원근.step');
+    dispose();dispose=undefined;dom.window.close();
+  });
   it('switches actual sharing image URLs and native control names while preserving source data', async () => {
     const korean = metadataForLanguage('ko');
     const dom = new JSDOM(`<!doctype html><html><head><title>OpenCAD</title><meta property="og:image"><meta property="og:image:secure_url"><meta name="twitter:image"><script type="application/ld+json">{"@graph":[{"@type":"WebApplication"}]}</script></head><body><div id="app"><header class="titlebar"><button>열기</button></header><span class="docname">열기.skp</span></div></body></html>`, {url:languageUrl(korean.url,'en')+'?sample#view'});
