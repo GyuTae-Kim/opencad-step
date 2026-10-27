@@ -4,6 +4,7 @@
  */
 import { isStepXml, sniffContainer, STEP_XML_MESSAGE, unpackStep } from '../archive';
 import { stepToScene } from '../scene';
+import { browserGlyphs } from './glyphs';
 import { headSchemas, IFC_MESSAGE, sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
 
 /** 압축 풀기가 차지하는 진행률 몫(압축 파일일 때) */
@@ -48,6 +49,8 @@ export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array
     onProgress: (f, stage) => progress(base + f * (1 - base), stage),
     ...(options.tolerance ? { tolerance: options.tolerance } : {}),
     ...(options.angleTolerance ? { angleTolerance: options.angleTolerance } : {}),
+    // 내장 획 글꼴에 없는 PMI 글자(한글 등)는 브라우저 글꼴 윤곽선으로(워커의 OffscreenCanvas — Node에서는 없어 예전처럼 빈 상자)
+    glyphs: browserGlyphs(),
   });
   if (notes.length) scene.warnings = [...notes, ...(scene.warnings ?? [])];
   const res: ParseResult = { scene, ms: performance.now() - t0 };

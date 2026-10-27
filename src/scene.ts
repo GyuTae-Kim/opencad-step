@@ -19,6 +19,7 @@ import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, nor
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
 import { styleTextHeight, textLiterals, textSegments } from './pmitext';
+import type { GlyphSource } from './strokefont';
 import { readProductProps, type StepProductProps } from './props';
 import { readSavedViews } from './savedviews';
 import { type ContextColor, readStyles } from './styles';
@@ -51,6 +52,11 @@ export interface StepOptions {
   pmi?: boolean;
   /** 면 표(meta.faceTables·meta.meshFaceTable)를 만들지. 기본 true */
   faceTable?: boolean;
+  /**
+   * PMI 글자 가운데 내장 획 글꼴(숫자·영문·기호)에 없는 글자(한글·일본어·중국어 등)의 모양(선택).
+   * 해석기는 DOM에 기대지 않으므로 부르는 쪽이 준다 — 앱 워커는 브라우저 글꼴 윤곽선(src/app/glyphs.ts). 없으면 빈 상자
+   */
+  glyphs?: GlyphSource | null;
 }
 
 /** 화면 패널용 제품 나무 마디 */
@@ -887,7 +893,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
         const w = a.item ? wire.sample(a.item) : null;
         // 글자(TEXT_LITERAL): 내장 획 글꼴로 선분(곡선과 함께 들어 있어도)
         const lits = a.item ? textLiterals(f, a.item) : [];
-        const txt = lits.length ? textSegments(f, geom, lits, styleTextHeight(f, a.styles)) : null;
+        const txt = lits.length ? textSegments(f, geom, lits, styleTextHeight(f, a.styles), opts.glyphs) : null;
         if (txt && txt.drawn < lits.length) pmiText += lits.length - txt.drawn;
         const raw = [...(w?.segs ?? []), ...(txt?.segs ?? [])];
         if (!raw.length) {
