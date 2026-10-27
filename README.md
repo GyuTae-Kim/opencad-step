@@ -231,7 +231,7 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `src/tessellate.ts`, `src/math.ts` | 삼각화(해석적 곡면은 매개변수 영역 넓이 적분도) |
 | `src/analysis.ts` | 틈·넓이·부피 검사, 닫힌 껍질 면 방향 맞추기(`orientFaces`) |
 | `scripts/sweep/` | 실제 파일 훑기(`npm run sweep`)와 결과 비교(`npm run sweep:compare`) — 고르기와 중복 빼기, vite-node 일꾼, 분류 코드, 품질 지표, 요약 |
-| `tools/mobile-browser-check.js`, `tools/performance-budget.json`, `tools/check-performance-budget.mjs`, `tools/mobile-sample.stp` | 휴대폰 검사 워크플로의 사용 흐름 확인, 성능 예산과 그 확인, 합성 표본 |
+| `tools/mobile-browser-check.js`, `tools/performance-budget.json`, `tools/mobile-sample.stp` | 휴대폰 검사 워크플로의 사용 흐름 확인, 성능 예산(확인은 공용 도구의 `opencad-site check-performance-budget`), 합성 표본 |
 
 ## 개발
 
@@ -255,9 +255,9 @@ B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡�
 
 **공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
 방문 통계, 휴대폰 성능 비교 명령은 다른 OpenCAD 앱과 함께 쓰는 [opencad-site-kit](https://github.com/GyuTae-Kim/opencad-site-kit)
-(`github:GyuTae-Kim/opencad-site-kit#v0.1.2`, 잠금 커밋 `c6a5861`, 빌드 때만 써서 `devDependencies`)에 있습니다.
+(`github:GyuTae-Kim/opencad-site-kit#v0.1.4`, 잠금 커밋 `a1de400`, 빌드 때만 써서 `devDependencies`)에 있습니다.
 이 앱에만 있는 값은 `tools/site.mjs`(앱 정보 원본, 서비스 워커 판 이름 짓기)와 `tools/sw-source.mjs`(서비스 워커 본문 — 돌려주는 글이 sw.js에 그대로 들어갑니다)에 둡니다.
-`check:seo`·`check:i18n`·`test:seo`·`update:content-dates`는 도구의 `opencad-site` 명령입니다. 도구 판을 올릴 때는 빌드 결과를 견줍니다.
+`check:seo`·`check:i18n`·`test:seo`·`update:content-dates`와 휴대폰 성능 예산 검사는 도구의 `opencad-site` 명령입니다. 도구 판을 올릴 때는 빌드 결과를 견줍니다.
 
 ```bash
 npx vite build && cp -R dist .runtime/dist-before                                        # 올리기 전
@@ -296,7 +296,7 @@ npm run sweep:compare -- .runtime/sweep/before .runtime/sweep/after           # 
 끌어오기 요청마다 `.github/workflows/mobile-validation.yml`이 PR 바탕(기준)과 PR(후보)을 같은 CI에서 빌드합니다. 휴대폰 첫 화면을 Lighthouse로 세 번씩 재서
 중앙값 표를 작업 요약에 남깁니다(압축해서 주는 미리 보기 서버와 표는 공용 도구의 `opencad-site serve-performance`·`performance-summary` —
 기준 빌드 뒤 이 커밋으로 돌아와 `npm ci`를 다시 해 명령을 찾습니다).
-후보 중앙값이 `tools/performance-budget.json`의 예산을 넘으면 실패합니다(`tools/check-performance-budget.mjs`). 지금 예산은 성능 90 이상, 접근성과 SEO 100,
+후보 중앙값이 `tools/performance-budget.json`의 예산을 넘으면 실패합니다(공용 도구의 `opencad-site check-performance-budget`). 지금 예산은 성능 90 이상, 접근성과 SEO 100,
 FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 140 KiB 이하입니다. 예산을 바꿀 때는 그때 잰 중앙값을 같은 파일의 `note`에 적습니다.
 
 이어서 playwright-cli로 휴대폰 화면(390×844, 손가락)에서 쓰는 흐름을 확인합니다(`tools/mobile-browser-check.js`, 판정은 `tools/check-browser-result.mjs`).
@@ -305,7 +305,7 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 140 KiB 이하입니다. 예산을
 
 로컬에서는 `npm run build` 뒤 `dist`를 `.runtime/performance/candidate`(와 `baseline`)로 복사하고, Lighthouse와 playwright-cli를
 `npm install --prefix .runtime/mobile-audit --no-package-lock lighthouse@13.5.0 @playwright/cli`로 받아 워크플로의 "Compare cold mobile loads" 단계 명령을 그대로 돌립니다.
-끝에 `node tools/check-performance-budget.mjs .runtime/performance`로 예산을 봅니다.
+끝에 `npx opencad-site check-performance-budget .runtime/performance`로 예산을 봅니다.
 
 ## 배포
 
