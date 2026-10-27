@@ -3,12 +3,18 @@
  * 전파를 멈추므로, 여기에는 뷰어가 받지 않은 키만 온다(app 쪽에서 창의 bubble 단계로 듣는다).
  * F·1~7 같은 뷰어 키의 뜻은 앱이 따로 들지 않고 `Viewer3d.handleKey`에 넘겨 코어 규칙을 그대로 쓴다.
  */
-import { VIEW_KEYS, type ViewName } from 'opencad-viewer3d';
+import type { ViewName } from 'opencad-viewer3d';
+
+/**
+ * 숫자 키 → 표준 뷰(코어 VIEW_KEYS와 같은 표 — 시험이 견준다). 코어 입구(opencad-viewer3d)는 문서를 열 때 나눠 받으므로(core.ts)
+ * 첫 화면에서 쓰는 메뉴·도움말 글은 이 표로 만든다
+ */
+export const VIEW_KEYS: Readonly<Record<string, ViewName>> = { '1': 'front', '2': 'back', '3': 'left', '4': 'right', '5': 'top', '6': 'bottom', '7': 'seIso' };
 
 /** 표준 뷰 메뉴 순서 */
 export const VIEW_MENU: ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'seIso', 'swIso', 'neIso', 'nwIso'];
 
-/** 표준 뷰 → 단축키 글(코어 VIEW_KEYS에서 찾는다, 없으면 undefined) */
+/** 표준 뷰 → 단축키 글(VIEW_KEYS에서 찾는다, 없으면 undefined) */
 export function viewKeyOf(v: ViewName): string | undefined {
   return Object.keys(VIEW_KEYS).find((k) => VIEW_KEYS[k] === v);
 }

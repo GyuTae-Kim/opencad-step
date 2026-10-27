@@ -823,5 +823,6 @@
   "회전": "旋转",
   "회전 곡면": "旋转表面",
   "언어 선택": "选择语言",
-  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/zh-CN/og/opencad.jpg"
+  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/zh-CN/og/opencad.jpg",
+  "3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.": "无法下载 3D 视图。请检查网络连接后重新打开。"
 }

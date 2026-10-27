@@ -823,5 +823,6 @@
   "회전": "Drehung",
   "회전 곡면": "Drehung Oberfläche",
   "언어 선택": "Sprache wählen",
-  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/de/og/opencad.jpg"
+  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/de/og/opencad.jpg",
+  "3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.": "Die 3D-Ansicht konnte nicht geladen werden. Prüfen Sie die Internetverbindung und öffnen Sie die Datei erneut."
 }
