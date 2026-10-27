@@ -438,6 +438,7 @@
   "삼각형 주석": "Triangle Annotation",
   "삼각화": "Triangulation",
   "삼각화 못 한 면": "Faces that could not be triangulated",
+  "삼각화하지 못한 면 {0}개 / {1}개": "Untriangulated faces {0} / {1}",
   "삼각화하지 못한 면 {0}개 / {1}개 ({2})": "Untriangulated faces {0} / {1} ({2})",
   "상자": "box",
   "새 버전이 있습니다.": "A new version is available.",
