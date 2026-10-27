@@ -42,7 +42,7 @@ import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { circleCenters, edgeSnapPoints, snapPair } from './snap';
+import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair } from './snap';
 import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -172,6 +172,8 @@ export class StepApp {
   private readonly docNameEl: HTMLElement;
   private readonly statusDoc: HTMLElement;
   private readonly statusSel: HTMLElement;
+  /** 측정 중 커서 아래 붙잡을 점의 종류(상태 막대 — 코어 measureHoverSnap) */
+  private readonly statusSnap: HTMLElement;
   private readonly themeBtn: HTMLButtonElement;
   private readonly fileInput: HTMLInputElement;
   private readonly resizer: PanelResizer;
@@ -202,6 +204,11 @@ export class StepApp {
   /** 큰 장면을 GPU에 나눠 올리는 중이면 0~1 */
   private upload: number | null = null;
   private readonly measureText: HTMLElement;
+  /** 측정 띠의 커서 아래 붙잡을 점 종류(알림 영역 밖 — 마우스 이동마다 읽어 주지 않게) */
+  private readonly measureHoverEl: HTMLElement;
+  /** 지금 보이는 커서 아래 붙잡기 이름과 다음 프레임에 읽기 예약 */
+  private hoverSnapText: string | null = null;
+  private hoverSnapRaf = 0;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
   private barMode: 'measure' | 'face' | 'select' | null = null;
@@ -348,7 +355,8 @@ export class StepApp {
       else if (this.faceMode) this.toggleFaceMode(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
+    this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 붙잡을 점', hidden: true });
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -371,7 +379,8 @@ export class StepApp {
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
     this.statusSel = h('div', { class: 'status-sel' });
-    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSel);
+    this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 붙잡을 점', hidden: true });
+    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel);
 
     const workspace = h('main', { class: 'workspace' }, this.viewEl, this.panel.el);
     this.resizer = new PanelResizer(root, this.panel.el, workspace, this.narrow, safeLocalStorage());
@@ -771,6 +780,10 @@ export class StepApp {
     this.hostEl.addEventListener('pointerup', () => {
       if (v.measureMode) this.refreshBar();
     });
+    // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
+    // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
+    this.hostEl.addEventListener('pointermove', () => this.scheduleHoverSnap());
+    this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
     return v;
   }
@@ -1667,7 +1680,8 @@ export class StepApp {
   /**
    * 두 점 측정 붙잡기(코어 0.8.0 setMeasureSnap): 측정 중에만 윤곽선도 고르고(면 고르기 밖에서는 pickEdges가 꺼져 있다),
    * 모든 원·원호 중심을 늘 후보로, 고른 모서리에는 곡선 가운데 점·끝점·중심을 더한다. 코어의 선분 가운데 점은 곡선 모서리에서
-   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다)
+   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다).
+   * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)도 켠다 — 원 중심이 512개를 넘으면 코어가 점 색인(BVH)으로 찾는다
    */
   private syncMeasureSnap(): void {
     const v = this.viewer;
@@ -1679,22 +1693,28 @@ export class StepApp {
     }
     let centers = this.snapCenters.get(d);
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
-    const byId = new Map(d.scene.meshes.map((m) => [m.id, m] as const));
-    let lastKey = '';
-    let last: SnapPoint[] | null = null;
-    v.setMeasureSnap({
-      edges: true,
-      points: centers,
-      pointsFor: (p) => {
-        if (p.kind !== 'edge') return null;
-        const key = `${p.id}:${p.raw ?? p.index}`;
-        if (key !== lastKey) {
-          lastKey = key;
-          last = edgeSnapPoints(p, byId, d.edges);
-        }
-        return last;
-      },
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers));
+  }
+
+  /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */
+  private scheduleHoverSnap(): void {
+    if (this.hoverSnapRaf) return;
+    // 코어는 캔버스의 pointermove에서 프레임을 예약하고 그 프레임에 붙잡을 점을 구한다 — 이 예약은 그 뒤라 구한 값을 읽는다
+    this.hoverSnapRaf = requestAnimationFrame(() => {
+      this.hoverSnapRaf = 0;
+      this.showHoverSnap();
     });
+  }
+
+  private showHoverSnap(): void {
+    const v = this.viewer;
+    const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap) : null;
+    if (text === this.hoverSnapText) return;
+    this.hoverSnapText = text;
+    for (const el of [this.statusSnap, this.measureHoverEl]) {
+      el.hidden = !text;
+      el.textContent = text ?? '';
+    }
   }
 
   toggleMeasure(on = !this.measuring): void {
@@ -1722,6 +1742,7 @@ export class StepApp {
       this.panel.onSelection();
     }
     v.setPickEdges(ent || this.faceMode);
+    this.showHoverSnap();
     this.panel.onMeasure();
     this.toolbar.refresh();
     this.updateStatus();

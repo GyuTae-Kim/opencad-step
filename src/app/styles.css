@@ -703,6 +703,19 @@ select {
 .mb-hint {
   font-size: 13.5px;
 }
+/* 측정 중 커서 아래 붙잡을 점의 종류(꼭짓점·중심·교차점·수직 발·X축 방향 등) — 휴대폰 띠에서는 첫 줄(측정 종류와 단추 사이) */
+.mb-hover {
+  flex: none;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
 .mb-acts {
   display: flex;
   flex: none;
@@ -1260,6 +1273,11 @@ table.grid td.mono {
   content: '·';
   margin: 0 7px;
   color: var(--text-faint);
+}
+.status-snap {
+  flex: none;
+  color: var(--text);
+  font-weight: 600;
 }
 .status-sel {
   flex: none;

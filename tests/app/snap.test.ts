@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Pick3d } from 'opencad-viewer3d/types';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { circleCenters, edgeSnapPoints, snapLabel, snapPair } from '../../src/app/snap';
+import { perpendicularFoot } from 'opencad-viewer3d/inference';
+import { circleCenters, edgeSnapPoints, hoverSnapLabel, measureSnapOptions, resultAxis, snapLabel, snapPair } from '../../src/app/snap';
 import { StepText, plateWithHole } from '../stepText';
 
 const near = (a: readonly number[], b: readonly number[], d = 6) => a.forEach((x, i) => expect(x).toBeCloseTo(b[i]!, d));
@@ -97,5 +98,63 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapPair({ snapA: null, snapB: null })).toBeNull();
     expect(snapPair({ snapA: 'center', snapB: null })).toEqual(['중심', '면 위 점']);
     expect(snapPair({ snapA: 'midpoint', snapB: 'endpoint' })).toEqual(['가운데 점', '끝점']);
+  });
+
+  it('추론 붙잡기 이름(코어 0.9.0): 교차점·수직 발·축 방향 — 결과의 축은 dx·dy·dz에서', () => {
+    expect(snapLabel('intersection')).toBe('교차점');
+    expect(snapLabel('perpendicular')).toBe('수직 발');
+    expect(snapLabel('axis', 'y')).toBe('Y축 방향');
+    expect(snapLabel('axis')).toBe('축 방향');
+    expect(resultAxis({ dx: 0, dy: 0, dz: -12 })).toBe('z');
+    expect(resultAxis({ dx: -3, dy: 1e-9, dz: 0 })).toBe('x');
+    // 축 붙잡기 결과(MeasureResult에는 축이 없다): 첫 점에서 한 축으로만 떨어져 있다
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis', dx: 0, dy: 25, dz: 0 })).toEqual(['꼭짓점', 'Y축 방향']);
+    expect(snapPair({ snapA: 'center', snapB: 'perpendicular', dx: 3, dy: 4, dz: 0 })).toEqual(['중심', '수직 발']);
+    // 커서 아래(measureHoverSnap): 없으면 null, 모형 위 자유 점이면 '면 위 점', 축이면 그 축
+    expect(hoverSnapLabel(null)).toBeNull();
+    expect(hoverSnapLabel({ snap: null })).toBe('면 위 점');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x' })).toBe('X축 방향');
+    expect(hoverSnapLabel({ snap: 'intersection' })).toBe('교차점');
+  });
+
+  it('measureSnapOptions: 측정 중 윤곽선 고르기·원 중심·추론 붙잡기를 켜고, 같은 모서리는 한 번만 구한다', () => {
+    const s = stepToScene(halfMoon());
+    const ex = stepEdgeIndex(s)!;
+    const centers = circleCenters(s.meshes, ex);
+    const o = measureSnapOptions(s.meshes, ex, centers);
+    expect(o.edges).toBe(true);
+    expect(o.inference).toBe(true);
+    expect(o.midpoints).toBeUndefined();
+    expect(o.points).toBe(centers);
+    const mesh = s.meshes[0]!;
+    const t = ex.tables[ex.tableOf.get(mesh.id)!]!;
+    const pick = { kind: 'edge', id: mesh.id, index: t.segStart[0]!, point: [0, 0, 0] } as unknown as Pick3d;
+    const a = o.pointsFor!(pick);
+    expect(a?.length).toBeGreaterThan(0);
+    expect(o.pointsFor!({ ...pick })).toBe(a); // 같은 모서리: 앞서 구한 배열 그대로(마우스 이동마다 다시 구하지 않음)
+    expect(o.pointsFor!({ ...pick, kind: 'mesh' } as Pick3d)).toBeNull();
+  });
+
+  it('구멍 중심에서 판 모서리로 내린 수직 발(코어 perpendicularFoot)이 B-rep 모서리 위 — STEP 윤곽선이 추론 붙잡기의 선분이 된다', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    w.product('plate', [plateWithHole(w)], ctx);
+    const s = stepToScene(w.bytes());
+    const ex = stepEdgeIndex(s)!;
+    const mesh = s.meshes[0]!;
+    const c = circleCenters(s.meshes, ex).map((p) => p.point).sort((x, y) => x[2]! - y[2]!)[0]!;
+    const E = mesh.edges!;
+    const feet: number[][] = [];
+    for (let i = 0; i + 5 < E.length; i += 6) {
+      const a = [E[i]!, E[i + 1]!, E[i + 2]!];
+      const b = [E[i + 3]!, E[i + 4]!, E[i + 5]!];
+      // 바닥(z = 0)의 판 테두리 변만(구멍 원의 꺾은선 토막은 짧다)
+      if (Math.abs(a[2]!) > 1e-9 || Math.abs(b[2]!) > 1e-9 || Math.hypot(b[0]! - a[0]!, b[1]! - a[1]!) < 5) continue;
+      const f = perpendicularFoot(c, a, b, 1e-6);
+      if (f) feet.push(f);
+    }
+    // 판 테두리 네 변 모두에 발이 있고, 발에서 중심까지의 선은 그 변에 수직(중심 (10, 5, 0)에서 x·y 한쪽만 다르다)
+    expect(feet).toHaveLength(4);
+    for (const f of feet) expect(Math.abs(f[0]! - c[0]!) < 1e-6 || Math.abs(f[1]! - c[1]!) < 1e-6).toBe(true);
   });
 });
