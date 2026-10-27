@@ -3,7 +3,8 @@ import type { Pick3d } from 'opencad-viewer3d/types';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { perpendicularFoot } from 'opencad-viewer3d/inference';
-import { circleCenters, edgeSnapPoints, hoverSnapLabel, measureSnapOptions, resultAxis, snapLabel, snapPair } from '../../src/app/snap';
+import { measureResult } from 'opencad-viewer3d/snap';
+import { circleCenters, edgeSnapPoints, hoverSnapLabel, measureSnapOptions, snapLabel, snapPair } from '../../src/app/snap';
 import { StepText, plateWithHole } from '../stepText';
 
 const near = (a: readonly number[], b: readonly number[], d = 6) => a.forEach((x, i) => expect(x).toBeCloseTo(b[i]!, d));
@@ -100,16 +101,22 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapPair({ snapA: 'midpoint', snapB: 'endpoint' })).toEqual(['가운데 점', '끝점']);
   });
 
-  it('추론 붙잡기 이름(코어 0.9.0): 교차점·수직 발·축 방향 — 결과의 축은 dx·dy·dz에서', () => {
+  it('추론 붙잡기 이름(코어 0.9.0): 교차점·수직 발·축 방향 — 결과의 축은 코어 0.9.1 axisA·axisB에서', () => {
     expect(snapLabel('intersection')).toBe('교차점');
     expect(snapLabel('perpendicular')).toBe('수직 발');
     expect(snapLabel('axis', 'y')).toBe('Y축 방향');
     expect(snapLabel('axis')).toBe('축 방향');
-    expect(resultAxis({ dx: 0, dy: 0, dz: -12 })).toBe('z');
-    expect(resultAxis({ dx: -3, dy: 1e-9, dz: 0 })).toBe('x');
-    // 축 붙잡기 결과(MeasureResult에는 축이 없다): 첫 점에서 한 축으로만 떨어져 있다
-    expect(snapPair({ snapA: 'vertex', snapB: 'axis', dx: 0, dy: 25, dz: 0 })).toEqual(['꼭짓점', 'Y축 방향']);
-    expect(snapPair({ snapA: 'center', snapB: 'perpendicular', dx: 3, dy: 4, dz: 0 })).toEqual(['중심', '수직 발']);
+    // 코어가 만든 결과(measureResult — onMeasure·측정 글 꼴이 받는 값): 축 붙잡기면 axisB가 실린다
+    const r = measureResult([1, 2, 3], [1, 27, 3], [{ kind: 'vertex' }, { kind: 'axis', axis: 'y' }]);
+    expect(r.axisB).toBe('y');
+    expect(snapPair(r)).toEqual(['꼭짓점', 'Y축 방향']);
+    // 축은 결과에 실린 값을 그대로 쓴다(dx·dy·dz로 짐작하지 않는다)
+    const odd = { ...measureResult([0, 0, 0], [5, 0, 0], [{ kind: 'vertex' }, { kind: 'axis', axis: 'z' }]) };
+    expect(snapPair(odd)).toEqual(['꼭짓점', 'Z축 방향']);
+    expect(snapPair({ snapA: 'axis', snapB: 'center', axisA: 'x' })).toEqual(['X축 방향', '중심']);
+    // 축을 모르면(추론 없이 만든 결과 등) 이름만
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis' })).toEqual(['꼭짓점', '축 방향']);
+    expect(snapPair(measureResult([0, 0, 0], [3, 4, 0], [{ kind: 'center' }, { kind: 'perpendicular' }]))).toEqual(['중심', '수직 발']);
     // 커서 아래(measureHoverSnap): 없으면 null, 모형 위 자유 점이면 '면 위 점', 축이면 그 축
     expect(hoverSnapLabel(null)).toBeNull();
     expect(hoverSnapLabel({ snap: null })).toBe('면 위 점');
