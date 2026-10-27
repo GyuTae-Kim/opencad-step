@@ -1,5 +1,5 @@
 // Check the candidate's mobile Lighthouse medians (comparison.json written by
-// tools/performance-summary.mjs) against tools/performance-budget.json.
+// `opencad-site performance-summary` from opencad-site-kit) against tools/performance-budget.json.
 // Prints a Markdown table for the job summary and exits 1 when a value is over budget.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
