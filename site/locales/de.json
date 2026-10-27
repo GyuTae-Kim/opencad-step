@@ -796,5 +796,7 @@
   "확인": "Bestätigen",
   "황동": "Messing",
   "회전": "Drehung",
-  "회전 곡면": "Drehung Oberfläche"
+  "회전 곡면": "Drehung Oberfläche",
+  "언어 선택": "Sprache wählen",
+  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/de/og/opencad.jpg"
 }
