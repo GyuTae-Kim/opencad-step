@@ -75,7 +75,7 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   **외곽선 강조**(화면 공간 실루엣 — `profiles`), **부품 색 구분**, **분해 보기**(아래).
   와이어프레임·숨은선 제거는 B-rep 모서리만 그리고(삼각형 변 없음 — 코어 `triangleEdges`) 모서리와 같은 1화소 외곽선을 늘 켭니다(코어 v0.7.2 `profiles: { width: 1 }`).
   모서리가 없는 매끈한 면(원환 고리·구)도 테두리로 보이고, 이 두 모드에서 "외곽선 강조"는 켜진 채 잠깁니다(다른 모드로 가면 고른 값으로).
-  키는 캔버스에 초점이 없어도(입력 칸 제외) 듣습니다.
+  키는 캔버스에 초점이 없어도(입력 칸 제외) 듣습니다. Tab 키로 3D 보기에 초점이 오면 보기 안쪽에 테두리가 보입니다(마우스·터치로 누를 때는 없음 — 코어 v0.9.0).
 - **여러 개 고르기**: 3D에서 **Ctrl·⌘·Shift를 누른 채 누르면** 그 부품을 고른 것에 더하고, 이미 골랐으면 뺍니다(제품 나무 줄도 같음 — 그 마디 아래 형상 전체).
   고른 것은 "부품 N개"로 묶여 나무에 함께 표시되고, 숨기기(H)·이것만 보기(I)·나머지 흐리게·고른 부품 보기·STL/OBJ "고른 것" 내보내기·속성 탭의 물리 속성 합에 그대로 쓰입니다.
 - **작업 메뉴·숨기기·이것만 보기**: 3D에서 부품을 **오른쪽 누르기**(끌어 이동하지 않을 때)하거나 휴대폰에서 측정·면 고르기가 아닐 때 **길게(0.5초) 누르면**
@@ -176,7 +176,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   3D 보기 위 측정 글자(코어가 캔버스에 그림)와 개체 측정 덧그림 글도 같은 단위·자리 수·언어로 그립니다.
   같은 대화 상자의 **곡면 품질**(보통·세밀 각 10°·아주 세밀 각 5°)을 바꾸면 연 파일을 다시 읽어 그 품질로 다시 삼각화하고,
   카메라·단면·고른 것·숨김·격리·밀도·측정 기록은 이어 갑니다(해석 요청 `options` → `stepToScene`의 tolerance·angleTolerance).
-- **큰 모형**: 삼각형 40만 개 또는 그물 3,000개를 넘으면 코어의 나눠 올리기(`setScene(…, { incremental })`)로 GPU에 프레임마다 나눠 올리고 상태 막대에 진행률을 보입니다.
+- **큰 모형**: 삼각형 40만 개 또는 그물 3,000개를 넘으면 코어의 나눠 올리기(`setScene(…, { incremental })`)로 GPU에 프레임마다 나눠 올리고 상태 막대에 진행률을 보입니다
+  올릴 배열이 8 MB를 넘는 그물("아주 세밀" 품질의 큰 부품 등)은 코어(v0.9.0)가 4 MB씩 여러 프레임에 채웁니다.
 - **주소 인자**: `?sample`은 예제를 바로 엽니다. `?open=<주소>`는 같은 사이트의 파일만 엽니다(자동 확인용, 받는 동안 받은 양·진행률을 보입니다).
   자동 확인용으로 `window.opencadApp`(`state`: 열린 문서 이름·해석 끝났는지·진행률·삼각형 수·고른 면·고른 모서리·측정 종류·개체 측정·선/레이어/PMI 수·압축 형식 등, `openSample()`, `openUrl()`, `cancel()`,
   `selectProduct()`, `setTheme()`, `pickAt(x, y, face)`, `setFaceMode()`, `setLayerVisible()`, `setPmiVisible()`, `setSection(axis, t)`)을 둡니다.
@@ -246,8 +247,8 @@ npm run preview    # 빌드 결과 보기
 시험은 `tests/stepText.ts`(본문은 `src/app/stepText.ts`)로 만든 작은 STEP 글로 돌립니다(외부 STEP 파일은 넣지 않습니다).
 압축 시험은 `tests/zipText.ts`(시험용 ZIP 글쓴이, node:zlib)로 gzip·ZIP을 만듭니다.
 확인용으로 받은 공개 STEP 파일이나 임시 결과는 git이 무시하는 `.runtime/`에만 둡니다.
-3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.8.0`으로 받습니다 — 올릴 때는
-`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.8.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
+3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.9.0`으로 받습니다 — 올릴 때는
+`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.9.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
 B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡니다(와이어프레임·숨은선에 삼각형 변 없이 B-rep 모서리만). 삼각형 형식(TESSELLATED 등)과
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
