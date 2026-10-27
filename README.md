@@ -33,16 +33,27 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 - 모서리 표(그물 윤곽선 `Mesh3d.edges`의 선분 → B-rep 모서리 EDGE_CURVE, 곡선 종류 직선·원·타원·B-스플라인, 원 중심·법선·반지름·호 각, 곡선 길이 적분)
   → `meta.edgeTables`·`meta.meshEdgeTable`(모서리 고르기·개체 측정 — 이음선은 윤곽선에 없어 표에도 없음)
 - 닫힌 입체(닫힌 껍질, 실패한 면 없음, 삼각형이 틈 없이 맞물림)의 그물에 `Mesh3d.closed = true` — 단면에서 잘린 면을 채웁니다
+- 닫힌 껍질의 면 방향 맞추기: 경계 고리가 면 법선과 거꾸로 돈 면(곡면 법선 약속이 다른 프로그램의 파일 — 예: 압출 곡면의 u·v를 바꿔 씀)이 있거나
+  부피가 음수면, 이웃 면이 같은 경계 선분을 같은 방향으로 쓰는지 보고 면 묶음을 뒤집어 바깥 법선으로 맞춥니다(`orientFaces` — 덩어리마다 부피 부호로
+  바깥을 정해 빈 곳 BREP_WITH_VOIDS는 안쪽으로). 단일면으로 그리는 닫힌 입체에서 면이 사라지지 않습니다
+- 주기를 한 바퀴 다 덮으며 이음선을 갔다 오는 띠 고리(원환 필렛 고리 등)는 FACE_BOUND 방향이 거꾸로 적혀도 구멍이 아니라 그 띠로 읽습니다
+- 큰 부품의 작은 반지름 필렛처럼 성긴 현 안쪽에 점이 생겨 삼각형이 접히면(3D 법선이 곡면과 반대), 안쪽 접힘은 나누고 경계 현 때문이면
+  그 면의 모서리를 더 잘게(현 높이 ¼, 두 번까지) 나눠 그 모서리를 쓰는 면만 다시 삼각화합니다(이웃 면도 같은 다각선이라 틈이 없음)
+- 끊긴 파일(END-ISO-10303-21이 없거나 마지막 문장이 잘림)은 해석기 경고 맨 앞에 `TRUNCATED_WARNING`을 두고, 아는 곡면을 가리키는 개체가 없어
+  못 만든 면은 "지원하지 않는 곡면"이 아니라 "읽지 못함(가리키는 개체가 없거나 값이 잘못됨)"으로 적습니다
 - 큰 좌표(좌표 크기 1e4 단위 이상이면서 묶음 크기의 2000배 넘음 — 예: 공장·지도 좌표 1e5~1e6 mm)에 만든 형상은 묶음 가운데를
   `origin`으로 빼고 담아 float32로도 떨리지 않습니다(그 밖에는 예전과 같습니다)
 - 틈·넓이·부피 검사(`watertightness`, `meshArea`, `meshVolume`)
-- 공개 STEP 21개를 실패 면 없이 읽었고, NIST 시험 모형 9개는 모두 틈이 없습니다.
+- 공개 STEP 21개를 실패 면 없이 읽었고, NIST 시험 모형 9개는 모두 틈이 없습니다. 여러 CAD·커널이 내보낸 로컬 STEP 2,091개(내용이 같은 것 뺌)를
+  세 곡면 품질(20°·10°·5°)로 훑어 예외·실패 면 0, 닫힌 껍질 3,119개가 모두 틈 없이 닫히는 것을 확인했습니다(삼각형 감기가 어긋난 입체 72개 파일 → 2개,
+  접힌 삼각형이 있는 파일 35개 → 4개).
 
 ## 앱 쓰는 법
 
 - **열기**: 제목 막대의 "열기"(Ctrl+O)로 `.stp`·`.step`·`.p21` 파일이나 압축 STEP(`.stp.gz`·`.stpZ`·STEP이 든 `.zip`)을 고르거나,
   창 어디에나 끌어다 놓습니다(여러 개를 놓으면 첫 STEP 하나). 압축은 워커가 "압축 푸는 중" 단계로 풀고, 정보 탭에 압축 형식·ZIP 항목·푼 크기를 보입니다.
-  `.stpx`(STEP-XML)는 지원하지 않는다는 안내가 뜹니다.
+  `.stpx`(STEP-XML)는 지원하지 않는다는 안내가 뜹니다. 같은 Part 21 글인 IFC(건축 BIM, FILE_SCHEMA가 IFC…)는 다 읽기 전에 IFC 뷰어로 열라고 알리고,
+  끊긴 파일은 형상이 없으면 그것을 까닭으로, 일부만 읽혔으면 "파일을 다시 받아 여십시오" 알림을 띄웁니다.
   "예제 열기"는 우리가 만든 작은 조립 모형(받침판·블록 둘·핀 묶음, 레이어 셋, 받침판 PMI)을 엽니다.
   한 번에 문서 하나를 열며 새로 열면 바꿉니다. 큰 파일은 해석 중 덮개의 "취소"(또는 Esc)로 멈출 수 있습니다.
 - **파일은 이 브라우저 밖으로 나가지 않습니다.** 읽기(웹 워커)와 그리기(WebGL2)를 모두 이 컴퓨터에서 합니다.
@@ -180,6 +191,7 @@ const scene = stepToScene(bytes, {
 // meta.pmi?: { presentations, semantic }
 // meta.faceKinds·faceTables·meshFaceTable?: 그물 삼각형 → B-rep 면(src/brep.ts FaceTableData)
 // Mesh3d.closed: 닫힌 입체(단면 채우기) · Mesh3d/LineSet3d/PointSet3d.origin?: 큰 좌표일 때 묶음 원점(positions는 원점 기준)
+// scene.warnings?.[0] === TRUNCATED_WARNING(같은 입구에서 가져옴)이면 끊긴 파일
 
 // 압축 STEP(gzip·ZIP)은 먼저 푼다(비동기, DecompressionStream)
 import { unpackStep } from 'opencad-step';
@@ -194,12 +206,12 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `tools/sw-plugin.mjs` | 빌드 끝에 오프라인 서비스 워커(`dist/sw.js`)를 만드는 Vite 플러그인 |
 | `src/app/main.ts`, `src/app/app.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키 |
 | `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
-| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해) |
+| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/snap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해), 두 점 측정 붙잡기 점(원·원호 중심, 모서리 가운데 점) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
 | `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/interference.ts`, `src/app/pwa.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV·그림 저장 크기 글·파일 이름, 보기 링크, 간섭 검사, 홈 화면 앱(서비스 워커 등록·launchQueue) |
 | `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 해석 워커, 검사(간섭) 워커 |
 | `src/app/stepText.ts`, `src/app/sample.ts` | 작은 STEP 글쓴이(시험도 씀)와 예제 조립 모형 |
-| `src/index.ts` | 해석기 공개 입구 |
+| `src/index.ts`, `src/messages.ts` | 해석기 공개 입구, 해석기와 앱이 함께 쓰는 짧은 글(의존 없음 — 끊긴 파일 경고) |
 | `src/archive.ts` | 압축 STEP 풀기(gzip·ZIP), STEP-XML 알아보기 |
 | `src/part21.ts` | ISO 10303-21 글 해석 |
 | `src/scene.ts`, `src/styles.ts`, `src/units.ts`, `src/layers.ts` | 제품·조립·색·단위·레이어 → `Scene3d` |
@@ -207,7 +219,7 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `src/props.ts` | 제품 속성(설명·판·재질·밀도·사용자 속성) |
 | `src/brep.ts`, `src/geometry.ts`, `src/curves.ts`, `src/surfaces.ts`, `src/nurbs.ts` | B-rep 위상과 곡선·곡면 |
 | `src/tessellate.ts`, `src/math.ts` | 삼각화(해석적 곡면은 매개변수 영역 넓이 적분도) |
-| `src/analysis.ts` | 틈·넓이·부피 검사 |
+| `src/analysis.ts` | 틈·넓이·부피 검사, 닫힌 껍질 면 방향 맞추기(`orientFaces`) |
 
 ## 개발
 
