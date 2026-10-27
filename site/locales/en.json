@@ -821,5 +821,7 @@
   "확인": "Confirm",
   "황동": "Brass",
   "회전": "Rotation",
-  "회전 곡면": "Surface of revolution"
+  "회전 곡면": "Surface of revolution",
+  "언어 선택": "Choose language",
+  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/en/og/opencad.jpg"
 }

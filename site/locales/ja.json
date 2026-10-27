@@ -821,5 +821,7 @@
   "확인": "確認",
   "황동": "黄銅",
   "회전": "回転",
-  "회전 곡면": "回転面"
+  "회전 곡면": "回転面",
+  "언어 선택": "言語を選択",
+  "https://gyutae-kim.github.io/opencad-step/og-opencad.jpg": "https://gyutae-kim.github.io/assets/i18n/ja/og/opencad.jpg"
 }
