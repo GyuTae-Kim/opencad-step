@@ -54,6 +54,7 @@ import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
 import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
 import { filterRows, nodeLabel, selectFromPick } from './tree';
+import { warningNodes } from './warnparts';
 
 const NARROW = '(max-width: 759.98px)';
 /**
@@ -2285,7 +2286,7 @@ export class StepApp {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : [msg])), act, close);
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
     act?.addEventListener('click', () => {
       t.remove();
       action!.run();
@@ -2303,7 +2304,7 @@ export class StepApp {
     // 문서가 없을 때 시작 화면 뒤에 미리 만든 캔버스로 초점이 가지 않게
     this.hostEl.inert = !d;
     this.startError.hidden = !this.lastError || !!d;
-    this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : []));
+    this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : []));
     this.docNameEl.textContent = d ? d.name : '';
     this.docNameEl.title = d ? d.name : '';
     if (!d) document.title = APP_TITLE;

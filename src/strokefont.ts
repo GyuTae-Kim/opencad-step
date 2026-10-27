@@ -1,7 +1,7 @@
 /**
  * 내장 획 글꼴(한 획 선, DOM 없음): PMI 글자(TEXT_LITERAL)를 글꼴 파일 없이 선분으로 그린다.
  * 글자 칸은 너비 4·높이 6(대문자 높이 6, 기준선 0), 글자 간격 5. 소문자는 대문자 모양을 0.75배로 줄여 쓰고(작은 대문자),
- * 모르는 글자는 빈 상자로 그린다. GD&T 기호(⌖ ⏥ ⌭ ⌒ ⌓ ∠ ∥ ⟂ ◎ ↗ ⌰ ○ ⏤ ⌯ Ⓜ Ⓛ Ⓟ)와 ± ° Ø × µ를 넣었다.
+ * 모르는 글자는 빈 상자로 그린다(앱은 브라우저 글꼴로 그린 윤곽선을 layoutText의 fallback으로 준다 — 한글·일본어·중국어·그 밖의 기호). GD&T 기호(⌖ ⏥ ⌭ ⌒ ⌓ ∠ ∥ ⟂ ◎ ↗ ⌰ ○ ⏤ ⌯ Ⓜ Ⓛ Ⓟ)와 ± ° Ø × µ를 넣었다.
  */
 
 /** 글자 → 꺾은선들(정의 글: 꺾은선은 ';', 점은 ' ', x·y는 ',') */
@@ -139,27 +139,53 @@ export function hasGlyph(ch: string): boolean {
   return ch === ' ' || DEF[ch] !== undefined || DEF[ch.toUpperCase()] !== undefined;
 }
 
+/**
+ * 내장 글꼴에 없는 글자의 모양(선택): 글자 칸 좌표(대문자 높이 6, 기준선 0 — 내장 글꼴과 같은 칸)의 꺾은선들과
+ * 다음 글자까지 나아갈 거리(내장 글꼴은 5). 해석기는 DOM에 기대지 않으므로 앱(워커)이 브라우저 글꼴로 만들어 넘긴다
+ * (src/app/glyphs.ts). 모르면 null — 빈 상자로 그린다
+ */
+export interface GlyphShape {
+  strokes: [number, number][][];
+  advance: number;
+}
+export type GlyphSource = (ch: string) => GlyphShape | null;
+
 export interface TextLayout {
   /** 2D 선분 쌍 x0,y0,x1,y1,…(글자 높이 단위, 기준선 왼쪽 = 0,0) */
   segs: number[];
   /** 글줄 너비(글자 높이 단위) */
   width: number;
+  /** 내장 글꼴에 없어 빈 상자로 그린 글자 수 */
+  boxes: number;
 }
 
-/** 글 → 2D 선분(높이 1 = 대문자 높이, 여러 줄은 아래로 1.6씩) */
-export function layoutText(text: string): TextLayout {
+/**
+ * 글 → 2D 선분(높이 1 = 대문자 높이, 여러 줄은 아래로 1.6씩).
+ * fallback이 있으면 내장 글꼴에 없는 글자를 그 모양으로 그리고(나아갈 거리도 그 글자 것), 없거나 null이면 빈 상자
+ */
+export function layoutText(text: string, fallback?: GlyphSource | null): TextLayout {
   const k = 1 / 6;
   const segs: number[] = [];
   let width = 0;
+  let boxes = 0;
   text.split(/\r?\n/).forEach((line, li) => {
     let x = 0;
     const y0 = -li * 1.6;
     for (const ch of line) {
-      for (const st of glyph(ch))
+      let strokes: Stroke[] | [number, number][][] = glyph(ch);
+      let advance = 5;
+      if (!hasGlyph(ch)) {
+        const g = fallback ? fallback(ch) : null;
+        if (g) {
+          strokes = g.strokes;
+          advance = g.advance;
+        } else boxes++;
+      }
+      for (const st of strokes)
         for (let i = 1; i < st.length; i++) segs.push((x + st[i - 1]![0]) * k, y0 + st[i - 1]![1] * k, (x + st[i]![0]) * k, y0 + st[i]![1] * k);
-      x += 5;
+      x += advance;
     }
     width = Math.max(width, Math.max(0, x - 1) * k);
   });
-  return { segs, width };
+  return { segs, width, boxes };
 }

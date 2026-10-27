@@ -1,12 +1,12 @@
 /**
- * PMI 글자(TEXT_LITERAL과 아형)를 내장 획 글꼴(strokefont.ts)로 선분으로 그린다.
+ * PMI 글자(TEXT_LITERAL과 아형)를 내장 획 글꼴(strokefont.ts)로 선분으로 그린다(내장 글꼴에 없는 글자는 받은 글자 모양으로).
  * TEXT_LITERAL(name, literal, placement, alignment, path, font[, extent …]) — 배치(AXIS2_PLACEMENT_3D/2D)의 x축이 글줄 방향,
  * y축이 글자 위쪽이다. 글자 높이는 TEXT_LITERAL_WITH_EXTENT의 높이, 주석 양식의 TEXT_STYLE_WITH_BOX_CHARACTERISTICS BOX_HEIGHT,
  * 그것도 없으면 기본 2.5(모형 단위). 맞춤(alignment)은 'baseline left'를 기본으로 centre·right·top·middle을 따른다.
  */
 import type { Geometry } from './geometry';
 import { isA, num, partOf, refId, refList, StepTyped, text, type StepFile } from './part21';
-import { layoutText } from './strokefont';
+import { layoutText, type GlyphSource } from './strokefont';
 
 /** 기본 글자 높이(모형 단위, 대문자 높이) */
 export const DEFAULT_TEXT_HEIGHT = 2.5;
@@ -70,10 +70,14 @@ export function styleTextHeight(f: StepFile, styleIds: readonly number[]): numbe
   return null;
 }
 
-/** 글자들 → 3D 선분 쌍(모형 좌표). 그리지 못한 글자 개수도 */
-export function textSegments(f: StepFile, g: Geometry, literals: readonly number[], styleHeight: number | null): { segs: number[]; drawn: number } {
+/**
+ * 글자들 → 3D 선분 쌍(모형 좌표). 그리지 못한 글자 개수도.
+ * glyphs: 내장 글꼴에 없는 글자(한글·일본어·중국어·그 밖의 기호)의 모양 — 없으면 그 글자는 빈 상자(boxes에 센다)
+ */
+export function textSegments(f: StepFile, g: Geometry, literals: readonly number[], styleHeight: number | null, glyphs?: GlyphSource | null): { segs: number[]; drawn: number; boxes: number } {
   const segs: number[] = [];
   let drawn = 0;
+  let boxes = 0;
   for (const id of literals) {
     const e = f.get(id);
     if (!e) continue;
@@ -94,7 +98,8 @@ export function textSegments(f: StepFile, g: Geometry, literals: readonly number
       const sy = num(ext.args[2]);
       if (sy > 0) height = sy;
     }
-    const lay = layoutText(lit);
+    const lay = layoutText(lit, glyphs);
+    boxes += lay.boxes;
     let dx = 0;
     let dy = 0;
     if (align.includes('cent')) dx = -lay.width / 2;
@@ -109,5 +114,5 @@ export function textSegments(f: StepFile, g: Geometry, literals: readonly number
     }
     drawn++;
   }
-  return { segs, drawn };
+  return { segs, drawn, boxes };
 }

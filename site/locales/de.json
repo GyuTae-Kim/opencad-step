@@ -438,6 +438,7 @@
   "삼각형 주석": "Dreieck-Anmerkung",
   "삼각화": "Triangulation",
   "삼각화 못 한 면": "Nicht triangulierte Flächen",
+  "삼각화하지 못한 면 {0}개 / {1}개": "Nicht triangulierte Flächen {0} / {1}",
   "삼각화하지 못한 면 {0}개 / {1}개 ({2})": "Untriangulierte Flächen {0} / {1} ({2})",
   "상자": "Feld",
   "새 버전이 있습니다.": "Eine neue Version ist verfügbar.",

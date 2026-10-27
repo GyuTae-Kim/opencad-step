@@ -728,6 +728,70 @@ function foldDot(a: V3, b: V3, c: V3, na: V3, nb: V3, nc: V3): number {
   return dot(n, [na[0] + nb[0] + nc[0], na[1] + nb[1] + nc[1], na[2] + nb[2] + nc[2]]);
 }
 
+/**
+ * 무향 모서리(정점 번호 둘) → 차례 번호 해시(열린 주소, 형식 배열). 처음 넣은 차례대로 번호를 매긴다 —
+ * Map에 큰 수 열쇠(a·2^26 + b)를 넣던 것보다 빠르고, 차례가 같아 결과도 같다
+ */
+export class EdgeHash {
+  size = 0;
+  lo: Int32Array;
+  hi: Int32Array;
+  private table: Int32Array;
+  private mask: number;
+  /** @param expect 넣을 모서리 수 어림(미리 자리를 잡아 늘리기를 줄인다) */
+  constructor(expect = 32) {
+    const n = Math.max(32, expect);
+    let cap = 64;
+    while (cap < n * 2) cap *= 2;
+    this.lo = new Int32Array(n);
+    this.hi = new Int32Array(n);
+    this.table = new Int32Array(cap).fill(-1);
+    this.mask = cap - 1;
+  }
+  private slot(a: number, b: number): number {
+    let h = (Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca6b)) & this.mask;
+    for (;;) {
+      const i = this.table[h]!;
+      if (i < 0 || (this.lo[i] === a && this.hi[i] === b)) return h;
+      h = (h + 1) & this.mask;
+    }
+  }
+  /** 모서리 번호(없으면 -1) */
+  find(x: number, y: number): number {
+    return this.table[this.slot(x < y ? x : y, x < y ? y : x)]!;
+  }
+  /** 모서리 번호(없으면 새로 넣는다) */
+  add(x: number, y: number): number {
+    const a = x < y ? x : y;
+    const b = x < y ? y : x;
+    let h = this.slot(a, b);
+    const hit = this.table[h]!;
+    if (hit >= 0) return hit;
+    if ((this.size + 1) * 2 > this.mask) {
+      this.grow();
+      h = this.slot(a, b);
+    }
+    if (this.size === this.lo.length) {
+      const lo = new Int32Array(this.size * 2);
+      const hi = new Int32Array(this.size * 2);
+      lo.set(this.lo);
+      hi.set(this.hi);
+      this.lo = lo;
+      this.hi = hi;
+    }
+    const i = this.size++;
+    this.lo[i] = a;
+    this.hi[i] = b;
+    this.table[h] = i;
+    return i;
+  }
+  private grow(): void {
+    this.table = new Int32Array(this.table.length * 2).fill(-1);
+    this.mask = this.table.length - 1;
+    for (let i = 0; i < this.size; i++) this.table[this.slot(this.lo[i]!, this.hi[i]!)] = i;
+  }
+}
+
 /** 곡면 오차·법선 각·매개변수 간격으로 안쪽 모서리를 나누는 되풀이 */
 function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): number[] {
   const s = vs.s;
@@ -736,46 +800,73 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
   const sign = 1;
   /** 경계(고리) 정점 수 — 처음 정점은 모두 고리 점이다 */
   const nRing = vs.u.length;
+  // 정점은 한번 넣으면 바뀌지 않으므로 모서리를 나눌지(want)와 삼각형이 곡면에 맞는지는 정점 번호만으로 정해진다 —
+  // 앞 번에 잰 결과를 다시 쓴다(결과는 같고, 아주 세밀한 품질에서 되풀이마다 모든 모서리·삼각형의 곡면 점을 다시 구하던 시간을 던다)
+  const memo = new EdgeHash();
+  /** 모서리(memo 번호)마다 나눌지: 0 아직 모름, 1 아니오, 2 예 */
+  let memoWant = new Uint8Array(64);
+  /** 삼각형 자리마다 앞 번에 "그대로 두어도 됨"으로 본 것(1) — 자리의 세 정점이 그대로일 때만 이어 쓴다 */
+  let triOk = new Uint8Array(tris.length / 3);
+  const want = (a: number, b: number): boolean => {
+    const Pa = vs.P(a);
+    const Pb = vs.P(b);
+    const l = dist(Pa, Pb);
+    const du = Math.abs(vs.u[a]! - vs.u[b]!);
+    const dv = Math.abs(vs.v[a]! - vs.v[b]!);
+    if (du > s.maxStepU || dv > s.maxStepV) return l > tol.chord * 0.5;
+    if (l <= tol.chord * 0.25) return false;
+    const um = (vs.u[a]! + vs.u[b]!) / 2;
+    const vm = (vs.v[a]! + vs.v[b]!) / 2;
+    const pm = s.point(um, vm);
+    const err = dist(pm, [(Pa[0] + Pb[0]) / 2, (Pa[1] + Pb[1]) / 2, (Pa[2] + Pb[2]) / 2]);
+    if (err > tol.chord) return true;
+    return dot(vs.N(a), vs.N(b)) < cosLim && l > tol.chord;
+  };
   for (let round = 0; round < 14; round++) {
     const ntri = tris.length / 3;
-    // 모서리 → 삼각형 수
-    const count = new Map<number, number>();
+    // 모서리 → 삼각형 수(처음 나온 차례대로 번호)
+    const edges = new EdgeHash(Math.ceil(ntri * 1.6));
+    let count = new Uint8Array(Math.max(64, ntri * 2));
     for (let t = 0; t < ntri; t++)
       for (let e = 0; e < 3; e++) {
-        const a = tris[t * 3 + e]!;
-        const b = tris[t * 3 + ((e + 1) % 3)]!;
-        const k = a < b ? a * KEY + b : b * KEY + a;
-        count.set(k, (count.get(k) ?? 0) + 1);
+        const i = edges.add(tris[t * 3 + e]!, tris[t * 3 + ((e + 1) % 3)]!);
+        if (i >= count.length) {
+          const c = new Uint8Array(count.length * 2);
+          c.set(count);
+          count = c;
+        }
+        if (count[i]! < 255) count[i]!++;
       }
-    const split = new Map<number, number>();
-    const want = (a: number, b: number): boolean => {
-      const Pa = vs.P(a);
-      const Pb = vs.P(b);
-      const l = dist(Pa, Pb);
-      const du = Math.abs(vs.u[a]! - vs.u[b]!);
-      const dv = Math.abs(vs.v[a]! - vs.v[b]!);
-      if (du > s.maxStepU || dv > s.maxStepV) return l > tol.chord * 0.5;
-      if (l <= tol.chord * 0.25) return false;
-      const um = (vs.u[a]! + vs.u[b]!) / 2;
-      const vm = (vs.v[a]! + vs.v[b]!) / 2;
-      const pm = s.point(um, vm);
-      const err = dist(pm, [(Pa[0] + Pb[0]) / 2, (Pa[1] + Pb[1]) / 2, (Pa[2] + Pb[2]) / 2]);
-      if (err > tol.chord) return true;
-      return dot(vs.N(a), vs.N(b)) < cosLim && l > tol.chord;
-    };
+    const ne = edges.size;
+    /** 나눌 모서리(차례대로)와 그 가운데 정점 */
+    const splitList: number[] = [];
+    const splitMid = new Int32Array(ne).fill(-1);
+    const marked = new Uint8Array(ne);
     const mark = (a: number, b: number) => {
-      const k = a < b ? a * KEY + b : b * KEY + a;
-      if (split.has(k) || count.get(k) !== 2) return;
-      split.set(k, -1);
+      const i = edges.find(a, b);
+      if (i < 0 || marked[i] || count[i] !== 2) return;
+      marked[i] = 1;
+      splitList.push(i);
     };
-    for (const [k, c] of count) {
-      if (c !== 2) continue;
-      const a = Math.floor(k / KEY);
-      const b = k - a * KEY;
-      if (want(a, b)) split.set(k, -1);
+    for (let i = 0; i < ne; i++) {
+      if (count[i] !== 2) continue;
+      const a = edges.lo[i]!;
+      const b = edges.hi[i]!;
+      const m = memo.add(a, b);
+      if (m >= memoWant.length) {
+        const w = new Uint8Array(memoWant.length * 2);
+        w.set(memoWant);
+        memoWant = w;
+      }
+      if (!memoWant[m]) memoWant[m] = want(a, b) ? 2 : 1;
+      if (memoWant[m] === 2) {
+        marked[i] = 1;
+        splitList.push(i);
+      }
     }
     // 삼각형 가운데가 곡면에서 멀면 가장 긴 안쪽 모서리를 나눈다
     for (let t = 0; t < ntri; t++) {
+      if (triOk[t]) continue;
       const a = tris[t * 3]!;
       const b = tris[t * 3 + 1]!;
       const c = tris[t * 3 + 2]!;
@@ -789,7 +880,10 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
       // 세 정점이 모두 안쪽 점일 때만: 경계 현 때문에 접힌 것은 안쪽을 나눠도 풀리지 않고 경계 가까이 점만 늘린다
       // (그런 면은 BrepMesher가 경계 모서리를 더 잘게 나눠 다시 삼각화한다)
       const off = dist(s.point(uc, vc), flat) > tol.chord;
-      if (!off && (a < nRing || b < nRing || c < nRing || foldDot(Pa, Pb, Pc, vs.N(a), vs.N(b), vs.N(c)) * sign >= 0)) continue;
+      if (!off && (a < nRing || b < nRing || c < nRing || foldDot(Pa, Pb, Pc, vs.N(a), vs.N(b), vs.N(c)) * sign >= 0)) {
+        triOk[t] = 1;
+        continue;
+      }
       const es: [number, number, number][] = [
         [a, b, dist(Pa, Pb)],
         [b, c, dist(Pb, Pc)],
@@ -797,24 +891,28 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
       ];
       es.sort((x, y) => y[2] - x[2]);
       for (const [x, y] of es) {
-        const k = x < y ? x * KEY + y : y * KEY + x;
-        if (count.get(k) === 2) {
+        if (count[edges.find(x, y)] === 2) {
           mark(x, y);
           break;
         }
       }
     }
-    if (!split.size) break;
-    if (ntri + split.size * 2 > maxTris) break;
-    for (const k of split.keys()) {
-      const a = Math.floor(k / KEY);
-      const b = k - a * KEY;
+    if (!splitList.length) break;
+    if (ntri + splitList.length * 2 > maxTris) break;
+    for (const i of splitList) {
+      const a = edges.lo[i]!;
+      const b = edges.hi[i]!;
       const um = (vs.u[a]! + vs.u[b]!) / 2;
       const vm = (vs.v[a]! + vs.v[b]!) / 2;
-      split.set(k, vs.add(um, vm, s.point(um, vm)));
+      splitMid[i] = vs.add(um, vm, s.point(um, vm));
     }
-    const mid = (a: number, b: number) => split.get(a < b ? a * KEY + b : b * KEY + a) ?? -1;
+    const mid = (a: number, b: number) => {
+      const i = edges.find(a, b);
+      return i < 0 ? -1 : splitMid[i]!;
+    };
     const nt: number[] = [];
+    /** 그대로 옮긴 삼각형의 새 자리 → 앞 번 판정 */
+    const carried: number[] = [];
     for (let t = 0; t < ntri; t++) {
       const a = tris[t * 3]!;
       const b = tris[t * 3 + 1]!;
@@ -825,6 +923,7 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
       const code = (m0 >= 0 ? 1 : 0) | (m1 >= 0 ? 2 : 0) | (m2 >= 0 ? 4 : 0);
       switch (code) {
         case 0:
+          if (triOk[t]) carried.push(nt.length / 3);
           nt.push(a, b, c);
           break;
         case 1:
@@ -849,8 +948,16 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
           nt.push(a, m0, m2, m0, b, m1, m2, m1, c, m0, m1, m2);
       }
     }
+    // 뒤집기(Lawson) 전 그대로 옮긴 삼각형의 정점을 적어 두고, 뒤집기로 정점이 바뀐 자리는 판정을 지운다
+    const keep = new Int32Array(carried.length * 3);
+    for (let i = 0; i < carried.length; i++) for (let e = 0; e < 3; e++) keep[i * 3 + e] = nt[carried[i]! * 3 + e]!;
     tris = nt;
     lawson(tris, vs.xy, 2);
+    triOk = new Uint8Array(tris.length / 3);
+    for (let i = 0; i < carried.length; i++) {
+      const t = carried[i]!;
+      if (tris[t * 3] === keep[i * 3] && tris[t * 3 + 1] === keep[i * 3 + 1] && tris[t * 3 + 2] === keep[i * 3 + 2]) triOk[t] = 1;
+    }
   }
   return tris;
 }
@@ -1115,7 +1222,114 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number): 
     }
     if (!flats && !stray && dev < 1e-9) break;
   }
+  // 경계 선분을 다 쓰지 못했으면(경계가 스스로 엇갈려 earcut이 엇갈린 자리의 고리 점을 뺐다 — 곡선 모서리 둘이 현 높이 안에서
+  // 나란히 가는 가는 띠 평면 등) 고리 점을 하나도 빼지 않는 귀 자르기로 다시 해 본다. 이웃 면은 그 점들을 쓰므로 빼면 틈이 된다
+  if (best.length && strayBoundaryEdges(best, rings)) {
+    const all = clipAll(xy, holeIdx, nv);
+    if (all.length && strayBoundaryEdges(all, rings) === 0) return all;
+  }
   return best;
+}
+
+/**
+ * 마지막 수단 삼각화: 고리 점을 하나도 빼지 않고 귀를 잘라 나간다(구멍은 가장 가까운 바깥 점과 다리로 잇는다).
+ * 경계가 스스로 엇갈리는 다각형에서도 모든 경계 선분을 꼭 한 번씩 쓰는 삼각형 n − 2개를 낸다 — 엇갈린 자리의 삼각형은
+ * 뒤집히거나 겹치지만(가는 띠라 넓이는 아주 작다) 이웃 면과 틈이 없다. 점이 많으면(4,000개 넘음) 빈 배열
+ */
+export function clipAll(xy: number[], holeIdx: number[], nv: number): number[] {
+  if (nv < 3 || nv > 4000) return [];
+  const starts = [0, ...holeIdx, nv];
+  const rings: number[][] = [];
+  for (let r = 0; r + 1 < starts.length; r++) {
+    const ring: number[] = [];
+    for (let i = starts[r]!; i < starts[r + 1]!; i++) ring.push(i);
+    if (ring.length >= (r === 0 ? 3 : 1)) rings.push(ring);
+    else if (r === 0) return [];
+  }
+  const X = (i: number) => xy[i * 2]!;
+  const Y = (i: number) => xy[i * 2 + 1]!;
+  const ringArea = (ring: number[]) => {
+    let a = 0;
+    for (let k = 0, j = ring.length - 1; k < ring.length; j = k++) a += X(ring[j]!) * Y(ring[k]!) - X(ring[k]!) * Y(ring[j]!);
+    return a / 2;
+  };
+  let poly = rings[0]!;
+  const sgn = ringArea(poly) >= 0 ? 1 : -1;
+  // 구멍: 바깥과 반대로 돌게 하고, 바깥(과 이미 이은 구멍) 점 가운데 가장 가까운 점과 다리로 잇는다
+  for (const hole of rings.slice(1)) {
+    const h = ringArea(hole) * sgn > 0 ? hole.slice().reverse() : hole;
+    let bi = 0;
+    let bj = 0;
+    let bd = Infinity;
+    for (let i = 0; i < poly.length; i++)
+      for (let j = 0; j < h.length; j++) {
+        const d = (X(poly[i]!) - X(h[j]!)) ** 2 + (Y(poly[i]!) - Y(h[j]!)) ** 2;
+        if (d < bd) {
+          bd = d;
+          bi = i;
+          bj = j;
+        }
+      }
+    const loop = [...h.slice(bj), ...h.slice(0, bj), h[bj]!];
+    poly = [...poly.slice(0, bi + 1), ...loop, ...poly.slice(bi)];
+  }
+  const m = poly.length;
+  const next = new Int32Array(m);
+  const prev = new Int32Array(m);
+  for (let k = 0; k < m; k++) {
+    next[k] = (k + 1) % m;
+    prev[k] = (k - 1 + m) % m;
+  }
+  const cross = (a: number, b: number, c: number) => (X(b) - X(a)) * (Y(c) - Y(a)) - (Y(b) - Y(a)) * (X(c) - X(a));
+  const isEar = (k: number, left: number): boolean => {
+    const a = poly[prev[k]!]!;
+    const b = poly[k]!;
+    const c = poly[next[k]!]!;
+    if (cross(a, b, c) * sgn <= 0) return false;
+    // 남은 다른 점이 삼각형 안(경계 포함)에 있으면 귀가 아니다(같은 점 — 다리 양 끝 — 은 빼고)
+    for (let q = next[next[k]!]!, n = 0; n < left - 3; q = next[q]!, n++) {
+      const p = poly[q]!;
+      if (p === a || p === b || p === c) continue;
+      if (cross(a, b, p) * sgn >= 0 && cross(b, c, p) * sgn >= 0 && cross(c, a, p) * sgn >= 0) return false;
+    }
+    return true;
+  };
+  const out: number[] = [];
+  let left = m;
+  let cur = 0;
+  while (left > 3) {
+    let ear = -1;
+    for (let k = cur, n = 0; n < left; k = next[k]!, n++)
+      if (isEar(k, left)) {
+        ear = k;
+        break;
+      }
+    if (ear < 0) {
+      // 참 귀가 없다(엇갈린 경계): 볼록한 자리 가운데 넓이가 가장 작은 것, 그것도 없으면 넓이가 가장 작은 자리를 자른다
+      let convex = Infinity;
+      let any = Infinity;
+      let anyEar = cur;
+      for (let k = cur, n = 0; n < left; k = next[k]!, n++) {
+        const c = cross(poly[prev[k]!]!, poly[k]!, poly[next[k]!]!) * sgn;
+        if (c > 0 && c < convex) {
+          convex = c;
+          ear = k;
+        }
+        if (Math.abs(c) < any) {
+          any = Math.abs(c);
+          anyEar = k;
+        }
+      }
+      if (ear < 0) ear = anyEar;
+    }
+    out.push(poly[prev[ear]!]!, poly[ear]!, poly[next[ear]!]!);
+    next[prev[ear]!] = next[ear]!;
+    prev[next[ear]!] = prev[ear]!;
+    cur = prev[ear]!;
+    left--;
+  }
+  out.push(poly[prev[cur]!]!, poly[cur]!, poly[next[cur]!]!);
+  return out;
 }
 
 /** 삼각형 하나만 쓰는 모서리 가운데 고리의 이웃 점 쌍이 아닌 것(T자 이음·겹침) */

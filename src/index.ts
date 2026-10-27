@@ -23,3 +23,5 @@ export { watertightness, meshArea, meshVolume, orientFaces, type WatertightRepor
 export { readProductProps, type StepProductProps } from './props';
 export { STEP_XML_MESSAGE, sniffContainer, unpackStep, type ContainerKind, type Unpacked } from './archive';
 export { TRUNCATED_WARNING } from './messages';
+export { type GlyphShape, type GlyphSource } from './strokefont';
+export { traceGlyph, type Contour } from './glyphtrace';

@@ -352,7 +352,8 @@ export async function unpackStep(bytes: Uint8Array, onProgress?: (fraction: numb
     const pick = cands[0]!;
     if (cands.length > 1) {
       const rest = cands.slice(1).map((e) => e.name);
-      out.notes.push(`ZIP 안 STEP 파일 ${cands.length}개 가운데 가장 큰 ${pick.name}을(를) 열었습니다(나머지: ${rest.slice(0, 5).join(', ')}${rest.length > 5 ? ` 외 ${rest.length - 5}개` : ''}).`);
+      // 다섯 개 넘는 나머지는 "… +N"(언어와 무관한 꼴 — 다른 언어 화면에서 문장 틀만 옮기고 자리 값은 그대로 두므로)
+      out.notes.push(`ZIP 안 STEP 파일 ${cands.length}개 가운데 가장 큰 ${pick.name}을(를) 열었습니다(나머지: ${rest.slice(0, 5).join(', ')}${rest.length > 5 ? `, … +${rest.length - 5}` : ''}).`);
     }
     out.entry = pick.name;
     out.bytes = await zipEntryData(out.bytes, pick, { onProgress });

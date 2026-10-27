@@ -14,6 +14,7 @@ import { nodePath, partRows, type PropRow } from './partinfo';
 import { inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
 import { selectRow } from './dialog';
+import { warningNodes } from './warnparts';
 import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
@@ -771,7 +772,7 @@ export class Panel {
       this.body.append(
         section(
           `경고 ${fmtCount(warns.length)}개`,
-          h('ul', { class: 'warn-list' }, ...warns.slice(0, LIMIT).map((w) => h('li', {}, w))),
+          h('ul', { class: 'warn-list' }, ...warns.slice(0, LIMIT).map((w) => h('li', {}, ...warningNodes(w)))),
           warns.length > LIMIT ? h('p', { class: 'hint' }, `처음 ${LIMIT}개만 보입니다.`) : null,
         ),
       );
