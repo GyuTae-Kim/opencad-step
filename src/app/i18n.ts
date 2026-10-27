@@ -120,7 +120,6 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
     mountSelector();
   });
   metadata(); update(presentationRoot); mountSelector();
-  root.dispatchEvent(new CustomEvent('languagechange',{detail:language}));
   const title = document.querySelector('title');
   const titleObserver = new MutationObserver(() => {
     const current = document.title;
@@ -133,6 +132,9 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
   });
   if (title) titleObserver.observe(title,{childList:true,subtree:true,characterData:true});
   observer.observe(presentationRoot,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['title','aria-label','aria-description','placeholder','alt','href']});
+  // App listeners redraw toolbar labels and status during this initial event.
+  // Observe first so those new source strings receive the selected language too.
+  root.dispatchEvent(new CustomEvent('languagechange',{detail:language}));
   return () => {
     observer.disconnect(); titleObserver.disconnect(); control.dispose();
     for (const [view,label] of originalViews) VIEW_LABELS[view as keyof typeof VIEW_LABELS]=label;
