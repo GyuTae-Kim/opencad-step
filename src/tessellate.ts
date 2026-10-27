@@ -1070,12 +1070,16 @@ export function tessellateFace(
   eps: number,
   out: MeshOut,
   maxTris = 400_000,
-  /** 넓이 누적(해석적 곡면만 — 매개변수 영역 적분) */
-  acc?: { area: number },
+  /**
+   * 넓이 누적(해석적 곡면만 — 매개변수 영역 적분). polys에는 삼각화한 매개변수 공간 다각형을, uv가 있으면 내보낸 정점의 (u,v)를
+   * 차례대로 남긴다(질량 속성 적분 — massprops.ts, 삼각형으로 구하는 면의 어림 오차)
+   */
+  acc?: { area: number; polys?: FacePolygon[]; uv?: number[] },
 ): FaceResult {
   const flags = { reversed: false };
   const polys = faceDomain(s, loops, sameSense, tol, eps, flags);
   if (typeof polys === 'string') return { triangles: 0, error: polys };
+  if (acc) acc.polys = polys;
 
   // 매개변수 배율: 곡률에 맞춘 비등방 거리(굽은 방향은 허용 걸음 1, 곧은 방향은 면 크기 1)
   const [su, sv] = faceMetric(s, polys, tol);
@@ -1113,7 +1117,7 @@ export function tessellateFace(
       tris = refineMesh(vs, tris, tol, maxTris);
     }
     if (acc && QUADRATURE_KINDS.has(s.kind)) acc.area += uvArea(s, vs.u, vs.v, tris);
-    total += emit(vs, tris, sameSense, out);
+    total += emit(vs, tris, sameSense, out, acc?.uv);
   }
   return flags.reversed ? { triangles: total, reversed: true } : { triangles: total };
 }
@@ -1564,7 +1568,7 @@ function angleBetween(a: V3, b: V3): number {
   return Math.atan2(x, c);
 }
 
-function emit(vs: Verts, tris: number[], sameSense: boolean, out: MeshOut): number {
+function emit(vs: Verts, tris: number[], sameSense: boolean, out: MeshOut, uvOut?: number[]): number {
   const base = out.positions.length / 3;
   const sign = sameSense ? 1 : -1;
   const nv = vs.u.length;
@@ -1586,6 +1590,7 @@ function emit(vs: Verts, tris: number[], sameSense: boolean, out: MeshOut): numb
         used[i] = next++;
         out.positions.push(vs.p[i * 3]!, vs.p[i * 3 + 1]!, vs.p[i * 3 + 2]!);
         out.normals.push(vs.n[i * 3]! * sign, vs.n[i * 3 + 1]! * sign, vs.n[i * 3 + 2]! * sign);
+        uvOut?.push(vs.u[i]!, vs.v[i]!);
       }
       out.indices.push(used[i]!);
     }

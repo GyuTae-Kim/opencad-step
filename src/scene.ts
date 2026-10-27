@@ -52,6 +52,10 @@ export interface StepOptions {
   pmi?: boolean;
   /** 면 표(meta.faceTables·meta.meshFaceTable)를 만들지. 기본 true */
   faceTable?: boolean;
+  /** 닫힌 입체의 질량 속성(면 표 props — 곡면 적분)을 구할지. 기본 true(면 표가 있을 때만) */
+  props?: boolean;
+  /** 질량 속성 적분 시간 한도(brep.ts MeshOptions.propsBudget) */
+  propsBudget?: { minMs: number; share: number };
   /**
    * PMI 글자 가운데 내장 획 글꼴(숫자·영문·기호)에 없는 글자(한글·일본어·중국어 등)의 모양(선택).
    * 해석기는 DOM에 기대지 않으므로 부르는 쪽이 준다 — 앱 워커는 브라우저 글꼴 윤곽선(src/app/glyphs.ts). 없으면 빈 상자
@@ -148,6 +152,8 @@ export interface StepMeta {
     parseMs: number;
     meshMs: number;
     totalMs: number;
+    /** 시간 한도를 넘어 질량 속성을 곡면 적분 대신 삼각형으로 구한 입체 수(0이면 없음) */
+    propsTimedOut?: number;
   };
   /** 길이 단위 이름(원래 파일) */
   lengthUnit: string;
@@ -196,6 +202,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     absTol: opts.chordTolerance,
     angle: ((opts.angleTolerance ?? 20) * Math.PI) / 180,
     faceTable: opts.faceTable !== false,
+    props: opts.props,
+    propsBudget: opts.propsBudget,
   });
   const wantCurves = opts.curves !== false;
   const wantPmi = opts.pmi !== false;
@@ -1008,6 +1016,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       parseMs: Math.round(tParse - t0),
       meshMs: Math.round(tMesh - tMesh0),
       totalMs: Math.round(now() - t0),
+      ...(mesher.propsTimedOut ? { propsTimedOut: mesher.propsTimedOut } : {}),
     },
     lengthUnit: lengthUnit || (sceneUnits === 'unknown' ? '' : sceneUnits),
   };
@@ -1089,6 +1098,18 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
   const out: FaceTableData = { ...t, params };
   if (t.area) out.area = t.area.map((a) => a * k * k);
   if (t.perimeter) out.perimeter = t.perimeter.map((x) => x * k);
+  if (t.props) out.props = scaleProps(t.props, k);
+  return out;
+}
+
+/** 질량 속성(brep.ts FaceTableData.props) 단위 바꾸기: 부피·어림 오차 k³, 1차 모멘트 k⁴, 2차 모멘트 k⁵, 기준점 k */
+export function scaleProps(p: Float64Array, k: number): Float64Array {
+  const out = new Float64Array(p);
+  out[0] = p[0]! * k ** 3;
+  for (let i = 1; i <= 3; i++) out[i] = p[i]! * k ** 4;
+  for (let i = 4; i <= 9; i++) out[i] = p[i]! * k ** 5;
+  for (let i = 10; i <= 12; i++) out[i] = p[i]! * k;
+  out[13] = p[13]! * k ** 3;
   return out;
 }
 
