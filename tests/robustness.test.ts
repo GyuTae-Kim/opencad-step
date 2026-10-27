@@ -5,8 +5,10 @@
  * - 큰 부품의 작은 원환 필렛: 성긴 현 때문에 접힌 삼각형
  */
 import { describe, expect, it } from 'vitest';
-import { orientFaces, stepToScene, watertightness, type StepMeta } from '../src/index';
-import { r, StepText, type P3 } from './stepText';
+import { parseStepFile } from '../src/app/job';
+import { IFC_MESSAGE, headSchemas } from '../src/app/protocol';
+import { orientFaces, stepToScene, TRUNCATED_WARNING, watertightness, type StepMeta } from '../src/index';
+import { cube, cylinder, r, StepText, type P3 } from './stepText';
 
 type Mesh = { positions: ArrayLike<number>; indices?: ArrayLike<number>; normals?: ArrayLike<number> };
 
@@ -232,3 +234,49 @@ describe('큰 부품의 작은 원환 필렛(성긴 현)', () => {
   });
 });
 
+describe('깨진 파일·다른 스키마 안내', () => {
+  const full = (() => {
+    const w = new StepText();
+    const ctx = w.context();
+    w.product('block', [cube(w, 10).solid], ctx);
+    return w.toString();
+  })();
+  const enc = (t: string) => new TextEncoder().encode(t);
+
+  it('끝까지 온전한 파일에는 끊김 경고가 없다', () => {
+    expect(stepToScene(enc(full)).warnings ?? []).not.toContain(TRUNCATED_WARNING);
+  });
+
+  it('END-ISO-10303-21 없이 끝나거나 마지막 문장이 잘린 파일은 맨 앞에 끊김 경고', () => {
+    const noEnd = full.replace('END-ISO-10303-21;', '');
+    expect(stepToScene(enc(noEnd)).warnings?.[0]).toBe(TRUNCATED_WARNING);
+    const cut = full.slice(0, Math.floor(full.length * 0.6));
+    const s = stepToScene(enc(cut));
+    expect(s.warnings?.[0]).toBe(TRUNCATED_WARNING);
+  });
+
+  it('가리키는 개체가 사라져 못 만든 곡면은 "지원하지 않는 곡면"이 아니라 읽지 못했다고 적는다', () => {
+    // 원기둥 면의 곡면 자리(AXIS2_PLACEMENT_3D)를 지운 파일: 옆면은 평면으로 대신 그릴 수 없어 실패하지만 원기둥은 지원하는 곡면이다
+    const w = new StepText();
+    const ctx = w.context();
+    w.product('pin', [cylinder(w, 5, 10)], ctx);
+    const text = w.toString();
+    const cyl = /#(\d+)=CYLINDRICAL_SURFACE\('',#(\d+),/.exec(text)!;
+    const broken = text.replace(new RegExp(`#${cyl[2]}=AXIS2_PLACEMENT_3D[^;]*;\\n`), '');
+    expect(broken.length).toBeLessThan(text.length);
+    const s = stepToScene(enc(broken));
+    const why = (s.warnings ?? []).find((x) => x.startsWith('삼각화하지 못한 면'));
+    expect(why).toBeDefined();
+    expect(why).toContain('곡면 CYLINDRICAL_SURFACE을(를) 읽지 못함');
+    expect(why).not.toContain('지원하지 않는 곡면');
+  });
+
+  it('IFC(건축 BIM) Part 21 글은 다 읽기 전에 알기 쉬운 글로 거절한다', async () => {
+    const ifc = full.replace(/FILE_SCHEMA\(\('[^']*'\)\);/, "FILE_SCHEMA(('IFC4'));");
+    expect(headSchemas(enc(ifc))).toEqual(['IFC4']);
+    await expect(parseStepFile('building.ifc', enc(ifc))).rejects.toThrow(IFC_MESSAGE);
+    // 기계 CAD 스키마는 그대로 연다
+    expect(headSchemas(enc(full))).toEqual(['AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }']);
+    await expect(parseStepFile('block.stp', enc(full))).resolves.toBeDefined();
+  });
+});

@@ -4,7 +4,7 @@
  */
 import { isStepXml, sniffContainer, STEP_XML_MESSAGE, unpackStep } from '../archive';
 import { stepToScene } from '../scene';
-import { sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
+import { headSchemas, IFC_MESSAGE, sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
 
 /** 압축 풀기가 차지하는 진행률 몫(압축 파일일 때) */
 const UNPACK_SHARE = 0.15;
@@ -40,6 +40,9 @@ export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array
     if (source) throw new Error(`압축을 풀었지만 STEP 글이 아닙니다. ${sniff.reason}`);
     throw new Error(sniff.reason);
   }
+  // IFC(건축 BIM)도 같은 Part 21 글이라 머리만으로는 통과한다 — 다 읽고 "형상 없음"이라 하기 전에 알기 쉽게 거절한다
+  const schemas = headSchemas(bytes.subarray(0, 64 * 1024));
+  if (schemas.length && schemas.every((x) => x.startsWith('IFC'))) throw new Error(IFC_MESSAGE);
   const scene = stepToScene(bytes, {
     name: sceneName,
     onProgress: (f, stage) => progress(base + f * (1 - base), stage),

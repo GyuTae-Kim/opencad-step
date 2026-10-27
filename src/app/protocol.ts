@@ -144,6 +144,19 @@ export function sniffStep(head: Uint8Array): SniffResult {
   return { ok: true };
 }
 
+/** IFC(건축 BIM) 안내 — Part 21 글이지만 기계 CAD STEP이 아니다 */
+export const IFC_MESSAGE = 'IFC(건축 BIM) 파일입니다. 이 앱은 기계 CAD STEP(AP203·AP214·AP242)만 엽니다 — IFC 뷰어로 여십시오.';
+
+/** 파일 앞부분 FILE_SCHEMA의 스키마 이름들(대문자, 없으면 빈 배열) */
+export function headSchemas(head: Uint8Array): string[] {
+  const n = Math.min(head.length, 64 * 1024);
+  let text = '';
+  for (let i = 0; i < n; i++) text += String.fromCharCode(head[i]!);
+  const m = /FILE_SCHEMA\s*\(\s*\(([^;]*?)\)\s*\)\s*;/i.exec(text);
+  if (!m) return [];
+  return [...m[1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]!.trim().toUpperCase()).filter(Boolean);
+}
+
 /** 워커·해석기 오류 글 → 화면에 보일 알기 쉬운 글 */
 export function friendlyError(message: string): string {
   const m = message.trim();

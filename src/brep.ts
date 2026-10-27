@@ -1037,7 +1037,11 @@ export class BrepMesher {
       if (surf && surf.planar) hint = surf.normal(0, 0);
       if (hint && !sameSense) hint = [-hint[0], -hint[1], -hint[2]];
       if (!surf && surfId) {
-        if (!isPlanar(loops, this.tol.chord)) return `지원하지 않는 곡면 ${this.f.typeOf(surfId)}`;
+        if (!isPlanar(loops, this.tol.chord)) {
+          const t = this.f.typeOf(surfId);
+          // 아는 곡면인데 못 만들었으면(자리·곡선 개체가 없거나 값이 잘못됨 — 끊긴 파일 등) 지원하지 않는다고 하지 않는다
+          return !t || this.g.unsupported.has(t) ? `지원하지 않는 곡면 ${t || '?'}` : `곡면 ${t}을(를) 읽지 못함(가리키는 개체가 없거나 값이 잘못됨)`;
+        }
       }
       const n = tessellatePlanarLoops(loops, hint, b);
       if (!n) return '평면 삼각화 실패';

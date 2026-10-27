@@ -22,3 +22,4 @@ export { DERIVED, StepBinary, StepEnum, StepFile, StepRef, StepTyped, decodeStep
 export { watertightness, meshArea, meshVolume, orientFaces, type WatertightReport } from './analysis';
 export { readProductProps, type StepProductProps } from './props';
 export { STEP_XML_MESSAGE, sniffContainer, unpackStep, type ContainerKind, type Unpacked } from './archive';
+export { TRUNCATED_WARNING } from './messages';

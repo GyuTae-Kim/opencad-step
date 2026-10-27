@@ -29,6 +29,7 @@ import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
+import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
@@ -614,7 +615,8 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
         attempt.error('empty');
-        const why = res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
+        // 끊긴 파일이면 그것이 까닭이다(면 실패·형상 없음은 그 결과)
+        const why = res.scene.warnings?.find((w) => w === TRUNCATED_WARNING) ?? res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
         throw new Error(`그릴 형상(B-rep·삼각형)을 찾지 못했습니다.${why ? ` (${why})` : ''}`);
       }
       this.setLoading({ name, fraction: 1, stage: '화면에 올리는 중' });
@@ -627,7 +629,8 @@ export class StepApp {
       this.lastError = null;
       this.updateAll();
       const w = res.scene.warnings?.length ?? 0;
-      if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
+      if (res.scene.warnings?.includes(TRUNCATED_WARNING)) this.toast('파일이 중간에 끊긴 것 같습니다 — 읽은 데까지만 보입니다. 파일을 다시 받아 여십시오.', 'warn', 6000);
+      else if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
       attempt.success();
       return true;
     } catch (e) {
