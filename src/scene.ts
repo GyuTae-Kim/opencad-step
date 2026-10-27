@@ -14,6 +14,7 @@ import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad
 import { BrepMesher, EDGE_KINDS, EDGE_PARAMS, type EdgeTableData, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
 import { Geometry } from './geometry';
 import { readLayers } from './layers';
+import { TRUNCATED_WARNING } from './messages';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
@@ -180,6 +181,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   const tParse = now();
   progress(0.05, '구조');
   const warnings: string[] = [];
+  if (f.truncated) warnings.push(TRUNCATED_WARNING);
   if (f.skipped) warnings.push(`문법 오류로 건너뛴 문장 ${f.skipped}개`);
   const styles = readStyles(f);
   const geom = new Geometry(f);

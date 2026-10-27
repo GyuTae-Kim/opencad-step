@@ -36,6 +36,12 @@ describe('language URLs and UI presentation', () => {
     expect(translate('삼각화 못 한 면', 'en')).toBe('Faces that could not be triangulated');
     expect(translate('삼각형 1,234', 'en')).toBe('Triangles 1,234');
   });
+  it('translates each line of a multi-line message, even when a trailing {0} would swallow the next line', () => {
+    // 줄바꿈으로 이은 글: "…: {0}"의 {0}이 다음 줄까지 잡아 둘째 줄이 한국어로 남던 것(공용 번역기 맞춤)
+    const tip = '그림을 저장하지 못했습니다: part.png\n최근 문서에서 지우기: part.step';
+    for (const {code} of languages.filter(item => item.code !== 'ko')) expect(translate(tip, code), code).not.toMatch(/[가-힣]/);
+    expect(translate(tip, 'en')).toBe(`${translate('그림을 저장하지 못했습니다: part.png', 'en')}\n${translate('최근 문서에서 지우기: part.step', 'en')}`);
+  });
   it('translates every piece of a " · "-joined sentence, even when a short pattern would swallow the rest', () => {
     const hangul = /[가-힣]/;
     // "제품 번호 {0}"·"중심 {0}"·"시작 {0}"·"축 {0}"이 문장 끝까지 잡아 나머지가 한국어로 남던 줄(제품 나무 말풍선·고른 면 설명)

@@ -9,7 +9,7 @@
 import type { Rgba } from 'opencad-viewer3d/types';
 import { BSplineCurve, CircleCurve, type Curve, EllipseCurve, LineCurve, type Tol } from './curves';
 import type { Geometry } from './geometry';
-import { isClosedMesh } from './analysis';
+import { isClosedMesh, orientFaces } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
 import { bool, list, numList, refId, refList, type StepFile } from './part21';
 import { ConeSurface, CylinderSurface, PlaneSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
@@ -121,6 +121,61 @@ export function needsOrigin(lo: readonly number[], hi: readonly number[]): boole
   for (let k = 0; k < 3; k++) m = Math.max(m, Math.abs(lo[k]!), Math.abs(hi[k]!));
   const size = Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
   return m >= 1e4 && m > 2000 * Math.max(size, 1e-9);
+}
+
+/** 다시 삼각화할 때 그대로 쓸 면 하나의 결과(정점은 면 안 번호, 면 표 값은 저장한 그대로) */
+interface FaceOut {
+  pos: number[];
+  nrm: number[];
+  idx: number[];
+  col: Rgba | undefined;
+  r: string | null;
+  reversed: boolean;
+  stepId: number;
+  kind: number;
+  params: number[];
+  area: number;
+  perimeter: number;
+  exact: number;
+}
+
+/** 접힌 면 때문에 모서리를 더 잘게 나눠 다시 삼각화하는 최대 횟수 */
+const MAX_REFINE_PASS = 2;
+
+/**
+ * 면 삼각형 [t0, t1) 가운데 접힌 것(삼각형 법선이 세 정점 법선의 합과 반대이고 넓이가 무시할 만큼 작지 않은 것)의 수.
+ * 정점 법선은 곡면 법선(면 방향 반영)이라 곡면 위 삼각형은 같은 쪽을 본다
+ */
+function countFolds(b: { positions: number[]; normals: number[]; indices: number[] }, t0: number, t1: number, diag: number): number {
+  let n = 0;
+  const P = b.positions;
+  const N = b.normals;
+  const I = b.indices;
+  const minArea2 = (diag * 1e-6) ** 2;
+  for (let t = t0; t < t1; t++) {
+    const a = I[t * 3]! * 3;
+    const c1 = I[t * 3 + 1]! * 3;
+    const c2 = I[t * 3 + 2]! * 3;
+    const ux = P[c1]! - P[a]!, uy = P[c1 + 1]! - P[a + 1]!, uz = P[c1 + 2]! - P[a + 2]!;
+    const wx = P[c2]! - P[a]!, wy = P[c2 + 1]! - P[a + 1]!, wz = P[c2 + 2]! - P[a + 2]!;
+    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    if (nx * nx + ny * ny + nz * nz <= minArea2) continue;
+    const s = (N[a]! + N[c1]! + N[c2]!) * nx + (N[a + 1]! + N[c1 + 1]! + N[c2 + 1]!) * ny + (N[a + 2]! + N[c1 + 2]! + N[c2 + 2]!) * nz;
+    if (s < 0) n++;
+  }
+  return n;
+}
+
+/** 부호 있는 부피 × 6(원점 사면체 합 — 부호만 볼 때) */
+function signedVolume6(P: ArrayLike<number>, I: ArrayLike<number>): number {
+  let v = 0;
+  for (let t = 0; t + 2 < I.length; t += 3) {
+    const a = I[t]! * 3;
+    const b = I[t + 1]! * 3;
+    const c = I[t + 2]! * 3;
+    v += P[a]! * (P[b + 1]! * P[c + 2]! - P[b + 2]! * P[c + 1]!) - P[a + 1]! * (P[b]! * P[c + 2]! - P[b + 2]! * P[c]!) + P[a + 2]! * (P[b]! * P[c + 1]! - P[b + 1]! * P[c]!);
+  }
+  return v;
 }
 
 /** 상자 가운데 */
@@ -276,6 +331,10 @@ export class BrepMesher {
   private edgeParams = new Map<number, EdgeParam>();
   private tol: Tol = { chord: 1, angle: 0.35 };
   private eps = 1e-6;
+  /** 방금 삼각화한 면의 경계 고리가 면 법선과 거꾸로 돌았는지(tessellateFace reversed) */
+  private faceReversed = false;
+  /** 접힌 면 때문에 더 잘게 나눌 모서리 → 현 높이 나눗수(항목 하나 동안) */
+  private readonly edgeRefine = new Map<number, number>();
 
   constructor(
     readonly f: StepFile,
@@ -290,9 +349,23 @@ export class BrepMesher {
 
   /** 형상 항목 하나를 그물로(못 만들면 null) */
   meshItem(itemId: number, onFace?: () => void): ItemMesh | null {
+    try {
+      return this.meshItemPass(itemId, onFace, 0);
+    } finally {
+      this.edgeRefine.clear();
+    }
+  }
+
+  /**
+   * 한 번 삼각화. 굽은 면(작은 반지름 원환 필렛 등)의 안쪽 점이 성긴 경계 현보다 경계에 가까우면 삼각형이 접혀(3D 법선이 곡면과
+   * 반대) 겹치고 단일면 그리기에서 구멍처럼 보인다 — 접힌 면이 있으면 그 면의 모서리를 더 잘게(현 높이 ¼) 나눠 항목을 다시
+   * 삼각화한다(두 번까지, 이웃 면도 같은 다각선을 쓰므로 틈이 생기지 않는다). 접힌 면이 없는 항목은 그대로다
+   */
+  private meshItemPass(itemId: number, onFace: (() => void) | undefined, pass: number, prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number }): ItemMesh | null {
     const e = this.f.get(itemId);
     if (!e) return null;
     if (TESS_TYPES.has(e.type)) return this.meshTessellated(itemId);
+    const missBefore = pass < MAX_REFINE_PASS ? new Map(this.unsupported) : null;
     const faces: FaceRef[] = [];
     let closed = false;
     const inherited = new Map<number, Rgba>(); // 면 → 껍질·입체에서 물려받은 색
@@ -381,37 +454,116 @@ export class BrepMesher {
     const perimeters = new Float64Array(table ? nf : 0);
     const exact = new Uint8Array(table ? nf : 0);
     const info: FaceInfo = { stepId: 0, kind: KIND_INDEX.get('unknown')!, params: new Array<number>(FACE_PARAMS).fill(0), area: NaN, perimeter: NaN, exact: false };
+    /** 면마다 첫 삼각형(방향 맞추기용) */
+    const faceTri = new Uint32Array(nf + 1);
+    /** 경계 고리가 면 법선과 거꾸로 돈 면 */
+    const suspect: number[] = [];
+    /** 다시 삼각화할 수 있으면 면마다 결과를 남긴다(경계가 바뀌지 않은 면은 다음 번에 그대로 쓴다) */
+    const outs: FaceOut[] | null = missBefore ? [] : null;
     for (let fi = 0; fi < nf; fi++) {
       const fr = faces[fi]!;
       onFace?.();
-      const col = this.colorOf(fr.id) ?? inherited.get(fr.id);
+      const cached = prev && !prev.dirty.has(fi) ? prev.outs[fi] : undefined;
+      const col = cached ? cached.col : (this.colorOf(fr.id) ?? inherited.get(fr.id));
       b.startFace(col);
-      if (table) {
-        triStart[fi] = b.indices.length / 3;
-        info.stepId = fr.id;
-        info.kind = KIND_INDEX.get('unknown')!;
-        info.params.fill(0);
-        info.area = NaN;
-        info.perimeter = NaN;
-        info.exact = false;
+      faceTri[fi] = b.indices.length / 3;
+      const v0 = b.positions.length / 3;
+      if (table) triStart[fi] = b.indices.length / 3;
+      let r: string | null;
+      let reversed: boolean;
+      if (cached) {
+        for (const x of cached.pos) b.positions.push(x);
+        for (const x of cached.nrm) b.normals.push(x);
+        for (const i of cached.idx) b.indices.push(v0 + i);
+        this.replayEdgeUse(fr.id, edgeUse, seams);
+        r = cached.r;
+        reversed = cached.reversed;
+        if (table) {
+          stepIds[fi] = cached.stepId;
+          kinds[fi] = cached.kind;
+          params.set(cached.params, fi * FACE_PARAMS);
+          areas[fi] = cached.area;
+          perimeters[fi] = cached.perimeter;
+          exact[fi] = cached.exact;
+        }
+      } else {
+        if (table) {
+          info.stepId = fr.id;
+          info.kind = KIND_INDEX.get('unknown')!;
+          info.params.fill(0);
+          info.area = NaN;
+          info.perimeter = NaN;
+          info.exact = false;
+        }
+        this.faceReversed = false;
+        r = this.meshFace(fr, b, edgeUse, seams, table ? info : null);
+        reversed = this.faceReversed;
+        if (table) {
+          stepIds[fi] = info.stepId;
+          kinds[fi] = info.kind;
+          // 점 매개변수(평면·원기둥·원뿔·구·원환의 원점)도 묶음 원점 기준으로
+          if (origin && info.kind <= KIND_INDEX.get('torus')!) for (let q = 0; q < 3; q++) info.params[5 + q] = info.params[5 + q]! - origin[q]!;
+          params.set(info.params, fi * FACE_PARAMS);
+          // 삼각화에 실패한 면은 넓이·둘레도 비운다(고를 수 없다)
+          const ok = !r;
+          areas[fi] = ok ? info.area : NaN;
+          perimeters[fi] = ok ? info.perimeter : NaN;
+          exact[fi] = ok && info.exact ? 1 : 0;
+        }
       }
-      const r = this.meshFace(fr, b, edgeUse, seams, table ? info : null);
       if (r) fail(r);
-      if (table) {
-        stepIds[fi] = info.stepId;
-        kinds[fi] = info.kind;
-        // 점 매개변수(평면·원기둥·원뿔·구·원환의 원점)도 묶음 원점 기준으로
-        if (origin && info.kind <= KIND_INDEX.get('torus')!) for (let q = 0; q < 3; q++) info.params[5 + q] = info.params[5 + q]! - origin[q]!;
-        params.set(info.params, fi * FACE_PARAMS);
-        // 삼각화에 실패한 면은 넓이·둘레도 비운다(고를 수 없다)
-        const ok = !r;
-        areas[fi] = ok ? info.area : NaN;
-        perimeters[fi] = ok ? info.perimeter : NaN;
-        exact[fi] = ok && info.exact ? 1 : 0;
+      else if (reversed) suspect.push(fi);
+      if (outs) {
+        const t0 = faceTri[fi]! * 3;
+        outs.push({
+          pos: b.positions.slice(v0 * 3),
+          nrm: b.normals.slice(v0 * 3),
+          idx: b.indices.slice(t0).map((i) => i - v0),
+          col,
+          r,
+          reversed,
+          stepId: table ? stepIds[fi]! : 0,
+          kind: table ? kinds[fi]! : 0,
+          params: table ? Array.from(params.subarray(fi * FACE_PARAMS, (fi + 1) * FACE_PARAMS)) : [],
+          area: table ? areas[fi]! : NaN,
+          perimeter: table ? perimeters[fi]! : NaN,
+          exact: table ? exact[fi]! : 0,
+        });
       }
     }
     const nTri = b.indices.length / 3;
+    faceTri[nf] = nTri;
     if (table) triStart[nf] = nTri;
+    // 접힌 삼각형이 있는 면: 그 면의 모서리를 더 잘게 나눠 다시(MAX_REFINE_PASS번까지)
+    if (missBefore && nTri > 0) {
+      // 평면은 안쪽 점이 없어 경계를 나눠도 달라지지 않는다. 앞 번보다 접힌 면이 줄지 않으면(경계 탓이 아닌 접힘) 더 하지 않는다
+      const folded: number[] = [];
+      let foldTris = 0;
+      for (let fi = 0; fi < nf; fi++) {
+        const n = this.isPlanarFace(faces[fi]!.id) ? 0 : countFolds(b, faceTri[fi]!, faceTri[fi + 1]!, diag);
+        if (n) folded.push(fi);
+        foldTris += n;
+      }
+      if (folded.length && (!prev || foldTris < prev.folded)) {
+        const changed = new Set<number>();
+        for (const fi of folded)
+          for (const eid of this.faceEdgeIds(faces[fi]!.id)) {
+            const k = this.edgeRefine.get(eid) ?? 1;
+            if (k < 16) {
+              this.edgeRefine.set(eid, k * 4);
+              changed.add(eid);
+            }
+          }
+        if (changed.size && outs) {
+          // 바뀐 모서리를 쓰는 면만 다시(이웃 면도 같은 다각선을 써야 틈이 없다), 나머지는 앞 결과 그대로
+          const dirty = new Set<number>();
+          for (let fi = 0; fi < nf; fi++) if (this.faceEdgeIds(faces[fi]!.id).some((eid) => changed.has(eid))) dirty.add(fi);
+          this.unsupported.clear();
+          for (const [k, v] of missBefore) this.unsupported.set(k, v);
+          return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris });
+        }
+      }
+    }
     // 모서리 선(과 모서리 표: 선분 범위·곡선 종류·원 중심·반지름·길이)
     const lines: number[] = [];
     const eStart: number[] = [];
@@ -478,6 +630,25 @@ export class BrepMesher {
     }
     const positions = relativeFloat32(b.positions, origin);
     const indices = Uint32Array.from(b.indices);
+    // 닫힌 껍질의 면 방향: 고리가 면 법선과 거꾸로 돈 면이 있거나(곡면 법선 약속이 다른 파일 — 예: 압출 곡면의 u·v를 바꿔 쓴 것)
+    // 부피가 음수면, 이웃 면과 경계 선분 방향을 맞추고 바깥 법선이 되게 면 묶음을 뒤집는다(삼각형 감기·법선·평면 법선 매개변수)
+    if (closed && !failed && nTri > 0 && (suspect.length || signedVolume6(positions, indices) < 0)) {
+      const flips = orientFaces(positions, indices, faceTri, suspect);
+      if (flips) {
+        for (let fi = 0; fi < nf; fi++) {
+          if (!flips[fi]) continue;
+          for (let t = faceTri[fi]!; t < faceTri[fi + 1]!; t++) {
+            const x = indices[t * 3 + 1]!;
+            indices[t * 3 + 1] = indices[t * 3 + 2]!;
+            indices[t * 3 + 2] = x;
+          }
+          const v0 = b.vertsAtFaceStart[fi]!;
+          const v1 = fi + 1 < nf ? b.vertsAtFaceStart[fi + 1]! : b.positions.length / 3;
+          for (let k = v0 * 3; k < v1 * 3; k++) b.normals[k] = -b.normals[k]!;
+          if (table && kinds[fi] === KIND_INDEX.get('plane')) for (let q = 2; q < 5; q++) params[fi * FACE_PARAMS + q] = -params[fi * FACE_PARAMS + q]!;
+        }
+      }
+    }
     // 닫힌 입체: 닫힌 껍질 + 실패한 면 없음 + (모서리마다 두 면이 같은 다각선을 나눠 쓰면 삼각형도 틈 없이 맞물린다 —
     // 이음선은 한 면 안에서 두 번) 그렇지 않은 드문 경우(퇴화 모서리·다각 고리 면)는 삼각형 모서리 짝을 직접 확인한다
     let solid = false;
@@ -618,6 +789,47 @@ export class BrepMesher {
     }
   }
 
+  /** 평면(또는 곡면을 모르는·다각 고리) 면인지 — 안쪽 점 없이 고리만으로 삼각화한다 */
+  private isPlanarFace(faceId: number): boolean {
+    let fe = this.f.get(faceId);
+    if (fe && fe.type === 'ORIENTED_FACE') fe = this.f.get(refId(fe.args[2]));
+    if (!fe || fe.type === 'FACE') return true;
+    const surf = this.g.surface(refId(fe.args[2]));
+    return !surf || surf.planar;
+  }
+
+  /** 그대로 쓰는 면의 모서리 쓰임(meshFace와 같게 — 다각선이 있는 모서리만, 한 면 안 두 번이면 이음선) */
+  private replayEdgeUse(faceId: number, edgeUse: Map<number, number>, seams: Set<number>): void {
+    const inFace = new Map<number, number>();
+    for (const eid of this.faceEdgeIds(faceId)) if (this.edgePolyline(eid)) inFace.set(eid, (inFace.get(eid) ?? 0) + 1);
+    for (const [eid, n] of inFace) {
+      edgeUse.set(eid, (edgeUse.get(eid) ?? 0) + 1);
+      if (n >= 2) seams.add(eid);
+    }
+  }
+
+  /** 면 경계 고리의 모서리(EDGE_CURVE) 번호들 */
+  private faceEdgeIds(faceId: number): number[] {
+    const out: number[] = [];
+    let fe = this.f.get(faceId);
+    if (fe && fe.type === 'ORIENTED_FACE') fe = this.f.get(refId(fe.args[2]));
+    if (!fe) return out;
+    for (const bid of refList(fe.args[1])) {
+      const loop = this.f.get(refId(this.f.get(bid)?.args[1]));
+      if (!loop || loop.type !== 'EDGE_LOOP') continue;
+      for (const oid of refList(loop.args[1])) {
+        let eid = refId(this.f.get(oid)?.args[3]);
+        let inner = this.f.get(eid);
+        while (inner && inner.type === 'ORIENTED_EDGE') {
+          eid = refId(inner.args[3]);
+          inner = this.f.get(eid);
+        }
+        if (eid) out.push(eid);
+      }
+    }
+    return out;
+  }
+
   /** 면의 꼭짓점들을 cb로 */
   private faceVertices(faceId: number, cb: (p: V3) => void): void {
     let fe = this.f.get(faceId);
@@ -691,7 +903,8 @@ export class BrepMesher {
       }
       const ts: number[] = [];
       if (Number.isFinite(t1) && Number.isFinite(t2) && t1 !== t2) {
-        c.sample(t1, t2, this.tol, ts);
+        const k = this.edgeRefine.get(edgeId);
+        c.sample(t1, t2, k ? { chord: this.tol.chord / k, angle: this.tol.angle } : this.tol, ts);
         // 넓이·길이 적분용(나눔 점 사이마다 가우스) — 꼭짓점이 곡선 위에 있을 때만(멀면 다각선 그대로 잰다)
         const tol = Math.max(this.tol.chord, this.eps * 10);
         if (dist(c.point(t1), P1) <= tol && dist(c.point(t2), P2) <= tol) this.edgeParams.set(edgeId, { c, t: [t1, ...ts, t2] });
@@ -824,7 +1037,11 @@ export class BrepMesher {
       if (surf && surf.planar) hint = surf.normal(0, 0);
       if (hint && !sameSense) hint = [-hint[0], -hint[1], -hint[2]];
       if (!surf && surfId) {
-        if (!isPlanar(loops, this.tol.chord)) return `지원하지 않는 곡면 ${this.f.typeOf(surfId)}`;
+        if (!isPlanar(loops, this.tol.chord)) {
+          const t = this.f.typeOf(surfId);
+          // 아는 곡면인데 못 만들었으면(자리·곡선 개체가 없거나 값이 잘못됨 — 끊긴 파일 등) 지원하지 않는다고 하지 않는다
+          return !t || this.g.unsupported.has(t) ? `지원하지 않는 곡면 ${t || '?'}` : `곡면 ${t}을(를) 읽지 못함(가리키는 개체가 없거나 값이 잘못됨)`;
+        }
       }
       const n = tessellatePlanarLoops(loops, hint, b);
       if (!n) return '평면 삼각화 실패';
@@ -839,6 +1056,7 @@ export class BrepMesher {
     const acc = { area: 0 };
     const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info ? acc : undefined);
     if (r.error) return r.error;
+    if (r.reversed) this.faceReversed = true;
     if (!r.triangles) return '삼각형 없음';
     if (info) this.faceMetrics(surf, loopEdges, loopOuter, inFace, acc.area, facetArea(b, triStart), info);
     return null;

@@ -483,6 +483,21 @@ export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'
   return d.pick ? [d.pick.id] : [];
 }
 
+/** 여러 개 고른 항목의 이름표: 서로 다른 부품 자리(형상이 바로 놓인 마디) 수 — "부품 3개" */
+export function multiLabel(roots: readonly ProductNode[], ids: readonly string[]): string {
+  const owner = new Map<string, string>();
+  const walk = (l: readonly ProductNode[], prefix: string) =>
+    l.forEach((n, i) => {
+      const key = prefix ? `${prefix}/${i}` : String(i);
+      for (const id of n.meshIds) owner.set(id, key);
+      for (const id of n.lineIds ?? []) owner.set(id, key);
+      walk(n.children, key);
+    });
+  walk(roots, '');
+  const parts = new Set(ids.map((id) => owner.get(id) ?? id));
+  return `부품 ${parts.size}개`;
+}
+
 /** 형상이 바로 놓인 마디(부품 자리) 수 */
 export function partCount(nodes: readonly ProductNode[]): number {
   let n = 0;

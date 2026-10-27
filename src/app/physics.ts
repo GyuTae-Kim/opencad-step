@@ -18,6 +18,8 @@ interface LocalProps {
   volume: number;
   /** 1차 모멘트(부피 × 무게중심) */
   moment: V3;
+  /** 원점 기준 2차 모멘트 ∫x_i x_j dV: [xx, yy, zz, xy, yz, zx] */
+  second: [number, number, number, number, number, number];
   /** 삼각형 넓이 */
   facetArea: number;
 }
@@ -38,6 +40,7 @@ export function localProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'
   let mx = 0;
   let my = 0;
   let mz = 0;
+  let sxx = 0, syy = 0, szz = 0, sxy = 0, syz = 0, szx = 0;
   let area = 0;
   for (let t = 0; t + 2 < n; t += 3) {
     const a = (I ? I[t]! : t) * 3;
@@ -52,11 +55,20 @@ export function localProps(mesh: Pick<Mesh3d, 'positions' | 'indices' | 'origin'
     mx += (v * (ax + bx + cx)) / 4;
     my += (v * (ay + by + cy)) / 4;
     mz += (v * (az + bz + cz)) / 4;
+    // 원점 사면체의 ∫x xᵀ dV = v/20 · (Σ p pᵀ + s sᵀ), p = 세 꼭짓점(원점은 0), s = 그 합
+    const sx = ax + bx + cx, sy = ay + by + cy, sz = az + bz + cz;
+    const k = v / 20;
+    sxx += k * (ax * ax + bx * bx + cx * cx + sx * sx);
+    syy += k * (ay * ay + by * by + cy * cy + sy * sy);
+    szz += k * (az * az + bz * bz + cz * cz + sz * sz);
+    sxy += k * (ax * ay + bx * by + cx * cy + sx * sy);
+    syz += k * (ay * az + by * bz + cy * cz + sy * sz);
+    szx += k * (az * ax + bz * bx + cz * cx + sz * sx);
     const ux = bx - ax, uy = by - ay, uz = bz - az;
     const wx = cx - ax, wy = cy - ay, wz = cz - az;
     area += Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
   }
-  const out: LocalProps = { volume: vol, moment: [mx, my, mz], facetArea: area };
+  const out: LocalProps = { volume: vol, moment: [mx, my, mz], second: [sxx, syy, szz, sxy, syz, szx], facetArea: area };
   if (!mesh.origin) {
     if (!byIdx) cache.set(mesh.positions, (byIdx = new Map()));
     byIdx.set(key, out);
@@ -103,6 +115,65 @@ export interface PhysProps {
   /** 밀도 출처: 파일·고른 재질이 섞였는지 */
   densityFrom: { file: number; picked: number };
   bounds: Box3 | null;
+  /**
+   * 무게중심 기준 관성(질량을 알 때만, kg·m²): 텐서 대각 Ixx·Iyy·Izz(장면 축), 주 관성 모멘트(작은 것부터)와 그 축(세계, 단위).
+   * 닫힌 그물의 삼각형으로 구한 근삿값(≈)
+   */
+  inertia: Inertia | null;
+}
+
+export interface Inertia {
+  /** 텐서 [Ixx, Iyy, Izz, Ixy, Iyz, Izx](kg·m², 곱 관성은 텐서 원소 −∫xy dm) */
+  tensor: [number, number, number, number, number, number];
+  /** 주 관성 모멘트(작은 것부터, kg·m²) */
+  principal: [number, number, number];
+  /** 주축(principal과 같은 차례, 세계 방향 단위 벡터) */
+  axes: [V3, V3, V3];
+}
+
+/** 대칭 3×3 행렬(행 우선 9개)의 고윳값·고유 벡터(야코비 회전). 고윳값 작은 것부터 */
+export function symEigen3(m: readonly number[]): { values: [number, number, number]; vectors: [V3, V3, V3] } {
+  const a = [m[0]!, m[1]!, m[2]!, m[3]!, m[4]!, m[5]!, m[6]!, m[7]!, m[8]!];
+  const v = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  for (let sweep = 0; sweep < 50; sweep++) {
+    const off = Math.abs(a[1]!) + Math.abs(a[2]!) + Math.abs(a[5]!);
+    if (off <= 1e-15 * (Math.abs(a[0]!) + Math.abs(a[4]!) + Math.abs(a[8]!) + 1e-300)) break;
+    for (const [p, q] of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as const) {
+      const apq = a[p * 3 + q]!;
+      if (apq === 0) continue;
+      const app = a[p * 4]!;
+      const aqq = a[q * 4]!;
+      const theta = (aqq - app) / (2 * apq);
+      const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1);
+      const sn = t * c;
+      for (let k = 0; k < 3; k++) {
+        const akp = a[k * 3 + p]!;
+        const akq = a[k * 3 + q]!;
+        a[k * 3 + p] = c * akp - sn * akq;
+        a[k * 3 + q] = sn * akp + c * akq;
+      }
+      for (let k = 0; k < 3; k++) {
+        const apk = a[p * 3 + k]!;
+        const aqk = a[q * 3 + k]!;
+        a[p * 3 + k] = c * apk - sn * aqk;
+        a[q * 3 + k] = sn * apk + c * aqk;
+      }
+      for (let k = 0; k < 3; k++) {
+        const vkp = v[k * 3 + p]!;
+        const vkq = v[k * 3 + q]!;
+        v[k * 3 + p] = c * vkp - sn * vkq;
+        v[k * 3 + q] = sn * vkp + c * vkq;
+      }
+    }
+  }
+  const idx = [0, 1, 2].sort((i, j) => a[i * 4]! - a[j * 4]!);
+  const col = (i: number): V3 => [v[i]!, v[3 + i]!, v[6 + i]!];
+  return { values: [a[idx[0]! * 4]!, a[idx[1]! * 4]!, a[idx[2]! * 4]!], vectors: [col(idx[0]!), col(idx[1]!), col(idx[2]!)] };
 }
 
 /**
@@ -128,6 +199,9 @@ export function physProps(
   let hi: V3 = [-Infinity, -Infinity, -Infinity];
   const from = { file: 0, picked: 0 };
   const m3 = Number.isFinite(opts.sceneMm) ? (opts.sceneMm / 1000) ** 3 : NaN;
+  const m2 = Number.isFinite(opts.sceneMm) ? (opts.sceneMm / 1000) ** 2 : NaN;
+  /** 질량 가중 원점 기준 2차 모멘트 Σρ∫x xᵀ dV(kg·장면 단위²) — 행 우선 9개 */
+  const J = new Array<number>(9).fill(0);
   for (const mesh of meshes) {
     if (ids && !ids.has(mesh.id)) continue;
     const lp = localProps(mesh);
@@ -167,10 +241,37 @@ export function physProps(
       mass += mm;
       massKnown++;
       for (let k = 0; k < 3; k++) wm[k] = wm[k]! + c[k]! * mm;
+      // 세계 2차 모멘트: x' = A x + t 이면 ∫x'x'ᵀ = |det|(A C Aᵀ + A m tᵀ + t (A m)ᵀ + V t tᵀ) — 거울 자리(부피 음수)는 부호를 맞춘다
+      const sg = Math.sign(lp.volume);
+      const S = lp.second;
+      const C = [S[0], S[3], S[5], S[3], S[1], S[4], S[5], S[4], S[2]].map((x) => x * sg);
+      const mv = lp.moment.map((x) => x * sg) as V3;
+      const V0 = lp.volume * sg;
+      const A = M ? [M[0]!, M[4]!, M[8]!, M[1]!, M[5]!, M[9]!, M[2]!, M[6]!, M[10]!] : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+      const t: V3 = M ? [M[12]!, M[13]!, M[14]!] : [0, 0, 0];
+      const Am: V3 = [0, 1, 2].map((i) => A[i * 3]! * mv[0] + A[i * 3 + 1]! * mv[1] + A[i * 3 + 2]! * mv[2]) as V3;
+      const ad = Math.abs(det);
+      const kk = rho * m3; // kg / 장면 단위³
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++) {
+          let acc = 0;
+          for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) acc += A[i * 3 + p]! * C[p * 3 + q]! * A[j * 3 + q]!;
+          acc += Am[i]! * t[j]! + t[i]! * Am[j]! + V0 * t[i]! * t[j]!;
+          J[i * 3 + j] = J[i * 3 + j]! + kk * ad * acc;
+        }
     } else noDensity++;
   }
   const useMass = massKnown > 0 && noDensity === 0 && mass > 0;
   const centroid: V3 | null = useMass ? [wm[0] / mass, wm[1] / mass, wm[2] / mass] : volume > 0 ? [wv[0] / volume, wv[1] / volume, wv[2] / volume] : null;
+  // 무게중심 기준으로 옮기고(평행축) 관성 텐서 I = tr(K)·E − K, 단위 kg·m²
+  let inertia: Inertia | null = null;
+  if (useMass && centroid && Number.isFinite(m2)) {
+    const K = J.map((x, n) => (x - mass * centroid[Math.floor(n / 3)]! * centroid[n % 3]!) * m2);
+    const tr = K[0]! + K[4]! + K[8]!;
+    const I = K.map((x, n) => (n % 4 === 0 ? tr - x : -x));
+    const e = symEigen3(I);
+    inertia = { tensor: [I[0]!, I[4]!, I[8]!, I[1]!, I[5]!, I[2]!], principal: e.values, axes: e.vectors };
+  }
   return {
     volume,
     area,
@@ -182,6 +283,7 @@ export function physProps(
     open,
     densityFrom: from,
     bounds: Number.isFinite(lo[0]) ? { min: lo, max: hi } : null,
+    inertia,
   };
 }
 
@@ -201,6 +303,14 @@ export function meshNodes(roots: readonly ProductNode[]): Map<string, ProductNod
 /** 질량(kg) → "12.3 g" / "1.23 kg" */
 export function massText(kg: number, num: (v: number, digits?: number) => string): string {
   return kg < 1 ? `${num(kg * 1000)} g` : `${num(kg)} kg`;
+}
+
+/** 관성 모멘트(kg·m²) → 크기에 맞는 단위 글: "1.23 kg·m²" / "12.3 kg·mm²" / "123 g·mm²" */
+export function inertiaText(kgm2: number, num: (v: number, digits?: number) => string): string {
+  const a = Math.abs(kgm2);
+  if (a >= 1) return `${num(kgm2)} kg·m²`;
+  if (a >= 1e-6) return `${num(kgm2 * 1e6)} kg·mm²`;
+  return `${num(kgm2 * 1e9)} g·mm²`;
 }
 
 /** 고를 재질(밀도 kg/m³) */

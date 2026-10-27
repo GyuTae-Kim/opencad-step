@@ -24,6 +24,8 @@ export interface FaceResult {
   triangles: number;
   /** 실패 이유(성공이면 없음) */
   error?: string;
+  /** 경계 고리가 면 법선과 거꾸로 돌았다(가장 큰 고리를 바깥으로 뒤집음) — 닫힌 껍질이면 이웃 면과 방향을 맞춰 본다 */
+  reversed?: boolean;
 }
 
 export interface UV {
@@ -101,6 +103,8 @@ interface LoopInfo {
 class FaceDomain {
   readonly P: [number, number];
   readonly notes: string[] = [];
+  /** 고리가 모두 거꾸로 돌아(열린 곡면에 구멍만) 가장 큰 것을 바깥으로 뒤집었는지 — 면 법선이 고리와 어긋난다 */
+  reversed = false;
   constructor(
     readonly s: Surface,
     readonly tol: Tol,
@@ -467,6 +471,10 @@ class FaceDomain {
     // 넓이 없는 '틈' 고리(같은 모서리를 갔다 오는 고리)는 영역을 정하지 않는다
     loops = loops.filter((l) => l.wrapDim >= 0 || !isSlit(l.pts, l.area));
     if (!loops.length) return this.fullDomain();
+    // 주기 차원을 한 바퀴 다 덮는 닫힌 고리(이음선을 갔다 오는 띠 — 원환 필렛 고리 등)는 구멍일 수 없다: 이음선 양쪽이 모두 면이어야
+    // 하므로 띠 자신이 면이다. 거꾸로 돌면(FACE_BOUND 방향이 어긋난 파일) 뒤집어 바깥 고리로 쓴다 — 구멍으로 두면 정의역 전체에서
+    // 정의역 끝과 겹친 구멍을 빼려다 곡면 전체를 덮거나 뒤엉킨 삼각형이 된다
+    loops = loops.map((l) => (l.wrapDim < 0 && l.area < 0 && this.spansPeriod(l.pts) ? this.reverseInfo(l) : l));
     const closed = loops.filter((l) => l.wrapDim < 0);
     const wrapping = loops.filter((l) => l.wrapDim >= 0);
     let outers = closed.filter((l) => l.area > 0);
@@ -558,6 +566,7 @@ class FaceDomain {
       if ((s.periodU > 0 || s.periodV > 0) && [s.u0, s.u1, s.v0, s.v1].every(Number.isFinite)) return this.fullDomain(holes);
       // 아니면 방향이 뒤집힌 파일: 가장 큰 것을 바깥으로
       holes.sort((a, b) => a.area - b.area);
+      this.reversed = true;
       const big = this.reverseInfo(holes[0]!);
       outers = [big];
       holes = holes.slice(1);
@@ -593,6 +602,24 @@ class FaceDomain {
       out.push(...this.cutSamples(all[i]!, all[i + 1]!));
     }
     return out;
+  }
+
+  /** 고리가 어느 주기 차원에서 한 주기를 다 덮는지(펴 놓은 좌표의 폭 ≥ 주기) */
+  private spansPeriod(pts: UV[]): boolean {
+    for (const d of [0, 1]) {
+      const P = this.P[d]!;
+      if (!(P > 0)) continue;
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const q of pts) {
+        if (q.pole >= 0) continue;
+        const x = coord(q, d);
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+      if (hi - lo >= P * (1 - 1e-6)) return true;
+    }
+    return false;
   }
 
   private reverseInfo(l: LoopInfo): LoopInfo {
@@ -695,10 +722,20 @@ class Verts {
 
 const KEY = 67108864; // 2^26
 
+/** 삼각형 a·b·c(감긴 차례)의 법선과 세 정점 법선 합의 내적(음수면 접힘 — 곡면 법선 약속이 감기와 같을 때) */
+function foldDot(a: V3, b: V3, c: V3, na: V3, nb: V3, nc: V3): number {
+  const n = cross(sub(b, a), sub(c, a));
+  return dot(n, [na[0] + nb[0] + nc[0], na[1] + nb[1] + nc[1], na[2] + nb[2] + nc[2]]);
+}
+
 /** 곡면 오차·법선 각·매개변수 간격으로 안쪽 모서리를 나누는 되풀이 */
 function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): number[] {
   const s = vs.s;
   const cosLim = Math.cos(tol.angle);
+  // 접힘 판정: 곡면 법선은 ∂u×∂v 쪽(Surface.normal 약속)이라 반시계(uv) 삼각형의 3D 법선은 정점 법선과 같은 쪽이어야 한다
+  const sign = 1;
+  /** 경계(고리) 정점 수 — 처음 정점은 모두 고리 점이다 */
+  const nRing = vs.u.length;
   for (let round = 0; round < 14; round++) {
     const ntri = tris.length / 3;
     // 모서리 → 삼각형 수
@@ -748,7 +785,11 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
       const Pb = vs.P(b);
       const Pc = vs.P(c);
       const flat: V3 = [(Pa[0] + Pb[0] + Pc[0]) / 3, (Pa[1] + Pb[1] + Pc[1]) / 3, (Pa[2] + Pb[2] + Pc[2]) / 3];
-      if (dist(s.point(uc, vc), flat) <= tol.chord) continue;
+      // 접힌 삼각형(3D 법선이 곡면 법선과 반대 — 굽은 띠에서 현 높이 안의 긴 안쪽 모서리가 맞은편 줄을 넘어간 것)도 나눈다.
+      // 세 정점이 모두 안쪽 점일 때만: 경계 현 때문에 접힌 것은 안쪽을 나눠도 풀리지 않고 경계 가까이 점만 늘린다
+      // (그런 면은 BrepMesher가 경계 모서리를 더 잘게 나눠 다시 삼각화한다)
+      const off = dist(s.point(uc, vc), flat) > tol.chord;
+      if (!off && (a < nRing || b < nRing || c < nRing || foldDot(Pa, Pb, Pc, vs.N(a), vs.N(b), vs.N(c)) * sign >= 0)) continue;
       const es: [number, number, number][] = [
         [a, b, dist(Pa, Pb)],
         [b, c, dist(Pb, Pc)],
@@ -821,7 +862,7 @@ export type FacePolygon = Polygon;
  * 면 경계 고리 → 곡면 매개변수 공간 다각형들(실패하면 이유 문자열).
  * 고리는 면 경계 방향(면 법선 쪽에서 볼 때 면이 왼쪽)이 반영된 3D 점이다.
  */
-export function faceDomain(s: Surface, loops: V3[][], sameSense: boolean, tol: Tol, eps: number): FacePolygon[] | string {
+export function faceDomain(s: Surface, loops: V3[][], sameSense: boolean, tol: Tol, eps: number, flags?: { reversed: boolean }): FacePolygon[] | string {
   const dom = new FaceDomain(s, tol, eps);
   s.projTol = Math.max(eps, tol.chord * 0.05);
   const infos: LoopInfo[] = [];
@@ -832,7 +873,9 @@ export function faceDomain(s: Surface, loops: V3[][], sameSense: boolean, tol: T
     if (!uv || uv.length < 3) continue;
     infos.push(dom.classify(uv));
   }
-  return infos.length ? dom.build(infos) : dom.fullDomain();
+  const out = infos.length ? dom.build(infos) : dom.fullDomain();
+  if (flags) flags.reversed = dom.reversed;
+  return out;
 }
 
 /**
@@ -923,7 +966,8 @@ export function tessellateFace(
   /** 넓이 누적(해석적 곡면만 — 매개변수 영역 적분) */
   acc?: { area: number },
 ): FaceResult {
-  const polys = faceDomain(s, loops, sameSense, tol, eps);
+  const flags = { reversed: false };
+  const polys = faceDomain(s, loops, sameSense, tol, eps, flags);
   if (typeof polys === 'string') return { triangles: 0, error: polys };
 
   // 매개변수 배율: 곡률에 맞춘 비등방 거리(굽은 방향은 허용 걸음 1, 곧은 방향은 면 크기 1)
@@ -964,7 +1008,7 @@ export function tessellateFace(
     if (acc && QUADRATURE_KINDS.has(s.kind)) acc.area += uvArea(s, vs.u, vs.v, tris);
     total += emit(vs, tris, sameSense, out);
   }
-  return { triangles: total };
+  return flags.reversed ? { triangles: total, reversed: true } : { triangles: total };
 }
 
 /**

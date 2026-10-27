@@ -26,6 +26,8 @@ export function closeDialog(): boolean {
 
 export function openDialog(title: string, body: (HTMLElement | null)[], opts: { onClose?: () => void; cls?: string } = {}): DialogHandle {
   closeDialog();
+  // 닫으면 연 자리(단추)로 초점을 돌려준다(그 사이 사라졌으면 그대로)
+  const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   const close = h('button', { type: 'button', class: 'icon-btn dlg-close', 'aria-label': '닫기', title: '닫기' });
   close.append(icon('close', 16));
   const head = h('div', { class: 'dlg-head' }, h('h2', { class: 'dlg-title' }, title), close);
@@ -38,6 +40,7 @@ export function openDialog(title: string, body: (HTMLElement | null)[], opts: { 
     if (current === el) current = null;
     el.remove();
     opts.onClose?.();
+    if (opener?.isConnected && !document.querySelector('dialog[open]')) opener.focus({ preventScroll: true });
   };
   close.addEventListener('click', () => {
     if (current === el) closeDialog();

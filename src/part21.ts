@@ -268,6 +268,8 @@ export class StepFile {
   readonly count: number;
   /** 문법 오류로 건너뛴 문장 수 */
   readonly skipped: number;
+  /** 파일이 끝(END-ISO-10303-21)까지 있지 않거나 마지막 문장이 ;로 끝나지 않았다 — 내려받기·복사가 덜 된 파일 */
+  readonly truncated: boolean;
   /** 형식 이름 표(번호 → 이름) */
   readonly typeNames: string[] = [];
 
@@ -310,6 +312,8 @@ export class StepFile {
     const len = b.length;
     let i = 0;
     let section: 'none' | 'header' | 'data' = 'none';
+    let ended = false;
+    let cut = false;
     while (i < len) {
       // 공백·주석 건너뛰기
       const c = b[i]!;
@@ -328,6 +332,7 @@ export class StepFile {
         while (j < len && isDigit(b[j]!)) id = id * 10 + (b[j++]! - 0x30);
         while (j < len && (isSpace(b[j]!) || (b[j] === C_SLASH && b[j + 1] === C_STAR))) j = isSpace(b[j]!) ? j + 1 : this.skipComment(j);
         const stmtEnd = this.scanToSemicolon(j);
+        if (stmtEnd >= len) cut = true;
         if (b[j] !== C_EQ || j === i + 1) {
           skipped++;
           i = stmtEnd + 1;
@@ -382,7 +387,10 @@ export class StepFile {
       if (kw === 'HEADER') section = 'header';
       else if (kw === 'DATA') section = 'data';
       else if (kw === 'ENDSEC') section = 'none';
-      else if (kw === 'END-ISO-10303-21') break;
+      else if (kw === 'END-ISO-10303-21') {
+        ended = true;
+        break;
+      }
       else if (section === 'header') {
         try {
           this.pos = k;
@@ -404,6 +412,8 @@ export class StepFile {
     this.types = types.subarray(0, n);
     this.count = n;
     this.skipped = skipped;
+    // 끝 표시가 없으면 끊긴 파일(STEP 머리가 아예 없는 글은 해석기 앞에서 걸러진다)
+    this.truncated = cut || (!ended && n > 0);
     this.header = header;
     if (maxId <= n * 4 + 1_000_000) {
       const d = new Int32Array(maxId + 1).fill(-1);

@@ -16,7 +16,7 @@
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
-import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type ViewName } from 'opencad-viewer3d';
+import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type SnapPoint, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
@@ -24,11 +24,12 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
+import { carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
+import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
@@ -38,9 +39,10 @@ import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
-import { errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
+import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
+import { circleCenters, edgeSnapPoints, snapPair } from './snap';
 import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -134,6 +136,8 @@ export class StepApp {
   private loadSeq = 0;
   private abort: AbortController | null = null;
   private lastError: string | null = null;
+  /** 마지막 오류의 문장 조각(시작 화면에 조각마다 번역되게) */
+  private lastErrorParts: string[] = [];
   private theme: Theme;
   private storedTheme: Theme | null;
   private readonly systemDark: MediaQueryList | null;
@@ -188,6 +192,8 @@ export class StepApp {
   private readonly faceCut: HTMLButtonElement;
   /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
   private ctxFace: FacePick | null = null;
+  /** 문서마다 두 점 측정 붙잡기 점(원·원호 중심) */
+  private readonly snapCenters = new WeakMap<StepDoc, SnapPoint[]>();
   /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
   private pendingView: ViewLink | null = null;
   /** 연 문서를 다시 읽을 방법(곡면 품질을 바꿔 다시 삼각화) */
@@ -440,7 +446,7 @@ export class StepApp {
     const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
     if (isStepXmlName(file.name)) {
       attempt.error('unsupported');
-      this.showError(`${file.name}: ${STEP_XML_MESSAGE}`);
+      this.showError([`${file.name}:`, STEP_XML_MESSAGE]);
       return false;
     }
     if (!isStepName(file.name)) {
@@ -448,20 +454,20 @@ export class StepApp {
       try {
         head = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
       } catch (e) {
-        this.showError(`${file.name}: 파일을 읽지 못했습니다. ${errorText(e)}`);
+        this.showError([`${file.name}: 파일을 읽지 못했습니다.`, friendlyError(errorText(e))]);
         attempt.error('read_error');
         return false;
       }
       const kind = sniffContainer(head);
       if (kind === 'xml') {
         attempt.error('unsupported');
-        this.showError(`${file.name}: ${isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.'}`);
+        this.showError([`${file.name}:`, isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.']);
         return false;
       }
       if (kind !== 'step' && kind !== 'gzip' && kind !== 'zip') {
         attempt.error('unsupported');
         const sn = sniffStep(head);
-        this.showError(`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다. ${sn.ok ? '' : sn.reason}`.trim());
+        this.showError([`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다.`, ...(sn.ok ? [] : [sn.reason])]);
         return false;
       }
     }
@@ -614,8 +620,7 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
         attempt.error('empty');
-        const why = res.scene.warnings?.find((w) => w.includes('형상')) ?? res.scene.warnings?.[0];
-        throw new Error(`그릴 형상(B-rep·삼각형)을 찾지 못했습니다.${why ? ` (${why})` : ''}`);
+        throw Object.assign(new Error('그릴 형상(B-rep·삼각형)을 찾지 못했습니다.'), { detail: emptyReason(res.scene) });
       }
       this.setLoading({ name, fraction: 1, stage: '화면에 올리는 중' });
       await nextPaint();
@@ -627,14 +632,17 @@ export class StepApp {
       this.lastError = null;
       this.updateAll();
       const w = res.scene.warnings?.length ?? 0;
-      if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
+      if (res.scene.warnings?.includes(TRUNCATED_WARNING)) this.toast('파일이 중간에 끊긴 것 같습니다 — 읽은 데까지만 보입니다. 파일을 다시 받아 여십시오.', 'warn', 6000);
+      else if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
       attempt.success();
       return true;
     } catch (e) {
       if (seq !== this.loadSeq) return false;
       if (e instanceof ParseCancelled || (e instanceof DOMException && e.name === 'AbortError')) return false;
       attempt.error(reading ? (input === 'url' ? 'fetch_error' : 'read_error') : 'parse_error');
-      this.showError(`${name}: 파일을 열지 못했습니다. ${friendlyError(errorText(e))}`);
+      // 조각마다 따로 번역되게(파일 이름은 그대로) 문장 단위로 나눠 보인다
+      const detail = (e as { detail?: string } | null)?.detail;
+      this.showError([`${name}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])]);
       return false;
     } finally {
       if (seq === this.loadSeq) {
@@ -679,6 +687,7 @@ export class StepApp {
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
     this.fmt = this.makeFmt();
+    this.syncMeasureSnap();
     // 파일이 숨긴 레이어 등 처음 보이기
     this.applyVisibility();
     this.applyLooks();
@@ -719,6 +728,11 @@ export class StepApp {
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
       if (this.entMeasuring) {
         this.onEntityPick(p, e.pointerType);
+        return;
+      }
+      // Ctrl·⌘·Shift + 누르기: 여러 개 고르기(누른 부품을 더하거나 뺀다 — 면 고르기 밖에서)
+      if (p && (e.ctrlKey || e.metaKey || e.shiftKey) && !this.faceMode && !e.altKey && !v.measureMode) {
+        if (e.clicks <= 1) this.toggleInSelection([p.id]);
         return;
       }
       this.onPick(p, this.faceMode || e.altKey);
@@ -999,6 +1013,32 @@ export class StepApp {
     this.viewer?.highlight(d.items ? d.items.ids : null);
     this.selectionChanged();
     if (fit && d.items) this.viewer?.fitItems(d.items.ids);
+  }
+
+  /**
+   * 여러 개 고르기: 지금 고른 것(나무 마디·누른 부품·묶음)에 ids를 더하고, 이미 모두 들어 있으면 뺀다.
+   * 고른 것은 항목 묶음(d.items)이 되어 숨기기·이것만 보기·맞춰 보기·물리 속성 합·STL/OBJ 내보내기가 그대로 쓴다
+   */
+  toggleInSelection(ids: readonly string[]): void {
+    const d = this.doc;
+    if (!d || !ids.length) return;
+    const cur = selectionItemIds(d);
+    const set = new Set(cur);
+    const all = ids.every((id) => set.has(id));
+    for (const id of ids) {
+      if (all) set.delete(id);
+      else set.add(id);
+    }
+    // 고른 차례를 지킨다(먼저 고른 것 앞)
+    const list = [...cur.filter((id) => set.has(id)), ...ids.filter((id) => set.has(id) && !cur.includes(id))];
+    d.selKey = null;
+    d.pick = null;
+    d.face = null;
+    d.edge = null;
+    d.items = list.length ? { ids: list, label: multiLabel(d.products, list) } : null;
+    this.showFace(null);
+    this.viewer?.highlight(list.length ? list : null);
+    this.selectionChanged();
   }
 
   /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */
@@ -1623,6 +1663,39 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  /**
+   * 두 점 측정 붙잡기(코어 0.8.0 setMeasureSnap): 측정 중에만 윤곽선도 고르고(면 고르기 밖에서는 pickEdges가 꺼져 있다),
+   * 모든 원·원호 중심을 늘 후보로, 고른 모서리에는 곡선 가운데 점·끝점·중심을 더한다. 코어의 선분 가운데 점은 곡선 모서리에서
+   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다)
+   */
+  private syncMeasureSnap(): void {
+    const v = this.viewer;
+    const d = this.doc;
+    if (!v) return;
+    if (!d) {
+      v.setMeasureSnap(null);
+      return;
+    }
+    let centers = this.snapCenters.get(d);
+    if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
+    const byId = new Map(d.scene.meshes.map((m) => [m.id, m] as const));
+    let lastKey = '';
+    let last: SnapPoint[] | null = null;
+    v.setMeasureSnap({
+      edges: true,
+      points: centers,
+      pointsFor: (p) => {
+        if (p.kind !== 'edge') return null;
+        const key = `${p.id}:${p.raw ?? p.index}`;
+        if (key !== lastKey) {
+          lastKey = key;
+          last = edgeSnapPoints(p, byId, d.edges);
+        }
+        return last;
+      },
+    });
+  }
+
   toggleMeasure(on = !this.measuring): void {
     const v = this.viewer;
     if (!v) return;
@@ -2199,18 +2272,20 @@ export class StepApp {
     this.updateStatus();
   }
 
-  private showError(msg: string): void {
-    this.lastError = msg;
-    this.toast(msg, 'error', 9000);
+  /** 오류 알림: 문장 조각(번역층이 조각마다 옮긴다 — 한 글로 이으면 뒤 조각이 변수로 잡혀 한국어로 남는다) */
+  private showError(parts: string[]): void {
+    this.lastErrorParts = parts;
+    this.lastError = parts.join(' ');
+    this.toast(parts, 'error', 9000);
     this.updateAll();
   }
 
   /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다) */
-  toast(msg: string, kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
+  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, msg), act, close);
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : [msg])), act, close);
     act?.addEventListener('click', () => {
       t.remove();
       action!.run();
@@ -2228,7 +2303,7 @@ export class StepApp {
     // 문서가 없을 때 시작 화면 뒤에 미리 만든 캔버스로 초점이 가지 않게
     this.hostEl.inert = !d;
     this.startError.hidden = !this.lastError || !!d;
-    this.startError.textContent = this.lastError ?? '';
+    this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, m)] : [h('span', {}, m)])) : []));
     this.docNameEl.textContent = d ? d.name : '';
     this.docNameEl.title = d ? d.name : '';
     if (!d) document.title = APP_TITLE;
@@ -2250,7 +2325,8 @@ export class StepApp {
     }
     const sel = d ? this.selectionText(d) : '';
     const detail = d && sel ? this.selectionDetail(d) : [];
-    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]));
+    const sp = d?.measure ? snapPair(d.measure) : null;
+    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]), ...(sp ? [' · ', h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])] : []));
     this.refreshBar();
   }
 
@@ -2295,6 +2371,9 @@ export class StepApp {
       if (d.measure) {
         const m = measureLines(d.measure, fm);
         t.append(h('b', { class: 'mb-value' }, m.value), h('span', { class: 'mb-sub' }, m.axes));
+        // 붙잡은 종류(끝점·가운데 점·중심 — 이름마다 따로 번역되게 조각으로)
+        const sp = snapPair(d.measure);
+        if (sp) t.append(h('span', { class: 'mb-sub mb-snap' }, h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])));
       } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
       this.measureClear.disabled = !d.measure && !v.measurePointCount;
     } else if (d.face || d.edge) {
@@ -2446,7 +2525,7 @@ export class StepApp {
       else this.pendingView = link;
     });
     const q = parseStartQuery(location.search, location.href);
-    if (q.openError) this.showError(q.openError);
+    if (q.openError) this.showError([q.openError]);
     // 공유 받기(?recent=·?share-error=)는 한 번만: 주소에서 지운다(다시 읽어도 또 열지 않게)
     if (q.recent || q.shareError) history.replaceState(history.state, '', withoutOnceParams(location.href));
     if (q.shareError) this.toast(q.shareError === 'too-big' ? '공유한 파일이 60MB보다 커서 받지 못했습니다 — 파일 열기로 여십시오.' : '공유한 파일을 받지 못했습니다 — 파일 열기로 여십시오.', 'warn', 8000);
