@@ -1,0 +1,15 @@
+// 이 앱의 사이트 설정(opencad-site-kit): 검색 정보·언어 페이지·앱 정보와 오프라인 서비스 워커. vite.config.ts와 시험이 같이 쓴다.
+import metadata from '../site/metadata.json' with { type: 'json' };
+import history from '../site/content-history.json' with { type: 'json' };
+import '../site/i18n.mjs';
+import { defineSite } from 'opencad-site-kit/seo/site-metadata';
+import { serviceWorkerSource } from './sw-source.mjs';
+
+// 앱 정보 원본은 public/manifest.webmanifest(한국어는 그대로 복사): 언어별 앱 정보만 빌드가 쓰고, 링크·홈 화면 이름은 index.html의 것을 언어마다 바꾼다
+export const site = defineSite({ metadata, history, manifest: { source: new URL('../public/manifest.webmanifest', import.meta.url) } });
+
+/** serviceWorker(offline): 판 이름은 예전처럼 미리 담는 파일 이름·내용 지문의 앞 12자리(구분자 없음) */
+export const offline = {
+  source: ({ version, precache }) => serviceWorkerSource({ version, urls: precache }),
+  version: { length: 12, separator: '', terminator: '' },
+};

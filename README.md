@@ -129,7 +129,7 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   브라우저의 "홈 화면에 추가"로 앱 아이콘(`public/manifest.webmanifest`, 192·512px, 마스크용 512px, iOS 180px)과 주소창 없는 창으로 열 수 있습니다.
   언어 페이지(`/en/` 등)는 빌드가 만든 `<언어>/manifest.webmanifest`를 가리켜 그 언어 이름으로 설치되고 그 언어 페이지로 열립니다.
   iOS 홈 화면 앱은 상태 막대를 화면 위에 겹쳐(black-translucent) 그리므로 제목 막대를 그 아래로 내리고, 흰 상태 막대 글씨가 보이게 그 띠는 테마와 상관없이 어둡게 칠합니다. 제목·상태 막대를 아래로 끌어도 당겨서 새로 고침이 일어나지 않아 연 모델을 잃지 않습니다(패널·시작 화면 목록은 그대로 스크롤).
-  **오프라인**: 빌드가 만든 서비스 워커(`dist/sw.js` — `tools/sw-plugin.mjs`)가 앱 껍데기(언어 페이지·앱 정보·아이콘)와 빌드 결과를 미리 담아,
+  **오프라인**: 빌드가 만든 서비스 워커(`dist/sw.js` — 본문 `tools/sw-source.mjs`, 목록·판 이름은 공용 사이트 도구)가 앱 껍데기(언어 페이지·앱 정보·아이콘)와 빌드 결과를 미리 담아,
   신호 없는 현장에서도 홈 화면 앱이 열리고 최근 문서를 엽니다. HTML은 네트워크 먼저(배포가 바로 보이게, 안 되면 담아 둔 것), 미리 담은 파일과 빌드 결과(`assets/`)는 담아 둔 것 먼저이고,
   그 밖(`?open=`으로 받는 STEP 파일 등)과 앱 범위 밖 주소는 서비스 워커가 손대지 않습니다(바뀐 파일이 옛것으로 열리거나 큰 파일이 쌓이지 않게).
   새 판이 설치되면 "새 버전이 있습니다 · 새로 고침" 알림을 띄우고, 누르면 새 판으로 바꿔 다시 읽습니다(판 이름은 담는 파일들의 내용 지문).
@@ -210,12 +210,13 @@ const { bytes: step } = await unpackStep(fileBytes);
 | 경로 | 내용 |
 |---|---|
 | `index.html`, `public/` | 앱 진입 페이지, 아이콘, 앱 정보(공유 받기·파일 열기) |
-| `tools/sw-plugin.mjs` | 빌드 끝에 오프라인 서비스 워커(`dist/sw.js`)를 만드는 Vite 플러그인 |
+| `tools/site.mjs`, `tools/sw-source.mjs` | 이 앱의 사이트 설정(앱 정보 원본·서비스 워커 판 이름 짓기 — `vite.config.ts`와 시험이 같이 씀)과 오프라인 서비스 워커 본문(미리 담은 것 쓰기·공유 받기). 언어 페이지·검색 정보·사이트맵·언어별 앱 정보·`dist/sw.js`는 [공용 사이트 도구](https://github.com/GyuTae-Kim/opencad-site-kit)의 Vite 플러그인이 이 설정으로 만든다 |
+| `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json`)를 넘기고 사전을 넣는다 |
 | `src/app/main.ts`, `src/app/app.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키 |
 | `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
 | `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/snap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해), 두 점 측정 붙잡기 점(원·원호 중심, 모서리 가운데 점) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
-| `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/interference.ts`, `src/app/pwa.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV·그림 저장 크기 글·파일 이름, 보기 링크, 간섭 검사, 홈 화면 앱(서비스 워커 등록·launchQueue) |
+| `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/interference.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV·그림 저장 크기 글·파일 이름, 보기 링크, 간섭 검사 |
 | `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/app/glyphs.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 내장 글꼴에 없는 PMI 글자를 기기 글꼴 윤곽선으로(워커의 OffscreenCanvas), 해석 워커, 검사(간섭) 워커 |
 | `src/app/warnparts.ts` | 해석기 경고 한 줄 → 화면 조각(까닭 목록을 떼어 다국어 층이 조각마다 옮기게) |
 | `src/app/stepText.ts`, `src/app/sample.ts` | 작은 STEP 글쓴이(시험도 씀)와 예제 조립 모형 |
@@ -251,6 +252,20 @@ B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡�
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
 
+**공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
+방문 통계, 휴대폰 성능 비교 명령은 다른 OpenCAD 앱과 함께 쓰는 [opencad-site-kit](https://github.com/GyuTae-Kim/opencad-site-kit)
+(`github:GyuTae-Kim/opencad-site-kit#v0.1.2`, 잠금 커밋 `c6a5861`, 빌드 때만 써서 `devDependencies`)에 있습니다.
+이 앱에만 있는 값은 `tools/site.mjs`(앱 정보 원본, 서비스 워커 판 이름 짓기)와 `tools/sw-source.mjs`(서비스 워커 본문 — 돌려주는 글이 sw.js에 그대로 들어갑니다)에 둡니다.
+`check:seo`·`check:i18n`·`test:seo`·`update:content-dates`는 도구의 `opencad-site` 명령입니다. 도구 판을 올릴 때는 빌드 결과를 견줍니다.
+
+```bash
+npx vite build && cp -R dist .runtime/dist-before                                        # 올리기 전
+npm install -D "opencad-site-kit@github:GyuTae-Kim/opencad-site-kit#<태그>"               # package.json·잠금 파일을 함께
+npx vite build && npx opencad-site compare-dist .runtime/dist-before dist                 # 바뀐 파일과 처음 다른 곳
+```
+
+도구의 판 설명에 적힌 것 밖의 차이가 없으면, 스크립트가 바뀐 경우 내용 수정일을 갱신하고 빌드·시험을 돌립니다.
+
 ### 실제 파일 훑기
 
 로컬에 있는 STEP 파일을 앱과 같은 해석 길(`parseStepFile` — 압축 풀기, STEP인지 가리기, `stepToScene`)로 모두 열어 보고 결과를 모읍니다.
@@ -278,7 +293,8 @@ npm run sweep:compare -- .runtime/sweep/before .runtime/sweep/after           # 
 ### 휴대폰 검사
 
 끌어오기 요청마다 `.github/workflows/mobile-validation.yml`이 PR 바탕(기준)과 PR(후보)을 같은 CI에서 빌드합니다. 휴대폰 첫 화면을 Lighthouse로 세 번씩 재서
-중앙값 표를 작업 요약에 남깁니다(`tools/serve-performance.mjs`, `tools/performance-summary.mjs` — SKP·DWG 앱과 같은 파일이니 고칠 때는 함께 고칩니다).
+중앙값 표를 작업 요약에 남깁니다(압축해서 주는 미리 보기 서버와 표는 공용 도구의 `opencad-site serve-performance`·`performance-summary` —
+기준 빌드 뒤 이 커밋으로 돌아와 `npm ci`를 다시 해 명령을 찾습니다).
 후보 중앙값이 `tools/performance-budget.json`의 예산을 넘으면 실패합니다(`tools/check-performance-budget.mjs`). 지금 예산은 성능 90 이상, 접근성과 SEO 100,
 FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 140 KiB 이하입니다. 예산을 바꿀 때는 그때 잰 중앙값을 같은 파일의 `note`에 적습니다.
 

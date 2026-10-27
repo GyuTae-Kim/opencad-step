@@ -19,7 +19,7 @@
 import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type SnapPoint, type ViewName } from 'opencad-viewer3d';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
-import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from './analytics';
+import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
@@ -33,7 +33,7 @@ import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
-import { consumeLaunchQueue, registerServiceWorker } from './pwa';
+import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
@@ -2515,8 +2515,11 @@ export class StepApp {
   async start(): Promise<void> {
     void this.refreshRecent();
     // 홈 화면 앱: 오프라인 서비스 워커와 새 판 알림, 데스크톱 "연결 프로그램"으로 연 파일
-    registerServiceWorker((apply) => this.toast('새 버전이 있습니다.', 'info', 60_000, { label: '새로 고침', run: apply }));
-    consumeLaunchQueue((file) => void this.openFile(file));
+    // (공용 도구 — 배포 빌드에서만 등록하고, 앱으로 돌아오면 새 판을 확인한다. 언어 페이지는 <base href="../">라 document.baseURI가 앱 뿌리)
+    if (!import.meta.env.DEV && canUseServiceWorker(location, navigator))
+      void registerServiceWorker(navigator.serviceWorker as unknown as SwContainer, new URL('sw.js', document.baseURI),
+        (apply) => this.toast('새 버전이 있습니다.', 'info', 60_000, { label: '새로 고침', run: apply }), undefined, { onVisible: whenVisible });
+    consumeLaunchFiles((files) => void this.openFile(files[0]!));
     // 보기 링크(#view=…): 다음에 여는 문서에 적용, 문서가 열린 뒤 바뀌면 바로
     this.pendingView = decodeViewLink(location.hash);
     window.addEventListener('hashchange', () => {

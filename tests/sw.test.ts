@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { precacheable, precacheUrls, serviceWorkerSource } from '../tools/sw-plugin.mjs';
+import { defaultPrecacheable as precacheable, serviceWorkerValues } from 'opencad-site-kit/pwa/sw-plugin';
+import { serviceWorkerSource } from '../tools/sw-source.mjs';
+
+/** 미리 담을 주소(공용 도구 — 이 앱은 기본 규칙) */
+const precacheUrls = (files: string[]) => serviceWorkerValues(files, () => '').precache;
 
 /** 서비스 워커 원본을 가짜 self·caches·fetch·indexedDB로 돌린다 */
 function runSw(network: (url: string) => Response | Promise<Response>) {
