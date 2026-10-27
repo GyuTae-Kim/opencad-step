@@ -126,7 +126,7 @@ const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향
 
 /**
  * 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점'.
- * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼
+ * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB)
  */
 export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null): string {
   switch (kind) {
@@ -152,22 +152,13 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
 }
 
 /**
- * 두 점 측정 결과의 축(축 붙잡기 결과는 첫 점에서 한 축 방향으로만 떨어져 있다 — dx·dy·dz 가운데 가장 큰 것).
- * 결과에는 축이 실리지 않아(MeasureResult.snapB = 'axis'뿐) 성분으로 정한다
+ * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 자유 점이면 null).
+ * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다
  */
-export function resultAxis(m: { dx: number; dy: number; dz: number }): SnapAxis {
-  const x = Math.abs(m.dx);
-  const y = Math.abs(m.dy);
-  const z = Math.abs(m.dz);
-  return x >= y && x >= z ? 'x' : y >= z ? 'y' : 'z';
-}
-
-/** 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 자유 점이면 null) */
-export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; dx?: number; dy?: number; dz?: number }): [string, string] | null {
+export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; axisA?: SnapAxis; axisB?: SnapAxis }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB) return null;
-  const axisOf = (k: SnapKind | null | undefined) => (k === 'axis' && m.dx !== undefined && m.dy !== undefined && m.dz !== undefined ? resultAxis({ dx: m.dx, dy: m.dy, dz: m.dz }) : null);
-  return [snapLabel(m.snapA, axisOf(m.snapA)), snapLabel(m.snapB, axisOf(m.snapB))];
+  return [snapLabel(m.snapA, m.axisA), snapLabel(m.snapB, m.axisB)];
 }
 
 /**
