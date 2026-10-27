@@ -153,3 +153,18 @@ describe('예제 문서', () => {
     expect(translate(title, 'en')).toMatch(/^Parse .+ · Triangulation .+ · Worker total 42 ms · To screen /);
   });
 });
+
+describe('여러 개 고르기 이름표(multiLabel)', () => {
+  it('서로 다른 부품 자리 수를 센다 — 한 자리의 그물 여럿은 하나, 주인 없는 항목은 하나씩', async () => {
+    const { multiLabel } = await import('../../src/app/doc');
+    const roots = [
+      { name: 'asm', productId: 'a', meshIds: [], children: [
+        { name: 'p', productId: 'p', meshIds: ['m1', 'm2'], children: [] },
+        { name: 'q', productId: 'q', meshIds: ['m3'], lineIds: ['l1'], children: [] },
+      ] },
+    ] as unknown as Parameters<typeof multiLabel>[0];
+    expect(multiLabel(roots, ['m1', 'm2'])).toBe('부품 1개');
+    expect(multiLabel(roots, ['m1', 'm3', 'l1'])).toBe('부품 2개');
+    expect(multiLabel(roots, ['m1', 'pmi-1', 'pmi-2'])).toBe('부품 3개');
+  });
+});

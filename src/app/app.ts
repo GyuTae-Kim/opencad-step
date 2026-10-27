@@ -24,7 +24,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { carryDocState, createDoc, docStatus, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
+import { carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -728,6 +728,11 @@ export class StepApp {
         this.onEntityPick(p, e.pointerType);
         return;
       }
+      // Ctrl·⌘·Shift + 누르기: 여러 개 고르기(누른 부품을 더하거나 뺀다 — 면 고르기 밖에서)
+      if (p && (e.ctrlKey || e.metaKey || e.shiftKey) && !this.faceMode && !e.altKey && !v.measureMode) {
+        if (e.clicks <= 1) this.toggleInSelection([p.id]);
+        return;
+      }
       this.onPick(p, this.faceMode || e.altKey);
       // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
       if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
@@ -1006,6 +1011,32 @@ export class StepApp {
     this.viewer?.highlight(d.items ? d.items.ids : null);
     this.selectionChanged();
     if (fit && d.items) this.viewer?.fitItems(d.items.ids);
+  }
+
+  /**
+   * 여러 개 고르기: 지금 고른 것(나무 마디·누른 부품·묶음)에 ids를 더하고, 이미 모두 들어 있으면 뺀다.
+   * 고른 것은 항목 묶음(d.items)이 되어 숨기기·이것만 보기·맞춰 보기·물리 속성 합·STL/OBJ 내보내기가 그대로 쓴다
+   */
+  toggleInSelection(ids: readonly string[]): void {
+    const d = this.doc;
+    if (!d || !ids.length) return;
+    const cur = selectionItemIds(d);
+    const set = new Set(cur);
+    const all = ids.every((id) => set.has(id));
+    for (const id of ids) {
+      if (all) set.delete(id);
+      else set.add(id);
+    }
+    // 고른 차례를 지킨다(먼저 고른 것 앞)
+    const list = [...cur.filter((id) => set.has(id)), ...ids.filter((id) => set.has(id) && !cur.includes(id))];
+    d.selKey = null;
+    d.pick = null;
+    d.face = null;
+    d.edge = null;
+    d.items = list.length ? { ids: list, label: multiLabel(d.products, list) } : null;
+    this.showFace(null);
+    this.viewer?.highlight(list.length ? list : null);
+    this.selectionChanged();
   }
 
   /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */

@@ -36,6 +36,8 @@ export interface PanelHost {
   selectKey(key: string | null): void;
   /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
   fitKey(key: string): void;
+  /** 여러 개 고르기: 항목들을 지금 고른 것에 더하거나(모두 들어 있으면) 뺀다 */
+  toggleInSelection(ids: readonly string[]): void;
   /** 지금 고른 것으로 맞춰 보기 */
   fitSelection(): void;
   setItemsVisible(ids: readonly string[], on: boolean): void;
@@ -298,6 +300,7 @@ export class Panel {
     for (const k of d.expanded) if (!this.drawnExpanded.has(k)) return false;
     const rows = this.body.querySelectorAll<HTMLElement>('.tree-row');
     let found = !d.selKey;
+    if (d.items) return false;
     for (const r of rows) {
       const sel = r.dataset.key === d.selKey;
       if (sel) found = true;
@@ -410,7 +413,7 @@ export class Panel {
   private treeRow(d: StepDoc, r: TreeRow, counts: Map<string, number>): HTMLElement {
     const { name, instance } = nodeLabel(r.node);
     const visible = nodeVisible(r.itemIds, (id) => this.host.isVisible(id));
-    const sel = d.selKey === r.key;
+    const sel = d.selKey === r.key || inItems(d, r.itemIds);
     const tog = h('button', { type: 'button', class: 'twisty', tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
     if (r.hasChildren) tog.append(icon(r.open ? 'chevronDown' : 'chevronRight', 14));
     tog.addEventListener('click', (ev) => {
@@ -453,6 +456,11 @@ export class Panel {
     );
     // 첫 누르기에 나무를 다시 그릴 수 있으므로 dblclick 대신 누른 횟수(detail)로 두 번 누르기를 가린다
     item.addEventListener('click', (ev) => {
+      // Ctrl·⌘·Shift + 누르기: 이 마디 아래 형상을 여러 개 고르기에 더하거나 뺀다
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+        if (ev.detail <= 1) this.host.toggleInSelection(r.itemIds);
+        return;
+      }
       if (ev.detail === 2) this.host.fitKey(r.key);
       else if (ev.detail <= 1) this.host.selectKey(d.selKey === r.key ? null : r.key);
     });
@@ -503,16 +511,17 @@ export class Panel {
     const key = this.propsKey(d);
     const path = key ? nodePath(d.products, key) : [];
     const node = path[path.length - 1];
-    if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다.')));
+    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르면 여러 개를 고릅니다.')));
+    else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
       this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
     }
-    this.body.append(this.physSection(d, node ? subtreeMeshIds(node) : null));
+    this.body.append(this.physSection(d, node ? subtreeMeshIds(node) : d.items ? d.items.ids : null, d.items && !node ? d.items.label : undefined));
   }
 
   /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
-  private physSection(d: StepDoc, ids: string[] | null): HTMLElement {
+  private physSection(d: StepDoc, ids: string[] | null, multi?: string): HTMLElement {
     const f = this.host.fmt;
     const owner = meshNodes(d.products);
     const pp = physProps(d.scene.meshes, ids ? new Set(ids) : null, {
@@ -559,7 +568,7 @@ export class Panel {
     });
     const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
     return section(
-      ids ? '물리 속성' : '모형 전체 물리 속성',
+      multi ? `물리 속성 · ${multi}` : ids ? '물리 속성' : '모형 전체 물리 속성',
       ...rows,
       ...notes,
       pick,
@@ -869,4 +878,11 @@ function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   const approx = fp.exact ? '' : '≈ ';
   out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${f.area(fp.area)} · 둘레 ${approx}${f.len(fp.perimeter)}`));
   return out;
+}
+
+/** 마디 아래 항목이 모두 여러 개 고르기(d.items)에 들었는지 */
+function inItems(d: Pick<StepDoc, 'items'>, ids: readonly string[]): boolean {
+  if (!d.items || !ids.length) return false;
+  const set = new Set(d.items.ids);
+  return ids.every((id) => set.has(id));
 }
