@@ -73,7 +73,11 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       it.hint ? h('kbd', {}, it.hint) : null,
     );
     b.addEventListener('click', () => {
+      // 항목을 고르면 메뉴가 사라지므로 초점을 연 단추로 돌려준다(키보드로 고른 뒤 초점이 문서 처음으로 날아가지 않게,
+      // 그 명령이 대화 상자를 열면 닫을 때 이 단추로 돌아온다). 화면 점 메뉴의 보이지 않는 기준점은 초점을 받지 않는다
+      const hadFocus = el.contains(document.activeElement);
       closeMenu();
+      if (hadFocus && anchor.isConnected && anchor.tabIndex >= 0) anchor.focus({ preventScroll: true });
       it.run();
     });
     buttons.push(b);
