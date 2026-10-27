@@ -45,7 +45,7 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   `origin`으로 빼고 담아 float32로도 떨리지 않습니다(그 밖에는 예전과 같습니다)
 - 틈·넓이·부피 검사(`watertightness`, `meshArea`, `meshVolume`)
 - 공개 STEP 21개를 실패 면 없이 읽었고, NIST 시험 모형 9개는 모두 틈이 없습니다. 여러 CAD·커널이 내보낸 로컬 STEP 2,091개(내용이 같은 것 뺌)를
-  세 곡면 품질(20°·10°·5°)로 훑어 예외·실패 면 0, 닫힌 껍질 3,119개가 모두 틈 없이 닫히는 것을 확인했습니다(삼각형 감기가 어긋난 입체 72개 파일 → 2개,
+  세 곡면 품질(20°·10°·5°)로 훑어(`npm run sweep` — 개발 절) 예외·실패 면 0, 닫힌 껍질 3,119개가 모두 틈 없이 닫히는 것을 확인했습니다(삼각형 감기가 어긋난 입체 72개 파일 → 2개,
   접힌 삼각형이 있는 파일 35개 → 4개).
 
 ## 앱 쓰는 법
@@ -220,6 +220,8 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `src/brep.ts`, `src/geometry.ts`, `src/curves.ts`, `src/surfaces.ts`, `src/nurbs.ts` | B-rep 위상과 곡선·곡면 |
 | `src/tessellate.ts`, `src/math.ts` | 삼각화(해석적 곡면은 매개변수 영역 넓이 적분도) |
 | `src/analysis.ts` | 틈·넓이·부피 검사, 닫힌 껍질 면 방향 맞추기(`orientFaces`) |
+| `scripts/sweep/` | 실제 파일 훑기(`npm run sweep`)와 결과 비교(`npm run sweep:compare`) — 고르기와 중복 빼기, vite-node 일꾼, 분류 코드, 품질 지표, 요약 |
+| `tools/mobile-browser-check.js`, `tools/performance-budget.json`, `tools/check-performance-budget.mjs`, `tools/mobile-sample.stp` | 휴대폰 검사 워크플로의 사용 흐름 확인, 성능 예산과 그 확인, 합성 표본 |
 
 ## 개발
 
@@ -241,11 +243,50 @@ B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡�
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
 
+### 실제 파일 훑기
+
+로컬에 있는 STEP 파일을 앱과 같은 해석 길(`parseStepFile` — 압축 풀기, STEP인지 가리기, `stepToScene`)로 모두 열어 보고 결과를 모읍니다.
+표본 파일은 저장소에 넣지 않으므로 각자 가진 폴더를 줍니다.
+
+```bash
+npm run sweep -- --dirs ~/cad:~/Downloads --out .runtime/sweep/before        # 표본 폴더(쌍점으로 구분)
+npm run sweep -- --dirs ~/cad:~/Downloads --out .runtime/sweep/after --quality normal,fine,finest
+npm run sweep:compare -- .runtime/sweep/before .runtime/sweep/after           # 바뀐 파일만 보기
+```
+
+- 폴더를 재귀로 훑어 `.stp` `.step` `.p21` `.stpz` `.stp.gz`와, 안에 STEP이 든 `.gz` `.zip`만 고릅니다. 내용(sha256)이 같은 파일은 한 번만 엽니다.
+  숨은 폴더와 `node_modules`는 건너뜁니다.
+- `--dirs`가 없으면 환경 변수 `OPENCAD_SWEEP_DIRS`를 보고, 둘 다 없으면 쓰는 법만 보이고 끝납니다(CI에서는 돌지 않습니다). `--list`로 파일 목록을 줄 수도 있습니다.
+- `--quality`에는 앱의 곡면 품질 이름(`normal` `fine` `finest`)이나 각도(`20` `10` `5` — 최대 각만 바꿉니다)를 쉼표로 여러 개 줍니다.
+  `--jobs`는 일꾼 수, `--limit`은 열 파일 수, `--timeout`은 파일 하나의 시간 한도(초)입니다.
+- 결과 폴더(기본 `.runtime/sweep/<날짜-시각>`)에는 `records.jsonl`과 `summary.json`이 생깁니다. `records.jsonl`은 파일과 품질마다 한 줄이고 열쇠는 내용 해시입니다
+  (경로는 이 로컬 결과에만 적습니다). `summary.json`에는 경로 없이 분류별 개수, 판(AP)별 개수, 오류와 경고 코드, 시간 백분위, 품질 지표를 적습니다.
+  결과가 이미 있으면 `--resume`(이어서)이나 `--force`(새로)를 줍니다. 비교 기준으로 남길 결과는 `--keep`으로 표시합니다.
+- 품질 지표는 감기가 어긋난 입체, 부피가 음수인 입체, 접힌 삼각형(0.1% 넘는 파일 수와 가장 큰 개수 비율과 넓이 비율), 입체가 되지 못한 닫힌 껍질,
+  B-rep 넓이와 크게 다른 면, 삼각형 합, 실패 면, 예외입니다.
+- `sweep:compare`는 같은 해시와 품질끼리 짝지어 분류가 바뀐 파일, 새 예외, 지표가 바뀐 파일(위 20개)과 요약 값을 전후로 보입니다.
+  출력에는 해시 앞 12자만 나옵니다(`--paths`를 주면 로컬 경로도). `--fail-on-change`를 주면 바뀐 것이 있을 때 1로 끝납니다.
+
+### 휴대폰 검사
+
+끌어오기 요청마다 `.github/workflows/mobile-validation.yml`이 PR 바탕(기준)과 PR(후보)을 같은 CI에서 빌드합니다. 휴대폰 첫 화면을 Lighthouse로 세 번씩 재서
+중앙값 표를 작업 요약에 남깁니다(`tools/serve-performance.mjs`, `tools/performance-summary.mjs` — SKP·DWG 앱과 같은 파일이니 고칠 때는 함께 고칩니다).
+후보 중앙값이 `tools/performance-budget.json`의 예산을 넘으면 실패합니다(`tools/check-performance-budget.mjs`). 지금 예산은 성능 90 이상, 접근성과 SEO 100,
+FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 140 KiB 이하입니다. 예산을 바꿀 때는 그때 잰 중앙값을 같은 파일의 `note`에 적습니다.
+
+이어서 playwright-cli로 휴대폰 화면(390×844, 손가락)에서 쓰는 흐름을 확인합니다(`tools/mobile-browser-check.js`, 판정은 `tools/check-browser-result.mjs`).
+파일 고르기로 합성 표본(`tools/mobile-sample.stp`)을 열고, 최근 문서 다시 열기, 예제 열기, 두 번 눌러 거리 재기, 끌어다 놓기, `?open=`과 `?sample`,
+없는 주소를 열 때의 알림까지 봅니다.
+
+로컬에서는 `npm run build` 뒤 `dist`를 `.runtime/performance/candidate`(와 `baseline`)로 복사하고, Lighthouse와 playwright-cli를
+`npm install --prefix .runtime/mobile-audit --no-package-lock lighthouse@13.5.0 @playwright/cli`로 받아 워크플로의 "Compare cold mobile loads" 단계 명령을 그대로 돌립니다.
+끝에 `node tools/check-performance-budget.mjs .runtime/performance`로 예산을 봅니다.
+
 ## 배포
 
 `main`에 push하면 `.github/workflows/deploy.yml`이 typecheck → test → build를 거쳐 `dist/`를 `gh-pages` 가지에 올립니다
 (GitHub Pages: https://gyutae-kim.github.io/opencad-step/). 빌드는 상대 경로(`base: './'`)라 어느 하위 경로에서도 돕니다.
-끌어오기 요청은 `.github/workflows/ci.yml`이 같은 확인을 돌립니다.
+끌어오기 요청은 `.github/workflows/ci.yml`이 같은 확인을 돌리고, `.github/workflows/mobile-validation.yml`이 휴대폰 검사(위 개발 절)를 돌립니다.
 
 ## 남은 일
 
