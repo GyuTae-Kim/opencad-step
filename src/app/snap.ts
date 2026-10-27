@@ -5,8 +5,10 @@
  *   중심은 커서가 그 자리(구멍 가운데 빈 곳 포함)에 와야 붙으므로 늘 후보(points)로 준다. 같은 그물 안 같은 자리 중심은 하나로.
  * - 고른 모서리의 곡선 가운데 점·끝점·중심(pointsFor): 윤곽선은 곡선을 꺾은선으로 그린 것이라 코어의 선분 가운데 점은
  *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다.
+ * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
+import type { MeasureSnapOptions, SnapAxis } from 'opencad-viewer3d';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt, edgeDetails, isFullCircle } from './edges';
 
@@ -94,8 +96,39 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
   return out;
 }
 
-/** 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점' */
-export function snapLabel(kind: SnapKind | null | undefined): string {
+/**
+ * 코어 setMeasureSnap에 줄 선택: 측정 중에만 윤곽선도 고르고(edges — 면 고르기 밖에서는 pickEdges가 꺼져 있다), 원·원호 중심(centers)을
+ * 늘 후보로, 누른 모서리마다 곡선 가운데 점·끝점·중심(pointsFor — 같은 모서리를 이어 가리키는 동안은 한 번만 구한다),
+ * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)를 모두 켠다. 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다
+ */
+export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[]): MeasureSnapOptions {
+  const byId = new Map(meshes.map((m) => [m.id, m] as const));
+  let lastKey = '';
+  let last: SnapPoint[] | null = null;
+  return {
+    edges: true,
+    inference: true,
+    points: centers,
+    pointsFor: (p) => {
+      if (p.kind !== 'edge') return null;
+      const key = `${p.id}:${p.raw ?? p.index}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        last = edgeSnapPoints(p, byId, ex);
+      }
+      return last;
+    },
+  };
+}
+
+/** 축 붙잡기의 축 이름(번역층이 옮긴다) */
+const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향', z: 'Z축 방향' };
+
+/**
+ * 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점'.
+ * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼
+ */
+export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null): string {
   switch (kind) {
     case 'vertex':
       return '꼭짓점';
@@ -107,14 +140,40 @@ export function snapLabel(kind: SnapKind | null | undefined): string {
       return '중심';
     case 'point':
       return '붙잡은 점';
+    case 'intersection':
+      return '교차점';
+    case 'perpendicular':
+      return '수직 발';
+    case 'axis':
+      return axis ? AXIS_LABEL[axis] : '축 방향';
     default:
       return '면 위 점';
   }
 }
 
+/**
+ * 두 점 측정 결과의 축(축 붙잡기 결과는 첫 점에서 한 축 방향으로만 떨어져 있다 — dx·dy·dz 가운데 가장 큰 것).
+ * 결과에는 축이 실리지 않아(MeasureResult.snapB = 'axis'뿐) 성분으로 정한다
+ */
+export function resultAxis(m: { dx: number; dy: number; dz: number }): SnapAxis {
+  const x = Math.abs(m.dx);
+  const y = Math.abs(m.dy);
+  const z = Math.abs(m.dz);
+  return x >= y && x >= z ? 'x' : y >= z ? 'y' : 'z';
+}
+
 /** 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 자유 점이면 null) */
-export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null }): [string, string] | null {
+export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; dx?: number; dy?: number; dz?: number }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB) return null;
-  return [snapLabel(m.snapA), snapLabel(m.snapB)];
+  const axisOf = (k: SnapKind | null | undefined) => (k === 'axis' && m.dx !== undefined && m.dy !== undefined && m.dz !== undefined ? resultAxis({ dx: m.dx, dy: m.dy, dz: m.dz }) : null);
+  return [snapLabel(m.snapA, axisOf(m.snapA)), snapLabel(m.snapB, axisOf(m.snapB))];
+}
+
+/**
+ * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
+ * 모형 위지만 붙잡지 않으면 '면 위 점'
+ */
+export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis } | null | undefined): string | null {
+  return h ? snapLabel(h.snap, h.axis) : null;
 }

@@ -1,11 +1,12 @@
 /**
- * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드(외곽선·부품 색 구분·분해 보기 포함)·단면·격자·뷰 큐브·좌표축·면 고르기·측정·내보내기·패널.
+ * 보기 도구 막대: 전체 보기·고른 부품 보기·표준 뷰·투영·그리기 모드(외곽선·부품 색 구분·분해 보기 포함)·단면·격자·뷰 큐브·좌표축·고르기(단위·여러 개)·측정·내보내기·패널.
  * 넓은 화면은 아이콘 + 글, 920px 이하는 아이콘만(styles.css).
- * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·면 고르기·측정·패널)만 한 줄에 두고,
+ * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·고르기·측정·패널)만 한 줄에 두고,
  * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
  */
 import { VIEW_KEYS, VIEW_LABELS, type Projection, type RenderMode, type SectionAxis, type ViewName } from 'opencad-viewer3d';
 import { h, iconButton } from './dom';
+import type { PickUnit } from './doc';
 import type { IconName } from './icons';
 import { VIEW_MENU, viewKeyOf } from './keys';
 import { openMenu, type MenuItem } from './menu';
@@ -16,6 +17,14 @@ export const SECTION_AXES: [SectionAxis | null, string][] = [
   ['y', 'Y 단면(ZX 평면)'],
   ['z', 'Z 단면(XY 평면)'],
 ];
+
+/** 고르기 단위 메뉴: 단위, 메뉴 이름, 단추 이름 */
+export const PICK_UNITS: [PickUnit, string, string][] = [
+  ['part', '부품', '부품 고르기'],
+  ['body', '몸체', '몸체 고르기'],
+  ['face', '면·모서리', '면 고르기'],
+];
+const PICK_ICONS: Record<PickUnit, IconName> = { part: 'pick', body: 'body', face: 'face' };
 
 export const RENDER_MODES: [RenderMode, string][] = [
   ['shaded', '음영'],
@@ -51,8 +60,10 @@ export interface ToolbarHost {
   readonly axesOn: boolean;
   readonly measuring: boolean;
   readonly panelOpen: boolean;
-  /** 면 고르기 모드 */
-  readonly faceMode: boolean;
+  /** 고르기 단위(부품·몸체·면 — 면은 면 고르기 모드) */
+  readonly pickUnit: PickUnit;
+  /** 여러 개 고르기(누를 때마다 더하고 빼기) */
+  readonly multiPick: boolean;
   /** 단면 축(꺼져 있거나 면 단면이면 null) */
   readonly sectionAxis: SectionAxis | null;
   /** 단면이 켜져 있는지(면 단면 포함) */
@@ -82,7 +93,8 @@ export interface ToolbarHost {
   toggleCube(): void;
   toggleAxes(): void;
   toggleMeasure(): void;
-  toggleFaceMode(): void;
+  setPickUnit(u: PickUnit): void;
+  toggleMultiPick(): void;
   /** 단면 축 고르기(null = 끄기) */
   setSectionAxis(axis: SectionAxis | null): void;
   savePng(): void;
@@ -175,7 +187,29 @@ export class Toolbar {
     this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube(), 'wide-only');
     this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes(), 'wide-only');
     this.sep();
-    this.toggle('face', '면 고르기', '누른 면(B-rep 면)이나 모서리를 골라 종류·넓이·지름·길이를 보고 강조합니다 (면은 Alt/⌥ + 누르기로도)', () => H.faceMode, () => H.toggleFaceMode());
+    // 고르기 단위(부품·몸체·면·모서리)와 여러 개 고르기 — 면·모서리는 예전 "면 고르기" 단추와 같다
+    const pick = this.add(
+      'pick',
+      '부품 고르기',
+      '고르기 단위: 부품 · 몸체(한 부품 안의 입체 하나) · 면·모서리(종류·넓이·지름·길이 — Alt/⌥ + 누르기로도), 여러 개 고르기(Ctrl·⌘·Shift + 누르기로도)',
+      () =>
+        openMenu(
+          pick.el,
+          [
+            ...PICK_UNITS.map(([u, label]): MenuItem => ({ label, ...(u === 'face' ? { hint: 'Alt' } : {}), checked: H.pickUnit === u, run: () => H.setPickUnit(u) })),
+            { label: '여러 개 고르기', checked: H.multiPick, toggle: true, sep: true, disabled: H.pickUnit === 'face', run: () => H.toggleMultiPick() },
+          ],
+          '고르기',
+        ),
+      () => {
+        const u = H.pickUnit;
+        setLabel(pick.el, PICK_UNITS.find(([x]) => x === u)![2], PICK_ICONS[u]);
+        pick.el.classList.toggle('on', u !== 'part' || H.multiPick);
+      },
+    );
+    pick.el.setAttribute('aria-haspopup', 'menu');
+    pick.el.setAttribute('aria-expanded', 'false');
+    pick.el.classList.add('has-menu');
     this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
     const exp = this.add('image', '내보내기', '내보내기: PNG 그림(크게·투명 배경) · STL·OBJ(보이는 것·고른 것) · 측정 기록·PMI 표 CSV 복사 · 보기 링크 복사', () => openMenu(exp.el, H.exportItems(), '내보내기'), undefined, 'wide-only');
     exp.el.setAttribute('aria-haspopup', 'menu');

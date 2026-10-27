@@ -24,7 +24,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, type StepDoc } from './doc';
+import { bodyTitle, carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -32,24 +32,23 @@ import type { StepSavedView } from '../scene';
 import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
-import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
+import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
-import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, selectionSize } from './measure';
+import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { circleCenters, edgeSnapPoints, snapPair } from './snap';
+import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair } from './snap';
 import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
 import { PanelResizer } from './resize';
-import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
 import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
@@ -112,6 +111,11 @@ export interface AppState {
   picked: string | null;
   /** 면 고르기 모드 */
   faceMode: boolean;
+  /** 고르기 단위(부품·몸체·면)와 여러 개 고르기(손가락 기기용 — 누르기마다 더하고 빼기) */
+  pickUnit: PickUnit;
+  multiPick: boolean;
+  /** 고른 항목 id(숨기기·격리·맞춰 보기·물리 속성·내보내기가 쓰는 것) */
+  selection: string[];
   /** 고른 면(종류·STEP 번호·넓이) */
   face: { kind: string; stepId: number; area: number; boundarySegments: number } | null;
   /** 고른 모서리(종류·STEP 번호·길이·반지름) */
@@ -172,11 +176,17 @@ export class StepApp {
   private readonly docNameEl: HTMLElement;
   private readonly statusDoc: HTMLElement;
   private readonly statusSel: HTMLElement;
+  /** 측정 중 커서 아래 붙잡을 점의 종류(상태 막대 — 코어 measureHoverSnap) */
+  private readonly statusSnap: HTMLElement;
   private readonly themeBtn: HTMLButtonElement;
   private readonly fileInput: HTMLInputElement;
   private readonly resizer: PanelResizer;
-  /** 면 고르기 모드(도구 막대) */
+  /** 면 고르기 모드(도구 막대 "고르기" 메뉴의 면·모서리, Alt + 누르기) */
   faceMode = false;
+  /** 몸체 단위 고르기: 누르면 부품(나무 마디) 통째 대신 형상 항목(입체) 하나를 고른다 — 면 고르기를 끄면 이 단위로 돌아온다 */
+  bodyPick = false;
+  /** 여러 개 고르기: 누르기마다(나무 줄도) 고른 것에 더하고 이미 있으면 뺀다 — Ctrl·⌘·Shift + 누르기를 손가락 기기에서 */
+  multiPick = false;
   /** 측정 종류(측정 띠에서 고른다): 두 점(코어 측정) · 개체(앱이 잰다) */
   measureKind: MeasureKind = 'points';
   /** 개체 측정 중(코어 측정 모드는 꺼 두고 고르기 알림으로 개체를 모은다) */
@@ -189,6 +199,9 @@ export class StepApp {
   private readonly measureBar: HTMLElement;
   private readonly selFit: HTMLButtonElement;
   private readonly selProps: HTMLButtonElement;
+  /** 고른 부품 카드: 여러 개 고르기 시작, 작업 메뉴(숨기기·이것만 보기…) */
+  private readonly selMulti: HTMLButtonElement;
+  private readonly selMore: HTMLButtonElement;
   private readonly faceLook: HTMLButtonElement;
   private readonly faceCut: HTMLButtonElement;
   /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
@@ -202,9 +215,14 @@ export class StepApp {
   /** 큰 장면을 GPU에 나눠 올리는 중이면 0~1 */
   private upload: number | null = null;
   private readonly measureText: HTMLElement;
+  /** 측정 띠의 커서 아래 붙잡을 점 종류(알림 영역 밖 — 마우스 이동마다 읽어 주지 않게) */
+  private readonly measureHoverEl: HTMLElement;
+  /** 지금 보이는 커서 아래 붙잡기 이름과 다음 프레임에 읽기 예약 */
+  private hoverSnapText: string | null = null;
+  private hoverSnapRaf = 0;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
-  private barMode: 'measure' | 'face' | 'select' | null = null;
+  private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
   private readonly isoBar: HTMLElement;
@@ -337,6 +355,15 @@ export class StepApp {
     // 고른 부품 카드: 속성(패널 속성 탭을 연다 — 휴대폰은 아래 시트)
     this.selProps = h('button', { type: 'button', class: 'mb-btn', title: '고른 부품의 속성', 'aria-label': '속성' }, icon('info', 16), h('span', {}, '속성'));
     this.selProps.addEventListener('click', () => this.showProps());
+    // 고른 부품 카드: 여러 개 고르기(손가락 기기에서 Ctrl·⌘·Shift 대신) — 지금 고른 것에서 이어 더한다
+    this.selMulti = h('button', { type: 'button', class: 'mb-btn', title: '여러 개 고르기: 누르면 더하고, 다시 누르면 뺍니다', 'aria-label': '여러 개 고르기' }, icon('multi', 16), h('span', {}, '여러 개'));
+    this.selMulti.addEventListener('click', () => this.toggleMultiPick(true));
+    // 여러 개 고르기 띠: 고른 것 전체에 대한 작업 메뉴(맞춰 보기·숨기기·이것만 보기·흐리게·불투명도·고르기 풀기)
+    this.selMore = h('button', { type: 'button', class: 'mb-btn', title: '고른 것으로 할 일(숨기기·이것만 보기 등)', 'aria-label': '작업 메뉴', 'aria-haspopup': 'menu' }, icon('more', 16), h('span', {}, '작업'));
+    this.selMore.addEventListener('click', () => {
+      const r = this.selMore.getBoundingClientRect();
+      this.openContextMenu(r.left, r.top);
+    });
     // 면 고르기 띠: 고른 면을 정면으로 보기·그 면으로 자르기
     this.faceLook = h('button', { type: 'button', class: 'mb-btn', title: '고른 면을 정면으로 보기', 'aria-label': '정면' }, icon('focus', 16), h('span', {}, '정면'));
     this.faceLook.addEventListener('click', () => this.lookAtFace());
@@ -346,9 +373,11 @@ export class StepApp {
     this.measureClose.addEventListener('click', () => {
       if (this.measuring) this.toggleMeasure(false);
       else if (this.faceMode) this.toggleFaceMode(false);
+      else if (this.multiPick) this.toggleMultiPick(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.faceLook, this.faceCut, this.measureClose));
+    this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 붙잡을 점', hidden: true });
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -371,7 +400,8 @@ export class StepApp {
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
     this.statusSel = h('div', { class: 'status-sel' });
-    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSel);
+    this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 붙잡을 점', hidden: true });
+    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel);
 
     const workspace = h('main', { class: 'workspace' }, this.viewEl, this.panel.el);
     this.resizer = new PanelResizer(root, this.panel.el, workspace, this.narrow, safeLocalStorage());
@@ -537,7 +567,8 @@ export class StepApp {
 
   /** 예제 모형 열기 */
   openSample(): Promise<boolean> {
-    return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer, 'sample');
+    // 예제 모형 글쓴이(sample.ts·stepText.ts)는 누를 때 받는다 — 첫 화면 스크립트를 줄이려고(서비스 워커가 미리 담아 오프라인에서도 연다)
+    return this.load(SAMPLE_NAME, async () => (await import('./sample')).sampleStepBytes().buffer as ArrayBuffer, 'sample');
   }
 
   /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
@@ -679,7 +710,10 @@ export class StepApp {
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.appliedLooks.clear();
     this.lookMoves.clear();
-    if (!carry) this.explodeOpen = false;
+    if (!carry) {
+      this.explodeOpen = false;
+      this.multiPick = false;
+    }
     v.highlight(null);
     this.showFace(null);
     // 개체 측정 덧그림은 장면을 바꿔도 남으므로 지운다(새 문서는 개체가 비어 있다)
@@ -731,9 +765,11 @@ export class StepApp {
         this.onEntityPick(p, e.pointerType);
         return;
       }
-      // Ctrl·⌘·Shift + 누르기: 여러 개 고르기(누른 부품을 더하거나 뺀다 — 면 고르기 밖에서)
-      if (p && (e.ctrlKey || e.metaKey || e.shiftKey) && !this.faceMode && !e.altKey && !v.measureMode) {
-        if (e.clicks <= 1) this.toggleInSelection([p.id]);
+      // Ctrl·⌘·Shift + 누르기, 여러 개 고르기 모드의 누르기: 누른 부품(몸체 단위면 몸체)을 더하거나 뺀다 — 면 고르기 밖에서.
+      // 여러 개 고르기 모드에서 빈 곳을 누르면 고른 것을 그대로 둔다(손가락이 빗나가 모은 것을 잃지 않게 — 풀기는 작업 메뉴·Esc)
+      const additive = e.ctrlKey || e.metaKey || e.shiftKey || this.multiPick;
+      if (additive && !this.faceMode && !e.altKey && !v.measureMode && (p || this.multiPick)) {
+        if (p && e.clicks <= 1 && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit));
         return;
       }
       this.onPick(p, this.faceMode || e.altKey);
@@ -771,6 +807,10 @@ export class StepApp {
     this.hostEl.addEventListener('pointerup', () => {
       if (v.measureMode) this.refreshBar();
     });
+    // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
+    // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
+    this.hostEl.addEventListener('pointermove', () => this.scheduleHoverSnap());
+    this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
     return v;
   }
@@ -794,11 +834,14 @@ export class StepApp {
       d.selKey = null;
       this.viewer?.highlight(null);
     } else {
-      this.viewer?.highlight([p.id]);
       const isPmi = d.vis.pmiIds.has(p.id);
       const s = isPmi ? null : selectFromPick(d.products, d.expanded, p.id);
-      d.selKey = s?.key ?? null;
+      // 몸체 단위: 나무 마디(부품 통째) 대신 누른 형상 항목 하나 — 나무에서는 그 부품 줄을 펼쳐 "몸체를 고름"으로 표시한다
+      const body = this.bodyPick && !wantFace;
+      d.selKey = body ? null : (s?.key ?? null);
       if (s) d.expanded = s.expanded;
+      // 부품 단위는 숨기기·격리·맞춰 보기가 쓰는 것(그 마디 아래 몸체 모두)을 강조한다(몸체가 여럿인 부품도 통째로 보이게)
+      this.viewer?.highlight(d.selKey && !wantFace ? selectionItemIds(d) : [p.id]);
       // 이름 거르기 중이면 고른 마디가 보이지 않을 때 거르기를 푼다
       if (s && d.treeFilter.trim() && !filterRows(d.products, d.treeFilter, d.expanded, Infinity).rows.some((r) => r.key === s.key)) d.treeFilter = '';
       if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && d.panelTab !== 'props' && this.panel.open) this.panel.setTab('tree');
@@ -946,9 +989,48 @@ export class StepApp {
     this.toast('지금 보기를 홈 뷰로 정했습니다.');
   }
 
+  /** 고르기 단위(도구 막대 "고르기" 메뉴): 면은 면 고르기 모드, 부품·몸체는 면 고르기를 끄고 그 단위로 */
+  get pickUnit(): PickUnit {
+    return this.faceMode ? 'face' : this.bodyPick ? 'body' : 'part';
+  }
+
+  setPickUnit(u: PickUnit): void {
+    if (u === 'face') {
+      this.toggleFaceMode(true);
+      return;
+    }
+    const changed = this.bodyPick !== (u === 'body');
+    this.bodyPick = u === 'body';
+    if (this.faceMode) this.toggleFaceMode(false);
+    // 고른 것은 그대로 두고(이미 고른 부품·몸체), 다음 누르기부터 새 단위로 고른다
+    if (changed) this.toast(u === 'body' ? '몸체 단위로 고릅니다 — 몸체가 여럿인 부품에서 누른 몸체 하나만 고릅니다.' : '부품 단위로 고릅니다.');
+    this.toolbar.refresh();
+    this.refreshBar();
+  }
+
+  /**
+   * 여러 개 고르기 켜고 끄기(손가락 기기에서 Ctrl·⌘·Shift + 누르기 대신): 켜 있는 동안 3D·나무에서 누를 때마다 고른 것에 더하고
+   * 이미 있으면 뺀다. 측정·면 고르기를 켜면 꺼진다. 끄면 고른 것은 그대로 둔다
+   */
+  toggleMultiPick(on = !this.multiPick): void {
+    if (on === this.multiPick) return;
+    this.multiPick = on;
+    if (on) {
+      if (this.measuring) this.toggleMeasure(false);
+      if (this.faceMode) this.toggleFaceMode(false);
+    }
+    this.toolbar.refresh();
+    this.panel.onSelection();
+    this.refreshBar();
+  }
+
   /** 면 고르기 모드 켜고 끄기 */
   toggleFaceMode(on = !this.faceMode): void {
     if (on !== this.faceMode) this.aim?.cancel();
+    if (on && this.multiPick) {
+      this.multiPick = false;
+      this.panel.onSelection();
+    }
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
     if (on) this.collapseExplode();
@@ -1023,20 +1105,12 @@ export class StepApp {
   toggleInSelection(ids: readonly string[]): void {
     const d = this.doc;
     if (!d || !ids.length) return;
-    const cur = selectionItemIds(d);
-    const set = new Set(cur);
-    const all = ids.every((id) => set.has(id));
-    for (const id of ids) {
-      if (all) set.delete(id);
-      else set.add(id);
-    }
-    // 고른 차례를 지킨다(먼저 고른 것 앞)
-    const list = [...cur.filter((id) => set.has(id)), ...ids.filter((id) => set.has(id) && !cur.includes(id))];
+    const list = toggledItems(selectionItemIds(d), ids);
     d.selKey = null;
     d.pick = null;
     d.face = null;
     d.edge = null;
-    d.items = list.length ? { ids: list, label: multiLabel(d.products, list) } : null;
+    d.items = list.length ? { ids: list, label: multiLabel(d.products, list, this.bodyPick ? 'body' : 'part') } : null;
     this.showFace(null);
     this.viewer?.highlight(list.length ? list : null);
     this.selectionChanged();
@@ -1500,7 +1574,11 @@ export class StepApp {
     if (!v || !d || this.loading || v.measureMode || this.entMeasuring) return false;
     const r = v.canvas.getBoundingClientRect();
     const p = v.pick(clientX - r.left, clientY - r.top, 'touch');
-    if (p && !selectionItemIds(d).includes(p.id)) this.onPick(p, this.faceMode);
+    // 여러 개 고르기 중에는 누른 것을 고른 것에 더해 메뉴가 모은 것 전체에 쓰이게 한다(바꾸지 않는다)
+    if (p && !selectionItemIds(d).includes(p.id)) {
+      if (this.multiPick && !this.faceMode) this.toggleInSelection(unitItemIds(d.products, p.id, this.pickUnit));
+      else this.onPick(p, this.faceMode);
+    }
     // 그 자리 B-rep 면(정면으로 보기·면으로 자르기)
     this.ctxFace = p && p.kind === 'mesh' && !p.section ? this.findFace(d, p) : null;
     this.openContextMenu(clientX, clientY);
@@ -1534,6 +1612,8 @@ export class StepApp {
       items.push({ label: '전체 보기', hint: 'F', run: () => this.fit() });
       if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
     }
+    // 손가락 기기에서 여러 개 고르기를 켜는 길(길게 누르기 → 메뉴). 켜 있으면 끄기
+    if (!this.faceMode) items.push({ label: '여러 개 고르기', checked: this.multiPick, toggle: true, sep: true, run: () => this.toggleMultiPick() });
     items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
     if (d.opacity.size) items.push({ label: '불투명도 모두 되돌리기', run: () => this.resetOpacity() });
     if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
@@ -1667,7 +1747,8 @@ export class StepApp {
   /**
    * 두 점 측정 붙잡기(코어 0.8.0 setMeasureSnap): 측정 중에만 윤곽선도 고르고(면 고르기 밖에서는 pickEdges가 꺼져 있다),
    * 모든 원·원호 중심을 늘 후보로, 고른 모서리에는 곡선 가운데 점·끝점·중심을 더한다. 코어의 선분 가운데 점은 곡선 모서리에서
-   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다)
+   * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다).
+   * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)도 켠다 — 원 중심이 512개를 넘으면 코어가 점 색인(BVH)으로 찾는다
    */
   private syncMeasureSnap(): void {
     const v = this.viewer;
@@ -1679,28 +1760,35 @@ export class StepApp {
     }
     let centers = this.snapCenters.get(d);
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
-    const byId = new Map(d.scene.meshes.map((m) => [m.id, m] as const));
-    let lastKey = '';
-    let last: SnapPoint[] | null = null;
-    v.setMeasureSnap({
-      edges: true,
-      points: centers,
-      pointsFor: (p) => {
-        if (p.kind !== 'edge') return null;
-        const key = `${p.id}:${p.raw ?? p.index}`;
-        if (key !== lastKey) {
-          lastKey = key;
-          last = edgeSnapPoints(p, byId, d.edges);
-        }
-        return last;
-      },
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers));
+  }
+
+  /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */
+  private scheduleHoverSnap(): void {
+    if (this.hoverSnapRaf) return;
+    // 코어는 캔버스의 pointermove에서 프레임을 예약하고 그 프레임에 붙잡을 점을 구한다 — 이 예약은 그 뒤라 구한 값을 읽는다
+    this.hoverSnapRaf = requestAnimationFrame(() => {
+      this.hoverSnapRaf = 0;
+      this.showHoverSnap();
     });
+  }
+
+  private showHoverSnap(): void {
+    const v = this.viewer;
+    const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap) : null;
+    if (text === this.hoverSnapText) return;
+    this.hoverSnapText = text;
+    for (const el of [this.statusSnap, this.measureHoverEl]) {
+      el.hidden = !text;
+      el.textContent = text ?? '';
+    }
   }
 
   toggleMeasure(on = !this.measuring): void {
     const v = this.viewer;
     if (!v) return;
     if (on !== this.measuring) this.aim?.cancel();
+    if (on) this.multiPick = false;
     const ent = on && this.measureKind === 'entities';
     // 측정은 제자리 형상으로(분해를 접는다)
     if (on) this.collapseExplode();
@@ -1722,6 +1810,7 @@ export class StepApp {
       this.panel.onSelection();
     }
     v.setPickEdges(ent || this.faceMode);
+    this.showHoverSnap();
     this.panel.onMeasure();
     this.toolbar.refresh();
     this.updateStatus();
@@ -2252,6 +2341,11 @@ export class StepApp {
           this.toggleMeasure(false);
           break;
         }
+        // 여러 개 고르기는 먼저 끄고(고른 것은 둔다), 한 번 더 누르면 고르기를 푼다
+        if (this.multiPick) {
+          this.toggleMultiPick(false);
+          break;
+        }
         if (this.clearSelection()) break;
         return;
     }
@@ -2338,10 +2432,12 @@ export class StepApp {
   private refreshBar(): void {
     const d = this.doc;
     const v = this.viewer;
-    const mode = !d || !v || this.loading ? null : this.measuring ? 'measure' : this.faceMode ? 'face' : !this.panelOpen && selectionItemIds(d).length ? 'select' : null;
+    // 여러 개 고르기 중에는 패널(나무)을 열어도 띠를 둔다(무엇을 모았는지와 끝내기 — 넓은 화면도)
+    const mode = !d || !v || this.loading ? null : this.measuring ? 'measure' : this.faceMode ? 'face' : this.multiPick ? 'multi' : !this.panelOpen && selectionItemIds(d).length ? 'select' : null;
     this.measureBar.hidden = !mode;
     // 측정 중에는 넓은 화면에도 띠를 보인다(측정 종류 고르기)
     this.measureBar.classList.toggle('measuring', mode === 'measure');
+    this.measureBar.classList.toggle('multi', mode === 'multi');
     this.measureKindSeg.hidden = mode !== 'measure';
     for (const [k, b] of this.measureKindBtns) {
       const on = k === this.measureKind;
@@ -2350,12 +2446,19 @@ export class StepApp {
     }
     if (mode !== this.barMode) {
       this.barMode = mode;
-      const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : '측정 끝내기';
+      const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : mode === 'multi' ? '여러 개 고르기 끝내기' : '측정 끝내기';
       this.measureClose.title = close;
       this.measureClose.setAttribute('aria-label', close);
       this.measureClear.hidden = mode !== 'measure';
-      this.selFit.hidden = mode !== 'select';
-      this.selProps.hidden = mode !== 'select';
+      this.selFit.hidden = mode !== 'select' && mode !== 'multi';
+      this.selProps.hidden = mode !== 'select' && mode !== 'multi';
+      this.selMulti.hidden = mode !== 'select';
+      this.selMore.hidden = mode !== 'multi';
+    }
+    if (d && (mode === 'select' || mode === 'multi')) {
+      const none = !selectionItemIds(d).length;
+      this.selFit.disabled = none;
+      this.selProps.disabled = none;
     }
     // 면 고르기에서 면을 골랐으면 정면·자르기(정할 수 있는 면만)
     const faceOk = mode === 'face' && !!d?.face && !!(d.face.normal || d.face.axis);
@@ -2383,10 +2486,12 @@ export class StepApp {
       f.facts.forEach(([k, val], i) => facts.push(...(i ? [' · '] : []), h('span', {}, k), ` ${val}`));
       t.append(h('b', { class: 'mb-value' }, h('span', {}, f.kind), f.main ? ` ${f.main}` : null), h('span', { class: 'mb-sub' }, ...facts));
     } else if (mode === 'face') t.append(h('span', { class: 'mb-hint' }, faceHint(this.touch)));
+    else if (mode === 'multi' && !selectionItemIds(d).length) t.append(h('span', { class: 'mb-hint' }, multiHint(this.bodyPick)));
     else {
       // 부품 이름은 파일 글이라 번역하지 않는다
       t.append(h('b', { class: 'mb-value', 'data-i18n-skip': '' }, this.selectionName(d)));
       const size = selectionSize(d.scene, selectionItemIds(d));
+      if (mode === 'multi') t.append(h('span', { class: 'mb-sub' }, multiHint(this.bodyPick)));
       // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
       if (size)
         t.append(
@@ -2425,7 +2530,7 @@ export class StepApp {
     }
     if (d.pick) {
       const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
-      return m?.name ?? d.pick.id;
+      return m ? bodyTitle(d.products, m) : d.pick.id;
     }
     return d.items?.label ?? '';
   }
@@ -2445,7 +2550,7 @@ export class StepApp {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
       if (pm) return `고른 PMI: ${pm.name || pmiTypeLabel(pm.type)}`;
       const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
-      return `고른 것: ${m?.name ?? d.pick.id}`;
+      return `고른 것: ${m ? bodyTitle(d.products, m) : d.pick.id}`;
     }
     if (d.items) return `고른 것: ${d.items.label}`;
     return '';
@@ -2498,6 +2603,9 @@ export class StepApp {
       selKey: d?.selKey ?? null,
       picked: d?.pick?.id ?? null,
       faceMode: this.faceMode,
+      pickUnit: this.pickUnit,
+      multiPick: this.multiPick,
+      selection: d ? selectionItemIds(d) : [],
       face: d?.face ? { kind: d.face.kind, stepId: d.face.stepId, area: d.face.area, boundarySegments: d.face.boundary.length / 6 } : null,
       edge: d?.edge ? { kind: d.edge.kind, stepId: d.edge.stepId, length: d.edge.length, radius: d.edge.radius ?? null, segments: d.edge.segCount } : null,
       lines: d?.scene.lines.length ?? 0,
