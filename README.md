@@ -27,6 +27,9 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   그 부품 자리에 선으로, 의미 PMI(치수 값·± 공차, 기하 공차 크기·데이텀, 데이텀) 목록 → `meta.pmi`
 - PMI 글자(TEXT_LITERAL과 아형, COMPOSITE_TEXT 안까지)를 내장 한 획 글꼴(`src/strokefont.ts` — 숫자·영문·기호 ± ° Ø ×·GD&T 기호)로 선분으로 그립니다.
   글자 높이는 TEXT_LITERAL_WITH_EXTENT 크기, 주석 양식의 BOX_HEIGHT, 없으면 2.5. 맞춤(centre·right·top)을 따릅니다(`src/pmitext.ts`)
+- 내장 글꼴에 없는 PMI 글자(한글·일본어·중국어·그 밖의 기호)는 앱의 해석 워커가 기기 글꼴로 화면 밖 캔버스에 그려 윤곽선을 따라간 선분으로 그립니다
+  (`src/app/glyphs.ts`·`src/glyphtrace.ts` — 글꼴 파일을 내려받지 않고, 글자마다 한 번만 그립니다). 다른 PMI 선과 같은 선 묶음이라 확대·단면·숨김·강조·그림 저장을
+  그대로 따릅니다. 해석기만 쓸 때는 `glyphs` 선택으로 글자 모양을 주고, 주지 않거나 기기에 그 글자 글꼴이 없으면 빈 상자로 그립니다
 - 의미 PMI ↔ 면: 모양 측면 → GEOMETRIC_ITEM_SPECIFIC_USAGE → 면, 복합 측면·데이텀 ↔ 데이텀 형체는 SHAPE_ASPECT_RELATIONSHIP으로 따라가 `semantic[].faces`(면 STEP 번호)
 - 저장된 보기(CAMERA_USAGE → CAMERA_MODEL_D3·VIEW_VOLUME·보기 창): 대상·방향·투영·창 높이와 그 제도 모형의 표현 PMI → `meta.pmi.views`(`src/savedviews.ts`)
 - 면 표(그물 삼각형 → B-rep 면, 면 종류·곡면 매개변수, B-rep 넓이·둘레와 정확한지) → `meta.faceTables`·`meta.meshFaceTable`(면 단위 고르기)
@@ -39,14 +42,17 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 - 주기를 한 바퀴 다 덮으며 이음선을 갔다 오는 띠 고리(원환 필렛 고리 등)는 FACE_BOUND 방향이 거꾸로 적혀도 구멍이 아니라 그 띠로 읽습니다
 - 큰 부품의 작은 반지름 필렛처럼 성긴 현 안쪽에 점이 생겨 삼각형이 접히면(3D 법선이 곡면과 반대), 안쪽 접힘은 나누고 경계 현 때문이면
   그 면의 모서리를 더 잘게(현 높이 ¼, 두 번까지) 나눠 그 모서리를 쓰는 면만 다시 삼각화합니다(이웃 면도 같은 다각선이라 틈이 없음)
+- 곡선 모서리 둘이 현 높이보다 좁게 나란히 가는 가는 띠 면처럼 경계가 스스로 엇갈려도 고리 점을 하나도 빼지 않고 삼각화해(`clipAll` — 엇갈린 자리의
+  삼각형은 뒤집히지만 띠 너비만큼이라 아주 작습니다) 이웃 면과 틈이 생기지 않습니다
 - 끊긴 파일(END-ISO-10303-21이 없거나 마지막 문장이 잘림)은 해석기 경고 맨 앞에 `TRUNCATED_WARNING`을 두고, 아는 곡면을 가리키는 개체가 없어
   못 만든 면은 "지원하지 않는 곡면"이 아니라 "읽지 못함(가리키는 개체가 없거나 값이 잘못됨)"으로 적습니다
 - 큰 좌표(좌표 크기 1e4 단위 이상이면서 묶음 크기의 2000배 넘음 — 예: 공장·지도 좌표 1e5~1e6 mm)에 만든 형상은 묶음 가운데를
   `origin`으로 빼고 담아 float32로도 떨리지 않습니다(그 밖에는 예전과 같습니다)
 - 틈·넓이·부피 검사(`watertightness`, `meshArea`, `meshVolume`)
 - 공개 STEP 21개를 실패 면 없이 읽었고, NIST 시험 모형 9개는 모두 틈이 없습니다. 여러 CAD·커널이 내보낸 로컬 STEP 2,091개(내용이 같은 것 뺌)를
-  세 곡면 품질(20°·10°·5°)로 훑어(`npm run sweep` — 개발 절) 예외·실패 면 0, 닫힌 껍질 3,119개가 모두 틈 없이 닫히는 것을 확인했습니다(삼각형 감기가 어긋난 입체 72개 파일 → 2개,
-  접힌 삼각형이 있는 파일 35개 → 4개).
+  세 곡면 품질(20°·10°·5°)로 훑어(`npm run sweep` — 개발 절) 예외·실패 면 0, 닫힌 껍질 3,119개가 모두 틈 없이 닫히는 것을 확인했습니다(보통 품질에서
+  삼각형 감기가 어긋난 입체 72개 파일 → 0개, 접힌 삼각형이 0.1% 넘는 파일 35개 → 6개). 앱의 "아주 세밀" 품질에서 가장 오래 걸리는 파일(면 2,730개,
+  삼각형 274만 개)은 12초쯤 걸립니다(데스크톱, 고치기 전 20초).
 
 ## 앱 쓰는 법
 
@@ -184,6 +190,7 @@ const scene = stepToScene(bytes, {
   name: 'part.step',
   onProgress: (fraction, stage) => console.log(fraction, stage),
   // 선택(모두 기본 true): curves — 와이어프레임·곡선 형상, pmi — 표현 PMI 선·의미 PMI, faceTable — 면 표
+  // glyphs?: (ch) => { strokes, advance } | null — 내장 획 글꼴에 없는 PMI 글자(한글 등)의 모양(글자 칸: 대문자 높이 6, 기준선 0). 없으면 빈 상자
 });
 // scene: Scene3d (opencad-viewer3d의 Viewer3d.setScene에 넘긴다), scene.meta에 제품 나무·단위 등
 // scene.lines: 곡선 형상(group = 부품 이름, 나무 마디의 lineIds)과 표현 PMI 선(group 없음, meta.pmi.presentations의 id)
@@ -209,13 +216,14 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/snap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해), 두 점 측정 붙잡기 점(원·원호 중심, 모서리 가운데 점) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
 | `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/interference.ts`, `src/app/pwa.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV·그림 저장 크기 글·파일 이름, 보기 링크, 간섭 검사, 홈 화면 앱(서비스 워커 등록·launchQueue) |
-| `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 해석 워커, 검사(간섭) 워커 |
+| `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/app/glyphs.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 내장 글꼴에 없는 PMI 글자를 기기 글꼴 윤곽선으로(워커의 OffscreenCanvas), 해석 워커, 검사(간섭) 워커 |
+| `src/app/warnparts.ts` | 해석기 경고 한 줄 → 화면 조각(까닭 목록을 떼어 다국어 층이 조각마다 옮기게) |
 | `src/app/stepText.ts`, `src/app/sample.ts` | 작은 STEP 글쓴이(시험도 씀)와 예제 조립 모형 |
 | `src/index.ts`, `src/messages.ts` | 해석기 공개 입구, 해석기와 앱이 함께 쓰는 짧은 글(의존 없음 — 끊긴 파일 경고) |
 | `src/archive.ts` | 압축 STEP 풀기(gzip·ZIP), STEP-XML 알아보기 |
 | `src/part21.ts` | ISO 10303-21 글 해석 |
 | `src/scene.ts`, `src/styles.ts`, `src/units.ts`, `src/layers.ts` | 제품·조립·색·단위·레이어 → `Scene3d` |
-| `src/wire.ts`, `src/pmi.ts`, `src/pmitext.ts`, `src/strokefont.ts`, `src/savedviews.ts` | 와이어프레임·곡선·PMI 그림 → 선분, PMI 찾기와 의미 PMI 읽기(면 연결), PMI 글자 → 내장 획 글꼴 선분, 저장된 보기 |
+| `src/wire.ts`, `src/pmi.ts`, `src/pmitext.ts`, `src/strokefont.ts`, `src/glyphtrace.ts`, `src/savedviews.ts` | 와이어프레임·곡선·PMI 그림 → 선분, PMI 찾기와 의미 PMI 읽기(면 연결), PMI 글자 → 내장 획 글꼴 선분(없는 글자는 받은 모양), 글자 그림 알파 값 → 윤곽선(행진 사각형), 저장된 보기 |
 | `src/props.ts` | 제품 속성(설명·판·재질·밀도·사용자 속성) |
 | `src/brep.ts`, `src/geometry.ts`, `src/curves.ts`, `src/surfaces.ts`, `src/nurbs.ts` | B-rep 위상과 곡선·곡면 |
 | `src/tessellate.ts`, `src/math.ts` | 삼각화(해석적 곡면은 매개변수 영역 넓이 적분도) |
@@ -291,8 +299,11 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 140 KiB 이하입니다. 예산을
 ## 남은 일
 
 - STEP-XML(.stpx, ISO 10303-28) 읽기
-- PMI: 정의된 기호(DEFINED_SYMBOL), 글꼴 파일의 글자 모양(내장 한 획 글꼴로 그림 — 한글 등 그 밖의 글자는 빈 상자),
+- PMI: 정의된 기호(DEFINED_SYMBOL), 파일이 정한 글꼴(TEXT_STYLE의 글꼴 이름)대로 그리기(지금은 내장 한 획 글꼴과 기기 기본 글꼴 윤곽선),
   저장된 보기의 보이기 묶음·자르기 평면, 모서리·점에 이어진 PMI 강조, 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
+- 삼각화: 한 변이 한 점으로 모인 B-스플라인 모서리 조각(극점)에서 "아주 세밀" 품질로 나누면 극점에서 나간 부채꼴 모서리들의 가운데 점이
+  3D로 1e-5 안에 겹쳐 바늘 같은 삼각형이 접힙니다(로컬 표본 4개 파일, 화면에는 보이지 않을 만큼 작음). 극점 둘레는 각도로 나눠 넣는 따로 된 처리가 필요합니다
+  (겹친 안쪽 점을 합치는 방법은 다른 곳의 이음을 깨서 쓰지 않았습니다)
 - 경계가 없는 곡면(GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION의 B-스플라인·잘린 곡면)을 그물로 그리기
 - 측정: B-스플라인 면·곡선끼리의 정확한 최소 거리(지금은 화면용 삼각형 ≈)
 - 고르기: 몸체 단위 고르기, 손가락 기기에서 여러 개 고르기(지금은 Ctrl·⌘·Shift 누르기만)
@@ -329,6 +340,6 @@ MIT. 의존성 earcut은 ISC입니다([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTIC
 
 한국어 기본 주소와 영어(`/en/`), 일본어(`/ja/`), 중국어 간체(`/zh-CN/`), 독일어(`/de/`) 페이지를 제공합니다. 각 언어의 소개 본문과 검색·공유 메타데이터를 빌드할 때 생성하며, `hreflang`과 사이트맵이 같은 페이지의 언어들을 연결합니다. `site/locales/*.json`에 한국어 원문과 번역을 저장하고, 브라우저는 선택한 언어의 사전만 내려받습니다. 방문 중 외부 번역 서비스는 호출하지 않습니다.
 
-우측 상단 지구본 아이콘에서 언어를 선택합니다. 방향키로 이동하고 Escape나 바깥 클릭으로 닫을 수 있습니다. 언어 선택은 URL에 반영하며, 열린 문서나 편집 상태를 다시 만들지 않고 화면 문구·접근성 설명·오류·도움말을 갱신합니다. 명령 식별자·입력값·파일명·모델 이름·원본 도면의 문자는 번역하지 않습니다. 새 데이터 이름을 표시하는 요소에는 `translate="no"`를 지정하고, UI 문구의 `{0}` 같은 변수 자리를 변경하지 마세요. 여러 줄 메시지와 새 한국어 문구도 번역 사전에 추가해야 합니다. ` · `로 이은 문장은 짧은 변수 문구(예: `제품 번호 {0}`)가 뒤 조각까지 그대로 잡으면 조각마다 따로 옮깁니다(남는 한국어가 적은 쪽을 고름 — 잡은 이름은 여전히 그대로).
+우측 상단 지구본 아이콘에서 언어를 선택합니다. 방향키로 이동하고 Escape나 바깥 클릭으로 닫을 수 있습니다. 언어 선택은 URL에 반영하며, 열린 문서나 편집 상태를 다시 만들지 않고 화면 문구·접근성 설명·오류·도움말을 갱신합니다. 명령 식별자·입력값·파일명·모델 이름·원본 도면의 문자는 번역하지 않습니다. 새 데이터 이름을 표시하는 요소에는 `translate="no"`를 지정하고, UI 문구의 `{0}` 같은 변수 자리를 변경하지 마세요. 여러 줄 메시지와 새 한국어 문구도 번역 사전에 추가해야 합니다. ` · `로 이은 문장은 짧은 변수 문구(예: `제품 번호 {0}`)가 뒤 조각까지 그대로 잡으면 조각마다 따로 옮깁니다(남는 한국어가 적은 쪽을 고름 — 잡은 이름은 여전히 그대로). 해석기 경고 안의 까닭 목록("삼각화하지 못한 면 3개 / 100개 (경계 고리 없음 2, 평면 삼각화 실패 1)")은 문장 틀의 자리 값이라 그대로 남으므로, 화면에서 까닭 조각을 따로 감싸 조각마다 사전으로 옮깁니다(`src/app/warnparts.ts`).
 
 `npm run test:i18n`은 언어 전환과 문서 데이터 보존을, `npm run check:i18n`은 다섯 언어의 정적 소개·canonical·언어 링크·사전 변수·에셋 경로를 검사합니다. 번역이나 앱을 수정하면 기존 콘텐츠 수정일 갱신 절차를 따른 뒤 다시 빌드합니다. 자동 번역 초안의 주요 메뉴와 제품명은 교정했으며, 긴 기술 설명에는 추가 원어민 감수가 필요합니다.
