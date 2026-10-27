@@ -1,42 +1,14 @@
-import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
-
 /**
- * 오프라인용 서비스 워커(sw.js)를 빌드 끝(closeBundle)에 만든다.
- * - 앱 껍데기(언어 페이지·앱 정보·아이콘)와 빌드 결과(assets/*)를 미리 담고, 판 이름은 그 파일들의 내용 지문이다.
+ * 오프라인용 서비스 워커(sw.js)의 본문. 빌드 끝에 공용 도구(opencad-site-kit/pwa/sw-plugin)가 미리 담을 목록과 판 이름(내용 지문)을 정해
+ * 이 함수로 dist/sw.js를 쓴다(설정은 tools/site.mjs의 offline).
  * - HTML(이동 요청)은 네트워크 먼저(배포가 늘 보이게, 안 되면 담아 둔 것 — 담는 것은 미리 담을 목록의 페이지만).
  * - 담아 둔 것 먼저는 미리 담을 목록과 빌드 결과(assets/)뿐이다. 그 밖(?open=으로 받는 STEP 파일 등)과 앱 범위 밖 주소는
  *   손대지 않고 네트워크로 보낸다(바뀐 파일이 옛것으로 열리거나 큰 파일이 캐시에 쌓이지 않게).
  * - 새 판은 기다리다가(skipWaiting 없음) 페이지가 "새로 고침"을 고르면(SKIP_WAITING) 바뀐다.
  * - Android 공유 받기(share_target, POST …/share-target): 파일을 최근 문서 IndexedDB(opencad-step, 판 2)에 넣고 ?recent=<id>로 연다.
+ * 돌려주는 글(첫 줄 주석 포함)은 sw.js에 그대로 들어간다 — 바꾸면 판 이름도 바뀐다.
  */
 
-/** 미리 담지 않을 파일(소스 맵·공유 그림·사이트맵·서비스 워커 자신) */
-export function precacheable(path) {
-  return !/\.map$/.test(path) && !/(^|\/)(sw\.js|sitemap\.xml|\.nojekyll|og-opencad\.jpg)$/.test(path);
-}
-
-/** dist 아래 파일 목록(/ 구분, 상대 경로) */
-export function listFiles(root) {
-  const out = [];
-  const walk = (dir) => {
-    for (const name of readdirSync(dir)) {
-      const p = join(dir, name);
-      if (statSync(p).isDirectory()) walk(p);
-      else out.push(relative(root, p).split(sep).join('/'));
-    }
-  };
-  walk(root);
-  return out.sort();
-}
-
-/** 미리 담을 주소들(앱 뿌리 기준 상대) — index.html은 그 디렉터리 주소('./', 'en/')로 */
-export function precacheUrls(files) {
-  return files.filter(precacheable).map((f) => (f === 'index.html' ? './' : f.endsWith('/index.html') ? f.slice(0, -'index.html'.length) : f));
-}
-
-/** 서비스 워커 원본 */
 export function serviceWorkerSource({ version, urls }) {
   return `/* OpenCAD STEP 뷰어 서비스 워커 — 빌드가 만든다(tools/sw-plugin.mjs). 판 ${version} */
 'use strict';
@@ -151,26 +123,4 @@ self.addEventListener('fetch', (event) => {
   );
 });
 `;
-}
-
-/** Vite 플러그인: 빌드 끝에 dist/sw.js */
-export function serviceWorker() {
-  let outDir = 'dist';
-  return {
-    name: 'opencad-service-worker',
-    apply: 'build',
-    configResolved(config) {
-      outDir = config.build.outDir;
-    },
-    closeBundle() {
-      const files = listFiles(outDir).filter(precacheable);
-      const h = createHash('sha256');
-      for (const f of files) {
-        h.update(f);
-        h.update(readFileSync(join(outDir, f)));
-      }
-      const version = h.digest('hex').slice(0, 12);
-      writeFileSync(join(outDir, 'sw.js'), serviceWorkerSource({ version, urls: precacheUrls(files) }));
-    },
-  };
 }
