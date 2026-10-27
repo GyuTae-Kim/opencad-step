@@ -1222,7 +1222,114 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number): 
     }
     if (!flats && !stray && dev < 1e-9) break;
   }
+  // 경계 선분을 다 쓰지 못했으면(경계가 스스로 엇갈려 earcut이 엇갈린 자리의 고리 점을 뺐다 — 곡선 모서리 둘이 현 높이 안에서
+  // 나란히 가는 가는 띠 평면 등) 고리 점을 하나도 빼지 않는 귀 자르기로 다시 해 본다. 이웃 면은 그 점들을 쓰므로 빼면 틈이 된다
+  if (best.length && strayBoundaryEdges(best, rings)) {
+    const all = clipAll(xy, holeIdx, nv);
+    if (all.length && strayBoundaryEdges(all, rings) === 0) return all;
+  }
   return best;
+}
+
+/**
+ * 마지막 수단 삼각화: 고리 점을 하나도 빼지 않고 귀를 잘라 나간다(구멍은 가장 가까운 바깥 점과 다리로 잇는다).
+ * 경계가 스스로 엇갈리는 다각형에서도 모든 경계 선분을 꼭 한 번씩 쓰는 삼각형 n − 2개를 낸다 — 엇갈린 자리의 삼각형은
+ * 뒤집히거나 겹치지만(가는 띠라 넓이는 아주 작다) 이웃 면과 틈이 없다. 점이 많으면(4,000개 넘음) 빈 배열
+ */
+export function clipAll(xy: number[], holeIdx: number[], nv: number): number[] {
+  if (nv < 3 || nv > 4000) return [];
+  const starts = [0, ...holeIdx, nv];
+  const rings: number[][] = [];
+  for (let r = 0; r + 1 < starts.length; r++) {
+    const ring: number[] = [];
+    for (let i = starts[r]!; i < starts[r + 1]!; i++) ring.push(i);
+    if (ring.length >= (r === 0 ? 3 : 1)) rings.push(ring);
+    else if (r === 0) return [];
+  }
+  const X = (i: number) => xy[i * 2]!;
+  const Y = (i: number) => xy[i * 2 + 1]!;
+  const ringArea = (ring: number[]) => {
+    let a = 0;
+    for (let k = 0, j = ring.length - 1; k < ring.length; j = k++) a += X(ring[j]!) * Y(ring[k]!) - X(ring[k]!) * Y(ring[j]!);
+    return a / 2;
+  };
+  let poly = rings[0]!;
+  const sgn = ringArea(poly) >= 0 ? 1 : -1;
+  // 구멍: 바깥과 반대로 돌게 하고, 바깥(과 이미 이은 구멍) 점 가운데 가장 가까운 점과 다리로 잇는다
+  for (const hole of rings.slice(1)) {
+    const h = ringArea(hole) * sgn > 0 ? hole.slice().reverse() : hole;
+    let bi = 0;
+    let bj = 0;
+    let bd = Infinity;
+    for (let i = 0; i < poly.length; i++)
+      for (let j = 0; j < h.length; j++) {
+        const d = (X(poly[i]!) - X(h[j]!)) ** 2 + (Y(poly[i]!) - Y(h[j]!)) ** 2;
+        if (d < bd) {
+          bd = d;
+          bi = i;
+          bj = j;
+        }
+      }
+    const loop = [...h.slice(bj), ...h.slice(0, bj), h[bj]!];
+    poly = [...poly.slice(0, bi + 1), ...loop, ...poly.slice(bi)];
+  }
+  const m = poly.length;
+  const next = new Int32Array(m);
+  const prev = new Int32Array(m);
+  for (let k = 0; k < m; k++) {
+    next[k] = (k + 1) % m;
+    prev[k] = (k - 1 + m) % m;
+  }
+  const cross = (a: number, b: number, c: number) => (X(b) - X(a)) * (Y(c) - Y(a)) - (Y(b) - Y(a)) * (X(c) - X(a));
+  const isEar = (k: number, left: number): boolean => {
+    const a = poly[prev[k]!]!;
+    const b = poly[k]!;
+    const c = poly[next[k]!]!;
+    if (cross(a, b, c) * sgn <= 0) return false;
+    // 남은 다른 점이 삼각형 안(경계 포함)에 있으면 귀가 아니다(같은 점 — 다리 양 끝 — 은 빼고)
+    for (let q = next[next[k]!]!, n = 0; n < left - 3; q = next[q]!, n++) {
+      const p = poly[q]!;
+      if (p === a || p === b || p === c) continue;
+      if (cross(a, b, p) * sgn >= 0 && cross(b, c, p) * sgn >= 0 && cross(c, a, p) * sgn >= 0) return false;
+    }
+    return true;
+  };
+  const out: number[] = [];
+  let left = m;
+  let cur = 0;
+  while (left > 3) {
+    let ear = -1;
+    for (let k = cur, n = 0; n < left; k = next[k]!, n++)
+      if (isEar(k, left)) {
+        ear = k;
+        break;
+      }
+    if (ear < 0) {
+      // 참 귀가 없다(엇갈린 경계): 볼록한 자리 가운데 넓이가 가장 작은 것, 그것도 없으면 넓이가 가장 작은 자리를 자른다
+      let convex = Infinity;
+      let any = Infinity;
+      let anyEar = cur;
+      for (let k = cur, n = 0; n < left; k = next[k]!, n++) {
+        const c = cross(poly[prev[k]!]!, poly[k]!, poly[next[k]!]!) * sgn;
+        if (c > 0 && c < convex) {
+          convex = c;
+          ear = k;
+        }
+        if (Math.abs(c) < any) {
+          any = Math.abs(c);
+          anyEar = k;
+        }
+      }
+      if (ear < 0) ear = anyEar;
+    }
+    out.push(poly[prev[ear]!]!, poly[ear]!, poly[next[ear]!]!);
+    next[prev[ear]!] = next[ear]!;
+    prev[next[ear]!] = prev[ear]!;
+    cur = prev[ear]!;
+    left--;
+  }
+  out.push(poly[prev[cur]!]!, poly[cur]!, poly[next[cur]!]!);
+  return out;
 }
 
 /** 삼각형 하나만 쓰는 모서리 가운데 고리의 이웃 점 쌍이 아닌 것(T자 이음·겹침) */
