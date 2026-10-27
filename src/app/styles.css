@@ -703,6 +703,19 @@ select {
 .mb-hint {
   font-size: 13.5px;
 }
+/* 측정 중 커서 아래 붙잡을 점의 종류(꼭짓점·중심·교차점·수직 발·X축 방향 등) — 휴대폰 띠에서는 첫 줄(측정 종류와 단추 사이) */
+.mb-hover {
+  flex: none;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
 .mb-acts {
   display: flex;
   flex: none;
@@ -732,11 +745,13 @@ select {
   opacity: 0.42;
   cursor: default;
 }
-/* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기) */
-.measure-bar.measuring:not([hidden]) {
+/* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기), 여러 개 고르기 중에도(모은 것·끝내기) */
+.measure-bar.measuring:not([hidden]),
+.measure-bar.multi:not([hidden]) {
   display: flex;
 }
-.view:has(.measure-bar.measuring:not([hidden])) .toasts {
+.view:has(.measure-bar.measuring:not([hidden])) .toasts,
+.view:has(.measure-bar.multi:not([hidden])) .toasts {
   bottom: 68px;
 }
 .mb-kind[hidden] {
@@ -967,6 +982,10 @@ body.resizing .viewer-host {
 }
 .tree-row.sel {
   background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* 이 부품의 몸체 일부만 고름(몸체 단위·여러 개 고르기) */
+.tree-row.part-sel {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .tree-row.hidden-node .tree-name {
@@ -1260,6 +1279,11 @@ table.grid td.mono {
   content: '·';
   margin: 0 7px;
   color: var(--text-faint);
+}
+.status-snap {
+  flex: none;
+  color: var(--text);
+  font-weight: 600;
 }
 .status-sel {
   flex: none;

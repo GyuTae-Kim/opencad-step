@@ -2,6 +2,9 @@
  * 파일 이름·주소 인자 다루기(순수 함수).
  */
 
+/** 예제 모형 파일 이름(예제 본문 sample.ts는 누를 때 받으므로 이름만 여기) */
+export const SAMPLE_NAME = 'opencad-sample.stp';
+
 /** 여는 확장자(소문자) */
 export const STEP_EXTENSIONS = ['.stp', '.step', '.p21'] as const;
 

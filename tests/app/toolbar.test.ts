@@ -20,7 +20,8 @@ function host(): ToolbarHost & { calls: string[] } {
     axesOn: true,
     measuring: false,
     panelOpen: false,
-    faceMode: false,
+    pickUnit: 'part',
+    multiPick: false,
     sectionAxis: null,
     sectionOn: false,
     hiddenEdges: false,
@@ -42,7 +43,8 @@ function host(): ToolbarHost & { calls: string[] } {
     toggleCube: call('cube'),
     toggleAxes: call('axes'),
     toggleMeasure: call('measure'),
-    toggleFaceMode: call('face'),
+    setPickUnit: (u) => calls.push(`unit ${u}`),
+    toggleMultiPick: call('multi'),
     setSectionAxis: call('section'),
     savePng: call('png'),
     exportItems: () => [{ label: 'STL', run: () => calls.push('stl') }],
@@ -68,7 +70,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     const wide = [...tb.el.querySelectorAll('button.wide-only .btn-label')].map((e) => e.textContent);
     expect(wide).toEqual(['고른 부품 보기', '원근', '음영 + 모서리', '격자', '뷰 큐브', '좌표축', '내보내기']);
     const narrow = [...tb.el.querySelectorAll('button:not(.wide-only) .btn-label')].map((e) => e.textContent);
-    expect(narrow).toEqual(['전체 보기', '표준 뷰', '보기 설정', '단면', '면 고르기', '측정', '패널']);
+    expect(narrow).toEqual(['전체 보기', '표준 뷰', '보기 설정', '단면', '부품 고르기', '측정', '패널']);
     expect(button(tb, '보기 설정').classList.contains('narrow-only')).toBe(true);
     expect(button(tb, '보기 설정').getAttribute('aria-haspopup')).toBe('menu');
   });
@@ -195,6 +197,52 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     button(tb, '와이어프레임').click();
     const item = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.querySelector('.menu-label')!.textContent === '외곽선 강조')!;
     expect([item.getAttribute('aria-checked'), item.disabled]).toEqual(['true', true]);
+  });
+});
+
+describe('고르기 메뉴: 단위(부품·몸체·면·모서리)와 여러 개 고르기', () => {
+  afterEach(() => closeMenu());
+
+  it('단위 하나 고르기와 여러 개 고르기 켜고 끄기, 단추 글·아이콘·켜짐이 단위를 따른다', () => {
+    document.body.innerHTML = '';
+    const h = host();
+    const tb = new Toolbar(h);
+    document.body.append(tb.el);
+    const pick = button(tb, '부품 고르기');
+    expect(pick.getAttribute('aria-haspopup')).toBe('menu');
+    expect(pick.classList.contains('on')).toBe(false);
+    expect(pick.dataset.icon ?? 'pick').toBe('pick');
+    pick.click();
+    const items = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(items.map((b) => [b.querySelector('.menu-label')!.textContent, b.getAttribute('role'), b.getAttribute('aria-checked'), b.disabled])).toEqual([
+      ['부품', 'menuitemradio', 'true', false],
+      ['몸체', 'menuitemradio', 'false', false],
+      ['면·모서리', 'menuitemradio', 'false', false],
+      ['여러 개 고르기', 'menuitemcheckbox', 'false', false],
+    ]);
+    items[1]!.click();
+    pick.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][3]!.click();
+    expect(h.calls).toEqual(['unit body', 'multi']);
+
+    // 몸체 단위: 단추 글·아이콘이 바뀌고 켜짐
+    const body = { ...host(), pickUnit: 'body' as const };
+    const tb2 = new Toolbar(body);
+    const b2 = button(tb2, '몸체 고르기');
+    expect(b2.dataset.icon).toBe('body');
+    expect(b2.classList.contains('on')).toBe(true);
+    // 면·모서리(예전 면 고르기): 여러 개 고르기는 쓸 수 없다
+    const face = { ...host(), pickUnit: 'face' as const };
+    const tb3 = new Toolbar(face);
+    document.body.append(tb3.el);
+    const b3 = button(tb3, '면 고르기');
+    expect(b3.dataset.icon).toBe('face');
+    b3.click();
+    const fi = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(fi[2]!.getAttribute('aria-checked')).toBe('true');
+    expect(fi[3]!.disabled).toBe(true);
+    // 여러 개 고르기만 켜도 켜짐
+    expect(button(new Toolbar({ ...host(), multiPick: true }), '부품 고르기').classList.contains('on')).toBe(true);
   });
 });
 

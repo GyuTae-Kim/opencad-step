@@ -13,6 +13,7 @@
  * 부품마다 재질 이름·밀도(PROPERTY_DEFINITION), 받침판은 설명과 사용자 속성(Finish)을 둔다(속성·질량 보기).
  * 의미 PMI는 모양 측면 → 면(GEOMETRIC_ITEM_SPECIFIC_USAGE)으로 판 면에 잇고, 글 주석(TEXT_LITERAL)과 저장된 보기(CAMERA_MODEL_D3)도 하나씩 둔다.
  */
+import { SAMPLE_NAME } from './files';
 import { cube, cylinder, type P3, plateWithHole, r, StepText, stepString as s, torus } from './stepText';
 
 /** 획 글자(높이 1, 왼쪽 아래 원점, z=0 평면): 숫자와 지름 기호만 */
@@ -74,7 +75,7 @@ function strokes(text: string, x0: number, y0: number, z: number, hgt: number): 
   return out;
 }
 
-export const SAMPLE_NAME = 'opencad-sample.stp';
+export { SAMPLE_NAME };
 
 /** 예제 STEP 글 */
 export function sampleStepText(): string {
