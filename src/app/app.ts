@@ -32,7 +32,7 @@ import type { StepSavedView } from '../scene';
 import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
-import { baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
+import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
@@ -49,7 +49,6 @@ import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
 import { PanelResizer } from './resize';
-import { SAMPLE_NAME, sampleStepBytes } from './sample';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
 import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
@@ -568,7 +567,8 @@ export class StepApp {
 
   /** 예제 모형 열기 */
   openSample(): Promise<boolean> {
-    return this.load(SAMPLE_NAME, async () => sampleStepBytes().buffer as ArrayBuffer, 'sample');
+    // 예제 모형 글쓴이(sample.ts·stepText.ts)는 누를 때 받는다 — 첫 화면 스크립트를 줄이려고(서비스 워커가 미리 담아 오프라인에서도 연다)
+    return this.load(SAMPLE_NAME, async () => (await import('./sample')).sampleStepBytes().buffer as ArrayBuffer, 'sample');
   }
 
   /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
