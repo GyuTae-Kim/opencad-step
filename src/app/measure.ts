@@ -29,6 +29,11 @@ export function faceHint(touch = false): string {
   return touch ? '면 고르기: 면이나 모서리를 누르십시오 · 길게 누르면 정밀 조준' : '면 고르기: 면이나 모서리를 누르십시오';
 }
 
+/** 여러 개 고르기 안내(손가락 기기에서 고르기 단위 그대로 누를 때마다 더하고 빼기 — 몸체 단위면 몸체) */
+export function multiHint(body = false): string {
+  return body ? '여러 개 고르기: 몸체를 누르면 더하고, 다시 누르면 뺍니다' : '여러 개 고르기: 부품을 누르면 더하고, 다시 누르면 뺍니다';
+}
+
 /** 개체 측정 안내(고른 개체 수 0~1) */
 export function entityHint(picked: number, touch = false): string {
   if (picked >= 1) return touch ? '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오' : '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오 · Esc 지우기';

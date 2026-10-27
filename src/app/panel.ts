@@ -9,7 +9,7 @@ import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyTitle, instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
@@ -39,6 +39,8 @@ export interface PanelHost {
   fitKey(key: string): void;
   /** 여러 개 고르기: 항목들을 지금 고른 것에 더하거나(모두 들어 있으면) 뺀다 */
   toggleInSelection(ids: readonly string[]): void;
+  /** 여러 개 고르기 모드(손가락 기기 — 나무 줄 누르기도 더하고 빼기) */
+  readonly multiPick: boolean;
   /** 지금 고른 것으로 맞춰 보기 */
   fitSelection(): void;
   setItemsVisible(ids: readonly string[], on: boolean): void;
@@ -174,7 +176,7 @@ export class Panel {
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
     } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
-    if (reveal) this.body.querySelector('.tree-row.sel')?.scrollIntoView({ block: 'nearest' });
+    if (reveal) this.body.querySelector('.tree-row.sel, .tree-row.part-sel')?.scrollIntoView({ block: 'nearest' });
     this.renderFoot();
   }
 
@@ -301,11 +303,14 @@ export class Panel {
     for (const k of d.expanded) if (!this.drawnExpanded.has(k)) return false;
     const rows = this.body.querySelectorAll<HTMLElement>('.tree-row');
     let found = !d.selKey;
-    if (d.items) return false;
+    // 몸체·여러 개 고르기는 줄마다 일부 고름(part-sel)까지 따져야 해서 다시 그린다
+    if (d.items || (d.pick && !d.selKey)) return false;
     for (const r of rows) {
       const sel = r.dataset.key === d.selKey;
       if (sel) found = true;
       r.classList.toggle('sel', sel);
+      // 여기 오는 고르기(마디·없음)에는 몸체 일부 고름이 없다
+      r.classList.remove('part-sel');
       r.setAttribute('aria-selected', String(sel));
     }
     return found;
@@ -415,6 +420,8 @@ export class Panel {
     const { name, instance } = nodeLabel(r.node);
     const visible = nodeVisible(r.itemIds, (id) => this.host.isVisible(id));
     const sel = d.selKey === r.key || inItems(d, r.itemIds);
+    // 이 부품의 몸체 일부만 고름(몸체 단위 고르기·여러 개 고르기): 줄에 옅게 표시
+    const part = !sel && ownsSelected(d, r.node);
     const tog = h('button', { type: 'button', class: 'twisty', tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
     if (r.hasChildren) tog.append(icon(r.open ? 'chevronDown' : 'chevronRight', 14));
     tog.addEventListener('click', (ev) => {
@@ -440,7 +447,7 @@ export class Panel {
     const item = h(
       'div',
       {
-        class: `tree-row${sel ? ' sel' : ''}${visible ? '' : ' hidden-node'}${r.match ? ' match' : ''}`,
+        class: `tree-row${sel ? ' sel' : part ? ' part-sel' : ''}${visible ? '' : ' hidden-node'}${r.match ? ' match' : ''}`,
         role: 'treeitem',
         'aria-level': String(r.depth + 1),
         'aria-selected': String(sel),
@@ -457,8 +464,8 @@ export class Panel {
     );
     // 첫 누르기에 나무를 다시 그릴 수 있으므로 dblclick 대신 누른 횟수(detail)로 두 번 누르기를 가린다
     item.addEventListener('click', (ev) => {
-      // Ctrl·⌘·Shift + 누르기: 이 마디 아래 형상을 여러 개 고르기에 더하거나 뺀다
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+      // Ctrl·⌘·Shift + 누르기(여러 개 고르기 모드면 그냥 누르기): 이 마디 아래 형상을 여러 개 고르기에 더하거나 뺀다
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey || this.host.multiPick) {
         if (ev.detail <= 1) this.host.toggleInSelection(r.itemIds);
         return;
       }
@@ -468,7 +475,10 @@ export class Panel {
     // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
     item.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
-      if (d.selKey !== r.key) this.host.selectKey(r.key);
+      // 여러 개 고르기 중에는 이 마디를 모은 것에 더해(이미 있으면 그대로) 메뉴가 모은 것 전체에 쓰이게 한다
+      if (this.host.multiPick) {
+        if (!inItems(d, r.itemIds) && d.selKey !== r.key) this.host.toggleInSelection(r.itemIds);
+      } else if (d.selKey !== r.key) this.host.selectKey(r.key);
       this.host.openContextMenu(ev.clientX, ev.clientY);
     });
     item.addEventListener('keydown', (ev) => {
@@ -512,13 +522,18 @@ export class Panel {
     const key = this.propsKey(d);
     const path = key ? nodePath(d.products, key) : [];
     const node = path[path.length - 1];
-    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르면 여러 개를 고릅니다.')));
+    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 "여러 개 고르기"를 켜면 여러 개를 고릅니다.')));
     else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
       this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
     }
-    this.body.append(this.physSection(d, node ? subtreeMeshIds(node) : d.items ? d.items.ids : null, d.items && !node ? d.items.label : undefined));
+    // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만
+    const pid = !d.selKey && !d.items && d.pick && (d.pick.kind === 'mesh' || d.pick.kind === 'edge') ? d.pick.id : null;
+    const all = node ? subtreeMeshIds(node) : null;
+    const body = pid && all && all.length > 1 && all.includes(pid) ? d.scene.meshes.find((m) => m.id === pid) : undefined;
+    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, body)));
+    else this.body.append(this.physSection(d, all ?? (d.items ? d.items.ids : null), d.items && !node ? d.items.label : undefined));
   }
 
   /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
@@ -882,6 +897,16 @@ function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
 }
 
 /** 마디 아래 항목이 모두 여러 개 고르기(d.items)에 들었는지 */
+/** 마디에 바로 놓인 형상(몸체) 가운데 고른 것이 있는지(나무 마디를 통째로 고른 것은 빼고 — 몸체 단위·여러 개 고르기의 일부) */
+function ownsSelected(d: Pick<StepDoc, 'items' | 'pick' | 'selKey'>, n: { meshIds: readonly string[] }): boolean {
+  if (d.selKey || !n.meshIds.length) return false;
+  if (d.items) {
+    const set = new Set(d.items.ids);
+    return n.meshIds.some((id) => set.has(id));
+  }
+  return !!d.pick && n.meshIds.includes(d.pick.id);
+}
+
 function inItems(d: Pick<StepDoc, 'items'>, ids: readonly string[]): boolean {
   if (!d.items || !ids.length) return false;
   const set = new Set(d.items.ids);

@@ -745,11 +745,13 @@ select {
   opacity: 0.42;
   cursor: default;
 }
-/* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기) */
-.measure-bar.measuring:not([hidden]) {
+/* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기), 여러 개 고르기 중에도(모은 것·끝내기) */
+.measure-bar.measuring:not([hidden]),
+.measure-bar.multi:not([hidden]) {
   display: flex;
 }
-.view:has(.measure-bar.measuring:not([hidden])) .toasts {
+.view:has(.measure-bar.measuring:not([hidden])) .toasts,
+.view:has(.measure-bar.multi:not([hidden])) .toasts {
   bottom: 68px;
 }
 .mb-kind[hidden] {
@@ -980,6 +982,10 @@ body.resizing .viewer-host {
 }
 .tree-row.sel {
   background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* 이 부품의 몸체 일부만 고름(몸체 단위·여러 개 고르기) */
+.tree-row.part-sel {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .tree-row.hidden-node .tree-name {

@@ -483,8 +483,53 @@ export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'
   return d.pick ? [d.pick.id] : [];
 }
 
-/** 여러 개 고른 항목의 이름표: 서로 다른 부품 자리(형상이 바로 놓인 마디) 수 — "부품 3개" */
-export function multiLabel(roots: readonly ProductNode[], ids: readonly string[]): string {
+/**
+ * 고르기 단위(도구 막대 "고르기" 메뉴): 부품 = 형상이 놓인 나무 마디(그 아래 형상) 통째, 몸체 = 형상 항목 하나
+ * (MANIFOLD_SOLID_BREP·BREP_WITH_VOIDS·면 모형 등 — 해석기가 항목마다 그물 하나를 만든다), 면 = B-rep 면·모서리(면 고르기)
+ */
+export type PickUnit = 'part' | 'body' | 'face';
+
+/**
+ * 누른 항목 id → 그 단위로 고를 항목 id: 몸체는 그것 하나, 부품은 그 항목이 바로 놓인 마디 아래 모두(나무에서 그 마디를 고른 것과 같다).
+ * 나무에 없는 항목(표현 PMI 선 등)은 그것 하나
+ */
+export function unitItemIds(roots: readonly ProductNode[], id: string, unit: PickUnit): string[] {
+  if (unit === 'body') return [id];
+  const key = productKeyOf(roots, id);
+  const node = key ? productAt(roots, key) : null;
+  return node ? subtreeItemIds(node) : [id];
+}
+
+/**
+ * 몸체 이름: 형상 항목에 이름이 있으면 그물 이름("부품 / 항목") 그대로, 없으면(그물 이름 = 부품 이름) 몸체가 여럿인 부품에서
+ * "부품 · 몸체 2"(나무 마디의 형상 차례)
+ */
+export function bodyTitle(roots: readonly ProductNode[], item: { id: string; name?: string }): string {
+  const name = item.name ?? item.id;
+  const key = productKeyOf(roots, item.id);
+  const node = key ? productAt(roots, key) : null;
+  const i = node ? node.meshIds.indexOf(item.id) : -1;
+  if (!node || node.meshIds.length < 2 || i < 0 || name !== node.name) return name;
+  return `${name} · 몸체 ${i + 1}`;
+}
+
+/**
+ * 여러 개 고르기 한 번: 지금 고른 것(cur)에 ids를 더하고, 이미 모두 들어 있으면 뺀다. 고른 차례를 지킨다(먼저 고른 것 앞)
+ */
+export function toggledItems(cur: readonly string[], ids: readonly string[]): string[] {
+  const set = new Set(cur);
+  const all = ids.every((id) => set.has(id));
+  for (const id of ids) {
+    if (all) set.delete(id);
+    else set.add(id);
+  }
+  const had = new Set(cur);
+  return [...cur.filter((id) => set.has(id)), ...ids.filter((id) => set.has(id) && !had.has(id))];
+}
+
+/** 여러 개 고른 항목의 이름표: 서로 다른 부품 자리(형상이 바로 놓인 마디) 수 — "부품 3개", 몸체 단위면 항목 수 — "몸체 3개" */
+export function multiLabel(roots: readonly ProductNode[], ids: readonly string[], unit: PickUnit = 'part'): string {
+  if (unit === 'body') return `몸체 ${ids.length}개`;
   const owner = new Map<string, string>();
   const walk = (l: readonly ProductNode[], prefix: string) =>
     l.forEach((n, i) => {

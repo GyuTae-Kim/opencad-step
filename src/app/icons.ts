@@ -40,6 +40,14 @@ export const ICONS = {
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   reset: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 3.5v5h5"/>',
   explode: '<rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M3.5 8V3.5H8M16 3.5h4.5V8M20.5 16v4.5H16M8 20.5H3.5V16"/><path d="m4 4 4 4M20 4l-4 4M20 20l-4-4M4 20l4-4"/>',
+  /** 고르기(부품 단위): 화살표 커서 */
+  pick: '<path d="M5 3.5 18.5 10l-6 1.8-2.6 6.2Z"/><path d="m12.5 11.8 5 5"/>',
+  /** 몸체 단위: 한 부품 안의 입체 둘(하나는 칠함) */
+  body: '<rect x="3" y="6.5" width="8" height="11" rx="1"/><rect x="13" y="6.5" width="8" height="11" rx="1" fill="currentColor" stroke="none" opacity=".35"/><rect x="13" y="6.5" width="8" height="11" rx="1"/>',
+  /** 여러 개 고르기: 겹친 네모 둘과 더하기 */
+  multi: '<rect x="3.5" y="7.5" width="11" height="11" rx="1.5"/><path d="M8 4.5h10a1.5 1.5 0 0 1 1.5 1.5v10"/><path d="M9 10v6M6 13h6"/>',
+  /** 작업 메뉴(점 셋) */
+  more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;
