@@ -4,14 +4,16 @@
  * - 원·원호·타원 중심: 모서리 표(meta.edgeTables)가 아는 모든 원 모서리의 중심을 세계 좌표(묶음 origin·자리 matrix 반영)로.
  *   중심은 커서가 그 자리(구멍 가운데 빈 곳 포함)에 와야 붙으므로 늘 후보(points)로 준다. 같은 그물 안 같은 자리 중심은 하나로.
  * - 고른 모서리의 곡선 가운데 점·끝점·중심(pointsFor): 윤곽선은 곡선을 꺾은선으로 그린 것이라 코어의 선분 가운데 점은
- *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다.
+ *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다. 곡선 계산 조각(curvesnap.ts — 문서를 열 때 받는다)을
+ *   받기 전에는 꺾은선 길이로 잰 점, 받은 뒤에는 곡선 정의로 잰 곡선 위 점(curve.mid).
+ * - 곡선 위로 다듬기(코어 0.14.0 refine — curve.refine): 곡선 모서리 토막 위의 수직 발·모서리 위 점을 정확한 곡선 위로 옮긴다(받기 전에는 주지 않는다).
  * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
  *   화살표 →·←·↑는 X·Y·Z축, ↓는 지금 방향을 잠근다(같은 키로 풀기). 손가락 기기는 측정 띠의 잠금 단추. 여기서는 잠금 이름·안내·키 판단만 한다.
  *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
-import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt, edgeDetails, isFullCircle } from './edges';
 
@@ -22,6 +24,14 @@ export interface SnapEdgeIndex {
   kinds: readonly string[];
   tables: readonly StepEdgeTable[];
   tableOf: ReadonlyMap<string, number>;
+}
+
+/** 곡선 정의로 붙잡기 점을 곡선 위로(curvesnap.ts curveSnap — 문서를 열 때 받는다) */
+export interface CurveSnap {
+  /** 코어 setMeasureSnap의 refine: 곡선 모서리 토막의 수직 발·모서리 위 점·코어 가운데 점 → 곡선 위 세계 점(아니면 null) */
+  refine(c: SnapRefineInput): readonly number[] | null;
+  /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
+  mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
 }
 
 /** 표 하나의 원·타원 중심(형상 좌표, origin 빼기 전 값 그대로 — 표 매개변수), 같은 자리는 하나로 */
@@ -78,9 +88,10 @@ export function circleCenters(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
 
 /**
  * 고른 윤곽선(Pick3d kind 'edge')의 B-rep 모서리에서 붙잡을 점: 원호·곡선은 끝점·곡선 길이 가운데 점, 원·타원은 중심.
- * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null
+ * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null.
+ * curve가 있으면 곡선 모서리의 가운데 점은 곡선 정의로 잰 곡선 위 점(없거나 못 구하면 꺾은선 길이로 잰 점)
  */
-export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[], ex: SnapEdgeIndex | null): SnapPoint[] | null {
+export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[], ex: SnapEdgeIndex | null, curve: CurveSnap | null = null): SnapPoint[] | null {
   if (pick.kind !== 'edge' || !ex) return null;
   const ti = ex.tableOf.get(pick.id);
   const table = ti === undefined ? undefined : ex.tables[ti];
@@ -93,7 +104,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
   const out: SnapPoint[] = [];
   if (!isFullCircle(d)) {
     out.push({ point: d.ends[0], kind: 'endpoint', id: mesh.id }, { point: d.ends[1], kind: 'endpoint', id: mesh.id });
-    out.push({ point: d.mid, kind: 'midpoint', id: mesh.id });
+    out.push({ point: (d.kind !== 'line' && curve?.mid(mesh, table, e)) || d.mid, kind: 'midpoint', id: mesh.id });
   }
   if (d.center) out.push({ point: d.center, kind: 'center', id: mesh.id });
   return out;
@@ -103,9 +114,10 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 코어 setMeasureSnap에 줄 선택: 측정 중에만 윤곽선도 고르고(edges — 면 고르기 밖에서는 pickEdges가 꺼져 있다), 원·원호 중심(centers)을
  * 늘 후보로, 누른 모서리마다 곡선 가운데 점·끝점·중심(pointsFor — 같은 모서리를 이어 가리키는 동안은 한 번만 구한다),
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
- * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다
+ * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
+ * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로 다듬고(코어 0.14.0 refine), 곡선 가운데 점도 곡선 위 점으로 준다
  */
-export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[]): MeasureSnapOptions {
+export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
   let lastKey = '';
   let last: SnapPoint[] | null = null;
@@ -118,10 +130,11 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
       const key = `${p.id}:${p.raw ?? p.index}`;
       if (key !== lastKey) {
         lastKey = key;
-        last = edgeSnapPoints(p, byId, ex);
+        last = edgeSnapPoints(p, byId, ex, curve);
       }
       return last;
     },
+    ...(curve ? { refine: (c: SnapRefineInput) => curve.refine(c) } : {}),
   };
 }
 
@@ -132,10 +145,11 @@ export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicu
 const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향', z: 'Z축 방향' };
 
 /**
- * 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점'.
+ * 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점', 그 점을 앱이 곡선 위로 다듬었으면(refined —
+ * 곡선 모서리 위 점, 코어 0.14.0) '곡선 위 점'.
  * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB)
  */
-export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null): string {
+export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined = false): string {
   switch (kind) {
     case 'vertex':
       return '꼭짓점';
@@ -156,9 +170,12 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'parallel':
       return '모서리와 나란히';
     default:
-      return '면 위 점';
+      return refined ? CURVE_POINT_LABEL : '면 위 점';
   }
 }
+
+/** 붙잡지 않은 점을 앱이 곡선 모서리 위로 다듬은 것(코어 0.14.0 refined)의 이름 */
+export const CURVE_POINT_LABEL = '곡선 위 점';
 
 /** 잠근 선 위 점 이름 뒤에 붙는 글(" · "로 이어 조각마다 번역된다) */
 export const LOCKED_LABEL = '잠금';
@@ -167,23 +184,33 @@ export const LOCKED_LABEL = '잠금';
 export const TANGENT_LABEL = '접선 방향';
 
 /**
- * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 자유 점이면 null).
- * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향"
+ * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 붙잡지 않고 다듬지도 않은 점이면 null).
+ * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향".
+ * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점"
  */
-export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; axisA?: SnapAxis; axisB?: SnapAxis; lockedB?: boolean; tangentB?: boolean }): [string, string] | null {
+export function snapPair(m: {
+  snapA?: SnapKind | null;
+  snapB?: SnapKind | null;
+  axisA?: SnapAxis;
+  axisB?: SnapAxis;
+  lockedB?: boolean;
+  tangentB?: boolean;
+  refinedA?: boolean;
+  refinedB?: boolean;
+}): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
-  if (!m.snapA && !m.snapB) return null;
-  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB);
-  return [snapLabel(m.snapA, m.axisA), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
+  if (!m.snapA && !m.snapB && !m.refinedA && !m.refinedB) return null;
+  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, !!m.refinedB);
+  return [snapLabel(m.snapA, m.axisA, !!m.refinedA), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
 /**
  * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
- * 모형 위지만 붙잡지 않으면 '면 위 점'. 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금"
+ * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점'). 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금"
  */
-export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean } | null | undefined, tangent = false): string | null {
+export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean; refined?: boolean } | null | undefined, tangent = false): string | null {
   if (!h) return null;
-  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis);
+  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }
 

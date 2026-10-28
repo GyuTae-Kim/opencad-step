@@ -1,8 +1,8 @@
 /**
  * 모서리 표의 곡선 정의와 곡선 위 가장 가까운 점(순수 계산, DOM 없음 — 워커가 싣고 화면이 읽는다).
  *
- * 측정 접선 잠금이 첫 점(곡선 모서리 위 아무 데 — 화면용 꺾은선 위라 곡선에서 조금 떨어질 수 있다)에서 B-rep 곡선의 접선을 구할 때 쓴다.
- * 붙잡은 점을 B-rep 곡선 위로 다듬거나(수직 발) 곡선 위 매개변수를 알 때도 같은 함수를 쓸 수 있다.
+ * 측정 접선 잠금이 첫 점(곡선 모서리 위 아무 데 — 화면용 꺾은선 위라 곡선에서 조금 떨어질 수 있다)에서 B-rep 곡선의 접선을 구할 때 쓰고,
+ * 측정 붙잡기 점을 B-rep 곡선 위로 다듬을 때(app/curvesnap.ts — 수직 발·모서리 위 점의 근 찾기 rtsafe, 곡선 길이 가운데 arcMidParam) 쓴다.
  *
  * 모서리 표 기록(curves[curveStart[e], curveStart[e+1]) — 형상 항목 좌표·단위, 좌표는 묶음 원점을 뺀 값):
  * - 원: 기록 없음. 모서리 표 params(반지름·원 평면 법선·중심)로 가장 가까운 점과 접선을 식으로 구한다
@@ -214,8 +214,11 @@ export function nearestOnCircle(c: Pick<CircleDef, 'center' | 'normal' | 'r'>, p
   return { t, point, tangent: cross(n, u), dist: Math.hypot(p[0]! - point[0], p[1]! - point[1], p[2]! - point[2]) };
 }
 
-/** 타원 틀(법선 n, x축 X, Y = n × X)과 점·도함수 계산기 */
-function ellipseEval(c: Pick<EllipseDef, 'center' | 'normal' | 'x' | 'a' | 'b'>): { X: V3; Y: V3; ev: CurveEval } | null {
+/**
+ * 타원 틀(법선 n, x축 X — 법선에 수직으로 맞춘다, Y = n × X)과 점·도함수 계산기(t = 매개변수 각, C = 중심 + a cos t X + b sin t Y).
+ * 원은 a = b = 반지름에 아무 x축(예: 중심에서 모서리 시작 꼭짓점 쪽). 틀을 못 세우면 null
+ */
+export function ellipseEval(c: Pick<EllipseDef, 'center' | 'normal' | 'x' | 'a' | 'b'>): { X: V3; Y: V3; ev: CurveEval } | null {
   const n = unit(c.normal);
   if (!n) return null;
   const h = dot(c.x, n);
@@ -292,12 +295,27 @@ export function bsplineEval(c: BsplineDef): CurveEval {
  * 가장 가까운 몇 곳을 뉴턴으로 다듬는다. 닫힌 곡선은 t를 매듭 구간으로 감아 돌려준다
  */
 export function nearestOnBspline(c: BsplineDef, p: readonly number[]): CurveFoot | null {
+  const ts = bsplineSamples(c);
+  if (!ts) return null;
   const nc = nurbsOf(c);
   const ev = bsplineEval(c);
-  const lo = Math.min(c.ta, c.tb);
-  const hi = Math.max(c.ta, c.tb);
+  const P = c.period;
+  let t = nearestParam(ev, p, ts);
+  const f = foot(ev, p, t);
+  if (P > 0) {
+    t = nc.t0 + ((((t - nc.t0) % P) + P) % P);
+    f.t = t;
+  }
+  return f;
+}
+
+/**
+ * B-스플라인 구간 [lo, hi](기본은 모서리 구간 ta…tb의 작은 쪽부터)의 매듭 경계: 구간 두 끝과 그 사이 매듭 값(닫힌 곡선이면 주기만큼 민 것도 —
+ * 감지 않은 매개변수), 오름차순. 구간이 비었으면 null
+ */
+export function bsplineBreaks(c: BsplineDef, lo = Math.min(c.ta, c.tb), hi = Math.max(c.ta, c.tb)): number[] | null {
   if (!(hi > lo)) return null;
-  // 매듭 경계(닫힌 곡선이면 주기만큼 민 것도)
+  const nc = nurbsOf(c);
   const P = c.period;
   const bps = nc.breakpoints();
   const marks = new Set<number>([lo, hi]);
@@ -307,19 +325,22 @@ export function nearestOnBspline(c: BsplineDef, p: readonly number[]): CurveFoot
     const v = k + (base + s) * P;
     if (v > lo && v < hi) marks.add(v);
   }
-  const edges = [...marks].sort((x, y) => x - y);
+  return [...marks].sort((x, y) => x - y);
+}
+
+/**
+ * 가장 가까운 점 찾기의 표본 매개변수(오름차순, 모서리 구간 안): 매듭 구간마다 max(4, 2p)개씩(구간이 적으면 합 64개쯤까지 늘리고, 많으면 합 4096개까지).
+ * 구간이 비었으면 null
+ */
+export function bsplineSamples(c: BsplineDef): number[] | null {
+  const edges = bsplineBreaks(c);
+  if (!edges) return null;
   const per = Math.max(4, 2 * c.degree, Math.ceil(64 / Math.max(1, edges.length - 1)));
   const each = Math.max(1, Math.min(per, Math.floor(4096 / Math.max(1, edges.length - 1))));
   const ts: number[] = [];
   for (let i = 0; i + 1 < edges.length; i++) for (let k = 0; k < each; k++) ts.push(edges[i]! + ((edges[i + 1]! - edges[i]!) * k) / each);
-  ts.push(hi);
-  let t = nearestParam(ev, p, ts);
-  const f = foot(ev, p, t);
-  if (P > 0) {
-    t = nc.t0 + ((((t - nc.t0) % P) + P) % P);
-    f.t = t;
-  }
-  return f;
+  ts.push(edges[edges.length - 1]!);
+  return ts;
 }
 
 /** 곡선 정의 위에서 p에 가장 가까운 점(원은 t 없음 — NaN) */
@@ -385,13 +406,20 @@ function refine(ev: CurveEval, q: readonly number[], ts: readonly number[], g: r
   return damped(ev, q, ts[i]!, ts[0]!, ts[n - 1]!);
 }
 
-/** g(lo) < 0 < g(hi)인 구간 안 근: 뉴턴이 구간 밖으로 나가거나 더디면 반 나눔(Numerical Recipes rtsafe 꼴) */
+/** g(lo) < 0 < g(hi)인 구간 안 근(g = C′·(C − q)) */
 function bracketed(ev: CurveEval, q: readonly number[], lo: number, hi: number): number {
-  const gh = (t: number): [number, number] => {
+  return rtsafe((t) => {
     const [C, D, A] = ev(t);
     const r = [C[0] - q[0]!, C[1] - q[1]!, C[2] - q[2]!];
     return [dot(D, r), dot(A, r) + dot(D, D)];
-  };
+  }, lo, hi);
+}
+
+/**
+ * g(lo) < 0 < g(hi)인 구간 안 근(lo가 hi보다 커도 된다 — g가 음수인 쪽을 lo로 준다): 뉴턴이 구간 밖으로 나가거나 더디면 반 나눔
+ * (Numerical Recipes rtsafe 꼴, 매개변수 수의 반올림까지). gh(t) = [g(t), g′(t)]
+ */
+export function rtsafe(gh: (t: number) => readonly [number, number], lo: number, hi: number): number {
   let xl = lo;
   let xh = hi;
   let t = 0.5 * (lo + hi);
@@ -450,4 +478,82 @@ function damped(ev: CurveEval, q: readonly number[], t: number, lo: number, hi: 
     if (!moved) break;
   }
   return t;
+}
+
+// ── 곡선 길이 ──
+
+/** 가우스–르장드르 10점: [−1, 1]의 양수 쪽 마디와 무게(음수 쪽은 대칭) */
+const GL_X = [0.1488743389816312, 0.4333953941292472, 0.6794095682990244, 0.8650633666889845, 0.9739065285171717];
+const GL_W = [0.2955242247147529, 0.2692667193099963, 0.219086362515982, 0.1494513491505806, 0.0666713443086881];
+
+const speed = (ev: CurveEval, t: number): number => {
+  const D = ev(t)[1];
+  return Math.hypot(D[0], D[1], D[2]);
+};
+
+/** 매개변수 a → b 곡선 길이(|C′| 적분, 가우스–르장드르 10점 한 번 — 매끈한 짧은 조각용). b < a면 음수 */
+export function arcPiece(ev: CurveEval, a: number, b: number): number {
+  const h = 0.5 * (b - a);
+  const m = 0.5 * (a + b);
+  let s = 0;
+  for (let i = 0; i < 5; i++) {
+    const d = h * GL_X[i]!;
+    s += GL_W[i]! * (speed(ev, m - d) + speed(ev, m + d));
+  }
+  return s * h;
+}
+
+/**
+ * 곡선 길이 가운데의 매개변수: 나눔 점 cuts(오름차순 — 처음·끝이 구간 두 끝, 사이는 매듭이나 고르게 나눈 점)의 조각마다 가우스–르장드르 10점으로
+ * 길이를 쌓아 절반이 든 조각을 찾고, 그 안에서 (조각 시작부터 길이) = (남은 절반)을 뉴턴(+반 나눔)으로 푼다.
+ * 곡선 길이 가운데 점은 어느 쪽에서 재도 같으므로 모서리 방향과 상관없다. 길이가 0이면 구간 가운데, 나눔 점이 둘보다 적으면 NaN
+ */
+export function arcMidParam(ev: CurveEval, cuts: readonly number[]): number {
+  const n = cuts.length;
+  if (n < 2) return NaN;
+  const len: number[] = [];
+  let total = 0;
+  for (let i = 0; i + 1 < n; i++) {
+    const l = arcPiece(ev, cuts[i]!, cuts[i + 1]!);
+    len.push(l);
+    total += l;
+  }
+  if (!(total > 0)) return 0.5 * (cuts[0]! + cuts[n - 1]!);
+  let half = total / 2;
+  let j = 0;
+  while (j < len.length - 1 && half > len[j]!) {
+    half -= len[j]!;
+    j++;
+  }
+  const a = cuts[j]!;
+  const b = cuts[j + 1]!;
+  if (!(half > 0)) return a;
+  if (half >= len[j]!) return b;
+  // F(t) = (a → t 길이) − half: F(a) < 0 < F(b), F′ = |C′|
+  return rtsafe((t) => [arcPiece(ev, a, t) - half, speed(ev, t)], a, b);
+}
+
+/**
+ * 곡선 정의의 매개변수 구간 [ta, tb](어느 쪽이 커도 된다)를 길이 적분용으로 나눈 점(오름차순): B-스플라인은 매듭 구간마다 넷,
+ * 원·타원(매개변수 각)은 반지름 비에 맞춰 고르게(한 바퀴에 16조각 이상, 납작할수록 많이 — 1024조각까지)
+ */
+export function arcCuts(c: EdgeCurve, ta: number, tb: number): number[] {
+  const lo = Math.min(ta, tb);
+  const hi = Math.max(ta, tb);
+  if (!(hi > lo)) return [lo, hi];
+  let marks: number[];
+  let per: number;
+  if (c.kind === 'bspline') {
+    marks = bsplineBreaks(c, lo, hi) ?? [lo, hi];
+    per = 4;
+  } else {
+    const ratio = c.kind === 'ellipse' ? Math.max(c.a, c.b) / Math.max(1e-300, Math.min(c.a, c.b)) : 1;
+    const turn = Math.max(16, Math.ceil(8 * ratio));
+    per = Math.max(1, Math.min(1024, Math.ceil(((hi - lo) / (2 * Math.PI)) * turn)));
+    marks = [lo, hi];
+  }
+  const out: number[] = [];
+  for (let i = 0; i + 1 < marks.length; i++) for (let k = 0; k < per; k++) out.push(marks[i]! + ((marks[i + 1]! - marks[i]!) * k) / per);
+  out.push(hi);
+  return out;
 }
