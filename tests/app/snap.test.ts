@@ -4,9 +4,11 @@ import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { perpendicularFoot } from 'opencad-viewer3d/inference';
 import { measureResult } from 'opencad-viewer3d/snap';
+import { curveSnap } from '../../src/app/curvesnap';
 import {
   arrowLock,
   circleCenters,
+  CURVE_POINT_LABEL,
   edgeSnapPoints,
   hoverSnapLabel,
   lockHint,
@@ -141,6 +143,18 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(hoverSnapLabel({ snap: 'intersection' })).toBe('교차점');
   });
 
+  it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
+    expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
+    expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
+    expect(hoverSnapLabel({ snap: null, refined: true })).toBe('곡선 위 점');
+    expect(hoverSnapLabel({ snap: 'perpendicular', refined: true })).toBe('수직 발');
+    // 결과(코어 결과에는 refined가 없어 앱이 찍은 점 measurePoints에서 옮겨 담는다)
+    expect(snapPair({ snapA: null, snapB: null, refinedA: true })).toEqual(['곡선 위 점', '면 위 점']);
+    expect(snapPair({ snapA: 'endpoint', snapB: null, refinedB: true })).toEqual(['끝점', '곡선 위 점']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'perpendicular', refinedB: true })).toEqual(['끝점', '수직 발']);
+    expect(snapPair({ snapA: null, snapB: null })).toBeNull();
+  });
+
   it('measureSnapOptions: 측정 중 윤곽선 고르기·원 중심·추론 붙잡기를 켜고, 같은 모서리는 한 번만 구한다', () => {
     const s = stepToScene(halfMoon());
     const ex = stepEdgeIndex(s)!;
@@ -159,6 +173,14 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(a?.length).toBeGreaterThan(0);
     expect(o.pointsFor!({ ...pick })).toBe(a); // 같은 모서리: 앞서 구한 배열 그대로(마우스 이동마다 다시 구하지 않음)
     expect(o.pointsFor!({ ...pick, kind: 'mesh' } as Pick3d)).toBeNull();
+    // 곡선 계산 조각을 받기 전에는 다듬기 없음, 받은 뒤에는 refine(곡선 붙잡기에 넘긴다)
+    expect('refine' in o).toBe(false);
+    const cs = curveSnap(s.meshes, ex)!;
+    const seen: unknown[] = [];
+    const o2 = measureSnapOptions(s.meshes, ex, centers, { refine: (c) => (seen.push(c), cs.refine(c)) });
+    const input = { kind: 'onEdge', point: [0, 0, 0], segment: { kind: 'line', id: 'x', index: 0, raw: 0, ends: [[0, 0, 0], [1, 0, 0]] }, first: null, ray: { origin: [0, 0, 1], dir: [0, 0, -1] } } as const;
+    expect(o2.refine!(input as never)).toBeNull();
+    expect(seen).toHaveLength(1);
   });
 
   it('구멍 중심에서 판 모서리로 내린 수직 발(코어 perpendicularFoot)이 B-rep 모서리 위 — STEP 윤곽선이 추론 붙잡기의 선분이 된다', () => {

@@ -222,8 +222,19 @@ describe('화면: 곡선 모서리의 끝이 아닌 곳(화면용 꺾은선 위)
     // 모서리 끝은 끝 접선(curveEndsAt)이 맡는다 — 한 바퀴 원의 이음 꼭짓점도
     expect(curvesThrough(scene.meshes, ex, RIM)).toEqual([]);
     expect(curvesThrough(scene.meshes, ex, BS_END)).toEqual([]);
-    // 원 위 정확한 30° 점은 꺾은선(현)에서 화살 높이만큼 떨어져 있어 모서리 위가 아니다(코어가 주는 점은 꺾은선 위)
-    expect(curvesThrough(scene.meshes, ex, [10 * Math.cos(Math.PI / 3), 10 * Math.sin(Math.PI / 3), 20])).toEqual([]);
+    // 원 위 정확한 30° 점(곡선 위로 다듬은 측정 점)은 꺾은선(현)에서 화살 높이만큼 떨어져 있지만 곡선 정의로 잰 거리로 그 모서리 위다
+    // (토막·비율은 꺾은선에서 가장 가까운 자리). 원에서 1e-3 비킨 점은 아니다
+    const exact30: V3 = [10 * Math.cos(Math.PI / 3), 10 * Math.sin(Math.PI / 3), 20];
+    expect(polylineNearest(rimPoly, exact30).dist).toBeGreaterThan(1e-3);
+    const on30 = curvesThrough(scene.meshes, ex, exact30);
+    expect(on30.map((o) => [kindOf(o), o.seg, o.vertex])).toEqual([['circle', rim30.seg, -1]]);
+    expect(on30[0]!.f).toBeCloseTo(rim30.f, 3);
+    expect(curvesThrough(scene.meshes, ex, [10.001 * Math.cos(Math.PI / 3), 10.001 * Math.sin(Math.PI / 3), 20])).toEqual([]);
+    // 타원 호 위 정확한 점: 곡선 정의가 있으면 그 모서리, 없으면(옛 결과) 꺾은선 거리만이라 아니다
+    const ellExact = ellAt(0.5 * (ELL_T0 + ELL_T1) + 0.01);
+    expect(polylineNearest(ellPoly, ellExact).dist).toBeGreaterThan(4 * pointTol(ellExact));
+    expect(curvesThrough(scene.meshes, ex, ellExact).map(kindOf)).toEqual(['ellipse']);
+    expect(curvesThrough(scene.meshes, old, ellExact)).toEqual([]);
     expect(curvesThrough(scene.meshes, null, rim30.point)).toEqual([]);
     const noTan = { ...ex, tables: ex.tables.map((t) => ({ ...t, tangents: undefined })) };
     expect(curvesThrough(scene.meshes, noTan, rim30.point)).toEqual([]);

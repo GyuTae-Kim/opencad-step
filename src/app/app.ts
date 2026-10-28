@@ -44,7 +44,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, hoverSnapLabel, type LockName, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, type LockName, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
@@ -239,6 +239,10 @@ export class StepApp {
   private lockFailClose: (() => void) | null = null;
   /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
   private tangents: TangentLock | null = null;
+  /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
+  private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
+  /** 문서마다 곡선 붙잡기(곡선 위로 다듬기) */
+  private readonly curveSnaps = new WeakMap<StepDoc, CurveSnap | null>();
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
@@ -915,9 +919,15 @@ export class StepApp {
     });
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
-    // 곡선 모서리 끝의 접선 잠금은 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다(받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정만)
+    // 곡선 모서리 끝의 접선 잠금과 곡선 위로 다듬기는 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다
+    // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine)
     void loadCurveTangents().then(
-      (m) => (this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null))),
+      (m) => {
+        this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null));
+        if (this.curveSnapOf) return;
+        this.curveSnapOf = m.curveSnap;
+        this.syncMeasureSnap();
+      },
       () => undefined,
     );
   }
@@ -1164,8 +1174,17 @@ export class StepApp {
   private onMeasure(m: MeasureResult | null): void {
     const d = this.doc;
     if (!d) return;
-    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함)
-    d.measure = m && this.tangents?.result(m) ? { ...m, tangentB: true } : m;
+    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점"
+    // (코어 0.14.0 — 결과에는 싣지 않고 찍은 점 measurePoints에만 있다)
+    const pts = m ? (this.viewer?.measurePoints ?? []) : [];
+    d.measure = m
+      ? {
+          ...m,
+          ...(this.tangents?.result(m) ? { tangentB: true } : {}),
+          ...(pts[0]?.refined ? { refinedA: true } : {}),
+          ...(pts[1]?.refined ? { refinedB: true } : {}),
+        }
+      : m;
     // 측정 기록(CSV 복사용, 이 문서 동안)
     if (m) logMeasure(d, { type: 'distance', a: [...m.a], b: [...m.b], distance: m.distance, dx: m.dx, dy: m.dy, dz: m.dz });
     this.panel.onMeasure();
@@ -1872,7 +1891,16 @@ export class StepApp {
     }
     let centers = this.snapCenters.get(d);
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
-    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers));
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d)));
+  }
+
+  /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */
+  private curveSnapFor(d: StepDoc): CurveSnap | null {
+    const make = this.curveSnapOf;
+    if (!make) return null;
+    let c = this.curveSnaps.get(d);
+    if (c === undefined) this.curveSnaps.set(d, (c = make(d.scene.meshes, d.edges)));
+    return c;
   }
 
   /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */

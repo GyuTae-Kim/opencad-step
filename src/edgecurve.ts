@@ -1,8 +1,8 @@
 /**
  * 모서리 표의 곡선 정의와 곡선 위 가장 가까운 점(순수 계산, DOM 없음 — 워커가 싣고 화면이 읽는다).
  *
- * 측정 접선 잠금이 첫 점(곡선 모서리 위 아무 데 — 화면용 꺾은선 위라 곡선에서 조금 떨어질 수 있다)에서 B-rep 곡선의 접선을 구할 때 쓴다.
- * 붙잡은 점을 B-rep 곡선 위로 다듬거나(수직 발) 곡선 위 매개변수를 알 때도 같은 함수를 쓸 수 있다.
+ * 측정 접선 잠금이 첫 점(곡선 모서리 위 아무 데 — 화면용 꺾은선 위라 곡선에서 조금 떨어질 수 있다)에서 B-rep 곡선의 접선을 구할 때 쓰고,
+ * 측정 붙잡기 점을 B-rep 곡선 위로 다듬을 때(app/curvesnap.ts — 수직 발·모서리 위 점의 근 찾기 rtsafe) 쓴다.
  *
  * 모서리 표 기록(curves[curveStart[e], curveStart[e+1]) — 형상 항목 좌표·단위, 좌표는 묶음 원점을 뺀 값):
  * - 원: 기록 없음. 모서리 표 params(반지름·원 평면 법선·중심)로 가장 가까운 점과 접선을 식으로 구한다
@@ -214,8 +214,11 @@ export function nearestOnCircle(c: Pick<CircleDef, 'center' | 'normal' | 'r'>, p
   return { t, point, tangent: cross(n, u), dist: Math.hypot(p[0]! - point[0], p[1]! - point[1], p[2]! - point[2]) };
 }
 
-/** 타원 틀(법선 n, x축 X, Y = n × X)과 점·도함수 계산기 */
-function ellipseEval(c: Pick<EllipseDef, 'center' | 'normal' | 'x' | 'a' | 'b'>): { X: V3; Y: V3; ev: CurveEval } | null {
+/**
+ * 타원 틀(법선 n, x축 X — 법선에 수직으로 맞춘다, Y = n × X)과 점·도함수 계산기(t = 매개변수 각, C = 중심 + a cos t X + b sin t Y).
+ * 원은 a = b = 반지름에 아무 x축(예: 중심에서 모서리 시작 꼭짓점 쪽). 틀을 못 세우면 null
+ */
+export function ellipseEval(c: Pick<EllipseDef, 'center' | 'normal' | 'x' | 'a' | 'b'>): { X: V3; Y: V3; ev: CurveEval } | null {
   const n = unit(c.normal);
   if (!n) return null;
   const h = dot(c.x, n);
@@ -292,12 +295,27 @@ export function bsplineEval(c: BsplineDef): CurveEval {
  * 가장 가까운 몇 곳을 뉴턴으로 다듬는다. 닫힌 곡선은 t를 매듭 구간으로 감아 돌려준다
  */
 export function nearestOnBspline(c: BsplineDef, p: readonly number[]): CurveFoot | null {
+  const ts = bsplineSamples(c);
+  if (!ts) return null;
   const nc = nurbsOf(c);
   const ev = bsplineEval(c);
-  const lo = Math.min(c.ta, c.tb);
-  const hi = Math.max(c.ta, c.tb);
+  const P = c.period;
+  let t = nearestParam(ev, p, ts);
+  const f = foot(ev, p, t);
+  if (P > 0) {
+    t = nc.t0 + ((((t - nc.t0) % P) + P) % P);
+    f.t = t;
+  }
+  return f;
+}
+
+/**
+ * B-스플라인 구간 [lo, hi](기본은 모서리 구간 ta…tb의 작은 쪽부터)의 매듭 경계: 구간 두 끝과 그 사이 매듭 값(닫힌 곡선이면 주기만큼 민 것도 —
+ * 감지 않은 매개변수), 오름차순. 구간이 비었으면 null
+ */
+export function bsplineBreaks(c: BsplineDef, lo = Math.min(c.ta, c.tb), hi = Math.max(c.ta, c.tb)): number[] | null {
   if (!(hi > lo)) return null;
-  // 매듭 경계(닫힌 곡선이면 주기만큼 민 것도)
+  const nc = nurbsOf(c);
   const P = c.period;
   const bps = nc.breakpoints();
   const marks = new Set<number>([lo, hi]);
@@ -307,19 +325,22 @@ export function nearestOnBspline(c: BsplineDef, p: readonly number[]): CurveFoot
     const v = k + (base + s) * P;
     if (v > lo && v < hi) marks.add(v);
   }
-  const edges = [...marks].sort((x, y) => x - y);
+  return [...marks].sort((x, y) => x - y);
+}
+
+/**
+ * 가장 가까운 점 찾기의 표본 매개변수(오름차순, 모서리 구간 안): 매듭 구간마다 max(4, 2p)개씩(구간이 적으면 합 64개쯤까지 늘리고, 많으면 합 4096개까지).
+ * 구간이 비었으면 null
+ */
+export function bsplineSamples(c: BsplineDef): number[] | null {
+  const edges = bsplineBreaks(c);
+  if (!edges) return null;
   const per = Math.max(4, 2 * c.degree, Math.ceil(64 / Math.max(1, edges.length - 1)));
   const each = Math.max(1, Math.min(per, Math.floor(4096 / Math.max(1, edges.length - 1))));
   const ts: number[] = [];
   for (let i = 0; i + 1 < edges.length; i++) for (let k = 0; k < each; k++) ts.push(edges[i]! + ((edges[i + 1]! - edges[i]!) * k) / each);
-  ts.push(hi);
-  let t = nearestParam(ev, p, ts);
-  const f = foot(ev, p, t);
-  if (P > 0) {
-    t = nc.t0 + ((((t - nc.t0) % P) + P) % P);
-    f.t = t;
-  }
-  return f;
+  ts.push(edges[edges.length - 1]!);
+  return ts;
 }
 
 /** 곡선 정의 위에서 p에 가장 가까운 점(원은 t 없음 — NaN) */
@@ -385,13 +406,20 @@ function refine(ev: CurveEval, q: readonly number[], ts: readonly number[], g: r
   return damped(ev, q, ts[i]!, ts[0]!, ts[n - 1]!);
 }
 
-/** g(lo) < 0 < g(hi)인 구간 안 근: 뉴턴이 구간 밖으로 나가거나 더디면 반 나눔(Numerical Recipes rtsafe 꼴) */
+/** g(lo) < 0 < g(hi)인 구간 안 근(g = C′·(C − q)) */
 function bracketed(ev: CurveEval, q: readonly number[], lo: number, hi: number): number {
-  const gh = (t: number): [number, number] => {
+  return rtsafe((t) => {
     const [C, D, A] = ev(t);
     const r = [C[0] - q[0]!, C[1] - q[1]!, C[2] - q[2]!];
     return [dot(D, r), dot(A, r) + dot(D, D)];
-  };
+  }, lo, hi);
+}
+
+/**
+ * g(lo) < 0 < g(hi)인 구간 안 근(lo가 hi보다 커도 된다 — g가 음수인 쪽을 lo로 준다): 뉴턴이 구간 밖으로 나가거나 더디면 반 나눔
+ * (Numerical Recipes rtsafe 꼴, 매개변수 수의 반올림까지). gh(t) = [g(t), g′(t)]
+ */
+export function rtsafe(gh: (t: number) => readonly [number, number], lo: number, hi: number): number {
   let xl = lo;
   let xh = hi;
   let t = 0.5 * (lo + hi);

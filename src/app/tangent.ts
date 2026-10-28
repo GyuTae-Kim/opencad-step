@@ -22,12 +22,20 @@
  *   정의가 없으면(B-스플라인 기록 한도를 넘음·그 밖의 곡선·옛 결과) 꺾은선 꼭짓점 접선(이웃 두 토막의 2차 어림, 끝은 표의 끝 접선)을 토막 안에서 섞는다.
  * - 방향: 첫 점에서 커서 쪽(첫 점 → 커서와 내적이 양수). 커서가 접선에 수직이면(원의 맞은편) 꺾은선 길이로 커서가 앞이면 모서리 방향.
  * - 코어가 볼 잠금이 첫 점이 놓인 토막(꼭짓점이면 이웃 두 토막)의 현이 아닌 다른 직선이면 코어 판정 그대로(끝에서와 같다).
+ *
+ * 측정 붙잡기를 곡선 위로 다듬으면(코어 0.14.0 refine — curvesnap.ts) 첫 점·커서 아래 점이 화면용 꺾은선이 아니라 정확한 곡선 위에 온다.
+ * 곡선 위 점은 꺾은선(현)에서 화살 높이만큼 비켜 있으므로, 꺾은선까지가 허용치 밖이어도 화살 높이 안(토막 길이의 반)이면 곡선 정의로
+ * 그 곡선까지의 거리를 재서 허용치 안이면 그 모서리 위로 본다(곡선 정의가 없는 모서리는 꺾은선 거리만).
+ * 다듬기는 이 조각의 curveSnap(curvesnap.ts)이 코어에 준다 — 이 조각과 함께 문서를 열 때 받는다.
  */
 import type { MeasureInferenceLock, MeasureResult, Viewer3d } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { edgeCurve, nearestOnCurve } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
+import { curveDistance, dirToWorld, toLocal, toWorld } from './curvesnap';
 import type { SnapEdgeIndex } from './snap';
+
+export { curveSnap } from './curvesnap';
 
 type V3 = [number, number, number];
 
@@ -55,8 +63,12 @@ interface CurveIndex {
   ends: Float64Array;
   /** 곡선 모서리마다 꺾은선 상자(아래 xyz, 위 xyz — float32 꼭짓점 그대로라 정확하다) */
   boxes: Float32Array;
+  /** 곡선 모서리마다 화살 높이 한도(가장 긴 토막의 반 — 곡선은 꺾은선에서 이보다 멀어지지 않는다) */
+  sag: Float32Array;
   lo: V3;
   hi: V3;
+  /** sag의 가장 큰 값 */
+  maxSag: number;
 }
 
 const indexCache = new WeakMap<Float32Array, CurveIndex>();
@@ -69,6 +81,8 @@ function curveIndex(E: Float32Array, table: StepEdgeTable): CurveIndex {
   const list: number[] = [];
   const ends: number[] = [];
   const boxes: number[] = [];
+  const sag: number[] = [];
+  let maxSag = 0;
   const lo: V3 = [Infinity, Infinity, Infinity];
   const hi: V3 = [-Infinity, -Infinity, -Infinity];
   for (let e = 0; e + 1 < S.length; e++) {
@@ -88,45 +102,18 @@ function curveIndex(E: Float32Array, table: StepEdgeTable): CurveIndex {
         if (v > bh[k]!) bh[k] = v;
       }
     boxes.push(...bl, ...bh);
+    let longest = 0;
+    for (let q = s0; q < s1; q++) longest = Math.max(longest, Math.hypot(E[q * 6 + 3]! - E[q * 6]!, E[q * 6 + 4]! - E[q * 6 + 1]!, E[q * 6 + 5]! - E[q * 6 + 2]!));
+    sag.push(longest / 2);
+    if (longest / 2 > maxSag) maxSag = longest / 2;
     for (let k = 0; k < 3; k++) {
       if (bl[k]! < lo[k]) lo[k] = bl[k]!;
       if (bh[k]! > hi[k]) hi[k] = bh[k]!;
     }
   }
-  const out: CurveIndex = { table, edges: Int32Array.from(list), ends: Float64Array.from(ends), boxes: Float32Array.from(boxes), lo, hi };
+  const out: CurveIndex = { table, edges: Int32Array.from(list), ends: Float64Array.from(ends), boxes: Float32Array.from(boxes), sag: Float32Array.from(sag), lo, hi, maxSag };
   indexCache.set(E, out);
   return out;
-}
-
-/** 세계 점 → 그물 윤곽선 좌표(origin을 뺀 값)와 자리 변환 길이 배율. 변환이 퇴화했으면 null */
-function toLocal(mesh: Mesh3d, a: ArrayLike<number>): { p: V3; scale: number } | null {
-  const o = mesh.origin ?? [0, 0, 0];
-  const m = mesh.matrix;
-  if (!m) return { p: [a[0]! - o[0]!, a[1]! - o[1]!, a[2]! - o[2]!], scale: 1 };
-  // 열 우선 4×4의 3×3 부분 역(여인수)
-  const [m0, m1, m2, , m4, m5, m6, , m8, m9, m10] = m as unknown as number[];
-  const c0 = m5! * m10! - m6! * m9!;
-  const c1 = m6! * m8! - m4! * m10!;
-  const c2 = m4! * m9! - m5! * m8!;
-  const det = m0! * c0 + m1! * c1 + m2! * c2;
-  if (!(Math.abs(det) > 1e-300)) return null;
-  const x = a[0]! - m[12]!;
-  const y = a[1]! - m[13]!;
-  const z = a[2]! - m[14]!;
-  const lx = (c0 * x + c1 * y + c2 * z) / det;
-  const ly = ((m2! * m9! - m1! * m10!) * x + (m0! * m10! - m2! * m8!) * y + (m1! * m8! - m0! * m9!) * z) / det;
-  const lz = ((m1! * m6! - m2! * m5!) * x + (m2! * m4! - m0! * m6!) * y + (m0! * m5! - m1! * m4!) * z) / det;
-  return { p: [lx - o[0]!, ly - o[1]!, lz - o[2]!], scale: Math.cbrt(Math.abs(det)) || 1 };
-}
-
-/** 그물 윤곽선 좌표 → 세계 */
-function toWorld(mesh: Mesh3d, x: number, y: number, z: number): V3 {
-  const o = mesh.origin ?? [0, 0, 0];
-  x += o[0]!;
-  y += o[1]!;
-  z += o[2]!;
-  const m = mesh.matrix;
-  return m ? [m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!] : [x, y, z];
 }
 
 /**
@@ -171,9 +158,9 @@ export function endPolyline(e: Pick<CurveEnd, 'mesh' | 'table' | 'edge'>): V3[] 
   return pts;
 }
 
-/** 점 p에서 꺾은선까지 가장 가까운 거리와 그 자리의 꺾은선 길이(시작부터), 전체 길이 */
-export function polylineNearest(pts: readonly V3[], p: ArrayLike<number>): { dist: number; s: number; total: number } {
-  let best = { dist: Infinity, s: 0 };
+/** 점 p에서 꺾은선까지 가장 가까운 거리와 그 자리의 꺾은선 길이(시작부터)·토막 번호, 전체 길이 */
+export function polylineNearest(pts: readonly V3[], p: ArrayLike<number>): { dist: number; s: number; seg: number; total: number } {
+  let best = { dist: Infinity, s: 0, seg: 0 };
   let acc = 0;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1]!;
@@ -185,11 +172,35 @@ export function polylineNearest(pts: readonly V3[], p: ArrayLike<number>): { dis
     const l = Math.sqrt(l2);
     const t = l2 > 0 ? Math.max(0, Math.min(1, ((p[0]! - a[0]) * dx + (p[1]! - a[1]) * dy + (p[2]! - a[2]) * dz) / l2)) : 0;
     const d = Math.hypot(p[0]! - a[0] - dx * t, p[1]! - a[1] - dy * t, p[2]! - a[2] - dz * t);
-    if (d < best.dist) best = { dist: d, s: acc + l * t };
+    if (d < best.dist) best = { dist: d, s: acc + l * t, seg: i - 1 };
     acc += l;
   }
-  if (pts.length === 1) best = { dist: Math.hypot(p[0]! - pts[0]![0], p[1]! - pts[0]![1], p[2]! - pts[0]![2]), s: 0 };
+  if (pts.length === 1) best = { dist: Math.hypot(p[0]! - pts[0]![0], p[1]! - pts[0]![1], p[2]! - pts[0]![2]), s: 0, seg: 0 };
   return { ...best, total: acc };
+}
+
+/**
+ * 커서 아래 점 p에서 모서리(e)까지 거리와 그 자리 꺾은선 길이: 꺾은선까지가 tol 밖이어도 화살 높이 한도(가장 긴 토막의 반) 안이고
+ * 곡선 정의가 있으면(kinds를 주면) 곡선까지 거리(곡선 위로 다듬은 점). 꺾은선 길이(s)는 꺾은선에서 가장 가까운 자리
+ */
+export function edgeNearest(
+  e: Pick<CurveEnd, 'mesh' | 'table' | 'edge'>,
+  poly: readonly V3[],
+  p: ArrayLike<number>,
+  tol: number,
+  kinds?: readonly string[] | null,
+): { dist: number; s: number; total: number } {
+  const n = polylineNearest(poly, p);
+  if (n.dist <= tol || !kinds || !(n.dist <= tol + halfLongest(poly))) return n;
+  const c = curveDistance(e.mesh, e.table, e.edge, kinds, p, n.seg);
+  return c !== null && c < n.dist ? { ...n, dist: c } : n;
+}
+
+/** 꺾은선에서 가장 긴 토막의 반(곡선이 꺾은선에서 멀어지는 화살 높이의 한도) */
+function halfLongest(poly: readonly V3[]): number {
+  let m = 0;
+  for (let i = 1; i < poly.length; i++) m = Math.max(m, Math.hypot(poly[i]![0] - poly[i - 1]![0], poly[i]![1] - poly[i - 1]![1], poly[i]![2] - poly[i - 1]![2]));
+  return m / 2;
 }
 
 /** 곡선 끝에서 곡선 안쪽으로 가는 세계 단위 접선(시작이면 시작 접선, 끝이면 끝 접선의 반대). 못 구하면 null */
@@ -204,35 +215,26 @@ export function endTangent(e: Pick<CurveEnd, 'mesh' | 'table' | 'edge'> & { end?
   return dirToWorld(e.mesh, tx, ty, tz);
 }
 
-/** 묶음 좌표 방향 → 세계 단위 방향(자리 변환의 3×3 — 회전·균등 배율·거울). 못 구하면 null */
-function dirToWorld(mesh: Mesh3d, tx: number, ty: number, tz: number): V3 | null {
-  const m = mesh.matrix;
-  const d: V3 = m ? [m[0]! * tx + m[4]! * ty + m[8]! * tz, m[1]! * tx + m[5]! * ty + m[9]! * tz, m[2]! * tx + m[6]! * ty + m[10]! * tz] : [tx, ty, tz];
-  const l = Math.hypot(d[0], d[1], d[2]);
-  if (!(l > 0) || !Number.isFinite(l)) return null;
-  return [d[0] / l, d[1] / l, d[2] / l];
-}
-
 /**
  * 첫 점 a에 닿는 곡선 끝(ends — curveEndsAt) 가운데 커서 아래 점 p가 그 모서리 위에 있는 것의 a 쪽 단위 접선(a에서 곡선 쪽).
  * p가 a 자리거나 어느 모서리 위도 아니면 null. 여럿이면 p에 가장 가까운 모서리. 두 끝이 모두 a인 닫힌 모서리는 p가 놓인 쪽 끝(꺾은선 길이 절반으로 가른다)
  */
-export function curveTangentAt(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>): V3 | null {
-  return curveTangentPick(ends, a, p)?.dir ?? null;
+export function curveTangentAt(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[] | null = null): V3 | null {
+  return curveTangentPick(ends, a, p, kinds)?.dir ?? null;
 }
 
 /**
  * curveTangentAt과 같고 그 끝의 첫 꺾은선 토막(현 — 코어가 이 곡선에서 잠그려 하는 방향, a에서 곡선 쪽 단위 벡터)도 준다.
- * 현을 못 구하면(토막 길이 0) chord는 dir과 같다
+ * 현을 못 구하면(토막 길이 0) chord는 dir과 같다. kinds(모서리 종류 이름)를 주면 곡선 위로 다듬은 p도 그 모서리 위로 본다(edgeNearest)
  */
-export function curveTangentPick(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>): TangentPick | null {
+export function curveTangentPick(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[] | null = null): TangentPick | null {
   if (!ends.length) return null;
   if (Math.hypot(p[0]! - a[0]!, p[1]! - a[1]!, p[2]! - a[2]!) <= 4 * pointTol(a)) return null;
   const tolP = 4 * pointTol(p);
   let best: { e: CurveEnd; poly: V3[]; dist: number; s: number; total: number } | null = null;
   for (const e of ends) {
     const poly = endPolyline(e);
-    const n = polylineNearest(poly, p);
+    const n = edgeNearest(e, poly, p, tolP, kinds);
     if (!(n.dist <= tolP)) continue;
     if (!best || n.dist < best.dist) best = { e, poly, ...n };
   }
@@ -284,7 +286,9 @@ export interface CurveOn {
 
 /**
  * 세계 점 a가 끝이 아닌 곳에 놓인 곡선 모서리(그물 차례, 많아야 limit개): a에서 그 모서리 꺾은선까지가 tol 안이고 두 끝 꼭짓점에서는 tol 밖.
- * 묶음마다 곡선 꺾은선 상자로 먼저 거른다. 모서리 표에 접선이 없으면(옛 결과) 빈 목록
+ * 꺾은선까지가 tol 밖이어도 화살 높이 한도(그 모서리의 가장 긴 토막의 반) 안이면 곡선 정의로 곡선까지 거리를 재서 tol 안이면 넣는다
+ * (곡선 위로 다듬은 측정 점 — 토막·비율·꼭짓점은 꺾은선에서 가장 가까운 자리). 묶음마다 곡선 꺾은선 상자(화살 높이 한도만큼 넓힘)로 먼저 거른다.
+ * 모서리 표에 접선이 없으면(옛 결과) 빈 목록
  */
 export function curvesThrough(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, a: ArrayLike<number>, tol = 4 * pointTol(a), limit = 8): CurveOn[] {
   const out: CurveOn[] = [];
@@ -300,11 +304,13 @@ export function curvesThrough(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
     if (!L) continue;
     const t = tol / L.scale;
     const [x, y, z] = L.p;
-    if (x < c.lo[0] - t || x > c.hi[0] + t || y < c.lo[1] - t || y > c.hi[1] + t || z < c.lo[2] - t || z > c.hi[2] + t) continue;
+    const g = t + c.maxSag;
+    if (x < c.lo[0] - g || x > c.hi[0] + g || y < c.lo[1] - g || y > c.hi[1] + g || z < c.lo[2] - g || z > c.hi[2] + g) continue;
     const B = c.boxes;
     for (let k = 0; k < c.edges.length; k++) {
       const b = k * 6;
-      if (x < B[b]! - t || x > B[b + 3]! + t || y < B[b + 1]! - t || y > B[b + 4]! + t || z < B[b + 2]! - t || z > B[b + 5]! + t) continue;
+      const w = t + c.sag[k]!;
+      if (x < B[b]! - w || x > B[b + 3]! + w || y < B[b + 1]! - w || y > B[b + 4]! + w || z < B[b + 2]! - w || z > B[b + 5]! + w) continue;
       const e = c.edges[k]!;
       const s0 = table.segStart[e]!;
       const s1 = table.segStart[e + 1]!;
@@ -327,7 +333,8 @@ export function curvesThrough(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
           segLen = Math.sqrt(l2);
         }
       }
-      if (!(best <= t)) continue;
+      // 꺾은선 밖이면 곡선 위 점인지(곡선 정의로 잰 거리)
+      if (!(best <= t) && !(best <= w && (curveDistance(mesh, table, e, ex.kinds, a, seg) ?? Infinity) <= tol)) continue;
       const n = s1 - s0;
       let vertex = f * segLen <= t ? seg : (1 - f) * segLen <= t ? seg + 1 : -1;
       // 모서리 끝(두 끝이 모두 첫 점인 닫힌 모서리의 이음 꼭짓점 포함)은 curveEndsAt이 맡는다
@@ -423,7 +430,7 @@ export function curveTangentThrough(ons: readonly CurveOn[], a: ArrayLike<number
   const tolP = 4 * pointTol(p);
   let best: { on: CurveOn; dist: number; s: number } | null = null;
   for (const on of ons) {
-    const nr = polylineNearest(on.poly, p);
+    const nr = edgeNearest(on, on.poly, p, tolP, kinds);
     if (nr.dist <= tolP && (!best || nr.dist < best.dist)) best = { on, dist: nr.dist, s: nr.s };
   }
   if (!best) return null;
@@ -493,7 +500,7 @@ export class TangentLock {
       this.ends = curveEndsAt(s.meshes, s.ex, a);
       this.through = null;
     }
-    const e = this.ends.length ? curveTangentPick(this.ends, a, p) : null;
+    const e = this.ends.length ? curveTangentPick(this.ends, a, p, s.ex.kinds) : null;
     if (e) return e;
     this.through ??= curvesThrough(s.meshes, s.ex, a);
     return this.through.length ? curveTangentThrough(this.through, a, p, s.ex.kinds) : null;
