@@ -9,6 +9,7 @@ import { Viewer3d } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { arrowLock, circleCenters, hoverSnapLabel, lockName, measureSnapOptions, viewerLockHint } from '../../src/app/snap';
+import { nextFrame } from '../../src/app/dom';
 import { cube, StepText } from '../stepText';
 import { type FakeElement, installDom } from './fakeview';
 
@@ -243,5 +244,28 @@ describe('측정 방향 잠금: 실제 코어 0.12.0 판정 + STEP 붙잡기 선
     expect(arrowLock('ArrowUp', v.measurePointCount, v.measureInferenceLock)).toBe(false);
     v.setMeasureInferenceLock(false);
     expect(v.measureInferenceLock).toBeNull();
+  });
+});
+
+describe('nextFrame: 커서 아래 점 읽기를 코어 그리기 뒤로', () => {
+  it('앞서 잡은 예약은 지우고 다시 잡아, 그사이 코어가 잡은 그리기 뒤에 한 번만 돈다', () => {
+    const g = globalThis as Record<string, unknown>;
+    const saved = [g.requestAnimationFrame, g.cancelAnimationFrame];
+    const queue = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    g.requestAnimationFrame = (cb: FrameRequestCallback) => (queue.set(++id, cb), id);
+    g.cancelAnimationFrame = (n: number) => void queue.delete(n);
+    try {
+      const order: string[] = [];
+      // 앱이 먼저 잡아 둔 읽기(Shift를 뗀 뒤 잠금 안내 고침) → 포인터 이동: 코어가 그리기를 잡고, 앱이 읽기를 다시 잡는다
+      let app = nextFrame(0, () => order.push('읽기'));
+      requestAnimationFrame(() => order.push('코어 그리기'));
+      app = nextFrame(app, () => order.push('읽기'));
+      for (const [, cb] of [...queue].sort((a, b) => a[0] - b[0])) cb(0);
+      expect(order).toEqual(['코어 그리기', '읽기']);
+      expect(app).toBe(3);
+    } finally {
+      [g.requestAnimationFrame, g.cancelAnimationFrame] = saved;
+    }
   });
 });

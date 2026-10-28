@@ -1,5 +1,5 @@
 /**
- * 작은 DOM 도우미: 요소 만들기(h)와 SVG 아이콘 넣기.
+ * 작은 DOM 도우미: 요소 만들기(h)와 SVG 아이콘 넣기, 다음 프레임에 한 번 부르기(nextFrame).
  */
 import { ICONS, type IconName } from './icons';
 
@@ -50,4 +50,13 @@ export function iconButton(name: IconName, label: string, opts: { title?: string
   b.append(span);
   if (opts.hideLabel) b.setAttribute('aria-label', label);
   return b;
+}
+
+/**
+ * 다음 프레임에 한 번 부르기: 앞서 잡은 예약(prev, 0 = 없음)은 지우고 지금 다시 잡는다. 그사이 다른 쪽이 잡은 프레임 일(코어가 포인터 사건에서
+ * 예약한 그리기 — 그때 커서 아래 붙잡을 점을 구한다)보다 먼저 돌아 옛 값을 읽지 않게. 돌려준 수를 다음 부름의 prev로 준다
+ */
+export function nextFrame(prev: number, cb: FrameRequestCallback): number {
+  if (prev) cancelAnimationFrame(prev);
+  return requestAnimationFrame(cb);
 }

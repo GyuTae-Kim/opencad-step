@@ -23,7 +23,7 @@ import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../a
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import { TouchAim } from './aim';
-import { h, icon, iconButton } from './dom';
+import { h, icon, iconButton, nextFrame } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, meshById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
@@ -1861,9 +1861,9 @@ export class StepApp {
 
   /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */
   private scheduleHoverSnap(): void {
-    if (this.hoverSnapRaf) return;
-    // 코어는 캔버스의 pointermove에서 프레임을 예약하고 그 프레임에 붙잡을 점을 구한다 — 이 예약은 그 뒤라 구한 값을 읽는다
-    this.hoverSnapRaf = requestAnimationFrame(() => {
+    // 코어는 캔버스의 pointermove에서 프레임을 예약하고 그 프레임에 붙잡을 점을 구한다 — 앞서 잡아 둔 예약(Shift를 뗀 뒤 잠금 안내 고침 등)이
+    // 그보다 먼저 돌면 옛 점을 읽고 커서가 멈추면 그대로 남으므로, 지우고 그 뒤로 다시 잡는다
+    this.hoverSnapRaf = nextFrame(this.hoverSnapRaf, () => {
       this.hoverSnapRaf = 0;
       this.showHoverSnap();
     });
