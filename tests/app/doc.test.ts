@@ -155,7 +155,7 @@ describe('예제 문서', () => {
 });
 
 describe('여러 개 고르기 이름표(multiLabel)', () => {
-  it('서로 다른 부품 자리 수를 센다 — 한 자리의 그물 여럿은 하나, 주인 없는 항목은 하나씩', async () => {
+  it('서로 다른 부품 자리 수를 센다 — 한 자리의 그물을 모두 고르면 하나, 일부만이면 몸체로, 주인 없는 항목은 하나씩', async () => {
     const { multiLabel } = await import('../../src/app/doc');
     const roots = [
       { name: 'asm', productId: 'a', meshIds: [], children: [
@@ -164,7 +164,10 @@ describe('여러 개 고르기 이름표(multiLabel)', () => {
       ] },
     ] as unknown as Parameters<typeof multiLabel>[0];
     expect(multiLabel(roots, ['m1', 'm2'])).toBe('부품 1개');
-    expect(multiLabel(roots, ['m1', 'm3', 'l1'])).toBe('부품 2개');
-    expect(multiLabel(roots, ['m1', 'pmi-1', 'pmi-2'])).toBe('부품 3개');
+    expect(multiLabel(roots, ['m1', 'm2', 'm3', 'l1'])).toBe('부품 2개');
+    expect(multiLabel(roots, ['m3', 'l1', 'pmi-1', 'pmi-2'])).toBe('부품 3개');
+    // 부품의 일부 형상만(나무 몸체 줄로 고른 몸체)은 몸체로 센다
+    expect(multiLabel(roots, ['m1', 'm3', 'l1'])).toBe('부품 1개 · 몸체 1개');
+    expect(multiLabel(roots, ['m1', 'pmi-1'])).toBe('부품 1개 · 몸체 1개');
   });
 });

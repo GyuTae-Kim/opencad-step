@@ -5,7 +5,10 @@
  * 2. 범위 상자가 겹치는 쌍만(x축으로 정렬해 쓸어 나간다), 겹친 상자 안 삼각형만 격자 칸에 나눠 담는다.
  * 3. 같은 칸의 삼각형 쌍을 Möller 방식으로 시험한다. 서로의 평면 양쪽으로 eps보다 깊이 걸쳐야 교차로 친다 —
  *    맞닿은 면(같은 평면에 놓임)·모서리 접촉은 간섭이 아니다(조립에서 흔하다).
- * 한 부품이 다른 부품 안에 통째로 들어간 경우(겉면이 만나지 않음)는 찾지 못한다.
+ * 4. 겉면이 서로 뚫지 않은 쌍 가운데 한쪽 범위 상자가 다른 쪽 상자 안에 들면(둘 다 닫힌 입체일 때만), 안쪽 입체 속의 점 몇 개가
+ *    바깥 입체 안인지 +x 광선이 지나는 삼각형 수의 홀짝으로 보고 과반이면 "안에 듦"(inside)으로 알린다 — 통째로 들어간 부품,
+ *    같은 자리에 겹쳐 놓인 부품. 빈 곳(BREP_WITH_VOIDS) 안에 든 부품은 홀짝이 짝수라 안에 들지 않은 것으로 친다.
+ *    점은 안쪽 입체의 넓은 삼각형 가운데에서 바깥 법선 반대로 조금 들인 자리라 맞닿은 면 위에 놓이지 않는다. 열린 면 모형은 건너뛴다.
  */
 
 type V3 = [number, number, number];
@@ -16,6 +19,8 @@ export interface InterferenceMesh {
   indices?: Uint32Array;
   matrix?: ArrayLike<number>;
   origin?: readonly number[];
+  /** 닫힌 입체(안에 듦을 볼 때만 쓴다 — 열린 면은 안팎이 없다) */
+  closed?: boolean;
 }
 
 export interface InterferencePair {
@@ -26,6 +31,8 @@ export interface InterferencePair {
   /** 강조할 삼각형 번호(그물마다, 많으면 앞의 limit개) */
   trisA: number[];
   trisB: number[];
+  /** 겉면은 만나지 않고 a가 b 안에 통째로 들었다(count 0, 삼각형 없음) */
+  inside?: true;
 }
 
 /** 검사 워커(src/worker/check.worker.ts) 메시지 */
@@ -46,6 +53,7 @@ interface World {
   tris: number;
   lo: V3;
   hi: V3;
+  closed: boolean;
 }
 
 function toWorld(m: InterferenceMesh): World {
@@ -68,7 +76,7 @@ function toWorld(m: InterferenceMesh): World {
     }
   }
   const idx = m.indices ?? null;
-  return { id: m.id, p, idx, tris: Math.floor((idx ? idx.length : n) / 3), lo, hi };
+  return { id: m.id, p, idx, tris: Math.floor((idx ? idx.length : n) / 3), lo, hi, closed: !!m.closed };
 }
 
 function vtx(w: World, t: number, c: number): V3 {
@@ -149,10 +157,18 @@ export function findInterference(
     }
   }
   const pairs: InterferencePair[] = [];
+  // 바깥 입체마다 한 번 만드는 광선 격자(안에 듦 판정)
+  const grids = new Map<World, RayGrid>();
   cand.forEach(([ia, ib], ci) => {
     opts.onProgress?.(ci, cand.length);
     const A = W[ia]!;
     const B = W[ib]!;
+    // 겉면이 만나지 않았을 때: 한쪽이 다른 쪽 안에 통째로 들었는지(상자가 든 쪽만, 둘 다 닫힌 입체)
+    const contained = () => {
+      const inBoxOf = (P: World, Q: World) => [0, 1, 2].every((k) => P.lo[k]! >= Q.lo[k]! - eps && P.hi[k]! <= Q.hi[k]! + eps);
+      const [inner, outer] = inBoxOf(A, B) ? [A, B] : inBoxOf(B, A) ? [B, A] : [null, null];
+      if (inner && outer && inner.closed && outer.closed && solidInside(inner, outer, size, grids)) pairs.push({ a: inner.id, b: outer.id, count: 0, trisA: [], trisB: [], inside: true });
+    };
     // 겹친 상자
     const lo: V3 = [Math.max(A.lo[0], B.lo[0]) - eps, Math.max(A.lo[1], B.lo[1]) - eps, Math.max(A.lo[2], B.lo[2]) - eps];
     const hi: V3 = [Math.min(A.hi[0], B.hi[0]) + eps, Math.min(A.hi[1], B.hi[1]) + eps, Math.min(A.hi[2], B.hi[2]) + eps];
@@ -170,7 +186,8 @@ export function findInterference(
     };
     const ta = inBox(A);
     const tb = inBox(B);
-    if (!ta.length || !tb.length) return;
+    // 겹친 상자에 한쪽 삼각형이 없으면(깊이 든 작은 부품 둘레에 바깥 벽이 없음) 교차는 없다
+    if (!ta.length || !tb.length) return contained();
     // 격자: 겹친 상자를 칸 수 ≈ 삼각형 수로 나눈다
     const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
     const cells = Math.max(1, Math.min(64, Math.round(Math.cbrt(ta.length + tb.length))));
@@ -216,10 +233,109 @@ export function findInterference(
             }
     }
     if (count) pairs.push({ a: A.id, b: B.id, count, trisA: [...hitA].sort((x, y) => x - y), trisB: [...hitB].sort((x, y) => x - y) });
+    else contained();
   });
   opts.onProgress?.(cand.length, cand.length);
-  pairs.sort((x, y) => y.count - x.count);
+  // 안에 든 쌍(3D에서 가려 보이지 않는다) 먼저, 그다음 교차 삼각형이 많은 차례
+  pairs.sort((x, y) => Number(!!y.inside) - Number(!!x.inside) || y.count - x.count);
   return { pairs, tested: cand.length, ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) };
+}
+
+/** 닫힌 입체 하나의 +x 광선 판정 격자: (y, z) 칸마다 그 칸에 걸친 삼각형 번호(CSR — start[칸]부터 start[칸 + 1] 앞까지) */
+interface RayGrid {
+  n: number;
+  c1: number;
+  c2: number;
+  start: Uint32Array;
+  tris: Uint32Array;
+}
+
+function rayGrid(w: World): RayGrid {
+  const n = Math.max(1, Math.min(256, Math.round(Math.sqrt(w.tris / 4))));
+  const c1 = Math.max((w.hi[1] - w.lo[1]) / n, 1e-12);
+  const c2 = Math.max((w.hi[2] - w.lo[2]) / n, 1e-12);
+  const cell = (v: number, lo: number, c: number) => Math.max(0, Math.min(n - 1, Math.floor((v - lo) / c)));
+  const range = (t: number): [number, number, number, number] => {
+    const a = vtx(w, t, 0);
+    const b = vtx(w, t, 1);
+    const c = vtx(w, t, 2);
+    return [cell(Math.min(a[1], b[1], c[1]), w.lo[1], c1), cell(Math.max(a[1], b[1], c[1]), w.lo[1], c1), cell(Math.min(a[2], b[2], c[2]), w.lo[2], c2), cell(Math.max(a[2], b[2], c[2]), w.lo[2], c2)];
+  };
+  const start = new Uint32Array(n * n + 1);
+  for (let t = 0; t < w.tris; t++) {
+    const [i0, i1, j0, j1] = range(t);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) start[i * n + j + 1]!++;
+  }
+  for (let k = 0; k < n * n; k++) start[k + 1]! += start[k]!;
+  const fill = start.slice(0, n * n);
+  const tris = new Uint32Array(start[n * n]!);
+  for (let t = 0; t < w.tris; t++) {
+    const [i0, i1, j0, j1] = range(t);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) tris[fill[i * n + j]!++] = t;
+  }
+  return { n, c1, c2, start, tris };
+}
+
+/** 점이 닫힌 그물 w 안인지: +x 쪽으로 쏜 광선이 지나는 삼각형 수가 홀수면 안 */
+function pointInside(w: World, g: RayGrid, p: V3): boolean {
+  if (p[0] > w.hi[0] || [1, 2].some((k) => p[k]! < w.lo[k]! || p[k]! > w.hi[k]!)) return false;
+  const i = Math.max(0, Math.min(g.n - 1, Math.floor((p[1] - w.lo[1]) / g.c1)));
+  const j = Math.max(0, Math.min(g.n - 1, Math.floor((p[2] - w.lo[2]) / g.c2)));
+  let hits = 0;
+  for (let k = g.start[i * g.n + j]!; k < g.start[i * g.n + j + 1]!; k++) {
+    const t = g.tris[k]!;
+    const a = vtx(w, t, 0);
+    const b = vtx(w, t, 1);
+    const c = vtx(w, t, 2);
+    // (y, z) 평면에서 점이 삼각형 안인지(변 함수 부호가 모두 같음)와 그 자리의 x
+    const e = (u: V3, v: V3) => (v[1] - u[1]) * (p[2] - u[2]) - (v[2] - u[2]) * (p[1] - u[1]);
+    const d0 = e(b, c);
+    const d1 = e(c, a);
+    const d2 = e(a, b);
+    const sum = d0 + d1 + d2;
+    if (sum === 0 || !((d0 >= 0 && d1 >= 0 && d2 >= 0) || (d0 <= 0 && d1 <= 0 && d2 <= 0))) continue;
+    if ((d0 * a[0] + d1 * b[0] + d2 * c[0]) / sum > p[0]) hits++;
+  }
+  return hits % 2 === 1;
+}
+
+/**
+ * 닫힌 입체 inner가 닫힌 입체 outer 안에 통째로 들었는지(겉면이 서로 뚫지 않은 쌍에만 쓴다): inner의 넓은 삼각형 7개의 가운데를
+ * 안쪽(바깥 법선 반대 — 부피 부호로 감기 방향을 본다)으로 조금 들인 점과 광선 홀짝, 과반이 안이면 참.
+ * 점은 (y, z)로 아주 조금 비켜 놓아 광선이 outer의 모서리·꼭짓점을 바로 지나지 않게 한다
+ */
+function solidInside(inner: World, outer: World, sceneSize: number, grids: Map<World, RayGrid>): boolean {
+  let g = grids.get(outer);
+  if (!g) grids.set(outer, (g = rayGrid(outer)));
+  const K = 7;
+  const best: { area: number; t: number }[] = [];
+  let vol = 0;
+  for (let t = 0; t < inner.tris; t++) {
+    const a = vtx(inner, t, 0);
+    const n = cross(sub(vtx(inner, t, 1), a), sub(vtx(inner, t, 2), a));
+    vol += dot(a, n);
+    const area = Math.hypot(...n);
+    if (best.length < K || area > best[best.length - 1]!.area) {
+      best.push({ area, t });
+      best.sort((x, y) => y.area - x.area);
+      if (best.length > K) best.pop();
+    }
+  }
+  const diag = Math.hypot(inner.hi[0] - inner.lo[0], inner.hi[1] - inner.lo[1], inner.hi[2] - inner.lo[2]);
+  const d = Math.min(1e-5 * sceneSize, 1e-3 * diag) * (vol < 0 ? -1 : 1);
+  let inside = 0;
+  for (const { area, t } of best) {
+    if (!(area > 0)) continue;
+    const a = vtx(inner, t, 0);
+    const b = vtx(inner, t, 1);
+    const c = vtx(inner, t, 2);
+    const n = cross(sub(b, a), sub(c, a));
+    const p: V3 = [0, 1, 2].map((k) => (a[k]! + b[k]! + c[k]!) / 3 - (n[k]! / area) * d) as V3;
+    p[1] += Math.abs(d) * 0.3183;
+    p[2] += Math.abs(d) * 0.2718;
+    if (pointInside(outer, g, p)) inside++;
+  }
+  return inside * 2 > Math.min(K, best.length);
 }
 
 /** 삼각형 번호들 → 이어진 구간들(Viewer3d.highlightRanges) */

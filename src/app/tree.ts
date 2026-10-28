@@ -1,21 +1,39 @@
 /**
  * 제품 나무 펼침·고르기 대응(순수 함수, DOM 없음).
  * 마디는 경로 열쇠("0/2/1" = 첫 뿌리의 셋째 자식의 둘째 자식)로 가리킨다.
+ * 몸체(형상 항목)가 둘 이상인 부품은 펼치면 자식 마디 앞에 몸체 줄을 둔다 — 열쇠 "마디 열쇠.차례"("0/2.3" = 그 부품의 셋째 몸체).
  */
-import { productCountKey, productKeyOf, subtreeItemIds, subtreeMeshIds, type ProductNode } from './doc';
+import { hasBodies, productAt, productCountKey, productKeyOf, subtreeItemIds, subtreeMeshIds, type ProductNode } from './doc';
 
 export interface TreeRow {
   key: string;
+  /** 마디(몸체 줄이면 그 몸체가 놓인 부품 마디) */
   node: ProductNode;
   depth: number;
   hasChildren: boolean;
   open: boolean;
-  /** 이 마디와 그 아래 모든 그물 id */
+  /** 이 마디와 그 아래 모든 그물 id(몸체 줄은 그 몸체 하나) */
   meshIds: string[];
   /** 이 마디와 그 아래 모든 그물·선 묶음 id(보이기·강조용) */
   itemIds: string[];
   /** 이름 거르기에서 이 마디가 맞았는지(조상이라 보이는 줄은 false) */
   match?: boolean;
+  /** 몸체 줄이면 그 몸체의 차례(부품 마디 meshIds의 차례, 1부터) */
+  body?: number;
+}
+
+/** 펼칠 것이 있는 마디: 자식 마디나 몸체 줄 */
+const expandable = (n: ProductNode): boolean => n.children.length > 0 || hasBodies(n);
+
+/** 부품 마디의 몸체 줄(match: 이름 거르기에서 맞은 몸체만 보일 때 그 판정) */
+function bodyRows(n: ProductNode, key: string, depth: number, match?: (i: number) => boolean): TreeRow[] {
+  const out: TreeRow[] = [];
+  n.meshIds.forEach((id, i) => {
+    const m = match?.(i);
+    if (m === false) return;
+    out.push({ key: `${key}.${i + 1}`, node: n, depth, hasChildren: false, open: false, meshIds: [id], itemIds: [id], body: i + 1, ...(m ? { match: true } : {}) });
+  });
+  return out;
 }
 
 /** 펼친 마디만 따라 보이는 줄을 만든다(limit 줄까지, 넘치면 truncated, total은 제한 없이 센 줄 수) */
@@ -23,15 +41,24 @@ export function visibleRows(roots: readonly ProductNode[], expanded: ReadonlySet
   const rows: TreeRow[] = [];
   let truncated = false;
   let total = 0;
+  const push = (r: TreeRow) => {
+    total++;
+    if (rows.length < limit) rows.push(r);
+    else truncated = true;
+  };
   const walk = (nodes: readonly ProductNode[], prefix: string, depth: number): void => {
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i]!;
       const key = prefix ? `${prefix}/${i}` : String(i);
-      const open = n.children.length > 0 && expanded.has(key);
+      const kids = expandable(n);
+      const open = kids && expanded.has(key);
       total++;
-      if (rows.length < limit) rows.push({ key, node: n, depth, hasChildren: n.children.length > 0, open, meshIds: subtreeMeshIds(n), itemIds: subtreeItemIds(n) });
+      // 넘친 뒤에는 줄 수만 센다(마디 아래 id 모으기를 하지 않게)
+      if (rows.length < limit) rows.push({ key, node: n, depth, hasChildren: kids, open, meshIds: subtreeMeshIds(n), itemIds: subtreeItemIds(n) });
       else truncated = true;
-      if (open) walk(n.children, key, depth + 1);
+      if (!open) continue;
+      if (hasBodies(n)) for (const r of bodyRows(n, key, depth + 1)) push(r);
+      walk(n.children, key, depth + 1);
     }
   };
   walk(roots, '', 0);
@@ -48,26 +75,37 @@ export function nodeMatches(n: ProductNode, query: string): boolean {
 /**
  * 이름 거르기: 맞는 마디와 그 조상만(조상은 펼쳐서) 줄로 만든다. 맞는 마디의 자식은 펼친 것만 따른다.
  * matches는 맞은 마디 수(제한 없이), rows는 limit 줄까지.
+ * bodyName(부품 마디, 몸체 차례 0부터)을 주면 이름 있는 몸체도 거른다(맞은 몸체 줄과 그 부품·조상을 보인다).
  */
 export function filterRows(
   roots: readonly ProductNode[],
   query: string,
   expanded: ReadonlySet<string>,
   limit = 3000,
+  bodyName?: (n: ProductNode, i: number) => string,
 ): { rows: TreeRow[]; truncated: boolean; total: number; matches: number } {
   const rows: TreeRow[] = [];
   let truncated = false;
   let total = 0;
   let matches = 0;
-  // 1) 아래에 맞는 마디가 있는지(열쇠별)
+  const q = query.trim().toLowerCase();
+  const bodyHit = (n: ProductNode, i: number) => !!q && !!bodyName?.(n, i).toLowerCase().includes(q);
+  // 1) 아래에 맞는 마디가 있는지(열쇠별), 맞은 몸체가 있는 부품
   const hit = new Map<string, boolean>();
+  const bodyHits = new Set<string>();
   const mark = (nodes: readonly ProductNode[], prefix: string): boolean => {
     let any = false;
     nodes.forEach((n, i) => {
       const key = prefix ? `${prefix}/${i}` : String(i);
       const self = nodeMatches(n, query);
       if (self) matches++;
-      const below = mark(n.children, key);
+      if (hasBodies(n) && bodyName)
+        n.meshIds.forEach((_, j) => {
+          if (!bodyHit(n, j)) return;
+          matches++;
+          bodyHits.add(key);
+        });
+      const below = mark(n.children, key) || bodyHits.has(key);
       hit.set(key, self || below);
       if (self || below) any = true;
     });
@@ -85,11 +123,16 @@ export function filterRows(
       const key = prefix ? `${prefix}/${i}` : String(i);
       if (!all && !hit.get(key)) return;
       const self = nodeMatches(n, query);
-      const childHit = n.children.some((_, j) => hit.get(`${key}/${j}`));
+      const childHit = bodyHits.has(key) || n.children.some((_, j) => hit.get(`${key}/${j}`));
+      const kids = expandable(n);
       // 맞은 마디 아래는 보통 나무처럼(펼친 것만), 조상은 맞은 쪽으로 펼친다
-      const open = n.children.length > 0 && (all || self ? expanded.has(key) || (!all && childHit) : childHit);
-      push({ key, node: n, depth, hasChildren: n.children.length > 0, open, meshIds: subtreeMeshIds(n), itemIds: subtreeItemIds(n), match: self && !all });
-      if (open) walk(n.children, key, depth + 1, all || (self && !childHit));
+      const open = kids && (all || self ? expanded.has(key) || (!all && childHit) : childHit);
+      push({ key, node: n, depth, hasChildren: kids, open, meshIds: subtreeMeshIds(n), itemIds: subtreeItemIds(n), match: self && !all });
+      if (!open) return;
+      const sub = all || (self && !childHit);
+      // 몸체 줄: 보통 나무처럼이면 모두, 아니면 맞은 몸체만
+      if (hasBodies(n)) for (const r of bodyRows(n, key, depth + 1, sub ? undefined : (j) => bodyHit(n, j))) push(r);
+      walk(n.children, key, depth + 1, sub);
     });
   };
   walk(roots, '', 0, false);
@@ -111,12 +154,12 @@ export function revealKey(expanded: ReadonlySet<string>, key: string): Set<strin
   return out;
 }
 
-/** 펼칠 수 있는 모든 마디 열쇠(limit개까지) */
+/** 펼칠 수 있는 모든 마디 열쇠(limit개까지 — 몸체가 여럿인 부품도) */
 export function allExpandableKeys(roots: readonly ProductNode[], limit = 20000): Set<string> {
   const out = new Set<string>();
   const walk = (nodes: readonly ProductNode[], prefix: string): void => {
     nodes.forEach((n, i) => {
-      if (out.size >= limit || !n.children.length) return;
+      if (out.size >= limit || !expandable(n)) return;
       const key = prefix ? `${prefix}/${i}` : String(i);
       out.add(key);
       walk(n.children, key);
@@ -151,9 +194,14 @@ export function nodeInstances(n: ProductNode, counts: ReadonlyMap<string, number
   return counts.get(productCountKey(n.name, n.productId)) ?? 0;
 }
 
-/** 3D에서 고른 그물 → 나무에서 고를 열쇠와 새 펼침(못 찾으면 null) */
-export function selectFromPick(roots: readonly ProductNode[], expanded: ReadonlySet<string>, meshId: string): { key: string; expanded: Set<string> } | null {
+/**
+ * 3D에서 고른 그물 → 나무에서 고를 열쇠와 새 펼침(못 찾으면 null).
+ * body면(몸체 단위) 몸체가 여럿인 부품 마디도 펼쳐 그 몸체 줄이 보이게 한다
+ */
+export function selectFromPick(roots: readonly ProductNode[], expanded: ReadonlySet<string>, meshId: string, body = false): { key: string; expanded: Set<string> } | null {
   const key = productKeyOf(roots, meshId);
   if (!key) return null;
-  return { key, expanded: revealKey(expanded, key) };
+  const out = revealKey(expanded, key);
+  if (body && hasBodies(productAt(roots, key)!)) out.add(key);
+  return { key, expanded: out };
 }

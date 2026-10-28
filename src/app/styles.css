@@ -1027,6 +1027,10 @@ body.resizing .viewer-host {
 .twisty:disabled {
   cursor: default;
 }
+/* 몸체 줄(몸체가 여럿인 부품 아래): 펼침 단추 자리에 몸체 표시 */
+.twisty.body-mark {
+  color: var(--text-faint);
+}
 .eye:hover:not(:disabled),
 .twisty:hover:not(:disabled) {
   background: var(--bg-hover);

@@ -26,7 +26,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, meshById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -36,16 +36,16 @@ import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
-import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
+import { formatBytes, fmtCount, fmtPercent, imageFileName, imageSizeLabel, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
-import { Panel, pmiTypeLabel, semanticLabel } from './panel';
+import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, hoverSnapLabel, lockHint, lockMeasure, lockName, type LockName, lockStillValid, measureSnapOptions, shiftFallbackLock, snapPair } from './snap';
-import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
+import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
@@ -54,7 +54,7 @@ import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
 import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
-import { filterRows, nodeLabel, selectFromPick } from './tree';
+import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
 
 const NARROW = '(max-width: 759.98px)';
@@ -111,6 +111,8 @@ export interface AppState {
   warnings: number;
   selKey: string | null;
   picked: string | null;
+  /** 나무 몸체 줄에서 고른 몸체(그물 id) */
+  body: string | null;
   /** 면 고르기 모드 */
   faceMode: boolean;
   /** 고르기 단위(부품·몸체·면)와 여러 개 고르기(손가락 기기용 — 누르기마다 더하고 빼기) */
@@ -812,9 +814,11 @@ export class StepApp {
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
+    // 문서가 있을 때만 쓰는 작은 조각(내보내기·보기 링크 고른 것)을 미리 받아 둔다 — 눌렀을 때 기다리지 않게(공유 시트·클립보드)
+    void Promise.all([import('./export'), import('./selink')]).catch(() => {});
     if (carry) {
       // 다시 삼각화: 카메라·단면은 그대로(keepView), 고른 것·격리를 다시 그린다
-      if (doc.selKey) this.viewer?.highlight(selectionItemIds(doc));
+      if (selectionItemIds(doc).length) this.viewer?.highlight(selectionItemIds(doc));
       this.toast(`곡면 품질을 바꿔 다시 삼각화했습니다(삼각형 ${fmtCount(Math.round(tris))}개).`);
       return;
     }
@@ -828,7 +832,7 @@ export class StepApp {
         const link = this.pendingView;
         if (link && this.doc === doc) {
           this.pendingView = null;
-          this.applyViewLink(link);
+          void this.applyViewLink(link);
           this.toast('주소의 보기(카메라·단면·고른 것)를 적용했습니다.');
         }
       }),
@@ -860,7 +864,7 @@ export class StepApp {
       // 여러 개 고르기 모드에서 빈 곳을 누르면 고른 것을 그대로 둔다(손가락이 빗나가 모은 것을 잃지 않게 — 풀기는 작업 메뉴·Esc)
       const additive = e.ctrlKey || e.metaKey || e.shiftKey || this.multiPick;
       if (additive && !this.faceMode && !e.altKey && !v.measureMode && (p || this.multiPick)) {
-        if (p && e.clicks <= 1 && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit));
+        if (p && e.clicks <= 1 && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit), this.bodyPick ? p.id : undefined);
         return;
       }
       this.onPick(p, this.faceMode || e.altKey);
@@ -916,18 +920,14 @@ export class StepApp {
     const d = this.doc;
     if (!d) return;
     if (this.viewer?.measureMode) return;
+    resetSelection(d);
     d.pick = p;
-    d.items = null;
-    d.face = null;
-    d.edge = null;
-    if (!p) {
-      d.selKey = null;
-      this.viewer?.highlight(null);
-    } else {
+    if (!p) this.viewer?.highlight(null);
+    else {
       const isPmi = d.vis.pmiIds.has(p.id);
-      const s = isPmi ? null : selectFromPick(d.products, d.expanded, p.id);
-      // 몸체 단위: 나무 마디(부품 통째) 대신 누른 형상 항목 하나 — 나무에서는 그 부품 줄을 펼쳐 "몸체를 고름"으로 표시한다
+      // 몸체 단위: 나무 마디(부품 통째) 대신 누른 형상 항목 하나 — 나무에서는 그 부품을 펼쳐 몸체 줄을 고름으로(부품 줄은 일부 고름) 표시한다
       const body = this.bodyPick && !wantFace;
+      const s = isPmi ? null : selectFromPick(d.products, d.expanded, p.id, body);
       d.selKey = body ? null : (s?.key ?? null);
       if (s) d.expanded = s.expanded;
       // 부품 단위는 숨기기·격리·맞춰 보기가 쓰는 것(그 마디 아래 몸체 모두)을 강조한다(몸체가 여럿인 부품도 통째로 보이게)
@@ -1163,24 +1163,35 @@ export class StepApp {
     const d = this.doc;
     if (!d) return;
     const node = key ? productAt(d.products, key) : null;
+    resetSelection(d);
     d.selKey = node ? key : null;
-    d.pick = null;
-    d.items = null;
-    d.face = null;
-    d.edge = null;
     this.showFace(null);
     this.viewer?.highlight(node ? subtreeItemIds(node) : null);
     this.selectionChanged();
+  }
+
+  /** 나무 몸체 줄: 몸체 하나 고르기(null = 풀기) — 몸체 단위로 3D에서 누른 것과 같다 */
+  selectBody(id: string | null): void {
+    const d = this.doc;
+    if (!d) return;
+    resetSelection(d);
+    d.body = id && meshById(d.scene, id) ? id : null;
+    this.showFace(null);
+    this.viewer?.highlight(d.body ? [d.body] : null);
+    this.selectionChanged();
+  }
+
+  /** 몸체를 고르고 그것으로 맞춰 보기 */
+  fitBody(id: string): void {
+    if (this.doc?.body !== id) this.selectBody(id);
+    this.fitSelection();
   }
 
   /** 레이어·PMI 목록에서 항목 묶음 고르기(강조), fit이면 맞춰 보기 */
   selectItems(ids: readonly string[] | null, label: string, fit = false): void {
     const d = this.doc;
     if (!d) return;
-    d.selKey = null;
-    d.pick = null;
-    d.face = null;
-    d.edge = null;
+    resetSelection(d);
     d.items = ids && ids.length ? { ids: [...ids], label } : null;
     this.showFace(null);
     this.viewer?.highlight(d.items ? d.items.ids : null);
@@ -1192,18 +1203,18 @@ export class StepApp {
    * 여러 개 고르기: 지금 고른 것(나무 마디·누른 부품·묶음)에 ids를 더하고, 이미 모두 들어 있으면 뺀다.
    * 고른 것은 항목 묶음(d.items)이 되어 숨기기·이것만 보기·맞춰 보기·물리 속성 합·STL/OBJ 내보내기가 그대로 쓴다
    */
-  toggleInSelection(ids: readonly string[]): void {
+  toggleInSelection(ids: readonly string[], reveal?: string): void {
     const d = this.doc;
     if (!d || !ids.length) return;
     const list = toggledItems(selectionItemIds(d), ids);
-    d.selKey = null;
-    d.pick = null;
-    d.face = null;
-    d.edge = null;
+    resetSelection(d);
     d.items = list.length ? { ids: list, label: multiLabel(d.products, list, this.bodyPick ? 'body' : 'part') } : null;
+    // 몸체 단위로 3D에서 더한 몸체는 나무에서 그 부품을 펼쳐 몸체 줄을 보인다
+    const s = reveal && list.includes(reveal) ? selectFromPick(d.products, d.expanded, reveal, true) : null;
+    if (s) d.expanded = s.expanded;
     this.showFace(null);
     this.viewer?.highlight(list.length ? list : null);
-    this.selectionChanged();
+    this.selectionChanged(!!s);
   }
 
   /** 나무 마디를 고르고 그 아래 형상(보이는 것)으로 맞춰 보기 */
@@ -1237,10 +1248,7 @@ export class StepApp {
       return false;
     }
     const ids = [...ranges.keys()];
-    d.selKey = null;
-    d.pick = null;
-    d.face = null;
-    d.edge = null;
+    resetSelection(d);
     d.items = { ids, label };
     v.setHighlightSegments(null);
     v.highlight(null);
@@ -1308,7 +1316,11 @@ export class StepApp {
         d.interference = m.type === 'done' ? { running: false, done: 0, total: 0, result: m.result } : { running: false, done: 0, total: 0, error: m.message };
         w.terminate();
         if (this.checkWorker === w) this.checkWorker = null;
-        if (m.type === 'done') this.toast(m.result.pairs.length ? `간섭 ${fmtCount(m.result.pairs.length)}쌍을 찾았습니다.` : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', m.result.pairs.length ? 'warn' : 'info');
+        if (m.type === 'done') {
+          const n = m.result.pairs.length;
+          const inside = m.result.pairs.filter((p) => p.inside).length;
+          this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
+        }
       }
       this.panel.onInterference();
     };
@@ -1321,7 +1333,7 @@ export class StepApp {
     const req: CheckRequest = {
       id,
       type: 'interference',
-      meshes: meshes.map((m) => ({ id: m.id, positions: m.positions, ...(m.indices ? { indices: m.indices } : {}), ...(m.matrix ? { matrix: Array.from(m.matrix) } : {}), ...(m.origin ? { origin: [...m.origin] } : {}) })),
+      meshes: meshes.map((m) => ({ id: m.id, positions: m.positions, ...(m.indices ? { indices: m.indices } : {}), ...(m.matrix ? { matrix: Array.from(m.matrix) } : {}), ...(m.origin ? { origin: [...m.origin] } : {}), ...(m.closed ? { closed: true } : {}) })),
     };
     w.postMessage(req);
   }
@@ -1335,22 +1347,18 @@ export class StepApp {
     this.panel.onInterference();
   }
 
-  /** 간섭 한 쌍: 교차 삼각형을 강조하고 두 그물로 맞춰 본다 */
+  /** 간섭 한 쌍: 교차 삼각형을 강조하고 두 그물로 맞춰 본다(안에 든 쌍은 안쪽 부품 통째로 강조하고 그것으로 맞춰 본다) */
   showInterference(p: InterferencePair): void {
     const d = this.doc;
     const v = this.viewer;
     if (!d || !v) return;
-    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
-    d.selKey = null;
-    d.pick = null;
-    d.face = null;
-    d.edge = null;
-    d.items = { ids: [p.a, p.b], label: `${name(p.a)} ↔ ${name(p.b)}` };
+    resetSelection(d);
+    d.items = { ids: [p.a, p.b], label: interferenceLabel(d, p) };
     v.setHighlightSegments(null);
-    v.highlight(null);
-    v.highlightRanges({ [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
+    v.highlight(p.inside ? [p.a] : null);
+    v.highlightRanges(p.inside ? null : { [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
     this.selectionChanged();
-    v.fitItems([p.a, p.b]);
+    v.fitItems(p.inside ? [p.a] : [p.a, p.b]);
   }
 
   /** 패널을 열고 속성 탭으로 */
@@ -1377,7 +1385,7 @@ export class StepApp {
 
   private clearSelection(): boolean {
     const d = this.doc;
-    if (!d || (!d.selKey && !d.pick && !d.items && !d.face && !d.edge)) return false;
+    if (!d || (!d.selKey && !d.pick && !d.body && !d.items && !d.face && !d.edge)) return false;
     this.selectKey(null);
     return true;
   }
@@ -2000,13 +2008,7 @@ export class StepApp {
       this.viewer?.highlight(null);
       this.showFace(null);
       if (this.faceMode) this.faceMode = false;
-      if (this.doc) {
-        this.doc.pick = null;
-        this.doc.selKey = null;
-        this.doc.items = null;
-        this.doc.face = null;
-        this.doc.edge = null;
-      }
+      if (this.doc) resetSelection(this.doc);
       this.panel.onSelection();
     }
     v.setPickEdges(ent || this.faceMode);
@@ -2237,6 +2239,7 @@ export class StepApp {
     }
     const u = this.doc?.scene.units ?? 'unknown';
     const head = `OpenCAD STEP viewer - ${d.name} - units ${u}`;
+    const { meshesToObj, meshesToStl } = await import('./export');
     const blob = format === 'stl' ? new Blob([meshesToStl(meshes, head)], { type: 'model/stl' }) : new Blob([meshesToObj(meshes, head)], { type: 'model/obj' });
     const how = await this.deliver(blob, `${stemName(d.name)}${pick ? '-selection' : ''}.${format}`);
     if (how === 'cancelled') return;
@@ -2261,6 +2264,7 @@ export class StepApp {
   async copyMeasureCsv(): Promise<void> {
     const d = this.doc;
     if (!d || !d.measureLog.length) return;
+    const { measureRows, toCsv } = await import('./export');
     const rows = measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
     await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
     trackExport('csv');
@@ -2272,12 +2276,16 @@ export class StepApp {
     if (!d || !d.pmi.semantic.length) return;
     const rows: (string | number)[][] = [[translateUi('종류'), translateUi('이름'), translateUi('값'), translateUi('이어진 면 수'), 'STEP #']];
     for (const x of d.pmi.semantic) rows.push([translateUi(semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
+    const { toCsv } = await import('./export');
     await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
     trackExport('csv');
   }
 
-  /** 지금 보기(카메라·단면·고른 것)를 담은 주소 — 파일은 담지 않는다 */
-  viewLinkUrl(): string {
+  /**
+   * 지금 보기(카메라·단면·고른 것 — 나무 마디·몸체·여러 개)를 담은 주소 — 파일은 담지 않는다.
+   * 나무 마디 하나가 아닌 고른 것은 자리 낱말 모듈(sel — selink.ts)로 바꾸고, 글 한도를 넘으면 앞의 것만 담아 담은·고른 형상 수를 함께 돌려준다
+   */
+  viewLinkUrl(sel: typeof import('./selink') | null): { url: string; kept: number; total: number } {
     const v = this.viewer;
     const d = this.doc;
     const link: ViewLink = {};
@@ -2287,40 +2295,61 @@ export class StepApp {
       const st = v.section;
       if (st) link.sec = { normal: st.normal, offset: st.offset };
     }
-    if (d?.selKey) {
-      link.sel = d.selKey;
-      if (d.vis.isolated) link.iso = true;
+    const ids = d ? selectionItemIds(d) : [];
+    let kept = ids.length;
+    if (d?.selKey) link.sel = [d.selKey];
+    else if (d && ids.length && sel) {
+      const fit = sel.fitTokens(sel.selectionTokens(d.products, ids));
+      if (fit.tokens.length) link.sel = fit.tokens;
+      if (fit.dropped) kept = sel.resolveTokens(d.products, fit.tokens).ids.length;
     }
-    return viewUrl(location.href, link);
+    if (link.sel && d?.vis.isolated) link.iso = true;
+    return { url: viewUrl(location.href, link), kept, total: ids.length };
   }
 
   async copyViewLink(): Promise<void> {
-    if (!this.doc) return;
-    const url = this.viewLinkUrl();
+    const d = this.doc;
+    if (!d) return;
+    // 나무 마디 하나는 기다리지 않고(클립보드 쓰기는 누른 직후여야 하는 브라우저가 있다), 그 밖의 고른 것은 낱말 모듈(문서를 열 때 미리 받음)을 받아
+    const sel = !d.selKey && selectionItemIds(d).length ? await import('./selink') : null;
+    const { url, kept, total } = this.viewLinkUrl(sel);
+    // 고른 것이 많아 일부만 담았으면 알림에 덧붙인다(조각마다 따로 번역되게)
+    const cut = kept < total ? [`고른 것이 많아 형상 ${fmtCount(total)}개 가운데 ${fmtCount(kept)}개만 담았습니다.`] : [];
     try {
       await navigator.clipboard.writeText(url);
-      this.toast('보기 링크를 복사했습니다(카메라·단면·고른 것 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).');
+      this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', cut.length ? 6000 : 3500);
     } catch {
       history.replaceState(history.state, '', url);
-      this.toast('클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', 'warn');
+      this.toast(['클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', ...cut], 'warn');
     }
   }
 
-  /** 보기 링크 적용(지금 문서에) */
-  applyViewLink(link: ViewLink): void {
+  /** 보기 링크 적용(지금 문서에): 카메라·단면은 바로, 고른 것(마디·몸체·여러 개)과 격리는 자리 낱말을 푼 뒤 */
+  async applyViewLink(link: ViewLink): Promise<void> {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
-    if (link.sel && productAt(d.products, link.sel)) {
-      this.selectKey(link.sel);
-      if (link.iso && !d.vis.isolated) this.isolateSelection();
-    }
     if (link.cam) {
       v.setProjection(link.cam.projection);
       v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
     }
     if (link.sec) v.setSection(link.sec);
     this.toolbar.refresh();
+    if (!link.sel) return;
+    const r = (await import('./selink')).resolveTokens(d.products, link.sel);
+    if (this.doc !== d || !r.ids.length) return;
+    // 몸체 낱말이 가리킨 부품을 펼쳐 몸체 줄을 보인다(많으면 앞의 100개만)
+    for (const k of r.open.slice(0, 100)) {
+      d.expanded = revealKey(d.expanded, k);
+      d.expanded.add(k);
+    }
+    if (r.key) this.selectKey(r.key);
+    else if (r.body) this.selectBody(r.body);
+    else this.selectItems(r.ids, multiLabel(d.products, r.ids));
+    this.panel.onSelection(true);
+    // 격리는 링크대로: 열린 문서에서 해시만 바뀌어도 앞서 한 격리를 풀고 링크의 고른 것으로 다시
+    if (d.vis.isolated || d.dim) this.unisolate();
+    if (link.iso) this.isolateSelection();
   }
 
   /** 내보내기 메뉴 항목(도구 막대·휴대폰 보기 설정) */
@@ -2760,9 +2789,10 @@ export class StepApp {
       const n = nodeLabel(node);
       return `${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
     }
-    if (d.pick) {
-      const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
-      return m ? bodyTitle(d.products, m) : d.pick.id;
+    const id = d.pick?.id ?? d.body;
+    if (id) {
+      const m = meshById(d.scene, id) ?? d.scene.lines.find((x) => x.id === id);
+      return m ? bodyTitle(d.products, m) : id;
     }
     return d.items?.label ?? '';
   }
@@ -2781,10 +2811,9 @@ export class StepApp {
     if (d.pick) {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
       if (pm) return `고른 PMI: ${pm.name || pmiTypeLabel(pm.type)}`;
-      const m = d.scene.meshes.find((x) => x.id === d.pick!.id) ?? d.scene.lines.find((x) => x.id === d.pick!.id);
-      return `고른 것: ${m ? bodyTitle(d.products, m) : d.pick.id}`;
     }
     if (d.items) return `고른 것: ${d.items.label}`;
+    if (d.pick || d.body) return `고른 것: ${this.selectionName(d)}`;
     return '';
   }
 
@@ -2834,6 +2863,7 @@ export class StepApp {
       warnings: d?.scene.warnings?.length ?? 0,
       selKey: d?.selKey ?? null,
       picked: d?.pick?.id ?? null,
+      body: d?.body ?? null,
       faceMode: this.faceMode,
       pickUnit: this.pickUnit,
       multiPick: this.multiPick,
@@ -2867,7 +2897,7 @@ export class StepApp {
     window.addEventListener('hashchange', () => {
       const link = decodeViewLink(location.hash);
       if (!link) return;
-      if (this.doc && !this.loading) this.applyViewLink(link);
+      if (this.doc && !this.loading) void this.applyViewLink(link);
       else this.pendingView = link;
     });
     const q = parseStartQuery(location.search, location.href);

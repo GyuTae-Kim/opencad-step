@@ -2,8 +2,11 @@
  * 내보내기(순수, DOM 없음): 화면용 삼각형을 STL(이진)·OBJ로, 측정 기록·의미 PMI 표를 CSV로.
  * 좌표는 세계 좌표(자리 변환 matrix·묶음 원점 origin 반영), 단위는 장면 단위 그대로(STL은 단위가 없어 머리에 적는다).
  * 화면용 삼각형이라 곡면은 면을 현으로 근사한 것이다(3D 프린트·미리 보기용 — 정밀 형상은 STEP 원본).
+ * 앱은 내보낼 때 import()로 받는다(첫 화면 JS 밖 — 문서를 열면 미리 받아 둔다). 그림 저장 크기 글·파일 이름은 format.ts.
  */
 import type { Mesh3d } from 'opencad-viewer3d/types';
+
+export { imageFileName, imageSizeLabel } from './format';
 
 type V3 = [number, number, number];
 
@@ -141,13 +144,3 @@ export function measureRows(records: readonly MeasureRecord[], f: { factor: numb
   return rows;
 }
 
-/** 그림 저장 크기 글: "2배 — 2560 × 1600 화소"(코어 snapshotSize가 한도 — 한 변 GPU·넓이 4096² — 에 맞춰 줄였으면 그 크기와 알림) */
-export function imageSizeLabel(k: number, s: { width: number; height: number; scale: number }): string {
-  const clamped = s.scale < k * 0.999;
-  return `${k}배 — ${s.width} × ${s.height} 화소${clamped ? '(최대 크기로 줄임)' : ''}`;
-}
-
-/** 그림 파일 이름: 이름@2x-transparent.png */
-export function imageFileName(stem: string, o: { scale: number; transparent: boolean }): string {
-  return `${stem}${o.scale > 1 ? `@${o.scale}x` : ''}${o.transparent ? '-transparent' : ''}.png`;
-}
