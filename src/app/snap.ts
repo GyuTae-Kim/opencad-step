@@ -7,6 +7,8 @@
  *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다. 곡선 계산 조각(curvesnap.ts — 문서를 열 때 받는다)을
  *   받기 전에는 꺾은선 길이로 잰 점, 받은 뒤에는 곡선 정의로 잰 곡선 위 점(curve.mid).
  * - 곡선 위로 다듬기(코어 0.14.0 refine — curve.refine): 곡선 모서리 토막 위의 수직 발·모서리 위 점을 정확한 곡선 위로 옮긴다(받기 전에는 주지 않는다).
+ *   0.15.0부터 코어가 열린 후보(첫 점에서 꺾은선 토막에 내린 발이 토막 밖인 수직 발, 조금 비켜 지나가는 두 토막의 교차점)와 교차점도 넘기면
+ *   멀리서 내린 곡선 위 발과 두 모서리 곡선의 3D 교차점을 준다.
  * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
  *   화살표 →·←·↑는 X·Y·Z축, ↓는 지금 방향을 잠근다(같은 키로 풀기). 손가락 기기는 측정 띠의 잠금 단추. 여기서는 잠금 이름·안내·키 판단만 한다.
@@ -28,7 +30,10 @@ export interface SnapEdgeIndex {
 
 /** 곡선 정의로 붙잡기 점을 곡선 위로(curvesnap.ts curveSnap — 문서를 열 때 받는다) */
 export interface CurveSnap {
-  /** 코어 setMeasureSnap의 refine: 곡선 모서리 토막의 수직 발·모서리 위 점·코어 가운데 점 → 곡선 위 세계 점(아니면 null) */
+  /**
+   * 코어 setMeasureSnap의 refine: 곡선 모서리 토막의 수직 발(0.15.0 열린 수직 발 포함)·모서리 위 점·코어 가운데 점 → 곡선 위 세계 점,
+   * 교차점(0.15.0 — 코어 교차점과 넓힌 교차) → 두 모서리 곡선의 교차점(아니면 null)
+   */
   refine(c: SnapRefineInput): readonly number[] | null;
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
   mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
@@ -115,7 +120,8 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 늘 후보로, 누른 모서리마다 곡선 가운데 점·끝점·중심(pointsFor — 같은 모서리를 이어 가리키는 동안은 한 번만 구한다),
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
- * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로 다듬고(코어 0.14.0 refine), 곡선 가운데 점도 곡선 위 점으로 준다
+ * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로, 교차점을 두 곡선의 교차점으로 다듬고(코어 0.14.0·0.15.0 refine),
+ * 곡선 가운데 점도 곡선 위 점으로 준다
  */
 export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));

@@ -8,7 +8,7 @@
  */
 import type { Rgba } from 'opencad-viewer3d/types';
 import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve, type Tol } from './curves';
-import { bsplineRecord, ellipseRecord } from './edgecurve';
+import { bsplineRecord, conicRecord, ellipseAxis } from './edgecurve';
 import type { Geometry } from './geometry';
 import { isClosedMesh, orientFaces } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
@@ -88,9 +88,9 @@ export interface EdgeTableData {
    */
   tangents?: Float32Array;
   /**
-   * 곡선 정의(edgecurve.ts — 측정 접선 잠금이 곡선 위 아무 점의 접선을 구한다): 모서리 i의 기록은 curves[curveStart[i], curveStart[i+1]).
-   * 접선을 아는 곡선 모서리만 — 타원은 틀 x축, B-스플라인은 차수·매듭·조절점·가중치·모서리 매개변수 구간(한도 BSPLINE_RECORD_MAX를 넘으면 없음).
-   * 원은 params로 충분해 기록이 없다. 기록이 하나도 없으면 둘 다 없다(옛 결과와 같다 — 화면은 꺾은선 꼭짓점으로 어림)
+   * 곡선 정의(edgecurve.ts — 측정 접선 잠금·붙잡기 다듬기가 곡선 위 아무 점을 구한다): 모서리 i의 기록은 curves[curveStart[i], curveStart[i+1]).
+   * 접선을 아는 곡선 모서리만 — 원·타원 호는 틀 x축과 두 끝 매개변수 각(한 바퀴 원은 없음, 한 바퀴 타원은 틀 x축만), B-스플라인은
+   * 차수·매듭·조절점·가중치·모서리 매개변수 구간(한도 BSPLINE_RECORD_MAX를 넘으면 없음). 기록이 하나도 없으면 둘 다 없다(옛 결과와 같다 — 화면은 꺾은선 꼭짓점으로 어림)
    */
   curveStart?: Uint32Array;
   curves?: Float64Array;
@@ -671,9 +671,17 @@ export class BrepMesher {
         const te = ts ? curveEndTangent(c!, t2!, t1!) : null;
         if (ts && te) eTan.push(...ts, -te[0], -te[1], -te[2]);
         else eTan.push(NaN, NaN, NaN, NaN, NaN, NaN);
-        // 곡선 정의(접선을 아는 타원·B-스플라인 — 원은 params로 충분)
+        // 곡선 정의(접선을 아는 곡선 모서리): 원·타원 호는 틀 x축과 두 끝 매개변수 각(화면이 곡선 가운데 점·호 범위를 끝 꼭짓점(float32)이 아니라 이 각으로 구한다),
+        // 한 바퀴 원은 기록 없음(params로 충분 — 끝이 없다), 한 바퀴 타원은 틀 x축만
         eCurveStart.push(eCurves.length);
-        const rec = !ts || !te ? null : c instanceof EllipseCurve ? ellipseRecord(c.f.x) : c instanceof BSplineCurve ? bsplineRecord(c.nc, t1!, t2!, c.period, origin) : null;
+        const turn = t1 !== undefined && t2 !== undefined && Math.abs(t2 - t1) >= 2 * Math.PI * (1 - 1e-12);
+        const rec = !ts || !te
+          ? null
+          : c instanceof CircleCurve
+            ? turn ? null : conicRecord(c.f.x, t1!, t2!)
+            : c instanceof EllipseCurve
+              ? turn ? ellipseAxis(c.f.x) : conicRecord(c.f.x, t1!, t2!)
+              : c instanceof BSplineCurve ? bsplineRecord(c.nc, t1!, t2!, c.period, origin) : null;
         if (rec) for (const v of rec) eCurves.push(v);
       }
       for (let i = 1; i < poly.length; i++) {

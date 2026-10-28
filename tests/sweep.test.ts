@@ -174,9 +174,10 @@ describe('훑기: 품질 지표', () => {
     expect(q).toMatchObject({ items: 2, closedShells: 2, solids: 2, openShells: 0, windingSolids: 0, negativeVolumeSolids: 0, nonFinite: 0, areaMismatchFaces: 0 });
   });
   it('전송량: 이전 버퍼 합, 모서리 표·곡선 정의 바이트, 곡선 모서리와 정의로 접선을 구하는 것', () => {
-    // 원 둘(정의는 params, 원기둥 표에는 기록 배열이 없다), 타원 판 표(모서리 셋 — 기록 3수), B-스플라인 판 표(모서리 넷 — 3차: 머리 6 + 매듭 8 + 조절점 12 = 26수)
+    // 원 둘(한 바퀴 — 정의는 params, 원기둥 표에는 기록 배열이 없다), 타원 판 표(모서리 셋 — 타원 호 기록 5수: 틀 x축 3수와 두 끝 매개변수 2수 — 16차까지 3수),
+    // B-스플라인 판 표(모서리 넷 — 3차: 머리 6 + 매듭 8 + 조절점 12 = 26수)
     const x = transferStats({ scene: stepToScene(curveStep()) });
-    expect(x).toMatchObject({ curved: 4, exact: 4, curves: (3 + 26) * 8 + (4 + 5) * 4 });
+    expect(x).toMatchObject({ curved: 4, exact: 4, curves: (5 + 26) * 8 + (4 + 5) * 4 });
     expect(x.edges).toBeGreaterThan(x.curves);
     expect(x.xfer).toBeGreaterThan(x.edges);
     // 곡선 정의가 없는 표(곧은 모서리만)

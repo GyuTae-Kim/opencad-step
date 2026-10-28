@@ -133,7 +133,7 @@ export function rimChordAt(poly: readonly V3[], t: number): { point: V3; seg: nu
 }
 
 /** 반지름 rad, 높이 h 원기둥(z축): 원 틀의 x축을 x로 — 이음 꼭짓점과 이음선이 그 방향에 온다 */
-function cylinderRim(w: StepText, rad: number, h: number, x: P3): number {
+export function cylinderRim(w: StepText, rad: number, h: number, x: P3): number {
   const p0: P3 = [rad * x[0], rad * x[1], 0];
   const p1: P3 = [rad * x[0], rad * x[1], h];
   const V0 = w.vertex(p0);
