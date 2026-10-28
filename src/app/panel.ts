@@ -9,7 +9,7 @@ import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyName, bodyTitle, instanceCounts, meshById, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, wireLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
@@ -346,7 +346,7 @@ export class Panel {
     }
     const counts = instanceCounts(d.info);
     const filtering = !!d.treeFilter.trim();
-    const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit, (n, i) => bodyName(n, meshById(d.scene, n.meshIds[i]!))) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
+    const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit, (n, i) => bodyName(n, itemById(d.scene, nodeItems(n)[i]!)?.[0], i >= n.meshIds.length)) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
     const { rows, truncated, total } = res;
 
     // 이름 거르기
@@ -441,17 +441,18 @@ export class Panel {
   }
 
   private treeRow(d: StepDoc, r: TreeRow, counts: Map<string, number>, picked: Set<string> | null): HTMLElement {
-    const bodyId = r.body === undefined ? null : r.meshIds[0]!;
-    const mesh = bodyId ? meshById(d.scene, bodyId) : undefined;
-    // 몸체 줄 이름: 형상 항목 이름(파일 글), 없으면 "몸체 2"(부품 마디 바로 아래라 부품 이름은 되풀이하지 않는다 — 말풍선에 "부품 · 몸체 2")
-    const bname = bodyId ? bodyName(r.node, mesh) : '';
-    const { name, instance } = bodyId ? { name: bname || `몸체 ${r.body}`, instance: '' } : nodeLabel(r.node);
+    const bodyId = r.body === undefined ? null : r.itemIds[0]!;
+    const found = bodyId ? itemById(d.scene, bodyId) : undefined;
+    // 몸체 줄 이름: 형상 항목 이름(파일 글), 없으면 "몸체 2"·"선 형상 1"(부품 마디 바로 아래라 부품 이름은 되풀이하지 않는다 — 말풍선에 "부품 · 몸체 2")
+    const bname = bodyId ? bodyName(r.node, found?.[0], r.wire !== undefined) : '';
+    const generic = r.wire !== undefined ? wireLabel(r.node, undefined, found?.[1], r.wire) : `몸체 ${r.body}`;
+    const { name, instance } = bodyId ? { name: bname || generic, instance: '' } : nodeLabel(r.node);
     const visible = nodeVisible(r.itemIds, (id) => this.host.isVisible(id));
     // 고름 · 이 부품의 몸체 일부만 고름(몸체 단위 고르기·몸체 줄·여러 개 고르기 — 줄에 옅게 표시)
     const [sel, part] = rowMarks(d, r, picked);
     const tog = h('button', { type: 'button', class: `twisty${bodyId ? ' body-mark' : ''}`, tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
     if (r.hasChildren) tog.append(icon(r.open ? 'chevronDown' : 'chevronRight', 14));
-    else if (bodyId) tog.append(icon('body', 13));
+    else if (bodyId) tog.append(icon(r.wire !== undefined ? 'wire' : 'body', 13));
     tog.addEventListener('click', (ev) => {
       ev.stopPropagation();
       d.expanded = toggleKey(d.expanded, r.key);
@@ -474,7 +475,9 @@ export class Panel {
     const lines = r.node.lineIds?.length ?? 0;
     // 말풍선은 bodyTitle과 같은 글("부품 / 항목" 또는 "부품 · 몸체 2") — 줄마다 나무를 다시 훑지 않게 줄의 마디로 바로 만든다
     const tip = bodyId
-      ? [bname ? mesh!.name! : `${r.node.name} · 몸체 ${r.body}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
+      ? r.wire !== undefined
+        ? [bname ? `${r.node.name} / ${bname}` : `${r.node.name} · ${generic}`, '두 번 누르면 이 선 형상으로 맞춰 봅니다']
+        : [bname ? found![0].name! : `${r.node.name} · ${generic}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
       : [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
     const item = h(
       'div',
@@ -491,7 +494,8 @@ export class Panel {
       },
       tog,
       eye,
-      h('span', { class: 'tree-name', translate: bname ? 'no' : null }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
+      // 이름 없는 몸체 줄의 "몸체 2"·"선 형상 1"은 화면 글이라 번역층이 옮긴다(파일 이름인 .tree-name은 건너뛴다)
+      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: 'tree-name', translate: bname ? 'no' : null }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
       n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
     );
     // 이 줄 고르기·맞춰 보기(몸체 줄은 그 몸체 하나, 마디 줄은 그 마디 아래 통째)
@@ -563,11 +567,13 @@ export class Panel {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
       this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
     }
-    // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만
+    // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만. 선 형상 몸체는 물리 속성이 없다
     const pid = selectedBody(d);
     const all = node ? subtreeMeshIds(node) : null;
     const body = pid && all && all.length > 1 && all.includes(pid) ? meshById(d.scene, pid) : undefined;
-    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, body)));
+    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, d.scene, body.id)));
+    else if (pid && node?.lineIds?.includes(pid) && hasBodies(node))
+      this.body.append(section('물리 속성', h('p', { class: 'hint' }, '선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.')));
     else this.body.append(this.physSection(d, all ?? (d.items ? d.items.ids : null), d.items && !node ? d.items.label : undefined));
   }
 
@@ -909,7 +915,7 @@ export class Panel {
       // 윤곽선(모서리) 고르기의 id는 그물 id
       const item = p.kind === 'mesh' || p.kind === 'edge' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
-      const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item ? bodyTitle(d.products, item) : p.id, instance: '' };
+      const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item ? bodyTitle(d.products, d.scene, p.id) : p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       // 점·법선 조각을 따로 번역되게 나눈다
@@ -926,8 +932,7 @@ export class Panel {
     } else if (d.items) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     } else if (d.body) {
-      const m = meshById(d.scene, d.body);
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', { translate: 'no' }, m ? bodyTitle(d.products, m) : d.body)), fitBtn()));
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', { translate: 'no' }, bodyTitle(d.products, d.scene, d.body))), fitBtn()));
     }
     if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
     else if (d.measure) {
@@ -1003,7 +1008,7 @@ function treePicked(d: StepDoc): Set<string> | null {
  */
 function rowMarks(d: StepDoc, r: TreeRow, picked: Set<string> | null): [boolean, boolean] {
   const sel = d.selKey === r.key || (!!picked && r.itemIds.length > 0 && r.itemIds.every((id) => picked.has(id)));
-  return [sel, !sel && !!picked && r.body === undefined && r.node.meshIds.some((id) => picked.has(id))];
+  return [sel, !sel && !!picked && r.body === undefined && nodeItems(r.node).some((id) => picked.has(id))];
 }
 
 function markRow(el: HTMLElement, sel: boolean, part: boolean): void {

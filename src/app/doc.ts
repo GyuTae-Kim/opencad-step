@@ -555,10 +555,13 @@ export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'
   return d.body ? [d.body] : [];
 }
 
-/** 고른 몸체 하나: 나무 몸체 줄에서 고른 것, 또는 마디·묶음 없이 3D에서 고른 그물(몸체 단위로 누름), 아니면 null */
+/**
+ * 고른 몸체 하나: 나무 몸체 줄에서 고른 것(입체·선 형상), 또는 마디·묶음 없이 3D에서 고른 그물·선 형상(몸체 단위로 누름), 아니면 null.
+ * 나무에 없는 표현 PMI 선을 누른 것도 돌려주지만 나무에는 그 줄이 없다
+ */
 export function selectedBody(d: Pick<StepDoc, 'selKey' | 'items' | 'pick'> & { body?: string | null }): string | null {
   if (d.selKey || d.items) return null;
-  if (d.pick) return d.pick.kind === 'mesh' || d.pick.kind === 'edge' ? d.pick.id : null;
+  if (d.pick) return d.pick.id;
   return d.body ?? null;
 }
 
@@ -567,21 +570,51 @@ export function resetSelection(d: StepDoc): void {
   d.selKey = d.pick = d.body = d.items = d.face = d.edge = null;
 }
 
-/** 나무에 몸체 줄을 둘 부품: 바로 놓인 형상(입체)이 둘 이상 */
-export const hasBodies = (n: ProductNode): boolean => n.meshIds.length > 1;
+/**
+ * 마디에 바로 놓인 형상 항목(몸체 줄 차례): 입체(meshIds) 다음 선 형상(lineIds — 와이어프레임 곡선·점 묶음).
+ * 몸체 줄 열쇠·보기 링크 몸체 낱말의 차례("0/2.3")가 이 차례다
+ */
+export const nodeItems = (n: ProductNode): string[] => (n.lineIds?.length ? [...n.meshIds, ...n.lineIds] : n.meshIds);
 
-/** 몸체(형상 항목)의 파일 이름: 그물 이름 "부품 / 항목"의 항목, 이름이 없으면 '' */
-export function bodyName(node: ProductNode, item: { name?: string } | undefined): string {
+/** 나무에 몸체 줄을 둘 부품: 바로 놓인 형상(입체·선 형상)이 둘 이상 */
+export const hasBodies = (n: ProductNode): boolean => n.meshIds.length + (n.lineIds?.length ?? 0) > 1;
+
+/**
+ * 몸체(형상 항목)의 파일 이름: 그물 이름 "부품 / 항목"의 항목, 선 형상(wire)은 그 표현 이름(부품 이름과 같으면 없음), 이름이 없으면 ''
+ */
+export function bodyName(node: ProductNode, item: { name?: string } | undefined, wire = false): string {
   const pre = `${node.name} / `;
-  return item?.name?.startsWith(pre) ? item.name.slice(pre.length) : '';
+  if (item?.name?.startsWith(pre)) return item.name.slice(pre.length);
+  return wire && item?.name && item.name !== node.name ? item.name : '';
 }
 
+/** 장면 묶음의 종류 */
+export type ItemKind = 'mesh' | 'line' | 'point';
+type SceneItem = Scene3d['meshes'][number] | Scene3d['lines'][number] | NonNullable<Scene3d['points']>[number];
 const meshMaps = new WeakMap<Scene3d, Map<string, Scene3d['meshes'][number]>>();
+const itemMaps = new WeakMap<Scene3d, Map<string, [SceneItem, ItemKind]>>();
 /** 그물 id → 그물(장면마다 한 번 만든다 — 큰 나무에서 줄마다 찾지 않게) */
 export function meshById(scene: Scene3d, id: string): Scene3d['meshes'][number] | undefined {
   let m = meshMaps.get(scene);
   if (!m) meshMaps.set(scene, (m = new Map(scene.meshes.map((x) => [x.id, x]))));
   return m.get(id);
+}
+/** 묶음 id → 그물·선·점 묶음과 그 종류(장면마다 한 번 만든다) */
+export function itemById(scene: Scene3d, id: string): [SceneItem, ItemKind] | undefined {
+  let m = itemMaps.get(scene);
+  if (!m) {
+    m = new Map();
+    for (const x of scene.meshes) m.set(x.id, [x, 'mesh']);
+    for (const x of scene.lines) m.set(x.id, [x, 'line']);
+    for (const x of scene.points ?? []) m.set(x.id, [x, 'point']);
+    itemMaps.set(scene, m);
+  }
+  return m.get(id);
+}
+
+/** 선 형상 몸체 줄의 이름: 표현 이름, 없으면 "선 형상 2"·"점 형상 3"(마디 선 형상 차례 — 1부터) */
+export function wireLabel(node: ProductNode, item: { name?: string } | undefined, kind: ItemKind | undefined, j: number): string {
+  return bodyName(node, item, true) || `${kind === 'point' ? '점 형상' : '선 형상'} ${j}`;
 }
 
 /**
@@ -602,16 +635,21 @@ export function unitItemIds(roots: readonly ProductNode[], id: string, unit: Pic
 }
 
 /**
- * 몸체 이름: 형상 항목에 이름이 있으면 그물 이름("부품 / 항목") 그대로, 없으면(그물 이름 = 부품 이름) 몸체가 여럿인 부품에서
- * "부품 · 몸체 2"(나무 마디의 형상 차례)
+ * 몸체 이름(id = 그물·선·점 묶음): 형상 항목에 이름이 있으면 그물 이름("부품 / 항목") 그대로, 없으면(그물 이름 = 부품 이름) 형상 항목이 여럿인 부품에서
+ * "부품 · 몸체 2"(나무 마디의 입체 차례). 선 형상은 형상 항목이 여럿인 부품에서 "부품 / 표현 이름" 또는 "부품 · 선 형상 1"(마디 선 형상 차례)
  */
-export function bodyTitle(roots: readonly ProductNode[], item: { id: string; name?: string }): string {
-  const name = item.name ?? item.id;
-  const key = productKeyOf(roots, item.id);
+export function bodyTitle(roots: readonly ProductNode[], scene: Scene3d, id: string): string {
+  const found = itemById(scene, id);
+  const name = found?.[0].name ?? id;
+  const key = productKeyOf(roots, id);
   const node = key ? productAt(roots, key) : null;
-  const i = node ? node.meshIds.indexOf(item.id) : -1;
-  if (!node || node.meshIds.length < 2 || i < 0 || name !== node.name) return name;
-  return `${name} · 몸체 ${i + 1}`;
+  if (!node || !hasBodies(node)) return name;
+  const i = node.meshIds.indexOf(id);
+  if (i >= 0) return name !== node.name ? name : `${name} · 몸체 ${i + 1}`;
+  const j = node.lineIds?.indexOf(id) ?? -1;
+  if (j < 0) return name;
+  const own = bodyName(node, found?.[0], true);
+  return own ? `${node.name} / ${own}` : `${node.name} · ${wireLabel(node, undefined, found?.[1], j + 1)}`;
 }
 
 /**
@@ -717,9 +755,9 @@ export function docStatus(d: StepDoc): StatusItem[] {
 export function carryDocState(from: StepDoc, to: StepDoc): void {
   to.expanded = new Set(from.expanded);
   to.selKey = from.selKey && productAt(to.products, from.selKey) ? from.selKey : null;
-  // 고른 몸체(나무 몸체 줄·몸체 단위 3D 고르기)는 몸체로 잇는다(3D에서 누른 점은 새 삼각형에 맞지 않아 버린다)
+  // 고른 몸체(나무 몸체 줄·몸체 단위 3D 고르기 — 입체·선 형상)는 몸체로 잇는다(3D에서 누른 점은 새 삼각형에 맞지 않아 버린다)
   const body = selectedBody(from);
-  if (!to.selKey && body && meshById(to.scene, body)) to.body = body;
+  if (!to.selKey && body && itemById(to.scene, body) && !to.vis.pmiIds.has(body)) to.body = body;
   to.panelTab = from.panelTab;
   to.treeFilter = from.treeFilter;
   to.density = from.density;

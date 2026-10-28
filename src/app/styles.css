@@ -1002,7 +1002,8 @@ body.resizing .viewer-host {
 .tree-row.part-sel {
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.tree-row.hidden-node .tree-name {
+.tree-row.hidden-node .tree-name,
+.tree-row.hidden-node .tree-name-gen {
   opacity: 0.5;
 }
 .tree-row:focus-visible {
@@ -1042,7 +1043,8 @@ body.resizing .viewer-host {
 .eye:disabled {
   visibility: hidden;
 }
-.tree-name {
+.tree-name,
+.tree-name-gen {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1173,10 +1175,12 @@ table.grid td.mono {
 .filter-info {
   margin: -2px 0 6px;
 }
-.tree-row.match .tree-name {
+.tree-row.match .tree-name,
+.tree-row.match .tree-name-gen {
   font-weight: 650;
 }
-.tree-row.match .tree-name::before {
+.tree-row.match .tree-name::before,
+.tree-row.match .tree-name-gen::before {
   content: '';
   display: inline-block;
   width: 6px;

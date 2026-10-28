@@ -26,7 +26,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, meshById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -1225,12 +1225,12 @@ export class StepApp {
     this.selectionChanged();
   }
 
-  /** 나무 몸체 줄: 몸체 하나 고르기(null = 풀기) — 몸체 단위로 3D에서 누른 것과 같다 */
+  /** 나무 몸체 줄: 몸체(입체·선 형상) 하나 고르기(null = 풀기) — 몸체 단위로 3D에서 누른 것과 같다 */
   selectBody(id: string | null): void {
     const d = this.doc;
     if (!d) return;
     resetSelection(d);
-    d.body = id && meshById(d.scene, id) ? id : null;
+    d.body = id && itemById(d.scene, id) ? id : null;
     this.showFace(null);
     this.viewer?.highlight(d.body ? [d.body] : null);
     this.selectionChanged();
@@ -2888,10 +2888,7 @@ export class StepApp {
       return `${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
     }
     const id = d.pick?.id ?? d.body;
-    if (id) {
-      const m = meshById(d.scene, id) ?? d.scene.lines.find((x) => x.id === id);
-      return m ? bodyTitle(d.products, m) : id;
-    }
+    if (id) return bodyTitle(d.products, d.scene, id);
     return d.items?.label ?? '';
   }
 

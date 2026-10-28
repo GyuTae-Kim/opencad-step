@@ -1,9 +1,10 @@
 /**
  * 제품 나무 펼침·고르기 대응(순수 함수, DOM 없음).
  * 마디는 경로 열쇠("0/2/1" = 첫 뿌리의 셋째 자식의 둘째 자식)로 가리킨다.
- * 몸체(형상 항목)가 둘 이상인 부품은 펼치면 자식 마디 앞에 몸체 줄을 둔다 — 열쇠 "마디 열쇠.차례"("0/2.3" = 그 부품의 셋째 몸체).
+ * 형상 항목(입체·선 형상 묶음)이 둘 이상인 부품은 펼치면 자식 마디 앞에 몸체 줄을 둔다 — 열쇠 "마디 열쇠.차례"("0/2.3" = 그 부품의 셋째 형상 항목,
+ * 입체 다음 선 형상 차례 — doc.ts nodeItems).
  */
-import { hasBodies, productAt, productCountKey, productKeyOf, subtreeItemIds, subtreeMeshIds, type ProductNode } from './doc';
+import { hasBodies, nodeItems, productAt, productCountKey, productKeyOf, subtreeItemIds, subtreeMeshIds, type ProductNode } from './doc';
 
 export interface TreeRow {
   key: string;
@@ -18,20 +19,24 @@ export interface TreeRow {
   itemIds: string[];
   /** 이름 거르기에서 이 마디가 맞았는지(조상이라 보이는 줄은 false) */
   match?: boolean;
-  /** 몸체 줄이면 그 몸체의 차례(부품 마디 meshIds의 차례, 1부터) */
+  /** 몸체 줄이면 그 몸체의 차례(부품 마디의 형상 항목 차례 — 입체 다음 선 형상, 1부터) */
   body?: number;
+  /** 선 형상 몸체 줄이면 마디 선 형상(lineIds) 안의 차례(1부터) */
+  wire?: number;
 }
 
 /** 펼칠 것이 있는 마디: 자식 마디나 몸체 줄 */
 const expandable = (n: ProductNode): boolean => n.children.length > 0 || hasBodies(n);
 
-/** 부품 마디의 몸체 줄(match: 이름 거르기에서 맞은 몸체만 보일 때 그 판정) */
+/** 부품 마디의 몸체 줄 — 입체 다음 선 형상(match: 이름 거르기에서 맞은 몸체만 보일 때 그 판정) */
 function bodyRows(n: ProductNode, key: string, depth: number, match?: (i: number) => boolean): TreeRow[] {
   const out: TreeRow[] = [];
-  n.meshIds.forEach((id, i) => {
+  const solids = n.meshIds.length;
+  nodeItems(n).forEach((id, i) => {
     const m = match?.(i);
     if (m === false) return;
-    out.push({ key: `${key}.${i + 1}`, node: n, depth, hasChildren: false, open: false, meshIds: [id], itemIds: [id], body: i + 1, ...(m ? { match: true } : {}) });
+    const wire = i >= solids ? { wire: i - solids + 1 } : {};
+    out.push({ key: `${key}.${i + 1}`, node: n, depth, hasChildren: false, open: false, meshIds: i < solids ? [id] : [], itemIds: [id], body: i + 1, ...wire, ...(m ? { match: true } : {}) });
   });
   return out;
 }
@@ -75,7 +80,7 @@ export function nodeMatches(n: ProductNode, query: string): boolean {
 /**
  * 이름 거르기: 맞는 마디와 그 조상만(조상은 펼쳐서) 줄로 만든다. 맞는 마디의 자식은 펼친 것만 따른다.
  * matches는 맞은 마디 수(제한 없이), rows는 limit 줄까지.
- * bodyName(부품 마디, 몸체 차례 0부터)을 주면 이름 있는 몸체도 거른다(맞은 몸체 줄과 그 부품·조상을 보인다).
+ * bodyName(부품 마디, 형상 항목 차례 0부터 — 입체 다음 선 형상)을 주면 이름 있는 몸체·선 형상도 거른다(맞은 몸체 줄과 그 부품·조상을 보인다).
  */
 export function filterRows(
   roots: readonly ProductNode[],
@@ -100,7 +105,7 @@ export function filterRows(
       const self = nodeMatches(n, query);
       if (self) matches++;
       if (hasBodies(n) && bodyName)
-        n.meshIds.forEach((_, j) => {
+        nodeItems(n).forEach((_, j) => {
           if (!bodyHit(n, j)) return;
           matches++;
           bodyHits.add(key);

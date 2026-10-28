@@ -872,5 +872,9 @@
   "한꺼번에: 모든 부품을 조립 가운데에서 함께 벌립니다": "Alle zugleich: rückt alle Teile gemeinsam von der Baugruppenmitte weg",
   "분해 방식": "Explosionsart",
   "단계 {0}/{1}": "Stufe {0}/{1}",
-  "분해 보기를 받지 못했습니다.": "Die Explosionsansicht konnte nicht geladen werden."
+  "분해 보기를 받지 못했습니다.": "Die Explosionsansicht konnte nicht geladen werden.",
+  "선 형상 {0}": "Linienform {0}",
+  "점 형상 {0}": "Punktform {0}",
+  "두 번 누르면 이 선 형상으로 맞춰 봅니다": "Doppelklicken, um auf diese Linienform einzupassen",
+  "선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.": "Linienformen haben kein Volumen und keine Masse – wählen Sie die Teilzeile, um die physikalischen Eigenschaften des Teils zu sehen."
 }

@@ -3,12 +3,13 @@
  *
  * 낱말(쉼표로 잇는다):
  * - `0/2/1` — 나무 마디(그 아래 형상 통째). 예전 링크의 `sel:0/2/1`이 이 꼴 하나라 그대로 열린다
- * - `0/2.3` — 마디 0/2에 바로 놓인 셋째 몸체(형상 항목, 1부터 — 나무의 "몸체 3" 줄)
+ * - `0/2.3` — 마디 0/2에 바로 놓인 셋째 형상 항목(1부터 — 입체 다음 선 형상 차례: 입체가 둘이면 `0/2.3`은 첫 선 형상, 나무의 몸체 줄 하나).
+ *   예전 앱은 입체 차례만 알아 선 형상 낱말은 빈 고르기로 건너뛴다(다른 낱말은 그대로)
  * - `0/2/4-9`·`0/2.1-3` — 이웃한 형제 마디(넷째~열째)·몸체를 줄여 쓴 것
  * 마디 아래 형상을 모두 골랐으면 그 마디 하나로 쓰고(위로 올라가며 묶는다), 나무에 없는 항목(표현 PMI 선 등)은 담지 않는다.
  * 너무 길면(기본 1,500자 넘음) 나무 차례로 앞의 것만 담는다 — 받는 쪽 주소 길이 한도(메신저·메일)에 걸리지 않게.
  */
-import { productAt, subtreeItemIds, type ProductNode } from './doc';
+import { nodeItems, productAt, subtreeItemIds, type ProductNode } from './doc';
 
 /** 보기 링크의 고른 것 글 길이 한도(낱말과 쉼표) */
 export const SEL_MAX_CHARS = 1500;
@@ -20,16 +21,12 @@ export function selectionTokens(roots: readonly ProductNode[], ids: readonly str
     const out: string[] = [];
     let full = true;
     let any = false;
-    n.meshIds.forEach((id, i) => {
+    nodeItems(n).forEach((id, i) => {
       if (set.has(id)) {
         out.push(`${key}.${i + 1}`);
         any = true;
       } else full = false;
     });
-    for (const id of n.lineIds ?? []) {
-      if (set.has(id)) any = true;
-      else full = false;
-    }
     n.children.forEach((c, i) => {
       const r = visit(c, `${key}/${i}`);
       full &&= r.full;
@@ -99,10 +96,10 @@ export function resolveTokens(roots: readonly ProductNode[], tokens: readonly st
     const a = Number(m[3]);
     const last = m[4] === undefined ? a : Number(m[4]);
     if (m[1] !== undefined) {
-      // 몸체: 마디에 바로 놓인 형상 차례(1부터)
+      // 몸체: 마디에 바로 놓인 형상 항목 차례(1부터, 입체 다음 선 형상)
       const node = productAt(roots, m[1]);
       if (!node || a < 1) continue;
-      const list = node.meshIds.slice(a - 1, last);
+      const list = nodeItems(node).slice(a - 1, last);
       add(list);
       if (list.length) open.push(m[1]);
       if (tokens.length === 1 && a === last && list.length === 1) body = list[0];

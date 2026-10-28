@@ -23,9 +23,10 @@ describe('보기 링크 고른 것: 나무 자리 낱말', () => {
     expect(selectionTokens(tree, ['b2'])).toEqual(['0/6.2']);
     expect(selectionTokens(tree, ['b1', 'b2', 'm0'])).toEqual(['0/0', '0/6.1-2']);
     expect(selectionTokens(tree, ['b1', 'b2', 'b3'])).toEqual(['0/6']);
-    // 하위 조립의 자식을 모두(선 형상까지) 고르면 그 조립 하나, 선 형상을 빼면 몸체 낱말
+    // 하위 조립의 자식을 모두(선 형상까지) 고르면 그 조립 하나, 선 형상을 빼면 몸체 낱말, 선 형상만이면 입체 다음 차례
     expect(selectionTokens(tree, ['s0', 's1', 'l1', 's2'])).toEqual(['0/7']);
     expect(selectionTokens(tree, ['s0', 's1', 's2'])).toEqual(['0/7/0', '0/7/1.1', '0/7/2']);
+    expect(selectionTokens(tree, ['s0', 'l1'])).toEqual(['0/7/0', '0/7/1.2']);
     // 뿌리끼리도 범위, 나무에 없는 항목(표현 PMI 선)은 담지 않는다
     expect(selectionTokens(tree, [...subtreeItemIds(tree[0]!), 'x1', 'pmi-1'])).toEqual(['0-1']);
     expect(selectionTokens(tree, ['pmi-1'])).toEqual([]);
@@ -48,10 +49,9 @@ describe('보기 링크 고른 것: 나무 자리 낱말', () => {
     const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
     for (let k = 0; k < 200; k++) {
       const ids = all.filter(() => rnd() < 0.4);
-      // 선 형상만 따로 고른 것은 낱말이 없다(그 부품 마디를 통째로 — 몸체 s1과 함께 — 고를 때만 담긴다)
-      const want = ids.filter((id) => id !== 'l1' || ids.includes('s1'));
+      // 선 형상만 따로 고른 것도 낱말("0/7/1.2")로 담긴다
       const got = resolveTokens(tree, selectionTokens(tree, ids)).ids;
-      expect(new Set(got), JSON.stringify(ids)).toEqual(new Set(want));
+      expect(new Set(got), JSON.stringify(ids)).toEqual(new Set(ids));
     }
   });
 
