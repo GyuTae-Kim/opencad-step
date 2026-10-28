@@ -13,14 +13,15 @@ import { crc32 } from '../src/archive';
 import { STEP_EXTENSIONS as APP_STEP_EXTENSIONS } from '../src/app/files';
 import { IFC_MESSAGE } from '../src/app/protocol';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode } from '../scripts/sweep/classify';
-import { areaMismatch, itemQuality, massPropsStats, propsSignature, sceneQuality } from '../scripts/sweep/metrics';
+import { areaMismatch, itemQuality, massPropsStats, propsSignature, sceneQuality, transferStats } from '../scripts/sweep/metrics';
 import { qualityOptions } from '../scripts/sweep/quality';
 import { sweepOne } from '../scripts/sweep/worker';
 import { dedupe, extensionOf, keepOpenable, nameKind, STEP_EXTENSIONS, walkDirs } from '../scripts/sweep/files.mjs';
-import { percentile, summarize, type SweepRecord } from '../scripts/sweep/summary.mjs';
+import { formatSummary, percentile, summarize, type SweepRecord } from '../scripts/sweep/summary.mjs';
 import { compareRecords, formatCompare } from '../scripts/sweep/compare.mjs';
 import { parseArgs } from '../scripts/sweep/sweep.mjs';
 import { cube, cylinder, StepText } from './stepText';
+import { curveStep } from './app/curvescene';
 import { makeZip } from './zipText';
 
 const root = resolve(__dirname, '..');
@@ -172,6 +173,16 @@ describe('훑기: 품질 지표', () => {
     const q = sceneQuality({ meshes: [...s.meshes, { ...s.meshes[0]!, id: 'again' }], meta: s.meta });
     expect(q).toMatchObject({ items: 2, closedShells: 2, solids: 2, openShells: 0, windingSolids: 0, negativeVolumeSolids: 0, nonFinite: 0, areaMismatchFaces: 0 });
   });
+  it('전송량: 이전 버퍼 합, 모서리 표·곡선 정의 바이트, 곡선 모서리와 정의로 접선을 구하는 것', () => {
+    // 원 둘(정의는 params, 원기둥 표에는 기록 배열이 없다), 타원 판 표(모서리 셋 — 기록 3수), B-스플라인 판 표(모서리 넷 — 3차: 머리 6 + 매듭 8 + 조절점 12 = 26수)
+    const x = transferStats({ scene: stepToScene(curveStep()) });
+    expect(x).toMatchObject({ curved: 4, exact: 4, curves: (3 + 26) * 8 + (4 + 5) * 4 });
+    expect(x.edges).toBeGreaterThan(x.curves);
+    expect(x.xfer).toBeGreaterThan(x.edges);
+    // 곡선 정의가 없는 표(곧은 모서리만)
+    const box = transferStats({ scene: stepToScene(new TextEncoder().encode(partStep((w) => [cube(w, 10).solid]))) });
+    expect(box).toMatchObject({ curved: 0, exact: 0, curves: 0 });
+  });
 });
 
 describe('훑기: 표본 고르기와 CLI', () => {
@@ -312,7 +323,15 @@ describe('훑기: 요약과 비교', () => {
     const q = s.byQuality.normal!.quality;
     expect(q).toMatchObject({ windingSolids: 2, windingFiles: 1, negativeVolumeFiles: 1, foldedFiles: 1, foldedAnyFiles: 2, foldedMaxRatio: 0.002, exceptions: 1, triangles: 300 });
     expect(s.byQuality.normal!.time).toMatchObject({ totalMs: 80, max: 50 });
+    expect(s.byQuality.normal!.transfer).toBeUndefined();
     expect(s.done).toBe(true);
+  });
+
+  it('요약: 전송량(기록에 x가 있는 파일만) — 합·백분위·최대, 모서리 표·곡선 정의 바이트, 곡선 모서리 수', () => {
+    const x = (xfer: number, edges: number, curves: number, curved: number, exact: number) => ({ x: { xfer, edges, curves, curved, exact } });
+    const s = summarize([rec('a', x(1000, 400, 100, 5, 5)), rec('b', x(3000, 800, 0, 2, 1)), rec('c'), rec('d', x(2000, 0, 0, 0, 0))]);
+    expect(s.byQuality.normal!.transfer).toEqual({ files: 3, totalBytes: 6000, p50: 2000, p90: 3000, max: 3000, edgeBytes: 1200, curveBytes: 100, curvedEdges: 7, exactEdges: 6 });
+    expect(formatSummary(s)).toContain('곡선 모서리 7개 가운데 정의로 접선 6개');
   });
 
   it('비교: 분류·새 예외·지표가 바뀐 파일, 한쪽에 없는 값은 건너뜀', () => {

@@ -58,6 +58,80 @@ export const bsAt = (u: number): V3 => {
   return bsWorld([0, 1, 2].map((k) => b.reduce((s, w, i) => s + w * BS_CP[i]![k]!, 0)));
 };
 
+/** 3차 베지어의 매개변수 u 접선(u가 커지는 쪽, 세계 단위) */
+export const bsTangentAt = (u: number): V3 => {
+  const d = [(1 - u) ** 2, 2 * u * (1 - u), u * u];
+  return bsDir([0, 1].map((k) => 3 * d.reduce((s, w, i) => s + w * (BS_CP[i + 1]![k]! - BS_CP[i]![k]!), 0)).concat(0));
+};
+/** 테두리 원 위 각 t(틀 기준)의 접선(원이 도는 쪽) */
+export const rimTangentAt = (t: number): V3 => [-Math.sin(t + Math.PI / 6), Math.cos(t + Math.PI / 6), 0];
+
+/**
+ * 곡선 위 p에 가장 가까운 매개변수(시험의 기댓값 — 앱 계산과 다른 길): [lo, hi]를 n등분한 표본에서 거리가 가장 작은 곳을 잡고,
+ * 그 이웃 사이에서 (점 − p)·접선의 부호가 바뀌면 반 나눔으로 매개변수 수의 반올림까지 좁힌다(바뀌지 않으면 구간 끝)
+ */
+export function footParam(at: (t: number) => V3, tan: (t: number) => V3, p: readonly number[], lo: number, hi: number, n = 4000): number {
+  const d2 = (t: number): number => {
+    const c = at(t);
+    return (c[0] - p[0]!) ** 2 + (c[1] - p[1]!) ** 2 + (c[2] - p[2]!) ** 2;
+  };
+  const g = (t: number): number => {
+    const c = at(t);
+    const d = tan(t);
+    return d[0] * (c[0] - p[0]!) + d[1] * (c[1] - p[1]!) + d[2] * (c[2] - p[2]!);
+  };
+  let k = 0;
+  for (let i = 1; i <= n; i++) if (d2(lo + ((hi - lo) * i) / n) < d2(lo + ((hi - lo) * k) / n)) k = i;
+  let a = lo + ((hi - lo) * Math.max(0, k - 1)) / n;
+  let b = lo + ((hi - lo) * Math.min(n, k + 1)) / n;
+  if (!(g(a) < 0 && g(b) > 0)) return lo + ((hi - lo) * k) / n;
+  for (let it = 0; it < 200; it++) {
+    const m = 0.5 * (a + b);
+    if (m === a || m === b) break;
+    if (g(m) < 0) a = m;
+    else b = m;
+  }
+  return 0.5 * (a + b);
+}
+
+/** 꺾은선을 길이로 반 가른 점(앱이 곡선 모서리에 주는 가운데 점과 같은 자리) */
+export function halfway(poly: readonly V3[]): V3 {
+  const d = (a: V3, b: V3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  let total = 0;
+  for (let i = 1; i < poly.length; i++) total += d(poly[i]!, poly[i - 1]!);
+  let acc = 0;
+  for (let i = 1; i < poly.length; i++) {
+    const l = d(poly[i]!, poly[i - 1]!);
+    if (acc + l >= total / 2) {
+      const t = (total / 2 - acc) / l;
+      return [0, 1, 2].map((k) => poly[i - 1]![k]! + (poly[i]![k]! - poly[i - 1]![k]!) * t) as V3;
+    }
+    acc += l;
+  }
+  return poly[poly.length - 1]!;
+}
+
+/**
+ * 테두리 원을 그린 꺾은선(세계, 이음 꼭짓점에서 시작)에서 원 중심을 지나 틀 각 t 쪽으로 나간 반직선이 만나는 점과 그 토막 번호·비율
+ * (곡선 위 점이 아니라 화면용 꺾은선 위 — 현이라 원 안쪽으로 조금 들어간다)
+ */
+export function rimChordAt(poly: readonly V3[], t: number): { point: V3; seg: number; f: number } {
+  const u = [Math.cos(t + Math.PI / 6), Math.sin(t + Math.PI / 6)];
+  for (let i = 0; i + 1 < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[i + 1]!;
+    // a + s(b − a) = r u (xy 평면, 중심 (0, 0)) — s와 r을 푼다
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const det = dx * -u[1]! - dy * -u[0]!;
+    if (!det) continue;
+    const s = (-a[0] * -u[1]! + a[1] * -u[0]!) / det;
+    const r = (dx * -a[1] + dy * a[0]) / det;
+    if (s >= 0 && s < 1 && r > 0) return { point: [a[0] + s * dx, a[1] + s * dy, a[2] + s * (b[2] - a[2])], seg: i, f: s };
+  }
+  throw new Error(`꺾은선이 각 ${t}를 지나지 않는다`);
+}
+
 /** 반지름 rad, 높이 h 원기둥(z축): 원 틀의 x축을 x로 — 이음 꼭짓점과 이음선이 그 방향에 온다 */
 function cylinderRim(w: StepText, rad: number, h: number, x: P3): number {
   const p0: P3 = [rad * x[0], rad * x[1], 0];

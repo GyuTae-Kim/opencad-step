@@ -13,7 +13,28 @@ import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair, viewerLock
 import { curveEndsAt, endPolyline, TangentLock } from '../../src/app/tangent';
 import { StepText } from '../stepText';
 import { type FakeElement, installDom } from './fakeview';
-import { BS_END, BS_START, BS_T0, curveStep, ELL_START, ELL_T0, ellTangent, RIM, RIM_TANGENT, type V3 } from './curvescene';
+import {
+  bsAt,
+  BS_END,
+  BS_START,
+  BS_T0,
+  bsTangentAt,
+  bsWorld,
+  curveStep,
+  ellAt,
+  ELL_END,
+  ELL_START,
+  ELL_T0,
+  ELL_T1,
+  ellTangent,
+  footParam,
+  halfway,
+  RIM,
+  rimChordAt,
+  rimTangentAt,
+  RIM_TANGENT,
+  type V3,
+} from './curvescene';
 
 let dom: ReturnType<typeof installDom>;
 beforeAll(() => {
@@ -273,5 +294,120 @@ describe('곡선 모서리 끝의 접선 잠금: 실제 코어 판정 + 앱 Tang
     expect(got[0]!.lockedB).toBe(true);
     expect(tl.result(got[0])).toBe(false);
     shiftUp(w);
+  });
+});
+
+/** 화면 사각형 확대: 두 세계 점 사이 가운데를 화면 가운데로, 그 둘 사이 화면 거리의 두 배 사각형이 화면을 채우게 */
+const zoomAround = (w: View, p: readonly number[], q: readonly number[]): void => {
+  const a = at(w, p);
+  const b = at(w, q);
+  const half = Math.max(4, Math.hypot(a.x - b.x, a.y - b.y));
+  const cx = (a.x + b.x) / 2;
+  const cy = (a.y + b.y) / 2;
+  w.v.zoomToRect(cx - half, cy - half, cx + half, cy + half, false);
+  w.v.renderNow();
+};
+
+describe('곡선 모서리의 끝이 아닌 곳에서의 접선 잠금: 실제 코어 판정 + 앱 TangentLock', () => {
+  const ellPoly = endPolyline(curveEndsAt(scene.meshes, ex, ELL_START)[0]!);
+  const bsPoly = endPolyline(curveEndsAt(scene.meshes, ex, BS_START)[0]!);
+
+  it('원기둥 테두리 30° 지점(코어 모서리 위 점 — 꺾은선 현 위): 그 토막 끝 꼭짓점에서 코어는 현, Shift·결과는 그 점의 원 접선', () => {
+    const w = view();
+    const { v, tl } = w;
+    const c = rimChordAt(rimPoly, Math.PI / 6);
+    // 토막이 화면에서 짧아 꼭짓점에 붙지 않도록 그 토막을 크게 본다
+    zoomAround(w, rimPoly[c.seg]!, rimPoly[c.seg + 1]!);
+    hoverAt(w, c.point);
+    expect(v.measureHoverSnap!.snap).toBeNull();
+    clickAt(w, c.point);
+    expect(v.measurePointCount).toBe(1);
+    const a = v.measurePoints[0]!.point;
+    expect(dist(a, c.point)).toBeLessThan(1e-5);
+    // 꺾은선(현) 위라 원에서 안쪽으로 비켜 있다 — 접선은 그 점에서 원 위 가장 가까운 점(같은 각)의 접선
+    expect(10 - Math.hypot(a[0]!, a[1]!)).toBeGreaterThan(1e-3);
+    const th = Math.atan2(a[1]!, a[0]!) - Math.PI / 6;
+    const T = rimTangentAt(th);
+    expect(Math.abs(th - Math.PI / 6)).toBeLessThan(1e-5);
+    // 같은 토막의 앞 꼭짓점: 코어는 그 토막(현) 방향으로 잠그려 한다 — 앱은 원 접선
+    hoverAt(w, rimPoly[c.seg + 1]!);
+    expect(['endpoint', 'vertex']).toContain(v.measureHoverSnap!.snap);
+    const chord = v.measureHoverLock!;
+    expect(chord).toBeTruthy();
+    expect(angleDeg(chord.direction, T)).toBeGreaterThan(1);
+    close(tl.now(v), T, 1e-9);
+    expect(viewerLockHint(v, false, tl)).toBe('Shift·화살표로 방향 잠금');
+    shiftDown(w);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    close(v.measureInferenceLock!.direction, T, 1e-9);
+    // 다시 다 보이게 한 뒤 잠근 채 B-스플라인 판 끝을 찍으면 접선 직선으로 내린 자리
+    v.fit(false);
+    v.renderNow();
+    const got: MeasureResult[] = [];
+    v.onMeasure((m) => m && got.push(m));
+    clickAt(w, BS_START, true);
+    expect(got).toHaveLength(1);
+    expect(got[0]!.lockedB).toBe(true);
+    expect(got[0]!.distance).toBeCloseTo(Math.abs(dot(sub(BS_START, a), T)), 5);
+    expect(tl.result(got[0])).toBe(true);
+    shiftUp(w);
+  });
+
+  it('타원 호 가운데 점(앱이 주는 곡선 길이 가운데 점): 끝을 보면 그 점의 타원 접선(끝 쪽), 시작을 보면 반대 — 코어는 잠글 방향이 없다', () => {
+    const w = view();
+    const { v, tl } = w;
+    const m = halfway(ellPoly);
+    hoverAt(w, m);
+    expect(v.measureHoverSnap!.snap).toBe('midpoint');
+    clickAt(w, m);
+    const a = v.measurePoints[0]!.point;
+    expect(dist(a, m)).toBeLessThan(1e-5);
+    const tm = footParam(ellAt, ellTangent, a, ELL_T0, ELL_T1);
+    const T = ellTangent(tm);
+    // 호 가운데 점의 접선은 호 끝 접선과 다르다
+    expect(angleDeg(T, ellTangent(ELL_T0))).toBeGreaterThan(30);
+    hoverAt(w, ELL_END);
+    expect(v.measureHoverSnap!.snap).toBe('endpoint');
+    expect(v.measureHoverLock).toBeNull();
+    close(tl.now(v), T, 1e-9);
+    hoverAt(w, ELL_START);
+    close(tl.now(v), neg(T), 1e-9);
+    expect(tl.lockNow(v)).toBe(true);
+    close(v.measureInferenceLock!.direction, neg(T), 1e-9);
+    expect(tl.locked(v)).toBe(true);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+  });
+
+  it('B-스플라인(돌린 부품) 중간 꺾은선 꼭짓점: 이웃 꼭짓점에서 코어는 그 토막, Shift는 그 점의 곡선 접선, 뒤 꼭짓점이면 반대', () => {
+    const w = view();
+    const { v, tl } = w;
+    const k = 8;
+    const p = bsPoly[k]!;
+    zoomAround(w, bsPoly[k - 1]!, bsPoly[k + 1]!);
+    hoverAt(w, p);
+    expect(['endpoint', 'vertex']).toContain(v.measureHoverSnap!.snap);
+    clickAt(w, p);
+    const a = v.measurePoints[0]!.point;
+    expect(dist(a, p)).toBeLessThan(1e-5);
+    const u = footParam(bsAt, bsTangentAt, a, 0, 1);
+    const T = bsTangentAt(u);
+    hoverAt(w, bsPoly[k + 1]!);
+    const chord = v.measureHoverLock!;
+    expect(chord).toBeTruthy();
+    expect(angleDeg(chord.direction, T)).toBeGreaterThan(0.5);
+    close(tl.now(v), T, 1e-9);
+    shiftDown(w);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    close(v.measureInferenceLock!.direction, T, 1e-9);
+    shiftUp(w);
+    expect(v.measureInferenceLock).toBeNull();
+    hoverAt(w, bsPoly[k - 1]!);
+    close(tl.now(v), neg(T), 1e-9);
+    // 첫 점에서 곡선이 아닌 곳(판의 곧은 모서리 끝)을 보면 코어 판정 그대로
+    v.fit(false);
+    v.renderNow();
+    hoverAt(w, bsWorld([12, -4, 0]));
+    expect(['endpoint', 'vertex']).toContain(v.measureHoverSnap!.snap);
+    expect(tl.now(v)).toBeNull();
   });
 });

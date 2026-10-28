@@ -13,7 +13,7 @@ import { parseStepFile } from '../../src/app/job';
 import { applyProps, type MassPropsJob } from '../../src/scene';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode, type SweepClass } from './classify';
 import { qualityOptions } from './quality';
-import { massPropsStats, sceneQuality, type MassPropsStats, type SceneQuality } from './metrics';
+import { massPropsStats, sceneQuality, transferStats, type MassPropsStats, type SceneQuality, type TransferStats } from './metrics';
 
 export interface WorkerRecord {
   quality: string;
@@ -45,6 +45,8 @@ export interface WorkerRecord {
   q?: SceneQuality;
   /** 닫힌 입체의 질량 속성(곡면 적분) 지표 */
   mp?: MassPropsStats;
+  /** 워커 → 화면 전송량과 모서리 표·곡선 정의 바이트, 곡선 모서리 접선을 구하는 길 */
+  x?: TransferStats;
   /** 오류 코드와 글(앞 300자) */
   error?: string;
   message?: string;
@@ -62,6 +64,8 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
     let job: MassPropsJob | null = null;
     const res = await parseStepFile(basename(path), raw, () => {}, options, (j) => (job = j));
     const s = res.scene;
+    // 앱 워커가 'done'으로 넘기는 양(질량 속성을 넣기 전)
+    const x = transferStats(res);
     // 앱 워커처럼 연 뒤 따로 적분해 면 표에 넣는다(질량 속성 지표·값 지문)
     let propsMs: number | undefined;
     if (job) {
@@ -95,6 +99,7 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
       warnings: codes,
       q: sceneQuality(s),
       mp: massPropsStats(s),
+      x,
     };
     const why = failReasons(warnings);
     if (Object.keys(why).length) rec.failReasons = why;

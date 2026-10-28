@@ -11,6 +11,8 @@
  */
 import type { Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import { watertightness } from '../../src/analysis';
+import { collectTransfers } from '../../src/app/protocol';
+import { edgeCurve } from '../../src/edgecurve';
 import { PROPS_BREP, PROPS_TIMEOUT } from '../../src/massprops';
 
 export interface ItemQuality {
@@ -277,4 +279,42 @@ export function sceneQuality(scene: Pick<Scene3d, 'meshes' | 'meta'>): SceneQual
     }
   });
   return q;
+}
+
+/** 워커 → 화면 전송량(해석 결과를 보낼 때 넘기는 버퍼)과 모서리 표, 곡선 모서리 접선을 구하는 길 */
+export interface TransferStats {
+  /** 해석 결과(질량 속성 전)의 이전 가능한 버퍼 바이트 합 */
+  xfer: number;
+  /** 모서리 표(meta.edgeTables) 형식 배열 바이트 합(곡선 정의 포함) */
+  edges: number;
+  /** 그 가운데 곡선 정의(curveStart·curves) */
+  curves: number;
+  /** 끝 접선을 아는 곡선 모서리 수(표마다 한 번) */
+  curved: number;
+  /** 그 가운데 곡선 위 아무 점의 접선을 곡선 정의로 구하는 것(원·기록이 있는 타원·B-스플라인 — 나머지는 꺾은선 어림) */
+  exact: number;
+}
+
+/** 해석 결과 하나의 전송량(질량 속성을 적분해 면 표에 넣기 전에 잰다 — 앱 워커가 'done'으로 보내는 것과 같다) */
+export function transferStats(result: { scene: Pick<Scene3d, 'meta'> }): TransferStats {
+  const xfer = collectTransfers(result).reduce((s, b) => s + b.byteLength, 0);
+  const meta = (result.scene.meta ?? {}) as { edgeKinds?: string[]; edgeTables?: Record<string, unknown>[] };
+  const kinds = meta.edgeKinds ?? [];
+  let edges = 0;
+  let curves = 0;
+  let curved = 0;
+  let exact = 0;
+  for (const t of meta.edgeTables ?? []) {
+    for (const v of Object.values(t)) if (ArrayBuffer.isView(v)) edges += v.byteLength;
+    for (const k of ['curveStart', 'curves']) if (ArrayBuffer.isView(t[k])) curves += (t[k] as ArrayBufferView).byteLength;
+    const T = t.tangents as Float32Array | undefined;
+    const K = t.kinds as Uint8Array;
+    if (!T || !K) continue;
+    for (let e = 0; e < K.length; e++) {
+      if (!Number.isFinite(T[e * 6]!) || !Number.isFinite(T[e * 6 + 3]!)) continue;
+      curved++;
+      if (edgeCurve(t as never, e, kinds)) exact++;
+    }
+  }
+  return { xfer, edges, curves, curved, exact };
 }
