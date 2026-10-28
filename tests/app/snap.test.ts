@@ -2,24 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { Pick3d } from 'opencad-viewer3d/types';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { axisLock, type InferenceLock, lockedSnap, lockFromSnap, perpendicularFoot } from 'opencad-viewer3d/inference';
+import { perpendicularFoot } from 'opencad-viewer3d/inference';
 import { measureResult } from 'opencad-viewer3d/snap';
-import type { MeasureHoverSnap, MeasureInferenceLock, SnapAxis } from 'opencad-viewer3d';
 import {
   arrowLock,
   circleCenters,
   edgeSnapPoints,
   hoverSnapLabel,
   lockHint,
-  lockMeasure,
   lockName,
-  lockStillValid,
   type LockViewer,
   MEASURE_INFERENCE,
   measureSnapOptions,
-  shiftFallbackLock,
   snapLabel,
   snapPair,
+  viewerLockHint,
 } from '../../src/app/snap';
 import { translate } from '../../site/i18n.mjs';
 import { StepText, plateWithHole } from '../stepText';
@@ -186,49 +183,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
 
 });
 
-type V3 = [number, number, number];
-
-/**
- * 코어 0.10.0 잠금 규칙을 흉내 내는 가짜 뷰어(잠근 선 위 점은 코어 순수 함수 lockedSnap·lockFromSnap·axisLock 그대로):
- * setMeasureInferenceLock(true)은 지금 미리 보기의 방향 추론, 없으면 첫 점 뒤 마지막으로 본 방향 추론(last)을 잠근다.
- * 잠그면 커서 아래 점 붙잡기를 잠근 선에 수직으로 내린 자리를 찍는다(선 밖이면 from)
- */
-class FakeLockViewer implements LockViewer {
-  first: V3 | null = [0, 0, 0];
-  hover: MeasureHoverSnap | null = null;
-  last: InferenceLock | null = null;
-  lock: MeasureInferenceLock | null = null;
-  get measurePointCount(): number {
-    return this.first ? 1 : 0;
-  }
-  get measureInferenceLock(): MeasureInferenceLock | null {
-    return this.lock;
-  }
-  get measureHoverSnap(): MeasureHoverSnap | null {
-    const h = this.hover;
-    if (!h || !this.lock || !this.first) return h;
-    const q = h.snap && !h.direction ? h.point : null;
-    const e = this.lock.direction;
-    const l = q ? lockedSnap(null as never, this.first, e, 0, 0, q)! : { p: h.point };
-    return { point: l.p, snap: this.lock.kind, locked: true, direction: e, ...('from' in l && l.from ? { from: l.from, fromSnap: h.snap! } : {}) };
-  }
-  setMeasureInferenceLock(x: boolean | SnapAxis | null): boolean {
-    if (!x) {
-      this.lock = null;
-      return false;
-    }
-    const h = this.hover;
-    const l = x === true ? (this.first ? (lockFromSnap(h ? { kind: h.snap, axis: h.axis, direction: h.direction, edge: h.edge } : null) ?? this.last) : null) : axisLock(x);
-    if (!l) return false;
-    this.lock = { ...l, source: 'api' };
-    return true;
-  }
-}
-
-describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와 나란히)', () => {
-  const S2 = Math.SQRT1_2;
-  /** 첫 점 (0,0,0)에서 기운 모서리 (0,0,0)→(10,10,0)을 따라오며 본 나란함 */
-  const along: InferenceLock = { kind: 'parallel', direction: [S2, S2, 0], edge: [[0, 0, 0], [10, 10, 0]] };
+describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와 나란히 — 잠그는 판정은 measurelock.test.ts가 실제 코어로)', () => {
 
   it('이름: 모서리와 나란히, 잠근 점은 " · 잠금"(조각마다 번역), 결과의 lockedB', () => {
     expect(snapLabel('parallel')).toBe('모서리와 나란히');
@@ -240,17 +195,32 @@ describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와
     expect(translate('모서리와 나란히', 'de')).toBe('Parallel zur Kante');
   });
 
-  it('잠금 이름·안내: 잠갔으면 잠근 방향, 끝점을 잡는 동안 키보드 기기는 Shift·화살표 안내, 손가락 기기는 단추라 없음', () => {
+  it('잠금 이름·안내: 잠갔으면 잠근 방향, 끝점을 잡는 동안 키보드 기기는 Shift로 잠글 방향이 있으면 Shift·화살표, 없으면 화살표 안내, 손가락 기기는 단추라 없음', () => {
     expect(lockName(null)).toBeNull();
     expect(lockName({ kind: 'axis', axis: 'y' })).toBe('y');
     expect(lockName({ kind: 'parallel' })).toBe('parallel');
     expect(lockName({ kind: 'perpendicular' })).toBe('perpendicular');
     expect(lockHint(1, null)).toBe('Shift·화살표로 방향 잠금');
+    expect(lockHint(1, null, false, false)).toBe('화살표로 축 잠금');
     expect(lockHint(1, null, true)).toBeNull();
+    expect(lockHint(1, null, true, false)).toBeNull();
     expect(lockHint(0, null)).toBeNull();
+    expect(lockHint(0, null, false, false)).toBeNull();
+    expect(lockHint(2, null)).toBeNull();
     expect(lockHint(0, 'z', true)).toBe('Z축으로 잠금');
-    expect(lockHint(1, 'parallel')).toBe('모서리와 나란히 잠금');
-    for (const t of ['Shift·화살표로 방향 잠금', 'X축으로 잠금', '모서리와 나란히 잠금', '모서리에 수직으로 잠금']) for (const l of ['en', 'ja', 'zh-CN', 'de']) expect(translate(t, l)).not.toMatch(/[가-힣]/);
+    expect(lockHint(1, 'parallel', false, false)).toBe('모서리와 나란히 잠금');
+    for (const t of ['Shift·화살표로 방향 잠금', '화살표로 축 잠금', 'X축으로 잠금', '모서리와 나란히 잠금', '모서리에 수직으로 잠금']) for (const l of ['en', 'ja', 'zh-CN', 'de']) expect(translate(t, l)).not.toMatch(/[가-힣]/);
+  });
+
+  it('viewerLockHint: 코어 상태(찍은 점 수·잠금·커서 아래 잠글 방향 measureHoverLock)로 안내를 고른다', () => {
+    const v = (n: number, lock: LockViewer['measureInferenceLock'], hover: LockViewer['measureHoverLock']): LockViewer => ({ measurePointCount: n, measureInferenceLock: lock, measureHoverLock: hover });
+    const edge = { kind: 'parallel' as const, direction: [Math.SQRT1_2, Math.SQRT1_2, 0] as [number, number, number] };
+    expect(viewerLockHint(v(1, null, edge))).toBe('Shift·화살표로 방향 잠금');
+    expect(viewerLockHint(v(1, null, null))).toBe('화살표로 축 잠금');
+    expect(viewerLockHint(v(1, null, edge), true)).toBeNull();
+    expect(viewerLockHint(v(0, null, null))).toBeNull();
+    expect(viewerLockHint(v(1, { ...edge, source: 'shift' }, edge))).toBe('모서리와 나란히 잠금');
+    expect(viewerLockHint(v(0, { kind: 'axis', axis: 'x', direction: [1, 0, 0], source: 'api' }, null), true)).toBe('X축으로 잠금');
   });
 
   it('화살표: →·←·↑는 X·Y·Z축(같은 축이면 풀기, 첫 점 전에도), ↓는 끝점을 잡는 동안 지금 방향(잠갔으면 풀기), 두 점을 다 찍었으면 넘긴다', () => {
@@ -264,75 +234,4 @@ describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와
     expect(arrowLock('ArrowRight', 2, null)).toBeNull();
     expect(arrowLock('Enter', 1, null)).toBeNull();
   });
-
-  it('지금 방향 추론(모서리와 나란히) 위에서 잠그면 그 방향, 축은 그 축', () => {
-    const v = new FakeLockViewer();
-    v.hover = { point: [3, 3, 0], snap: 'parallel', direction: [S2, S2, 0], edge: along.edge };
-    // 방향 추론 위면 확인할 것 없이 잠금
-    expect(lockMeasure(v, true)).toBe(true);
-    expect(lockName(v.measureInferenceLock)).toBe('parallel');
-    expect(v.measureHoverSnap?.locked).toBe(true);
-    v.lock = null;
-    expect(lockMeasure(v, 'z')).toBe(true);
-    expect(lockName(v.measureInferenceLock)).toBe('z');
-  });
-
-  it('모서리 끝(첫 점)에서 그 모서리를 따라 가리키다 가운데 점(점 붙잡기)에서 Shift: 그 모서리 방향으로 잠근다', () => {
-    const v = new FakeLockViewer();
-    v.last = along;
-    v.hover = { point: [5, 5, 0], snap: 'midpoint' };
-    // 코어 Shift는 점 붙잡기에서 잠그지 않는다 — 앱이 앞서 본 방향으로 잠그고, 코어가 다시 구한 미리 보기로 그 점을 지나는지 본다
-    const at = shiftFallbackLock(v);
-    expect(at).toEqual([5, 5, 0]);
-    expect(lockStillValid(v, at as number[])).toBe(true);
-    expect(lockName(v.measureInferenceLock)).toBe('parallel');
-    expect(v.measureHoverSnap?.locked).toBe(true);
-    near(v.measureHoverSnap!.point, [5, 5, 0], 12);
-    expect(v.measureHoverSnap?.from).toBeUndefined();
-    // 축과 나란한 모서리: 앞서 본 것이 축이면 그 축
-    const w = new FakeLockViewer();
-    w.last = axisLock('x');
-    w.hover = { point: [4, 0, 0], snap: 'endpoint' };
-    expect(lockStillValid(w, shiftFallbackLock(w) as number[])).toBe(true);
-    expect(lockName(w.measureInferenceLock)).toBe('x');
-  });
-
-  it('점 붙잡기가 앞서 본 방향 밖이면(다른 모서리 끝) 잠그지 않는다 — 엉뚱한 방향 대신 잠글 방향 없음', () => {
-    const v = new FakeLockViewer();
-    v.last = along;
-    v.hover = { point: [10, 0, 3], snap: 'vertex' };
-    const at = shiftFallbackLock(v) as number[];
-    expect(at).toEqual([10, 0, 3]);
-    // 코어가 그 점을 잠근 선으로 옮겨 찍는다(from = 그 점) → 푼다
-    expect(lockStillValid(v, at)).toBe(false);
-    expect(v.measureInferenceLock).toBeNull();
-    // 확인 전에 커서가 다른 점으로 갔으면(그 점을 잠근 선으로 옮겨 재는 중) 그대로 둔다
-    v.last = along;
-    v.hover = { point: [10, 0, 3], snap: 'vertex' };
-    const at2 = shiftFallbackLock(v) as number[];
-    v.hover = { point: [0, 8, 0], snap: 'vertex' };
-    expect(lockStillValid(v, at2)).toBe(true);
-    expect(lockName(v.measureInferenceLock)).toBe('parallel');
-    v.lock = null;
-    // 본 방향이 없으면 단추도 실패(앱이 "잠글 방향이 없습니다" 알림)
-    const u = new FakeLockViewer();
-    u.hover = { point: [5, 5, 0], snap: 'midpoint' };
-    expect(lockMeasure(u, true)).toBe(false);
-    // 방향 추론 위·이미 잠갔음·첫 점 전에는 Shift를 코어에 맡긴다
-    const p = new FakeLockViewer();
-    p.hover = { point: [3, 3, 0], snap: 'parallel', direction: [S2, S2, 0] };
-    expect(shiftFallbackLock(p)).toBe(false);
-    p.first = null;
-    p.hover = { point: [5, 5, 0], snap: 'midpoint' };
-    expect(shiftFallbackLock(p)).toBe(false);
-  });
-
-  it('커서가 캔버스를 떠난 뒤(마우스로 단추를 누를 때) 잠그면 마지막으로 본 방향 그대로', () => {
-    const v = new FakeLockViewer();
-    v.last = along;
-    v.hover = null;
-    expect(lockMeasure(v, true)).toBe(true);
-    expect(lockName(v.measureInferenceLock)).toBe('parallel');
-  });
 });
-

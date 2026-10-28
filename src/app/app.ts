@@ -44,7 +44,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, hoverSnapLabel, lockHint, lockMeasure, lockName, type LockName, lockStillValid, measureSnapOptions, shiftFallbackLock, snapPair } from './snap';
+import { arrowLock, circleCenters, hoverSnapLabel, lockName, type LockName, measureSnapOptions, snapPair, viewerLockHint } from './snap';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -236,8 +236,6 @@ export class StepApp {
   private lockKey = '';
   /** "잠글 방향이 없습니다" 알림 닫기(잠금이 걸리면 거둔다) */
   private lockFailClose: (() => void) | null = null;
-  /** Shift로 코어 대신 앱이 건 잠금(커서가 첫 점을 지나는 모서리 위 점 붙잡기일 때) — Shift를 떼면 푼다 */
-  private shiftLock = false;
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
@@ -1885,7 +1883,7 @@ export class StepApp {
   }
 
   /**
-   * 잠금 상태가 바뀌었으면(잠근 방향·찍은 점 수) 상태 막대·측정 띠의 잠금 안내와 잠금 단추를 고친다.
+   * 잠금 상태가 바뀌었으면(잠근 방향·찍은 점 수·커서 아래에 Shift로 잠글 방향이 있는지) 상태 막대·측정 띠의 잠금 안내와 잠금 단추를 고친다.
    * 잠금이 걸렸으면 "잠글 방향이 없습니다" 알림을 거둔다(띠의 잠금 안내와 어긋나지 않게 — 다른 알림은 둔다)
    */
   private refreshLock(): void {
@@ -1893,7 +1891,7 @@ export class StepApp {
     const on = !!v && !!this.doc && v.measureMode && !this.entMeasuring;
     const lock = on ? lockName(v.measureInferenceLock) : null;
     if (lock) this.dropLockFail();
-    const key = on ? `${lock}|${v.measurePointCount}` : '';
+    const key = on ? `${lock}|${v.measurePointCount}|${!lock && v.measurePointCount === 1 && !!v.measureHoverLock}` : '';
     if (key === this.lockKey) return;
     this.lockKey = key;
     this.updateStatus();
@@ -1910,7 +1908,7 @@ export class StepApp {
   private measureLockHint(): string | null {
     const v = this.viewer;
     if (!v || !this.doc || !v.measureMode || this.entMeasuring) return null;
-    return lockHint(v.measurePointCount, lockName(v.measureInferenceLock), this.touch);
+    return viewerLockHint(v, this.touch);
   }
 
   /** 잠글 방향이 없을 때 알림(손가락 기기는 정밀 조준으로 맞추는 법) */
@@ -1923,38 +1921,12 @@ export class StepApp {
     );
   }
 
-  /**
-   * 잠금 결과 다루기(lockMeasure·shiftFallbackLock 값): 못 잠갔으면 알림(fail), 점 붙잡기에서 잠갔으면 코어가 미리 보기를 다시 구한 뒤(두 프레임)
-   * 그 점이 잠근 선 위인지 보고 아니면 풀고 알린다. 잠갔으면(확인 전이라도) true
-   */
-  private afterLock(r: boolean | readonly number[], fail: boolean): boolean {
-    if (!r) {
-      if (fail) this.lockFailed();
-      return false;
-    }
-    if (r !== true) {
-      const at = r;
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const v = this.viewer;
-          if (!v || lockStillValid(v, at)) return;
-          this.shiftLock = false;
-          if (fail) this.lockFailed();
-          this.refreshLock();
-        }),
-      );
-    }
-    return true;
-  }
-
-  /** 측정 띠 잠금 단추: 잠겼으면 풀고, 아니면 지금 방향을 잠근다(없으면 맞추는 법을 알린다) */
+  /** 측정 띠 잠금 단추: 잠겼으면 풀고, 아니면 지금 방향을 잠근다(코어가 정한다 — 없으면 맞추는 법을 알린다) */
   private toggleMeasureLock(): void {
     const v = this.viewer;
     if (!v?.measureMode || this.entMeasuring) return;
-    if (v.measureInferenceLock) {
-      v.setMeasureInferenceLock(false);
-      this.shiftLock = false;
-    } else this.afterLock(lockMeasure(v, true), true);
+    if (v.measureInferenceLock) v.setMeasureInferenceLock(false);
+    else if (!v.setMeasureInferenceLock(true)) this.lockFailed();
     this.refreshLock();
   }
 
@@ -1966,30 +1938,10 @@ export class StepApp {
     if (t instanceof Element && t !== document.body && t !== document.documentElement && !this.hostEl.contains(t)) return false;
     const want = arrowLock(ev.key, v.measurePointCount, v.measureInferenceLock);
     if (want === null) return false;
-    this.shiftLock = false;
     if (want === false) v.setMeasureInferenceLock(false);
-    else this.afterLock(lockMeasure(v, want), true);
+    else if (!v.setMeasureInferenceLock(want)) this.lockFailed();
     this.refreshLock();
     return true;
-  }
-
-  /**
-   * Shift를 눌렀을 때(코어가 먼저 받는다): 코어가 잠그지 못했고 커서가 점 붙잡기 위면(첫 점에서 따라온 모서리의 가운데 점 등)
-   * 앞서 본 방향이 그 점을 지날 때 앱이 잠근다 — Shift를 떼면 푼다(코어의 Shift 잠금처럼)
-   */
-  private shiftDown(): void {
-    const v = this.viewer;
-    if (!v?.measureMode || this.entMeasuring) return;
-    if (this.afterLock(shiftFallbackLock(v), false)) this.shiftLock = true;
-    this.refreshLock();
-  }
-
-  private shiftUp(): void {
-    if (this.shiftLock) {
-      this.shiftLock = false;
-      this.viewer?.setMeasureInferenceLock(false);
-    }
-    this.refreshLock();
   }
 
   toggleMeasure(on = !this.measuring): void {
@@ -2482,13 +2434,11 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
-    // Shift를 떼면(코어는 스스로 잠금을 푼다) 앱이 건 잠금을 풀고 잠금 안내를 맞춘다
+    // Shift를 떼거나 창이 흐려지면 코어가 Shift 잠금을 스스로 푼다 — 다음 프레임에 잠금 안내를 맞춘다
     window.addEventListener('keyup', (ev) => {
-      if (ev.key === 'Shift') this.shiftUp();
+      if (ev.key === 'Shift') this.scheduleHoverSnap();
     });
-    window.addEventListener('blur', () => {
-      if (this.shiftLock) this.shiftUp();
-    });
+    window.addEventListener('blur', () => this.scheduleHoverSnap());
     // 끌어다 놓기: 창 어디에나
     let depth = 0;
     const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -2549,9 +2499,10 @@ export class StepApp {
         this.pickFile();
         return;
       case 'viewer':
-        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault). Shift는 코어가 측정 방향을 잠근다(0.10.0)
+        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault). Shift는 코어가 측정 방향을 잠근다
+        // (0.10.0 방향 추론, 0.12.0부터 모서리 끝에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향도)
         v?.handleKey(ev);
-        if (ev.key === 'Shift' && !ev.repeat) this.shiftDown();
+        if (ev.key === 'Shift' && !ev.repeat) this.refreshLock();
         return;
       case 'grid':
         this.toggleGrid();
