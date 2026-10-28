@@ -1714,8 +1714,9 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 }
 .explode-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   max-width: 100%;
   padding: 4px 4px 4px 10px;
   border: 1px solid var(--border-soft);
@@ -1747,6 +1748,42 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   color: var(--text);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+/* 분해 방식(단계별·한꺼번에)과 지금 단계 — 닫기 단추는 줄 끝(휴대폰은 둘째 줄로 내린다) */
+.explode-opts {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.explode-bar > .icon-btn {
+  order: 1;
+}
+.explode-stage {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.explode-stage[hidden] {
+  display: none;
+}
+@media (pointer: coarse) {
+  /* 손가락 기기: 밀대·방식·닫기를 38px 넘게 */
+  .explode-slider {
+    height: 38px;
+  }
+  .explode-bar .seg-btn {
+    min-width: 44px;
+    height: 38px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .explode-bar > .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
 }
 .iso-bar {
   position: relative;
@@ -1789,7 +1826,12 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     display: none;
   }
   .explode-slider {
-    width: 110px;
+    flex: 1 1 100px;
+    width: 100px;
+  }
+  .explode-opts {
+    order: 2;
+    flex-basis: 100%;
   }
 }
 

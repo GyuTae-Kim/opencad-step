@@ -84,4 +84,19 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
     expect(decodeViewLink('#view=sel:0/2.3.4')).toBeNull();
     expect(encodeViewLink({ sel: [], iso: true })).toBe('');
   });
+
+  it('분해 정도(1~100%)와 방식(step·all)을 담고 되읽는다, 방식이 없으면 단계별, 0%·틀린 값은 담지 않는다', () => {
+    expect(encodeViewLink({ sel: ['0/2'], exp: { t: 0.6, mode: 'step' } })).toBe('view=sel:0/2;exp:60,step');
+    expect(decodeViewLink('#view=sel:0/2;exp:60,step')).toEqual({ sel: ['0/2'], exp: { t: 0.6, mode: 'step' } });
+    expect(decodeViewLink(`#${encodeViewLink({ exp: { t: 0.35, mode: 'all' } })}`)).toEqual({ exp: { t: 0.35, mode: 'all' } });
+    // 분해만 담은 링크도 보기다, 방식이 없거나 모르면 단계별, 100%를 넘으면 100%
+    expect(decodeViewLink('#view=exp:40')).toEqual({ exp: { t: 0.4, mode: 'step' } });
+    expect(decodeViewLink('#view=exp:250,zz')).toEqual({ exp: { t: 1, mode: 'step' } });
+    for (const bad of ['exp:0', 'exp:-5', 'exp:', 'exp:x,all']) expect(decodeViewLink(`#view=${bad}`), bad).toBeNull();
+    expect(encodeViewLink({ exp: { t: 0, mode: 'all' } })).toBe('');
+    // 아주 작은 분해도 1%로 남긴다(링크를 열면 분해 막대가 열린 채)
+    expect(encodeViewLink({ exp: { t: 0.001, mode: 'step' } })).toBe('view=exp:1,step');
+    // 카메라와 함께(예전 앱은 모르는 열쇠 exp를 건너뛰고 카메라만 쓴다)
+    expect(decodeViewLink('#view=cam:1,2,3,50,0.5,-0.25,o;exp:60,all')).toMatchObject({ cam: { projection: 'orthographic' }, exp: { t: 0.6, mode: 'all' } });
+  });
 });
