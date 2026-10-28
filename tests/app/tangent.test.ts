@@ -6,9 +6,43 @@
 import { describe, expect, it } from 'vitest';
 import { EDGE_TANGENTS, stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { curveEndsAt, curveTangentAt, curveTangentPick, endPolyline, endTangent, pointTol, polylineNearest, type CurveEnd } from '../../src/app/tangent';
+import {
+  approxTangent,
+  curveEndsAt,
+  curvesThrough,
+  curveTangentAt,
+  curveTangentPick,
+  curveTangentThrough,
+  endPolyline,
+  endTangent,
+  pointTol,
+  polylineNearest,
+  throughTangent,
+  type CurveEnd,
+} from '../../src/app/tangent';
 import { StepText } from '../stepText';
-import { BS_END, BS_START, BS_T0, BS_T1, curveStep, ELL_END, ELL_START, ELL_T0, ELL_T1, ellTangent, RIM, RIM_TANGENT, type V3 } from './curvescene';
+import {
+  bsAt,
+  BS_END,
+  BS_START,
+  BS_T0,
+  BS_T1,
+  bsTangentAt,
+  curveStep,
+  ellAt,
+  ELL_END,
+  ELL_START,
+  ELL_T0,
+  ELL_T1,
+  ellTangent,
+  footParam,
+  halfway,
+  RIM,
+  rimChordAt,
+  rimTangentAt,
+  RIM_TANGENT,
+  type V3,
+} from './curvescene';
 
 const scene = stepToScene(curveStep());
 const ex = stepEdgeIndex(scene)!;
@@ -25,7 +59,8 @@ const close = (a: readonly number[] | null, b: readonly number[], tol = 1e-6): v
   expect(a, `방향 ${b}`).not.toBeNull();
   for (let k = 0; k < 3; k++) expect(Math.abs(a![k]! - b[k]!), `${a} ≈ ${b}`).toBeLessThan(tol);
 };
-const kindOf = (e: CurveEnd): string => ex.kinds[e.table.kinds[e.edge]!]!;
+const kindOf = (e: Pick<CurveEnd, 'table' | 'edge'>): string => ex.kinds[e.table.kinds[e.edge]!]!;
+const dist = (p: readonly number[], q: readonly number[]): number => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!);
 
 describe('해석기: 모서리 표의 곡선 끝 접선(B-rep 곡선 도함수)', () => {
   it('곡선 모서리마다 시작·끝 접선(모서리 방향, 단위), 직선은 NaN', () => {
@@ -161,5 +196,104 @@ describe('화면: 첫 점에 닿는 곡선 끝 찾기·커서 아래 점의 접�
     expect(curveEndsAt(scene.meshes, ex, [RIM[0] + 1e-3, RIM[1], RIM[2]])).toEqual([]);
     expect(pointTol([0, 0, 0])).toBe(1e-6);
     expect(pointTol([-2000, 10, 0])).toBeCloseTo(2.001e-3, 12);
+  });
+});
+
+describe('화면: 곡선 모서리의 끝이 아닌 곳(화면용 꺾은선 위)을 첫 점으로 — 그 점에서의 B-rep 곡선 접선', () => {
+  const rimPoly = endPolyline(curveEndsAt(scene.meshes, ex, RIM)[0]!);
+  const ellPoly = endPolyline(curveEndsAt(scene.meshes, ex, ELL_START)[0]!);
+  const bsPoly = endPolyline(curveEndsAt(scene.meshes, ex, BS_START)[0]!);
+  /** 옛 결과처럼 곡선 정의(curveStart·curves)가 없는 모서리 표 */
+  const old = { ...ex, tables: ex.tables.map((t) => ({ ...t, curveStart: undefined, curves: undefined })) };
+  /** 테두리 원 위 30° 지점(이음 꼭짓점에서 원이 도는 쪽으로)을 그린 꺾은선 위 점 */
+  const rim30 = rimChordAt(rimPoly, Math.PI / 6);
+
+  it('지나는 곡선 모서리: 토막 위 점은 그 토막·비율, 안쪽 꼭짓점은 그 번호. 끝·꺾은선 밖·옛 결과(접선 없음)는 없다', () => {
+    const on = curvesThrough(scene.meshes, ex, rim30.point);
+    expect(on.map((o) => [kindOf(o), o.seg, o.vertex])).toEqual([['circle', rim30.seg, -1]]);
+    expect(on[0]!.f).toBeCloseTo(rim30.f, 6);
+    expect(rim30.f).toBeGreaterThan(0.05);
+    expect(rim30.f).toBeLessThan(0.95);
+    // 시작부터 꺾은선 길이
+    let s = 0;
+    for (let i = 1; i <= rim30.seg; i++) s += dist(rimPoly[i]!, rimPoly[i - 1]!);
+    expect(on[0]!.s).toBeCloseTo(s + rim30.f * dist(rimPoly[rim30.seg + 1]!, rimPoly[rim30.seg]!), 9);
+    expect(curvesThrough(scene.meshes, ex, bsPoly[12]!).map((o) => [kindOf(o), o.seg, o.f, o.vertex])).toEqual([['bspline', 12, 0, 12]]);
+    // 모서리 끝은 끝 접선(curveEndsAt)이 맡는다 — 한 바퀴 원의 이음 꼭짓점도
+    expect(curvesThrough(scene.meshes, ex, RIM)).toEqual([]);
+    expect(curvesThrough(scene.meshes, ex, BS_END)).toEqual([]);
+    // 원 위 정확한 30° 점은 꺾은선(현)에서 화살 높이만큼 떨어져 있어 모서리 위가 아니다(코어가 주는 점은 꺾은선 위)
+    expect(curvesThrough(scene.meshes, ex, [10 * Math.cos(Math.PI / 3), 10 * Math.sin(Math.PI / 3), 20])).toEqual([]);
+    expect(curvesThrough(scene.meshes, null, rim30.point)).toEqual([]);
+    const noTan = { ...ex, tables: ex.tables.map((t) => ({ ...t, tangents: undefined })) };
+    expect(curvesThrough(scene.meshes, noTan, rim30.point)).toEqual([]);
+  });
+
+  it('원기둥 테두리 30° 지점(현 위라 원 안쪽으로 비킨 점): 모서리 표 params로 그 각의 원 접선, 방향은 커서 쪽, 현은 그 토막', () => {
+    // 꺾은선(현) 위라 원에서 안쪽으로 조금 들어가 있다
+    expect(10 - Math.hypot(rim30.point[0], rim30.point[1])).toBeGreaterThan(1e-3);
+    const on = curvesThrough(scene.meshes, ex, rim30.point);
+    const t = throughTangent(on[0]!, ex.kinds)!;
+    expect(t.exact).toBe(true);
+    close(t.dir, rimTangentAt(Math.PI / 6), 1e-9);
+    // 첫 점이 놓인 토막의 현과는 각이 다르다
+    const chord = unit(sub(rimPoly[rim30.seg + 1]!, rimPoly[rim30.seg]!));
+    expect(angle(chord, t.dir)).toBeGreaterThan(1);
+    // 커서가 원이 도는 쪽 앞이면 그 방향, 이음 꼭짓점 쪽 뒤면 반대
+    const ahead = curveTangentThrough(on, rim30.point, rimPoly[rim30.seg + 3]!, ex.kinds)!;
+    close(ahead.dir, rimTangentAt(Math.PI / 6), 1e-9);
+    expect(ahead.exact).toBe(true);
+    expect(ahead.chords).toHaveLength(1);
+    close(ahead.chord, chord, 1e-9);
+    close(curveTangentThrough(on, rim30.point, rimPoly[1]!, ex.kinds)!.dir, neg(rimTangentAt(Math.PI / 6)), 1e-9);
+    // 커서가 다른 곡선 위·첫 점 자리면 없다
+    expect(curveTangentThrough(on, rim30.point, ELL_END, ex.kinds)).toBeNull();
+    expect(curveTangentThrough(on, rim30.point, rim30.point, ex.kinds)).toBeNull();
+    expect(curveTangentThrough([], rim30.point, rimPoly[1]!, ex.kinds)).toBeNull();
+  });
+
+  it('타원 호 가운데(꺾은선 길이 반): 곡선 정의(틀 x축)로 가장 가까운 매개변수의 접선, 정의가 없으면(옛 결과) 꺾은선 어림', () => {
+    const m = halfway(ellPoly);
+    const on = curvesThrough(scene.meshes, ex, m);
+    expect(on.map(kindOf)).toEqual(['ellipse']);
+    const t = throughTangent(on[0]!, ex.kinds)!;
+    expect(t.exact).toBe(true);
+    const tm = footParam(ellAt, ellTangent, m, ELL_T0, ELL_T1);
+    expect(tm).toBeGreaterThan(ELL_T0);
+    expect(tm).toBeLessThan(ELL_T1);
+    close(t.dir, ellTangent(tm), 1e-9);
+    // 커서가 호의 끝(t = π) 쪽이면 t가 커지는 쪽, 시작 쪽이면 반대
+    close(curveTangentThrough(on, m, ELL_END, ex.kinds)!.dir, ellTangent(tm), 1e-9);
+    close(curveTangentThrough(on, m, ELL_START, ex.kinds)!.dir, neg(ellTangent(tm)), 1e-9);
+    // 옛 결과: 곡선 정의가 없어 이웃 꼭짓점 접선(2차 어림)을 섞는다 — 정확하지 않지만 0.5° 안
+    const o = curvesThrough(scene.meshes, old, m);
+    const a = throughTangent(o[0]!, old.kinds)!;
+    expect(a.exact).toBe(false);
+    expect(angle(a.dir, ellTangent(tm))).toBeLessThan(0.5);
+    expect(angle(a.dir, ellTangent(tm))).toBeGreaterThan(1e-3);
+  });
+
+  it('B-스플라인(돌린 부품) 가운데 꼭짓점: 곡선 정의로 뉴턴, 꼭짓점의 현은 이웃 두 토막, 꺾은선 어림(2차)도 현보다 접선에 가깝다', () => {
+    const k = 12;
+    const p = bsPoly[k]!;
+    const on = curvesThrough(scene.meshes, ex, p);
+    expect(on[0]!.mesh.matrix).toBeTruthy();
+    const t = throughTangent(on[0]!, ex.kinds)!;
+    expect(t.exact).toBe(true);
+    const u = footParam(bsAt, bsTangentAt, p, 0, 1);
+    close(t.dir, bsTangentAt(u), 1e-9);
+    const pick = curveTangentThrough(on, p, BS_END, ex.kinds)!;
+    close(pick.dir, bsTangentAt(u), 1e-9);
+    expect(pick.chords).toHaveLength(2);
+    close(pick.chords[0]!, unit(sub(bsPoly[k]!, bsPoly[k - 1]!)), 1e-9);
+    close(pick.chords[1]!, unit(sub(bsPoly[k + 1]!, bsPoly[k]!)), 1e-9);
+    close(curveTangentThrough(on, p, BS_START, ex.kinds)!.dir, neg(bsTangentAt(u)), 1e-9);
+    // 정의가 없을 때의 어림: 안쪽 꼭짓점은 이웃 두 토막 길이로 2차 어림
+    const a = approxTangent(on[0]!)!;
+    expect(angle(a, bsTangentAt(u))).toBeLessThan(0.05);
+    expect(angle(a, bsTangentAt(u))).toBeLessThan(angle(pick.chords[1]!, bsTangentAt(u)) / 10);
+    // 원 테두리 안쪽 꼭짓점의 어림은 대칭이라 정확한 접선과 같다
+    const r = curvesThrough(scene.meshes, ex, rimPoly[7]!);
+    expect(angle(approxTangent(r[0]!)!, throughTangent(r[0]!, ex.kinds)!.dir)).toBeLessThan(1e-4);
   });
 });
