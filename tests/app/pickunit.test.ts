@@ -288,3 +288,39 @@ describe('제품 나무 몸체 줄', () => {
     expect(selectionItemIds(to)).toEqual([scene.meshes[1]!.id]);
   });
 });
+
+describe('간섭 검사 결과: 안에 든 쌍', () => {
+  it('안에 든 쌍은 교차 수 대신 "안에 듦"(앞이 안쪽 부품), 요약에 수, 가려 보이지 않을 수 있다는 안내 — 새 글은 네 언어로', () => {
+    const d = newDoc();
+    const { host, calls } = panelHost(d, { on: false });
+    const panel = new Panel(host);
+    document.body.append(panel.el);
+    const [a, , , o] = scene.meshes.map((m) => m.id);
+    const inner = { a: o!, b: a!, count: 0, trisA: [], trisB: [], inside: true as const };
+    d.interference = { running: false, done: 0, total: 0, result: { pairs: [inner, { a: a!, b: o!, count: 12, trisA: [1], trisB: [2] }], tested: 3, ms: 5 } };
+    panel.show(d);
+    const sec = [...panel.el.querySelectorAll('section')].find((x) => x.querySelector('h3')?.textContent === '간섭 검사')!;
+    expect(sec.querySelector('.hint')!.textContent).toBe('범위가 겹친 쌍 3 · 간섭 2 · 안에 듦 1 · 5 ms');
+    const rows = [...sec.querySelectorAll('.prop-row')];
+    expect(rows.map((r) => r.querySelector('.chip')!.textContent)).toEqual(['안에 듦', '12']);
+    expect(rows[0]!.querySelector('.link-btn')!.textContent).toBe('other / other-body ↔ multibody / body-A');
+    rows[0]!.querySelector<HTMLElement>('.link-btn')!.click();
+    expect(calls).toContain('showInterference');
+    const notes = [...sec.querySelectorAll('p.hint')].map((x) => x.textContent!);
+    expect(notes.some((t) => t.startsWith('안에 든 부품은 바깥 부품에 가려'))).toBe(true);
+    const texts = [
+      '간섭 3쌍을 찾았습니다(안에 든 것 1쌍 포함).',
+      '안에 듦 1',
+      '안에 듦',
+      '누르면 안쪽 부품을 강조하고 그것으로 맞춰 봅니다',
+      '앞 부품이 뒤 부품 안에 통째로 들었습니다(겉면은 만나지 않음)',
+      '고른 것이 많아 형상 1,200개 가운데 640개만 담았습니다.',
+      '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않습니다(닫히지 않은 면 모형은 안에 들었는지 보지 않습니다).',
+      '보이는 부품끼리 서로 뚫고 지나가거나 한 부품이 다른 부품 안에 든 곳을 찾습니다(맞닿음은 간섭이 아님)',
+      ...notes.filter((t) => t.startsWith('안에 든')),
+    ];
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) for (const t of texts) expect(translate(t, lang), `${lang}: ${t}`).not.toMatch(/[가-힣]/);
+    expect(translate('고른 것이 많아 형상 1,200개 가운데 640개만 담았습니다.', 'en')).toBe('The selection is large, so only 640 of 1,200 shapes were included.');
+    panel.el.remove();
+  });
+});

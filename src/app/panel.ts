@@ -113,6 +113,12 @@ const SEMANTIC_TYPE: Record<string, string> = {
   COMMON_DATUM: '공통 데이텀',
 };
 
+/** 간섭 한 쌍의 이름표(고른 묶음 이름과 같다): "A ↔ B" — 안에 든 쌍은 앞이 안쪽 부품 */
+export function interferenceLabel(d: StepDoc, p: InterferencePair): string {
+  const name = (id: string) => meshById(d.scene, id)?.name ?? id;
+  return `${name(p.a)} ↔ ${name(p.b)}`;
+}
+
 /** 의미 PMI 개체 이름 → 한국어 */
 export function semanticLabel(type: string): string {
   return SEMANTIC_TYPE[type] ?? type;
@@ -208,7 +214,6 @@ export class Panel {
 
   private interferenceSection(d: StepDoc): HTMLElement {
     const st = d.interference!;
-    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
     const kids: HTMLElement[] = [];
     const clear = h('button', { type: 'button', class: 'btn small' }, st.running ? '멈추기' : '결과 지우기');
     clear.addEventListener('click', () => this.host.clearInterference());
@@ -216,16 +221,22 @@ export class Panel {
     else if (st.error) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
     else if (st.result) {
       const r = st.result;
-      kids.push(h('p', { class: 'hint' }, h('span', {}, '범위가 겹친 쌍'), ` ${fmtCount(r.tested)} · `, h('span', {}, '간섭'), ` ${fmtCount(r.pairs.length)} · ${fmtCount(r.ms)} ms`));
+      const inside = r.pairs.filter((p) => p.inside).length;
+      kids.push(
+        h('p', { class: 'hint' }, h('span', {}, '범위가 겹친 쌍'), ` ${fmtCount(r.tested)} · `, h('span', {}, '간섭'), ` ${fmtCount(r.pairs.length)}`, ...(inside ? [' · ', h('span', {}, `안에 듦 ${fmtCount(inside)}`)] : []), ` · ${fmtCount(r.ms)} ms`),
+      );
       const LIMIT = 200;
       for (const p of r.pairs.slice(0, LIMIT)) {
-        const label = `${name(p.a)} ↔ ${name(p.b)}`;
+        const label = interferenceLabel(d, p);
         const sel = d.items?.label === label;
-        const b = h('button', { type: 'button', class: `link-btn${sel ? ' sel' : ''}`, title: '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
+        const b = h('button', { type: 'button', class: `link-btn${sel ? ' sel' : ''}`, title: p.inside ? '누르면 안쪽 부품을 강조하고 그것으로 맞춰 봅니다' : '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
         b.addEventListener('click', () => this.host.showInterference(p));
-        kids.push(h('div', { class: 'prop-row' }, b, h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count))));
+        // 안에 든 쌍: 겉면이 만나지 않아 교차 삼각형 수 대신 "안에 듦"(앞이 안쪽 부품)
+        const chip = p.inside ? h('span', { class: 'chip dim-chip', title: '앞 부품이 뒤 부품 안에 통째로 들었습니다(겉면은 만나지 않음)' }, '안에 듦') : h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count));
+        kids.push(h('div', { class: 'prop-row' }, b, chip));
       }
-      if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않고, 한 부품이 다른 부품 안에 통째로 든 경우는 찾지 못합니다.'));
+      if (inside) kids.push(h('p', { class: 'hint' }, '안에 든 부품은 바깥 부품에 가려 보이지 않을 수 있습니다 — X-ray 그리기나 나머지 흐리게로 보십시오.'));
+      if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않습니다(닫히지 않은 면 모형은 안에 들었는지 보지 않습니다).'));
     }
     return section('간섭 검사', ...kids, h('div', { class: 'tree-tools' }, clear));
   }
@@ -387,7 +398,7 @@ export class Panel {
       this.renderBody();
     });
     mk('모두 보이기', '숨긴 부품을 모두 다시 보입니다(레이어로 끈 것은 레이어 탭에서 켭니다)', () => this.host.showAll());
-    if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가는 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
+    if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가거나 한 부품이 다른 부품 안에 든 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
 
     const list = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
     const picked = treePicked(d);

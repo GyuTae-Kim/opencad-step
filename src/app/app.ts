@@ -40,7 +40,7 @@ import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
-import { Panel, pmiTypeLabel, semanticLabel } from './panel';
+import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
@@ -1316,7 +1316,11 @@ export class StepApp {
         d.interference = m.type === 'done' ? { running: false, done: 0, total: 0, result: m.result } : { running: false, done: 0, total: 0, error: m.message };
         w.terminate();
         if (this.checkWorker === w) this.checkWorker = null;
-        if (m.type === 'done') this.toast(m.result.pairs.length ? `간섭 ${fmtCount(m.result.pairs.length)}쌍을 찾았습니다.` : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', m.result.pairs.length ? 'warn' : 'info');
+        if (m.type === 'done') {
+          const n = m.result.pairs.length;
+          const inside = m.result.pairs.filter((p) => p.inside).length;
+          this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
+        }
       }
       this.panel.onInterference();
     };
@@ -1329,7 +1333,7 @@ export class StepApp {
     const req: CheckRequest = {
       id,
       type: 'interference',
-      meshes: meshes.map((m) => ({ id: m.id, positions: m.positions, ...(m.indices ? { indices: m.indices } : {}), ...(m.matrix ? { matrix: Array.from(m.matrix) } : {}), ...(m.origin ? { origin: [...m.origin] } : {}) })),
+      meshes: meshes.map((m) => ({ id: m.id, positions: m.positions, ...(m.indices ? { indices: m.indices } : {}), ...(m.matrix ? { matrix: Array.from(m.matrix) } : {}), ...(m.origin ? { origin: [...m.origin] } : {}), ...(m.closed ? { closed: true } : {}) })),
     };
     w.postMessage(req);
   }
@@ -1343,22 +1347,18 @@ export class StepApp {
     this.panel.onInterference();
   }
 
-  /** 간섭 한 쌍: 교차 삼각형을 강조하고 두 그물로 맞춰 본다 */
+  /** 간섭 한 쌍: 교차 삼각형을 강조하고 두 그물로 맞춰 본다(안에 든 쌍은 안쪽 부품 통째로 강조하고 그것으로 맞춰 본다) */
   showInterference(p: InterferencePair): void {
     const d = this.doc;
     const v = this.viewer;
     if (!d || !v) return;
-    const name = (id: string) => d.scene.meshes.find((m) => m.id === id)?.name ?? id;
-    d.selKey = null;
-    d.pick = null;
-    d.face = null;
-    d.edge = null;
-    d.items = { ids: [p.a, p.b], label: `${name(p.a)} ↔ ${name(p.b)}` };
+    resetSelection(d);
+    d.items = { ids: [p.a, p.b], label: interferenceLabel(d, p) };
     v.setHighlightSegments(null);
-    v.highlight(null);
-    v.highlightRanges({ [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
+    v.highlight(p.inside ? [p.a] : null);
+    v.highlightRanges(p.inside ? null : { [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
     this.selectionChanged();
-    v.fitItems([p.a, p.b]);
+    v.fitItems(p.inside ? [p.a] : [p.a, p.b]);
   }
 
   /** 패널을 열고 속성 탭으로 */
