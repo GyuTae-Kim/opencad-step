@@ -876,5 +876,11 @@
   "선 형상 {0}": "Line shape {0}",
   "점 형상 {0}": "Point shape {0}",
   "두 번 누르면 이 선 형상으로 맞춰 봅니다": "Double-click to zoom to this line shape",
-  "선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.": "Line shapes have no volume or mass — select the part row to see the part's physical properties."
+  "선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.": "Line shapes have no volume or mass — select the part row to see the part's physical properties.",
+  "몸체 {0} 숨기기": "Hide Body {0}",
+  "몸체 {0} 보이기": "Show Body {0}",
+  "선 형상 {0} 숨기기": "Hide Line shape {0}",
+  "선 형상 {0} 보이기": "Show Line shape {0}",
+  "점 형상 {0} 숨기기": "Hide Point shape {0}",
+  "점 형상 {0} 보이기": "Show Point shape {0}"
 }

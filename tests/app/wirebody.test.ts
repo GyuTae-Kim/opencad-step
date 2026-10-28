@@ -163,7 +163,10 @@ describe('패널: 선 형상 몸체 줄', () => {
     // 이름 있는 선 형상은 파일 글(번역하지 않음)
     expect(row(panel, '0/1.2').querySelector('.tree-name')!.textContent).toBe('rails');
     expect(row(panel, '0/1.2').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
-    for (const lang of ['en', 'ja', 'zh-CN', 'de']) expect(translate(w1.title, lang), lang).not.toMatch(/[가-힣]/);
+    // 말풍선과 눈 단추의 접근 이름("선 형상 1 숨기기"·"몸체 2 보이기")도 다른 언어로 옮긴다
+    for (const lang of ['en', 'ja', 'zh-CN', 'de'])
+      for (const text of [w1.title, w1.querySelector('.eye')!.getAttribute('aria-label')!, '몸체 2 보이기', '점 형상 3 숨기기']) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
+    expect(translate('선 형상 1 숨기기', 'en')).toBe('Hide Line shape 1');
     click(w1);
     click(row(panel, '0/1.2'), { detail: 2 });
     w1.querySelector<HTMLElement>('.eye')!.click();

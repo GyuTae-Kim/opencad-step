@@ -876,5 +876,11 @@
   "선 형상 {0}": "Linienform {0}",
   "점 형상 {0}": "Punktform {0}",
   "두 번 누르면 이 선 형상으로 맞춰 봅니다": "Doppelklicken, um auf diese Linienform einzupassen",
-  "선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.": "Linienformen haben kein Volumen und keine Masse – wählen Sie die Teilzeile, um die physikalischen Eigenschaften des Teils zu sehen."
+  "선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.": "Linienformen haben kein Volumen und keine Masse – wählen Sie die Teilzeile, um die physikalischen Eigenschaften des Teils zu sehen.",
+  "몸체 {0} 숨기기": "Körper {0} ausblenden",
+  "몸체 {0} 보이기": "Körper {0} anzeigen",
+  "선 형상 {0} 숨기기": "Linienform {0} ausblenden",
+  "선 형상 {0} 보이기": "Linienform {0} anzeigen",
+  "점 형상 {0} 숨기기": "Punktform {0} ausblenden",
+  "점 형상 {0} 보이기": "Punktform {0} anzeigen"
 }
