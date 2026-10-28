@@ -18,7 +18,7 @@
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
 import type { MeasureResult, Pick3d, Projection, RenderMode, SectionAxis, SectionState, SnapPoint, ViewName, Viewer3d } from 'opencad-viewer3d';
-import { loadViewerCore } from './core';
+import { loadCurveTangents, loadViewerCore } from './core';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
@@ -44,7 +44,8 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, hoverSnapLabel, lockName, type LockName, measureSnapOptions, snapPair, viewerLockHint } from './snap';
+import { arrowLock, circleCenters, hoverSnapLabel, type LockName, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from './snap';
+import type { TangentLock } from './tangent';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -236,6 +237,8 @@ export class StepApp {
   private lockKey = '';
   /** "잠글 방향이 없습니다" 알림 닫기(잠금이 걸리면 거둔다) */
   private lockFailClose: (() => void) | null = null;
+  /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
+  private tangents: TangentLock | null = null;
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
@@ -800,6 +803,7 @@ export class StepApp {
     this.aim?.cancel();
     if (v.measureMode) v.clearMeasure();
     this.doc = doc;
+    this.tangents?.reset();
     this.fmt = this.makeFmt();
     this.syncMeasureSnap();
     // 파일이 숨긴 레이어 등 처음 보이기
@@ -882,6 +886,8 @@ export class StepApp {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
+      // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다
+      labelAvoid: (a) => v.setMeasureLabelAvoid(a),
     });
     // 오른쪽 누르기(끌어 이동하지 않았을 때)로 작업 메뉴. 코어는 캔버스의 기본 메뉴만 막는다
     let rightDown: { x: number; y: number } | null = null;
@@ -902,9 +908,18 @@ export class StepApp {
     });
     // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
     // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
-    this.hostEl.addEventListener('pointermove', () => this.scheduleHoverSnap());
+    // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
+    this.hostEl.addEventListener('pointermove', (e) => {
+      if (!e.shiftKey) this.tangentShift(false);
+      this.scheduleHoverSnap();
+    });
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
+    // 곡선 모서리 끝의 접선 잠금은 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다(받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정만)
+    void loadCurveTangents().then(
+      (m) => (this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null))),
+      () => undefined,
+    );
   }
 
   /** 뷰 큐브 크기: 휴대폰(좁은 화면·낮은 가로 화면)에서는 작게 */
@@ -1149,7 +1164,8 @@ export class StepApp {
   private onMeasure(m: MeasureResult | null): void {
     const d = this.doc;
     if (!d) return;
-    d.measure = m;
+    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함)
+    d.measure = m && this.tangents?.result(m) ? { ...m, tangentB: true } : m;
     // 측정 기록(CSV 복사용, 이 문서 동안)
     if (m) logMeasure(d, { type: 'distance', a: [...m.a], b: [...m.b], distance: m.distance, dx: m.dx, dy: m.dy, dz: m.dz });
     this.panel.onMeasure();
@@ -1871,9 +1887,11 @@ export class StepApp {
 
   private showHoverSnap(): void {
     const v = this.viewer;
+    // 첫 점 뒤 마지막으로 본 잠글 것이 곡선 접선인지 남긴다(커서가 떠난 뒤 ↓·잠금 단추 — 코어의 "마지막으로 본 방향"과 같은 차례)
+    if (v && this.doc && !this.entMeasuring) this.tangents?.track(v);
     // Shift를 누르고 떼거나 이동의 shiftKey로 코어가 건·푼 잠금도 여기서 맞춘다
     this.refreshLock();
-    const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap) : null;
+    const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap, !!this.tangents?.locked(v)) : null;
     if (text === this.hoverSnapText) return;
     this.hoverSnapText = text;
     for (const el of [this.statusSnap, this.measureHoverEl]) {
@@ -1889,9 +1907,10 @@ export class StepApp {
   private refreshLock(): void {
     const v = this.viewer;
     const on = !!v && !!this.doc && v.measureMode && !this.entMeasuring;
-    const lock = on ? lockName(v.measureInferenceLock) : null;
+    const lock = on ? viewerLockName(v, this.tangents) : null;
     if (lock) this.dropLockFail();
-    const key = on ? `${lock}|${v.measurePointCount}|${!lock && v.measurePointCount === 1 && !!v.measureHoverLock}` : '';
+    const can = on && !lock && v.measurePointCount === 1 && (!!v.measureHoverLock || !!this.tangents?.now(v));
+    const key = on ? `${lock}|${v.measurePointCount}|${can}` : '';
     if (key === this.lockKey) return;
     this.lockKey = key;
     this.updateStatus();
@@ -1908,7 +1927,29 @@ export class StepApp {
   private measureLockHint(): string | null {
     const v = this.viewer;
     if (!v || !this.doc || !v.measureMode || this.entMeasuring) return null;
-    return viewerLockHint(v, this.touch);
+    return viewerLockHint(v, this.touch, this.tangents);
+  }
+
+  /**
+   * 곡선 모서리 끝의 접선 잠금 Shift(tangent.ts): 누름은 창 keydown 캡처 단계에서 코어보다 먼저(코어는 잠금이 있으면 Shift를 넘긴다 —
+   * 커서 아래가 곡선 위가 아니면 아무것도 하지 않아 코어가 제 판정으로 잠근다), 뗌은 keyup·창 흐려짐·Shift 없이 움직임
+   */
+  private tangentShift(down: boolean): void {
+    const v = this.viewer;
+    const t = this.tangents;
+    if (!v || !t || !this.doc || this.entMeasuring) return;
+    if (down ? t.shiftDown(v) : t.shiftUp(v)) this.refreshLock();
+  }
+
+  /** ↓·잠금 단추의 지금 방향: 곡선 접선이 먼저(tangent.ts — 커서 아래가 그 곡선 위일 때), 아니면 코어 판정 */
+  private lockNow(v: Viewer3d): boolean {
+    return this.tangents ? this.tangents.lockNow(v) : v.setMeasureInferenceLock(true);
+  }
+
+  /** 측정 잠금 풀기(앱이 건 접선 잠금 기록도) */
+  private unlockMeasure(v: Viewer3d): void {
+    v.setMeasureInferenceLock(false);
+    this.tangents?.forget();
   }
 
   /** 잠글 방향이 없을 때 알림(손가락 기기는 정밀 조준으로 맞추는 법) */
@@ -1925,8 +1966,8 @@ export class StepApp {
   private toggleMeasureLock(): void {
     const v = this.viewer;
     if (!v?.measureMode || this.entMeasuring) return;
-    if (v.measureInferenceLock) v.setMeasureInferenceLock(false);
-    else if (!v.setMeasureInferenceLock(true)) this.lockFailed();
+    if (v.measureInferenceLock) this.unlockMeasure(v);
+    else if (!this.lockNow(v)) this.lockFailed();
     this.refreshLock();
   }
 
@@ -1938,8 +1979,13 @@ export class StepApp {
     if (t instanceof Element && t !== document.body && t !== document.documentElement && !this.hostEl.contains(t)) return false;
     const want = arrowLock(ev.key, v.measurePointCount, v.measureInferenceLock);
     if (want === null) return false;
-    if (want === false) v.setMeasureInferenceLock(false);
-    else if (!v.setMeasureInferenceLock(want)) this.lockFailed();
+    if (want === false) this.unlockMeasure(v);
+    else if (want === true) {
+      if (!this.lockNow(v)) this.lockFailed();
+    } else {
+      this.tangents?.forget();
+      if (!v.setMeasureInferenceLock(want)) this.lockFailed();
+    }
     this.refreshLock();
     return true;
   }
@@ -1955,6 +2001,7 @@ export class StepApp {
     // 두 점은 코어 측정 모드, 개체는 코어 측정을 끄고 고르기 알림(윤곽선 포함)으로 모은다
     v.setMeasureMode(on && !ent);
     this.setEntMeasuring(ent);
+    this.tangents?.reset();
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
       this.viewer?.highlight(null);
@@ -2434,11 +2481,24 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
-    // Shift를 떼거나 창이 흐려지면 코어가 Shift 잠금을 스스로 푼다 — 다음 프레임에 잠금 안내를 맞춘다
+    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에)
+    window.addEventListener(
+      'keydown',
+      (ev) => {
+        if (ev.key === 'Shift' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isTextTarget(ev.target)) this.tangentShift(true);
+      },
+      true,
+    );
+    // Shift를 떼거나 창이 흐려지면 코어가 Shift 잠금을 스스로 푼다(앱이 Shift로 건 접선 잠금은 앱이) — 다음 프레임에 잠금 안내를 맞춘다
     window.addEventListener('keyup', (ev) => {
-      if (ev.key === 'Shift') this.scheduleHoverSnap();
+      if (ev.key !== 'Shift') return;
+      this.tangentShift(false);
+      this.scheduleHoverSnap();
     });
-    window.addEventListener('blur', () => this.scheduleHoverSnap());
+    window.addEventListener('blur', () => {
+      this.tangentShift(false);
+      this.scheduleHoverSnap();
+    });
     // 끌어다 놓기: 창 어디에나
     let depth = 0;
     const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -2829,7 +2889,7 @@ export class StepApp {
         const st = this.viewer?.section;
         return st ? { axis: st.axis, t: st.t, position: st.position, flip: st.flip } : null;
       })(),
-      measureLock: this.viewer?.measureMode ? lockName(this.viewer.measureInferenceLock) : null,
+      measureLock: this.viewer?.measureMode ? viewerLockName(this.viewer, this.tangents) : null,
       props: d ? { state: d.props.state, done: d.props.done, total: d.props.total, ms: d.props.ms } : null,
     };
   }

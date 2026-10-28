@@ -109,7 +109,8 @@ export interface StepDoc {
   pick: Pick3d | null;
   /** 고른 몸체 하나(그물 id): 나무의 몸체 줄에서, 또는 몸체 단위로 3D에서(그때는 pick도) 골랐을 때 */
   body: string | null;
-  measure: MeasureResult | null;
+  /** 두 점 측정 결과(tangentB = 둘째 점을 곡선 모서리 끝의 접선 잠금으로 찍었다 — 이름만 "접선 방향") */
+  measure: (MeasureResult & { tangentB?: boolean }) | null;
   panelTab: PanelTab;
   /** 레이어(없으면 빈 배열) */
   readonly layers: DocLayer[];

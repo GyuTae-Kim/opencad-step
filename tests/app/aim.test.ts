@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PICK_TOLERANCE_PX, SNAP_PX, TOUCH_DRAG_START_PX, TOUCH_PICK_TOLERANCE_PX, pickTolerance } from 'opencad-viewer3d';
-import { AIM_HOLD_MS, AIM_OFFSET_PX, AIM_POINTER_TYPE, AIM_SLOP_PX, TouchAim, aimPoint, touchPointerEvent } from '../../src/app/aim';
+import { AIM_FINGER_PX, AIM_HOLD_MS, AIM_OFFSET_PX, AIM_POINTER_TYPE, AIM_RETICLE_RADIUS, AIM_SLOP_PX, type AimLabelAvoid, TouchAim, aimLabelAvoid, aimPoint, touchPointerEvent } from '../../src/app/aim';
 
 interface Seen {
   type: string;
@@ -159,6 +159,46 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     expect(core.pointers.size).toBe(0);
     expect(aim.aiming).toBe(false);
     expect(reticle().hidden).toBe(true);
+  });
+
+  it('조준 중 코어 거리 글상자가 비킬 자리(십자선 반지름 24·손가락 44px 사각형)를 십자선 자리 pointermove 바로 전에 넘기고, 마치면 null', () => {
+    aim.dispose();
+    const log: string[] = [];
+    const avoids: (AimLabelAvoid | null)[] = [];
+    aim = new TouchAim(canvas, {
+      enabled: () => enabled,
+      layer,
+      labelAvoid: (a) => {
+        avoids.push(a);
+        log.push(a ? 'avoid' : 'avoid null');
+      },
+    });
+    canvas.addEventListener('pointermove', () => log.push('move'));
+    canvas.addEventListener('pointerleave', () => log.push('leave'));
+    // 캔버스가 화면 (10, 20)에서 시작해도 캔버스 기준 자리로 넘긴다
+    const R2 = { ...RECT, left: 10, top: 20, right: 410, bottom: 320, x: 10, y: 20 } as DOMRect;
+    canvas.getBoundingClientRect = () => R2;
+    fire('pointerdown', 110, 220);
+    vi.advanceTimersByTime(AIM_HOLD_MS);
+    expect(aim.aiming).toBe(true);
+    expect(avoids).toEqual([{ pointerRadius: AIM_RETICLE_RADIUS, rects: [{ x: 100 - AIM_FINGER_PX / 2, y: 200 - AIM_FINGER_PX / 2, width: AIM_FINGER_PX, height: AIM_FINGER_PX }] }]);
+    expect(AIM_RETICLE_RADIUS * 2).toBe(48);
+    fire('pointermove', 150, 260);
+    expect(avoids[1]).toEqual(aimLabelAvoid({ x: 150, y: 260 }, R2));
+    expect(avoids[1]!.rects[0]).toMatchObject({ x: 140 - AIM_FINGER_PX / 2, y: 240 - AIM_FINGER_PX / 2 });
+    fire('pointerup', 150, 260);
+    expect(avoids.at(-1)).toBeNull();
+    // 같은 처리 안에서 넘긴 뒤 코어에 십자선 자리 움직임을 보낸다(같은 프레임에 반영), 마칠 때는 끄고 미리 보기를 지운다
+    expect(log).toEqual(['avoid', 'move', 'avoid', 'move', 'avoid null', 'leave']);
+    // 조준 없이 누르기·밖에서 그만두기
+    fire('pointerdown', 50, 50);
+    fire('pointerup', 50, 50);
+    expect(avoids).toHaveLength(3);
+    fire('pointerdown', 60, 160);
+    vi.advanceTimersByTime(AIM_HOLD_MS);
+    aim.cancel();
+    expect(avoids.at(-1)).toBeNull();
+    fire('pointerup', 60, 160);
   });
 
   it('문턱은 코어 터치 끌기 시작 거리(10화소)와 같다', () => {

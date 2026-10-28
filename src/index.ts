@@ -6,6 +6,7 @@ export {
   type DeferredScene,
   EDGE_KINDS,
   EDGE_PARAMS,
+  EDGE_TANGENTS,
   FACE_KINDS,
   FACE_PARAMS,
   MassPropsJob,

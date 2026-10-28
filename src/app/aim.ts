@@ -13,6 +13,8 @@
  *   미리 보기와 찍는 점이 같은 종류라 미리 본 점이 그대로 찍힌다. 그냥 누르기(조준 없이)는 진짜 터치 그대로 넓은 값이다.
  * - 둘째 손가락이 닿으면 조준을 그만두고 첫 손가락을 지금 자리에서 다시 눌린 것으로 알려, 코어가 두 손가락 확대·이동을 한다.
  * - pointercancel은 그대로 넘기고 조준만 그만둔다. 밖에서 cancel()하면 그 손가락은 뗄 때까지 코어에 넘기지 않는다.
+ * - 조준 중에는 코어 측정 거리 글상자가 십자선(커서 둘레 반지름 AIM_RETICLE_RADIUS)과 손가락 자리(AIM_FINGER_PX 사각형)를 비키게
+ *   알리고(labelAvoid — 코어 0.13.0 setMeasureLabelAvoid), 조준을 마치면 끈다. 첫 점 가까이를 조준하면 십자선이 글상자를 가리던 것.
  * 보내는 이벤트는 같은 pointerId이고(코어가 손가락을 잊게 하는 pointercancel·두 손가락으로 넘기는 pointerdown은 'touch'),
  * PointerEvent가 없으면 MouseEvent에 두 값을 덧붙인다.
  */
@@ -31,6 +33,22 @@ export const AIM_SLOP_PX = TOUCH_DRAG_START_PX;
 export const AIM_POINTER_TYPE = 'pen';
 /** 측정·면 고르기가 아닐 때 이만큼(ms) 움직이지 않고 누르면 작업 메뉴(onHold) */
 export const HOLD_MENU_MS = 500;
+/** 십자선 반지름(화소 — .aim-reticle 48화소의 반): 조준 중 코어 거리 글상자가 커서(십자선 가운데) 둘레를 비킨다 */
+export const AIM_RETICLE_RADIUS = 24;
+/** 조준 중 코어 거리 글상자가 비킬 손가락 자리 사각형의 한 변(화소) */
+export const AIM_FINGER_PX = 44;
+
+/** 코어 거리 글상자가 비킬 자리(코어 0.13.0 setMeasureLabelAvoid의 { rects, pointerRadius } — 캔버스 왼쪽 위 기준 CSS 화소) */
+export interface AimLabelAvoid {
+  pointerRadius: number;
+  rects: { x: number; y: number; width: number; height: number }[];
+}
+
+/** 조준 중 비킬 자리: 십자선은 커서 둘레(반지름 AIM_RETICLE_RADIUS), 손가락(화면 좌표)은 그 둘레 AIM_FINGER_PX 사각형(캔버스 기준으로) */
+export function aimLabelAvoid(finger: { x: number; y: number }, canvas: { left: number; top: number }): AimLabelAvoid {
+  const h = AIM_FINGER_PX / 2;
+  return { pointerRadius: AIM_RETICLE_RADIUS, rects: [{ x: finger.x - canvas.left - h, y: finger.y - canvas.top - h, width: AIM_FINGER_PX, height: AIM_FINGER_PX }] };
+}
 
 export interface AimOptions {
   /** 조준을 받을 때인지(측정·면 고르기 중) */
@@ -44,6 +62,11 @@ export interface AimOptions {
    * 뗄 때 누르기로 넘기지 않는다(작업 메뉴를 연 뒤 엉뚱한 고르기·회전이 없게)
    */
   onHold?: (x: number, y: number) => boolean;
+  /**
+   * 조준 중 코어 거리 글상자가 비킬 자리(aimLabelAvoid — 십자선을 옮길 때마다, 코어에 십자선 자리 pointermove를 보내기 바로 전에)와
+   * 조준을 마칠 때 null. 앱은 코어 setMeasureLabelAvoid에 넘긴다(같은 프레임에 반영된다)
+   */
+  labelAvoid?: (avoid: AimLabelAvoid | null) => void;
 }
 
 interface Rect {
@@ -249,10 +272,13 @@ export class TouchAim {
 
   /** 손가락 자리 → 십자선 옮기기, 코어에 그 자리 움직임을 보내 미리 보기(측정 중 붙잡을 점) */
   private moveTo(x: number, y: number): void {
-    const at = aimPoint(x, y, this.canvas.getBoundingClientRect());
+    const cr = this.canvas.getBoundingClientRect();
+    const at = aimPoint(x, y, cr);
     this.at = at;
     const lr = this.opts.layer.getBoundingClientRect();
     this.reticle.style.transform = `translate(${at.x - lr.left}px, ${at.y - lr.top}px)`;
+    // 코어 거리 글상자가 십자선과 손가락을 비키게(코어가 이 이동의 미리 보기를 그리는 프레임에 함께 반영된다)
+    this.opts.labelAvoid?.(aimLabelAvoid({ x, y }, cr));
     if (this.heldId !== null) this.relay('pointermove', this.heldId, at, AIM_POINTER_TYPE);
   }
 
@@ -260,6 +286,7 @@ export class TouchAim {
   private hide(): void {
     this.aimOn = false;
     this.reticle.hidden = true;
+    this.opts.labelAvoid?.(null);
     if (this.heldId !== null) this.relay('pointerleave', this.heldId, this.at, AIM_POINTER_TYPE);
     this.opts.onChange?.(false);
   }

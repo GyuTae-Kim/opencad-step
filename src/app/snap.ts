@@ -163,29 +163,32 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
 /** 잠근 선 위 점 이름 뒤에 붙는 글(" · "로 이어 조각마다 번역된다) */
 export const LOCKED_LABEL = '잠금';
 
+/** 곡선 모서리 끝의 접선 방향으로 잠근 선 위 점 이름(tangent.ts — 코어 결과는 나란함이라 이름만 바꾼다) */
+export const TANGENT_LABEL = '접선 방향';
+
 /**
  * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 자유 점이면 null).
- * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다
+ * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향"
  */
-export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; axisA?: SnapAxis; axisB?: SnapAxis; lockedB?: boolean }): [string, string] | null {
+export function snapPair(m: { snapA?: SnapKind | null; snapB?: SnapKind | null; axisA?: SnapAxis; axisB?: SnapAxis; lockedB?: boolean; tangentB?: boolean }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB) return null;
-  const b = snapLabel(m.snapB, m.axisB);
+  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB);
   return [snapLabel(m.snapA, m.axisA), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
 /**
  * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
- * 모형 위지만 붙잡지 않으면 '면 위 점'
+ * 모형 위지만 붙잡지 않으면 '면 위 점'. 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금"
  */
-export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean } | null | undefined): string | null {
+export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean } | null | undefined, tangent = false): string | null {
   if (!h) return null;
-  const name = snapLabel(h.snap, h.axis);
+  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }
 
-/** 잠근 방향 이름(잠금 안내·자동 확인): 축 · 모서리와 나란히 · 수직(첫 점에서 수직 발 쪽) */
-export type LockName = SnapAxis | 'parallel' | 'perpendicular';
+/** 잠근 방향 이름(잠금 안내·자동 확인): 축 · 모서리와 나란히 · 수직(첫 점에서 수직 발 쪽) · 곡선 모서리 끝의 접선 */
+export type LockName = SnapAxis | 'parallel' | 'perpendicular' | 'tangent';
 
 /** 코어 추론 잠금(measureInferenceLock) → 이름(없으면 null) */
 export function lockName(l: Pick<MeasureInferenceLock, 'kind' | 'axis'> | null | undefined): LockName | null {
@@ -201,6 +204,7 @@ export const LOCK_HINTS: Readonly<Record<LockName, string>> = Object.freeze({
   z: 'Z축으로 잠금',
   parallel: '모서리와 나란히 잠금',
   perpendicular: '모서리에 수직으로 잠금',
+  tangent: '접선 방향으로 잠금',
 });
 
 /** 키보드 기기에서 끝점을 잡는 동안 잠그는 법(커서 아래에 Shift로 잠글 방향이 있을 때) */
@@ -238,11 +242,26 @@ export function arrowLock(key: string, points: number, cur: Pick<MeasureInferenc
 /** 측정 잠금 안내가 읽는 코어 뷰어 상태(0.12.0) */
 export type LockViewer = Pick<Viewer3d, 'measureHoverLock' | 'measureInferenceLock' | 'measurePointCount'>;
 
+/** 곡선 접선 잠금(tangent.ts TangentLock — 문서를 열 때 받는다)에서 안내가 읽는 것 */
+export interface TangentHint {
+  /** 코어 잠금이 앱이 건 접선 잠금인지 */
+  locked(v: Pick<Viewer3d, 'measureInferenceLock'>): boolean;
+  /** 커서 아래에서 Shift로 잠글 접선(없으면 null) */
+  now(v: LockViewer): unknown;
+}
+
+/** 지금 잠근 방향 이름: 앱이 건 곡선 접선 잠금이면 'tangent', 아니면 코어 잠금 이름 */
+export function viewerLockName(v: Pick<Viewer3d, 'measureInferenceLock'>, tangent: TangentHint | null = null): LockName | null {
+  return tangent?.locked(v) ? 'tangent' : lockName(v.measureInferenceLock);
+}
+
 /**
  * 지금 측정 잠금 안내(상태 막대·측정 띠): 무엇을 잠글지는 코어가 정한다 — Shift·↓·잠금 단추는 커서 아래 방향 추론(축·모서리와 나란히·수직)이나,
  * 첫 점을 지나는 모서리 위의 점 붙잡기(모서리 끝에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 — 코어 0.12.0)면 그 모서리 방향을 잠근다.
- * 그 방향이 있는지(measureHoverLock)로 Shift 안내를 보일지 고른다
+ * 첫 점이 곡선 모서리 끝이고 커서가 그 곡선 위면 앱이 접선 방향으로 잠근다(tangent — 받기 전이면 null).
+ * 그 방향이 있는지(measureHoverLock, 접선)로 Shift 안내를 보일지 고른다
  */
-export function viewerLockHint(v: LockViewer, touch = false): string | null {
-  return lockHint(v.measurePointCount, lockName(v.measureInferenceLock), touch, !!v.measureHoverLock);
+export function viewerLockHint(v: LockViewer, touch = false, tangent: TangentHint | null = null): string | null {
+  const lock = viewerLockName(v, tangent);
+  return lockHint(v.measurePointCount, lock, touch, !!v.measureHoverLock || (!lock && !!tangent?.now(v)));
 }

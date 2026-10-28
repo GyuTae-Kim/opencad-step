@@ -1,5 +1,5 @@
 /**
- * 두 점 측정 방향 잠금을 실제 코어(opencad-viewer3d 0.12.0) 판정으로 본다: STEP 장면(Z축으로 30° 돌린 10 mm 정육면체 — 윗면 모서리가
+ * 두 점 측정 방향 잠금을 실제 코어(opencad-viewer3d 0.12.0 판정 — 0.13.0에서도 같다) 판정으로 본다: STEP 장면(Z축으로 30° 돌린 10 mm 정육면체 — 윗면 모서리가
  * 축과 나란하지 않다)과 앱의 붙잡기 선택(measureSnapOptions — 윤곽선, B-rep 모서리 끝점·가운데 점, 추론, Shift 잠금)을 가짜 DOM·WebGL2 뷰어에 주고
  * 포인터·키 사건을 넣는다. 10차에 앱이 메우던 우회(마지막으로 본 방향으로 잠근 뒤 그 점이 선 위인지 확인)를 걷어 내고 코어가 잠그므로
  * 그 우회가 지키던 경우를 코어로 다시 보고, 첫 점을 지나는 모서리를 따라 가리킨 적 없이 그 끝점·가운데 점에서 바로 Shift를 눌러도 잠그는지 본다.
@@ -10,6 +10,7 @@ import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { arrowLock, circleCenters, hoverSnapLabel, lockName, measureSnapOptions, viewerLockHint } from '../../src/app/snap';
 import { nextFrame } from '../../src/app/dom';
+import { AIM_OFFSET_PX, AIM_RETICLE_RADIUS, aimLabelAvoid } from '../../src/app/aim';
 import { cube, StepText } from '../stepText';
 import { type FakeElement, installDom } from './fakeview';
 
@@ -244,6 +245,38 @@ describe('측정 방향 잠금: 실제 코어 0.12.0 판정 + STEP 붙잡기 선
     expect(arrowLock('ArrowUp', v.measurePointCount, v.measureInferenceLock)).toBe(false);
     v.setMeasureInferenceLock(false);
     expect(v.measureInferenceLock).toBeNull();
+  });
+});
+
+describe('정밀 조준 중 코어 거리 글상자(코어 0.13.0 setMeasureLabelAvoid — aim.ts가 넘기는 자리)', () => {
+  type Box = { x: number; y: number; width: number; height: number };
+  const overlap = (a: Box, b: Box): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  /** 상자와 원(가운데 c, 반지름 r — 십자선)이 겹치는지 */
+  const hitsCircle = (a: Box, c: { x: number; y: number }, r: number): boolean =>
+    Math.hypot(Math.max(a.x, Math.min(c.x, a.x + a.width)) - c.x, Math.max(a.y, Math.min(c.y, a.y + a.height)) - c.y) < r;
+
+  it('첫 점 가까이를 조준하면 기본 자리 글상자가 십자선에 걸리지만, 비킬 자리를 주면 십자선·손가락과 겹치지 않고, 끄면 기본 자리', () => {
+    const w = fromA();
+    const { v } = w;
+    // 첫 점에서 화면으로 30화소 떨어진 모서리 위 점에 십자선(캔버스는 화면 (0, 0)에서 시작)
+    const a = at(w, A);
+    const b = at(w, A1);
+    const q = at(w, lerp(A, A1, 30 / Math.hypot(b.x - a.x, b.y - a.y)));
+    ptr(w, 'pointermove', q.x, q.y, 0, false);
+    w.v.renderNow();
+    const base = v.measureLabelRect!;
+    expect(base).toBeTruthy();
+    expect(hitsCircle(base, q, AIM_RETICLE_RADIUS)).toBe(true);
+    const avoid = aimLabelAvoid({ x: q.x, y: q.y + AIM_OFFSET_PX }, { left: 0, top: 0 });
+    v.setMeasureLabelAvoid(avoid);
+    v.renderNow();
+    const moved = v.measureLabelRect!;
+    expect(hitsCircle(moved, q, AIM_RETICLE_RADIUS)).toBe(false);
+    expect(overlap(moved, avoid.rects[0]!)).toBe(false);
+    expect(v.measureLabelAvoid).toMatchObject({ pointerRadius: AIM_RETICLE_RADIUS });
+    v.setMeasureLabelAvoid(null);
+    v.renderNow();
+    expect(v.measureLabelRect).toEqual(base);
   });
 });
 
