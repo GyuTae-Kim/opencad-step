@@ -14,17 +14,22 @@ describe('language URLs and UI presentation', () => {
     ['zh-CN', '隐藏 열기', '显示 열기', '正在读取文件…'],
     ['de', '열기 ausblenden', '열기 anzeigen', 'Datei wird gelesen…'],
   ])('localizes visibility actions and loading notices while preserving model names in %s', async (code, hide, show, reading) => {
-    const dom = new JSDOM('<!doctype html><html><head><title>OpenCAD</title></head><body><div id="app"><header class="titlebar"></header><div class="tree"><span class="name">열기</span><button class="eye" title="숨기기" aria-label="열기 숨기기"></button></div><p id="busy">파일 읽는 중…</p></div></body></html>', {url:languageUrl(metadataForLanguage('ko').url,code)});
+    const dom = new JSDOM('<!doctype html><html><head><title>OpenCAD</title></head><body><div id="app"><header class="titlebar"></header><div class="tree"><span class="name">열기</span><button class="eye" title="숨기기" aria-label="열기 숨기기"></button></div><p id="busy"></p></div></body></html>', {url:languageUrl(metadataForLanguage('ko').url,code)});
     for (const name of ['window','document','Node','Element','HTMLAnchorElement','MutationObserver','location','history','localStorage','CustomEvent']) vi.stubGlobal(name,(dom.window as unknown as Record<string,unknown>)[name]);
     const root = document.getElementById('app')!;
+    const busy = document.getElementById('busy')!;
+    busy.append(document.createTextNode('파일 읽는 중'), document.createTextNode('…'));
     dispose = await installLocalization(root);
     const eye = root.querySelector<HTMLButtonElement>('.eye')!;
     expect(eye.getAttribute('aria-label')).toBe(hide);
     expect(root.querySelector('.tree .name')!.textContent).toBe('열기');
-    expect(root.querySelector('#busy')!.textContent).toBe(reading);
+    expect(busy.textContent).toBe(reading);
+    busy.replaceChildren(document.createTextNode('화면에 올리는 중'), document.createTextNode('…'));
     eye.setAttribute('aria-label', '열기 보이기');
     await new Promise(resolve=>setTimeout(resolve,0));
     expect(eye.getAttribute('aria-label')).toBe(show);
+    expect(busy.textContent).toBe(translate('화면에 올리는 중',code)+'…');
+    expect(busy.textContent).not.toMatch(/[가-힣]/);
     expect(root.querySelector('.tree .name')!.textContent).toBe('열기');
     dispose(); dispose=undefined; dom.window.close();
   });

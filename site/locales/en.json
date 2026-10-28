@@ -767,7 +767,6 @@
   "파일 받는 중 ({0})": "Receiving file ({0})",
   "파일 열기": "Open file",
   "파일 읽는 중": "Reading file",
-  "파일 읽는 중…": "Reading file…",
   "파일 크기 {0} 바이트": "File size: {0} bytes",
   "파일에 길이 단위가 없습니다": "The file lacks length unit information",
   "파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.": "The file has no density — choose a material below to see the mass and moments of inertia.",

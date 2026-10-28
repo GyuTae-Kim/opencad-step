@@ -767,7 +767,6 @@
   "파일 받는 중 ({0})": "Datei wird empfangen ({0})",
   "파일 열기": "Datei öffnen",
   "파일 읽는 중": "Datei wird gelesen",
-  "파일 읽는 중…": "Datei wird gelesen…",
   "파일 크기 {0} 바이트": "Dateigröße {0} Bytes",
   "파일에 길이 단위가 없습니다": "Datei enthält keine Längeneinheiten",
   "파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.": "Die Datei enthält keine Dichte – wählen Sie unten einen Werkstoff, um Masse und Trägheitsmomente zu sehen.",
