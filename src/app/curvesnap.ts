@@ -10,11 +10,12 @@
  *   코어 발(현 위)에 가장 가까운 것. 없으면 null
  * - 모서리 위 점('onEdge'): 커서 광선에 가장 가까운 곡선 위 점. 같은 둘레에서 광선까지 거리의 극소(모서리 끝으로 나가면 그 끝) 가운데 코어 점에 가장 가까운 것
  * - 코어 가운데 점('midpoint'): 그 토막 두 끝 매개변수의 가운데(원은 그 호의 길이 가운데와 같다). STEP은 코어 가운데 점을 끄므로 지금은 오지 않는다
+ * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
  */
 import type { SnapRefineInput } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
-import { bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
+import { arcCuts, arcMidParam, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt } from './edges';
 import type { CurveSnap, SnapEdgeIndex } from './snap';
@@ -324,6 +325,30 @@ export function curveDistance(mesh: Mesh3d, table: StepEdgeTable, e: number, kin
   return r && L ? r.dist * L.scale : null;
 }
 
+/** 모서리 곡선마다 곡선 길이 가운데 점(묶음 좌표 — 같은 부품의 여러 자리가 함께 쓴다) */
+const midCache = new WeakMap<EdgeArc, V3 | null>();
+
+/**
+ * 그물 mesh의 모서리 e 곡선 길이 가운데 점(세계 — 원은 각 가운데, 타원·B-스플라인은 길이 적분). 두 끝 매개변수는 윤곽선 꼭짓점(float32)에서
+ * 구하므로 가운데 점의 자리도 그 정밀도를 따르고(점은 곡선 위), 곡선 정의가 없거나 못 구하면 null
+ */
+export function curveMidpoint(mesh: Mesh3d, table: StepEdgeTable, e: number, kinds: readonly string[]): V3 | null {
+  const E = mesh.edges;
+  const arc = E ? edgeArc(E, table, e, kinds) : null;
+  if (!arc) return null;
+  let m = midCache.get(arc);
+  if (m === undefined) {
+    const a = arc.param(0);
+    const b = arc.param(arc.n);
+    const t = arc.def.kind === 'circle' ? 0.5 * (a + b) : arcMidParam(arc.ev, arcCuts(arc.def, a, b));
+    const C = Number.isFinite(t) ? arc.ev(t)[0] : null;
+    midCache.set(arc, (m = C && C.every(Number.isFinite) ? [C[0], C[1], C[2]] : null));
+  }
+  if (!m) return null;
+  const w = toWorld(mesh, m[0], m[1], m[2]);
+  return w.every(Number.isFinite) ? w : null;
+}
+
 /**
  * 코어 refine 입력 → 다듬은 세계 점(직선·곡선 정의 없음·선 형상·못 찾으면 null). 토막의 두 끝이 그물 윤곽선 꼭짓점과 맞지 않으면
  * (분해·다른 자리 등 장면이 어긋남) 다듬지 않는다
@@ -358,9 +383,12 @@ export function refineSnap(c: SnapRefineInput, meshes: ReadonlyMap<string, Mesh3
   return w.every(Number.isFinite) ? w : null;
 }
 
-/** 장면의 곡선 붙잡기(코어 refine). 모서리 표가 없으면 null */
+/** 장면의 곡선 붙잡기(코어 refine과 앱 곡선 가운데 점). 모서리 표가 없으면 null */
 export function curveSnap(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null): CurveSnap | null {
   if (!ex) return null;
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
-  return { refine: (c) => refineSnap(c, byId, ex) };
+  return {
+    refine: (c) => refineSnap(c, byId, ex),
+    mid: (mesh, table, e) => curveMidpoint(mesh, table, e, ex.kinds),
+  };
 }

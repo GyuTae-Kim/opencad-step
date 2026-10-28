@@ -241,7 +241,7 @@ export class StepApp {
   private tangents: TangentLock | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
-  /** 문서마다 곡선 붙잡기(곡선 위로 다듬기) */
+  /** 문서마다 곡선 붙잡기(곡선 위로 다듬기·곡선 가운데 점) */
   private readonly curveSnaps = new WeakMap<StepDoc, CurveSnap | null>();
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
@@ -920,7 +920,7 @@ export class StepApp {
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
     // 곡선 모서리 끝의 접선 잠금과 곡선 위로 다듬기는 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다
-    // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine)
+    // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine·곡선 가운데 점)
     void loadCurveTangents().then(
       (m) => {
         this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null));
@@ -999,7 +999,10 @@ export class StepApp {
     const table = ex.tables[ti];
     if (!mesh || !table) return null;
     const e = edgeAt(table, p.raw ?? p.index);
-    return e < 0 ? null : edgeDetails(mesh, table, e, ex.kinds);
+    const ep = e < 0 ? null : edgeDetails(mesh, table, e, ex.kinds);
+    // 곡선 계산 조각을 받았으면 가운데 점은 곡선 위(곡선 길이 가운데 — 개체 측정의 가운데 점 붙잡기도)
+    if (ep && ep.kind !== 'line') ep.mid = this.curveSnapFor(d)?.mid(mesh, table, e) ?? ep.mid;
+    return ep;
   }
 
   /** 누른 삼각형의 B-rep 면(면 표가 없거나 못 찾으면 null) */

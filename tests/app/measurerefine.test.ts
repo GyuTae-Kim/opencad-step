@@ -3,6 +3,7 @@
  * 원기둥 윗 테두리 원·타원 호·B-스플라인 모서리 STEP 장면과 앱의 붙잡기 선택(곡선 붙잡기 포함)을 가짜 DOM·WebGL2 뷰어에 주고 포인터·키 사건을 넣는다.
  * - 수직 발: 코어는 꺾은선 토막(현) 위 발을 고르고, 앱이 첫 점에서 원으로 내린 정확한 발로 옮긴다(거리 값도 그 발까지)
  * - 모서리 위 점: 타원·B-스플라인 토막 위 점이 곡선 위로, 직선 모서리는 그대로
+ * - 곡선 가운데 점(앱 점): 곡선 길이 가운데
  * - 곡선 위로 다듬은 첫 점에서도 곡선 접선 잠금(13·14차)이 그 모서리를 찾는다
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -26,7 +27,6 @@ import {
   ELL_T1,
   ellTangent,
   footParam,
-  halfway,
   RIM,
   RIM_R,
   RIM_H,
@@ -269,6 +269,37 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     expect(hoverSnapLabel(h)).toBe('면 위 점');
   });
 
+  it('곡선 가운데 점(앱 pointsFor)은 곡선 길이 가운데: 타원 호 위(1e-9)이고 두 끝에서 잰 호 길이가 같다(끝 꼭짓점 float32 정밀도 안)', () => {
+    const w = view();
+    const { v } = w;
+    // 타원 호 길이 가운데의 매개변수(시험이 따로 — 심프슨 적분과 반 나눔)
+    const speed = (t: number): number => Math.hypot(12 * Math.sin(t), 6 * Math.cos(t));
+    const arc = (a: number, b: number, n = 4000): number => {
+      const h = (b - a) / n;
+      let s = speed(a) + speed(b);
+      for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * speed(a + i * h);
+      return (s * h) / 3;
+    };
+    const L = arc(ELL_T0, ELL_T1);
+    let lo = ELL_T0;
+    let hi = ELL_T1;
+    for (let i = 0; i < 80; i++) {
+      const m = 0.5 * (lo + hi);
+      if (arc(ELL_T0, m) < L / 2) lo = m;
+      else hi = m;
+    }
+    const mid = ellAt(0.5 * (lo + hi));
+    hoverAt(w, mid);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('midpoint');
+    expect(h.refined).toBeUndefined();
+    // 두 끝 매개변수는 윤곽선 꼭짓점(float32)에서 구하므로 그만큼(좌표 40 둘레에서 1e-6 안) 비킬 수 있다
+    close(h.point, mid, 1e-6);
+    const tm = offCurve(ellAt, ellTangent, h.point, ELL_T0, ELL_T1);
+    expect(tm.d).toBeLessThan(1e-9);
+    expect(Math.abs(arc(ELL_T0, tm.t) - arc(tm.t, ELL_T1))).toBeLessThan(1e-6);
+  });
+
   it('곡선 위로 다듬은 첫 점(테두리 30° 지점)에서도 접선 잠금: 그 자리 원 접선(1e-9)으로 잠그고 찍은 거리도 그 직선으로', () => {
     const w = view();
     const { v, tl } = w;
@@ -314,15 +345,17 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     expect(v.measureHoverSnap!.refined).toBe(true);
     expect(offRim(v.measureHoverSnap!.point)).toBeLessThan(1e-9);
     close(tl.now(v), RIM_TANGENT, 1e-6);
-    // 가운데에서: 타원 호 가운데 점(앱 점 — 꺾은선 길이 가운데) → 끝 쪽 다듬은 점·끝 꼭짓점
+    // 가운데에서: 타원 호 곡선 길이 가운데 점(곡선 위 앱 점) → 끝 쪽 다듬은 점·끝 꼭짓점
     const u = view();
-    const mid = halfway(ellPoly);
+    const ee = curveEndsAt(scene.meshes, ex, ELL_START)[0]!;
+    const mid = curveSnap(scene.meshes, ex)!.mid(ee.mesh, ee.table, ee.edge)!;
     hoverAt(u, mid);
     expect(u.v.measureHoverSnap!.snap).toBe('midpoint');
     clickAt(u, mid);
     const a = u.v.measurePoints[0]!.point;
-    close(a, mid, 1e-5);
+    close(a, mid, 1e-12);
     const tm = footParam(ellAt, ellTangent, a, ELL_T0, ELL_T1);
+    expect(dist(ellAt(tm), a)).toBeLessThan(1e-9);
     const Te = ellTangent(tm);
     u.tl.track(u.v);
     hoverAt(u, ELL_END);

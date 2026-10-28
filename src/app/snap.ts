@@ -4,7 +4,8 @@
  * - 원·원호·타원 중심: 모서리 표(meta.edgeTables)가 아는 모든 원 모서리의 중심을 세계 좌표(묶음 origin·자리 matrix 반영)로.
  *   중심은 커서가 그 자리(구멍 가운데 빈 곳 포함)에 와야 붙으므로 늘 후보(points)로 준다. 같은 그물 안 같은 자리 중심은 하나로.
  * - 고른 모서리의 곡선 가운데 점·끝점·중심(pointsFor): 윤곽선은 곡선을 꺾은선으로 그린 것이라 코어의 선분 가운데 점은
- *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다.
+ *   곡선 모서리에서 현의 가운데일 뿐이다 — B-rep 모서리의 곡선 길이 가운데 점을 모서리 표로 준다. 곡선 계산 조각(curvesnap.ts — 문서를 열 때 받는다)을
+ *   받기 전에는 꺾은선 길이로 잰 점, 받은 뒤에는 곡선 정의로 잰 곡선 위 점(curve.mid).
  * - 곡선 위로 다듬기(코어 0.14.0 refine — curve.refine): 곡선 모서리 토막 위의 수직 발·모서리 위 점을 정확한 곡선 위로 옮긴다(받기 전에는 주지 않는다).
  * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
@@ -29,6 +30,8 @@ export interface SnapEdgeIndex {
 export interface CurveSnap {
   /** 코어 setMeasureSnap의 refine: 곡선 모서리 토막의 수직 발·모서리 위 점·코어 가운데 점 → 곡선 위 세계 점(아니면 null) */
   refine(c: SnapRefineInput): readonly number[] | null;
+  /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
+  mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
 }
 
 /** 표 하나의 원·타원 중심(형상 좌표, origin 빼기 전 값 그대로 — 표 매개변수), 같은 자리는 하나로 */
@@ -85,9 +88,10 @@ export function circleCenters(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
 
 /**
  * 고른 윤곽선(Pick3d kind 'edge')의 B-rep 모서리에서 붙잡을 점: 원호·곡선은 끝점·곡선 길이 가운데 점, 원·타원은 중심.
- * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null
+ * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null.
+ * curve가 있으면 곡선 모서리의 가운데 점은 곡선 정의로 잰 곡선 위 점(없거나 못 구하면 꺾은선 길이로 잰 점)
  */
-export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[], ex: SnapEdgeIndex | null): SnapPoint[] | null {
+export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[], ex: SnapEdgeIndex | null, curve: CurveSnap | null = null): SnapPoint[] | null {
   if (pick.kind !== 'edge' || !ex) return null;
   const ti = ex.tableOf.get(pick.id);
   const table = ti === undefined ? undefined : ex.tables[ti];
@@ -100,7 +104,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
   const out: SnapPoint[] = [];
   if (!isFullCircle(d)) {
     out.push({ point: d.ends[0], kind: 'endpoint', id: mesh.id }, { point: d.ends[1], kind: 'endpoint', id: mesh.id });
-    out.push({ point: d.mid, kind: 'midpoint', id: mesh.id });
+    out.push({ point: (d.kind !== 'line' && curve?.mid(mesh, table, e)) || d.mid, kind: 'midpoint', id: mesh.id });
   }
   if (d.center) out.push({ point: d.center, kind: 'center', id: mesh.id });
   return out;
@@ -111,7 +115,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 늘 후보로, 누른 모서리마다 곡선 가운데 점·끝점·중심(pointsFor — 같은 모서리를 이어 가리키는 동안은 한 번만 구한다),
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
- * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로 다듬는다(코어 0.14.0 refine)
+ * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로 다듬고(코어 0.14.0 refine), 곡선 가운데 점도 곡선 위 점으로 준다
  */
 export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
@@ -126,7 +130,7 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
       const key = `${p.id}:${p.raw ?? p.index}`;
       if (key !== lastKey) {
         lastKey = key;
-        last = edgeSnapPoints(p, byId, ex);
+        last = edgeSnapPoints(p, byId, ex, curve);
       }
       return last;
     },

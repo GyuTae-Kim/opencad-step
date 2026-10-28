@@ -1,15 +1,16 @@
 /**
  * 측정 붙잡기 점을 B-rep 곡선 위로(app/curvesnap.ts — 순수 계산): 꺾은선 꼭짓점의 곡선 매개변수, 수직 발·모서리 위 점·코어 가운데 점 다듬기,
- * 곡선까지 거리. 기댓값은 시험 장면(curvescene.ts)의 식으로 따로 구한다.
+ * 곡선 길이 가운데 점, 곡선까지 거리. 기댓값은 시험 장면(curvescene.ts)의 식으로 따로 구한다.
  */
 import { describe, expect, it } from 'vitest';
 import type { SnapRefineInput } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { curveDistance, edgeArc, type EdgeArc, refineOnArc, refineSnap, toLocal, toWorld } from '../../src/app/curvesnap';
+import { curveDistance, curveMidpoint, edgeArc, type EdgeArc, refineOnArc, refineSnap, toLocal, toWorld } from '../../src/app/curvesnap';
 import { curveEndsAt, type CurveEnd } from '../../src/app/tangent';
-import { rtsafe } from '../../src/edgecurve';
-import { bsAt, BS_START, bsTangentAt, curveStep, ellAt, ELL_START, ELL_T0, ELL_T1, ellTangent, RIM, RIM_H, RIM_R, rimAt, type V3 } from './curvescene';
+import { arcCuts, arcMidParam, type EllipseDef, ellipseEval, rtsafe } from '../../src/edgecurve';
+import { StepText } from '../stepText';
+import { bsAt, BS_START, bsTangentAt, curveStep, ellAt, ELL_START, ELL_T0, ELL_T1, ellTangent, footParam, RIM, RIM_H, RIM_R, rimAt, type V3 } from './curvescene';
 
 const scene = stepToScene(curveStep());
 const ex = stepEdgeIndex(scene)!;
@@ -182,7 +183,54 @@ describe('코어 refine 입력(refineSnap — 세계 좌표)', () => {
   });
 });
 
-describe('곡선까지 거리', () => {
+describe('곡선 길이 가운데 점과 곡선까지 거리', () => {
+  it('원호(반원)는 각 가운데, 타원·B-스플라인은 길이 적분 가운데 — 곡선 위(1e-9)이고 두 쪽 호 길이가 같다', () => {
+    // 반원: (10,0,0) → (−10,0,0) 위쪽(+y)으로 도는 반지름 10
+    const w = new StepText();
+    const mm = w.context('mm');
+    const A = w.vertex([10, 0, 0]);
+    const B = w.vertex([-10, 0, 0]);
+    const arcE = w.edge(B, A, w.circle([0, 0, 0], 10), false);
+    const dia = w.edge(A, B, w.line([10, 0, 0], [-10, 0, 0]));
+    const face = w.face([w.bound(w.loop([w.oe(dia, true), w.oe(arcE, true)]))], w.plane([0, 0, 0], [0, 0, -1]));
+    w.product('half-disc', [w.add('FACE_BASED_SURFACE_MODEL', `'',(#${w.add('CONNECTED_FACE_SET', `'',(#${face})`)})`)], mm, 'SHAPE_REPRESENTATION');
+    const disc = stepToScene(w.bytes());
+    const dx = stepEdgeIndex(disc)!;
+    const de = curveEndsAt(disc.meshes, dx, [10, 0, 0])[0]!;
+    close(curveMidpoint(de.mesh, de.table, de.edge, dx.kinds), [0, 10, 0], 1e-12);
+
+    // 타원: 심프슨 적분(시험이 따로)과 같은 길이 가운데
+    const speedE = (t: number): number => Math.hypot(12 * Math.sin(t), 6 * Math.cos(t));
+    const simpson = (f: (t: number) => number, a: number, b: number, n = 4000): number => {
+      const h = (b - a) / n;
+      let s = f(a) + f(b);
+      for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * f(a + i * h);
+      return (s * h) / 3;
+    };
+    const me = curveMidpoint(ellEnd.mesh, ellEnd.table, ellEnd.edge, ex.kinds)!;
+    const te = footParam(ellAt, ellTangent, me, ELL_T0, ELL_T1);
+    expect(dist(ellAt(te), me)).toBeLessThan(1e-9);
+    expect(Math.abs(simpson(speedE, ELL_T0, te) - simpson(speedE, te, ELL_T1))).toBeLessThan(1e-6);
+
+    // B-스플라인(3차 베지어): 같은 방법
+    const bp = [
+      [0, 0],
+      [2, 6],
+      [9, 7],
+      [12, 0],
+    ];
+    const speedB = (u: number): number => {
+      const d = [(1 - u) ** 2, 2 * u * (1 - u), u * u];
+      return Math.hypot(...[0, 1].map((k) => 3 * d.reduce((s, w2, i) => s + w2 * (bp[i + 1]![k]! - bp[i]![k]!), 0)));
+    };
+    const mb = curveMidpoint(bsEnd.mesh, bsEnd.table, bsEnd.edge, ex.kinds)!;
+    const ub = footParam(bsAt, bsTangentAt, mb, 0, 1);
+    expect(dist(bsAt(ub), mb)).toBeLessThan(1e-9);
+    expect(Math.abs(simpson(speedB, 0, ub) - simpson(speedB, ub, 1))).toBeLessThan(1e-9);
+    // 해석기가 모서리 표에 적분해 실은 길이와 같은 곡선
+    expect(simpson(speedB, 0, 1)).toBeCloseTo(bsEnd.table.length[bsEnd.edge]!, 7);
+  });
+
   it('curveDistance: 원 위 점은 0, 반지름 쪽으로 1e-3 비킨 점은 1e-3(세계 단위), 돌린 부품의 B-스플라인도', () => {
     const { arc } = arcOf(rimEnd);
     const k = 4;
@@ -200,11 +248,20 @@ describe('곡선까지 거리', () => {
   });
 });
 
-describe('곡선 계산(edgecurve.ts): 근 찾기', () => {
+describe('곡선 계산(edgecurve.ts): 근 찾기·곡선 길이 가운데', () => {
   it('rtsafe: g가 음수인 쪽을 lo로 주면 구간 방향과 상관없이 근', () => {
     const gh = (t: number): [number, number] => [t * t - 2, 2 * t];
     expect(rtsafe(gh, 0, 3)).toBeCloseTo(Math.SQRT2, 15);
     const g2 = (t: number): [number, number] => [2 - t * t, -2 * t];
     expect(rtsafe(g2, 3, 0)).toBeCloseTo(Math.SQRT2, 15);
+  });
+
+  it('arcMidParam·arcCuts: 원은 매개변수 가운데, 타원은 납작할수록 잘게 나눈다', () => {
+    const c = ellipseEval({ center: [0, 0, 0], normal: [0, 0, 1], x: [1, 0, 0], a: 3, b: 3 })!;
+    expect(arcMidParam(c.ev, arcCuts({ kind: 'circle', center: [0, 0, 0], normal: [0, 0, 1], r: 3 }, 0.2, 2.6))).toBeCloseTo(1.4, 13);
+    const flat: EllipseDef = { kind: 'ellipse', center: [0, 0, 0], normal: [0, 0, 1], x: [1, 0, 0], a: 10, b: 0.1 };
+    expect(arcCuts(flat, 0, 2 * Math.PI).length - 1).toBe(800);
+    expect(arcCuts({ ...flat, b: 10 }, 0, Math.PI).length - 1).toBe(8);
+    expect(Number.isNaN(arcMidParam(c.ev, [1]))).toBe(true);
   });
 });

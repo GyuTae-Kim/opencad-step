@@ -110,6 +110,14 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     // 윤곽선이 아니거나 표가 없으면 null
     expect(edgeSnapPoints({ ...pick(arcE), kind: 'mesh' } as Pick3d, s.meshes, ex)).toBeNull();
     expect(edgeSnapPoints(pick(arcE), s.meshes, null)).toBeNull();
+    // 곡선 계산 조각(curveSnap)을 받은 뒤: 곡선 가운데 점은 원 위 정확한 호 가운데, 직선 가운데 점·끝점·중심은 그대로
+    const cs = curveSnap(s.meshes, ex)!;
+    const arc2 = edgeSnapPoints(pick(arcE), s.meshes, ex, cs)!;
+    expect(arc2.map((p) => p.kind)).toEqual(['endpoint', 'endpoint', 'midpoint', 'center']);
+    near(arc2[2]!.point, [10, 7, 0], 12);
+    expect(Math.abs(Math.hypot(arc2[2]!.point[0]! - 10, arc2[2]!.point[1]! - 5) - 2)).toBeLessThan(1e-12);
+    expect(arc2[0]!.point).toEqual(arc[0]!.point);
+    expect(edgeSnapPoints(pick(lineE), s.meshes, ex, cs)![2]!.point).toEqual(line[2]!.point);
   });
 
   it('snapLabel·snapPair: 붙잡은 종류 이름, 붙잡기를 켜지 않았거나 둘 다 자유 점이면 null', () => {
@@ -177,7 +185,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect('refine' in o).toBe(false);
     const cs = curveSnap(s.meshes, ex)!;
     const seen: unknown[] = [];
-    const o2 = measureSnapOptions(s.meshes, ex, centers, { refine: (c) => (seen.push(c), cs.refine(c)) });
+    const o2 = measureSnapOptions(s.meshes, ex, centers, { refine: (c) => (seen.push(c), cs.refine(c)), mid: cs.mid });
     const input = { kind: 'onEdge', point: [0, 0, 0], segment: { kind: 'line', id: 'x', index: 0, raw: 0, ends: [[0, 0, 0], [1, 0, 0]] }, first: null, ray: { origin: [0, 0, 1], dir: [0, 0, -1] } } as const;
     expect(o2.refine!(input as never)).toBeNull();
     expect(seen).toHaveLength(1);
