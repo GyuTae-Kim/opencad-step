@@ -33,7 +33,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 - 의미 PMI ↔ 면: 모양 측면 → GEOMETRIC_ITEM_SPECIFIC_USAGE → 면, 복합 측면·데이텀 ↔ 데이텀 형체는 SHAPE_ASPECT_RELATIONSHIP으로 따라가 `semantic[].faces`(면 STEP 번호)
 - 저장된 보기(CAMERA_USAGE → CAMERA_MODEL_D3·VIEW_VOLUME·보기 창): 대상·방향·투영·창 높이와 그 제도 모형의 표현 PMI → `meta.pmi.views`(`src/savedviews.ts`)
 - 면 표(그물 삼각형 → B-rep 면, 면 종류·곡면 매개변수, B-rep 넓이·둘레와 정확한지) → `meta.faceTables`·`meta.meshFaceTable`(면 단위 고르기)
-- 모서리 표(그물 윤곽선 `Mesh3d.edges`의 선분 → B-rep 모서리 EDGE_CURVE, 곡선 종류 직선·원·타원·B-스플라인, 원 중심·법선·반지름·호 각, 곡선 길이 적분)
+- 모서리 표(그물 윤곽선 `Mesh3d.edges`의 선분 → B-rep 모서리 EDGE_CURVE, 곡선 종류 직선·원·타원·B-스플라인, 원 중심·법선·반지름·호 각, 곡선 길이 적분,
+  곡선 모서리 두 끝의 접선 — B-rep 곡선의 1차 도함수, 모서리 방향)
   → `meta.edgeTables`·`meta.meshEdgeTable`(모서리 고르기·개체 측정 — 이음선은 윤곽선에 없어 표에도 없음)
 - 닫힌 입체(닫힌 껍질, 실패한 면 없음, 삼각형이 틈 없이 맞물림)의 그물에 `Mesh3d.closed = true` — 단면에서 잘린 면을 채웁니다
 - 닫힌 입체의 질량 속성(부피, 1차·2차 모멘트)을 화면용 삼각형이 아니라 B-rep 곡면과 모서리 곡선을 적분해 구합니다 → 면 표 `props`(`src/massprops.ts`).
@@ -138,9 +139,14 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   같은 키로 풉니다(패널·메뉴에 초점이 있으면 그쪽 키). 잠그면 첫 점을 지나는 그 선 위에만 찍고, 다른 꼭짓점을 가리키면 그 점을 선에 내린 자리를 찍습니다
   (예: Z축 잠금 + 바닥 꼭짓점 = 첫 점 바로 아래, 결과 이름 "Z축 방향 · 잠금"). 첫 점이 모서리 끝이면 그 모서리를 따라 가리키지 않고 바로 다른 끝이나
   B-rep 가운데 점 위에서 Shift를 눌러도 그 모서리 방향으로 잠급니다(벽 모서리 끝에서 높이를 잴 때 — 코어 v0.12.0이 커서 아래 점이 첫 점을 지나는 모서리 위인지 봅니다).
+  첫 점이 원·타원·B-스플라인 같은 곡선 모서리의 끝 꼭짓점이고 커서가 그 모서리 위(다른 끝·가운데 점·곡선을 그린 꺾은선의 꼭짓점)에 있으면
+  Shift·↓·잠금 단추는 그 끝에서의 **접선 방향**으로 잠급니다. 꺾은선 첫 토막의 방향이 아니라 해석기가 B-rep 곡선의 도함수로 구한 접선입니다
+  (반지름 10 mm 원기둥 테두리에서 첫 토막과 3.6° 차이). 방향은 늘 첫 점에서 커서가 있는 곡선 쪽으로 나갑니다: 첫 점이 모서리의 시작 꼭짓점이면 모서리 방향,
+  끝 꼭짓점이면 그 반대, 한 바퀴 원처럼 두 끝이 같은 꼭짓점이면 커서가 원을 그린 꺾은선 길이로 앞 절반에 있으면 원이 도는 쪽, 뒤 절반이면 거꾸로 도는 쪽입니다.
+  커서 아래가 축·모서리와 나란히·수직 발이면 그쪽이 먼저입니다. 상태 막대·측정 띠·결과에는 "접선 방향"이라 적습니다(`src/app/tangent.ts`).
   손가락 기기는 측정 띠의 잠금 단추로 잠그고 풉니다(정밀 조준 중 다른 손가락으로 눌러도 됩니다). 단추와 ↓는 커서 아래에 잠글 방향이 없으면 첫 점 뒤 마지막으로 본 방향을
   잠그고(커서가 캔버스를 떠난 뒤에도), 본 방향도 없으면 맞추는 법을 알립니다. 잠그면 그 알림을 거둡니다.
-  상태 막대·측정 띠에 "X축으로 잠금"·"모서리와 나란히 잠금"을, 키보드 기기에는 끝점을 잡는 동안 커서 아래에 Shift로 잠글 방향이 있으면 "Shift·화살표로 방향 잠금",
+  상태 막대·측정 띠에 "X축으로 잠금"·"모서리와 나란히 잠금"·"접선 방향으로 잠금"을, 키보드 기기에는 끝점을 잡는 동안 커서 아래에 Shift로 잠글 방향이 있으면 "Shift·화살표로 방향 잠금",
   없으면 "화살표로 축 잠금"을 보입니다.
   코어 v0.10.0의 붙잡기 점 차례 한도(`SnapPoint.order`·`setMeasureSnapLimit`)는 쓰지 않습니다 — 차례(재생 위치 같은 순서)가 있는 점을 거르는 기능이라
   STEP에는 맞는 차례가 없고, 숨긴 부품의 중심은 코어가 점의 그물 id로 이미 빼며 큰 조립은 v0.9.0 점 색인으로 충분히 빠릅니다.
@@ -163,6 +169,7 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
   측정·면 고르기 중 한 손가락을 움직이지 않고(10px 안) 길게(0.35초) 누르면 손가락 위 64px에 십자선이 떠 정밀 조준합니다 — 끌면 십자선이 따라가고
   (측정은 붙잡을 점·거리를 미리 보입니다) 떼면 그 자리를 누른 것으로 칩니다. 십자선의 미리 보기와 찍기는 마우스·펜과 같은 좁은 허용 거리(6px, 꼭짓점 붙잡기 10px)를 써서
   미리 본 점이 그대로 찍힙니다(그냥 누르기는 터치의 넓은 허용 거리 그대로). 둘째 손가락이 닿으면 조준을 그만두고 두 손가락 이동·확대로 넘어갑니다.
+  조준 중에는 3D 보기의 거리 글상자가 십자선과 손가락 자리를 비켜 그려(코어 v0.13.0 `setMeasureLabelAvoid`) 첫 점 가까이를 조준해도 거리가 가리지 않습니다.
   손가락 기기의 안내에는 키(Esc) 설명 대신 길게 누르기를 적고, 파일 고르기 상자는 확장자로 거르지 않습니다(iOS에서 .stp가 흐리게 막히지 않게 — 열 때 내용을 보고 가립니다).
   제목 막대 단추(열기·예제·설정·OpenCAD 도구·GitHub·언어)는 손가락 기기에서 40×40px이고, 폭 420px 이하 세로 화면에서는 앱 이름을 OpenCAD 아이콘과 "STEP 뷰어"로 줄여 한 줄을 지킵니다.
   브라우저의 "홈 화면에 추가"로 앱 아이콘(`public/manifest.webmanifest`, 192·512px, 마스크용 512px, iOS 180px)과 주소창 없는 창으로 열 수 있습니다.
@@ -277,9 +284,9 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `index.html`, `public/` | 앱 진입 페이지, 아이콘, 앱 정보(공유 받기·파일 열기) |
 | `tools/site.mjs`, `tools/sw-source.mjs` | 이 앱의 사이트 설정(앱 정보 원본·서비스 워커 판 이름 짓기 — `vite.config.ts`와 시험이 같이 씀)과 오프라인 서비스 워커 본문(미리 담은 것 쓰기·공유 받기). 언어 페이지·검색 정보·사이트맵·언어별 앱 정보·`dist/sw.js`는 [공용 사이트 도구](https://github.com/GyuTae-Kim/opencad-site-kit)의 Vite 플러그인이 이 설정으로 만든다 |
 | `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json`)를 넘기고 사전을 넣는다 |
-| `src/app/main.ts`, `src/app/app.ts`, `src/app/core.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키, 3D 뷰어 코어 나눠 받기 |
+| `src/app/main.ts`, `src/app/app.ts`, `src/app/core.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키, 3D 뷰어 코어·곡선 접선 잠금 나눠 받기 |
 | `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
-| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/snap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름 |
+| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/snap.ts`, `src/app/tangent.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름, 곡선 모서리 끝의 접선 잠금(문서를 열 때 받음) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기·고르기 단위(부품·몸체)와 여러 개 고르기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
 | `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/selink.ts`, `src/app/interference.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV(문서를 열 때 받음), 보기 링크 글과 그 고른 것 ↔ 나무 자리 낱말(문서를 열 때 받음), 간섭 검사(교차·안에 듦) |
 | `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/app/glyphs.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 내장 글꼴에 없는 PMI 글자를 기기 글꼴 윤곽선으로(워커의 OffscreenCanvas), 해석 워커, 검사(간섭) 워커 |
@@ -311,11 +318,12 @@ npm run preview    # 빌드 결과 보기
 
 시험은 `tests/stepText.ts`(본문은 `src/app/stepText.ts`)로 만든 작은 STEP 글로 돌립니다(외부 STEP 파일은 넣지 않습니다).
 측정 방향 잠금 시험(`tests/app/measurelock.test.ts`)은 가짜 DOM·WebGL2(`tests/app/fakeview.ts` — 코어 저장소의 시험 도구를 줄여 옮김)로 실제 코어 뷰어를 만들어
-앱의 붙잡기 선택과 포인터·키 사건을 넣고 코어가 잠그는 방향을 봅니다.
+앱의 붙잡기 선택과 포인터·키 사건을 넣고 코어가 잠그는 방향을 봅니다. 곡선 접선 잠금 시험(`tests/app/measuretangent.test.ts`)도 같은 방식으로
+원기둥 테두리 원·타원 호·B-스플라인 모서리(`tests/app/curvescene.ts`)에서 앱이 코어보다 먼저 잠그는 접선을 봅니다.
 압축 시험은 `tests/zipText.ts`(시험용 ZIP 글쓴이, node:zlib)로 gzip·ZIP을 만듭니다.
 확인용으로 받은 공개 STEP 파일이나 임시 결과는 git이 무시하는 `.runtime/`에만 둡니다.
-3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.12.0`으로 받습니다 — 올릴 때는
-`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.12.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
+3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.13.0`으로 받습니다 — 올릴 때는
+`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.13.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
 B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡니다(와이어프레임·숨은선에 삼각형 변 없이 B-rep 모서리만). 삼각형 형식(TESSELLATED 등)과
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
@@ -324,6 +332,8 @@ B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡�
 (`tests/app/core-split.test.ts`가 앱 입구의 정적 가져오기 그래프를 훑어 확인합니다. 숫자 키 표 `VIEW_KEYS`도 코어 0.10.0부터 작은 `camera` 모듈에서 가져옵니다).
 보기 링크의 고른 것 낱말(`src/app/selink.ts`)과 STL·OBJ·CSV 내보내기(`src/app/export.ts`)도 첫 화면 JS에 넣지 않고 `import()`로 받습니다 — 문서를 열 때 미리 받아 두어
 눌렀을 때 기다리지 않습니다(같은 시험이 확인). 그래서 몸체 줄·보기 링크 고른 것·간섭 안에 듦을 넣은 뒤에도 첫 화면 JS는 gzip 86.4 kB로 그 전(86.0 kB)과 거의 같습니다.
+측정 곡선 접선 잠금(`src/app/tangent.ts`)도 뷰어를 만들 때 `core.ts`의 `import()`로 받습니다(같은 시험이 확인 — 받기 전에는 곡선 끝에서도 코어 판정만).
+곡선 접선 잠금과 정밀 조준 글상자 비키기를 넣은 뒤 첫 화면 JS는 gzip 86.1 kB에서 86.7 kB가 되었고, 접선 조각은 2.3 kB입니다.
 서비스 워커는 이 조각들도 미리 담아 오프라인에서 엽니다.
 
 **공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
@@ -398,8 +408,9 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
   3D로 1e-5 안에 겹쳐 바늘 같은 삼각형이 접힙니다(로컬 표본 4개 파일, 화면에는 보이지 않을 만큼 작음). 극점 둘레는 각도로 나눠 넣는 따로 된 처리가 필요합니다
   (겹친 안쪽 점을 합치는 방법은 다른 곳의 이음을 깨서 쓰지 않았습니다)
 - 경계가 없는 곡면(GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION의 B-스플라인·잘린 곡면)을 그물로 그리기
-- 측정: B-스플라인 면·곡선끼리의 정확한 최소 거리(지금은 화면용 삼각형 ≈), 곡선 모서리로 내린 수직 발을 B-rep 곡선 위로(지금은 화면용 꺾은선 토막 위),
-  곡선 모서리 끝에서 그 곡선의 접선 방향으로 잠그기(코어는 곧은 선분만 본다 — 앱이 모서리 표의 접선을 `setMeasureInferenceLock({ direction })`으로 줄 수 있다)
+- 측정: B-스플라인 면·곡선끼리의 정확한 최소 거리(지금은 화면용 삼각형 ≈), 곡선 모서리로 내린 수직 발을 B-rep 곡선 위로(지금은 화면용 꺾은선 토막 위 —
+  코어가 수직 발 후보를 커서 둘레 토막에서 구해 고르므로 앱이 곡선 위 발로 바꿀 코어 쪽 손잡이와, 타원 축 방향·B-스플라인 정의를 화면에 넘기는 일이 함께 필요),
+  곡선 모서리의 끝이 아닌 곳(꺾은선 가운데 꼭짓점)을 첫 점으로 찍었을 때의 접선 잠금
 - 고르기: 선 형상(와이어프레임 곡선) 묶음은 나무에 몸체 줄이 없고, 보기 링크는 표현 PMI 선과 선 형상만 따로 고른 것을 담지 못함(나무 자리 낱말이 없음)
 - 분해 보기: 조립 단계별(하위 조립 먼저) 분해, 분해 단계 저장
 - 물리 속성: B-스플라인·회전·압출 곡면도 곡면 적분으로(지금은 그 면만 화면용 삼각형으로 재고 어림 오차를 ±로 보임),
