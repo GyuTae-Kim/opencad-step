@@ -947,7 +947,7 @@ body.resizing .viewer-host {
   user-select: text;
 }
 /* 질량 속성을 워커가 아직 적분하는 중인 값 */
-.prop-row.busy .v {
+.prop-row.pending .v {
   color: var(--text-dim);
   font-style: italic;
 }

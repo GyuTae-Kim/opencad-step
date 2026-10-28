@@ -560,7 +560,7 @@ export class Panel {
     const rows: HTMLElement[] = [];
     const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
     // 계산 중인 값(번역되는 글이라 값 칸을 번역층에 맡긴다)
-    const busy = (k: string) => rows.push(h('div', { class: 'prop-row busy' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, '계산 중…')));
+    const busy = (k: string) => rows.push(h('div', { class: 'prop-row pending' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, '계산 중…')));
     // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)
     const ax = pp.exact ? '' : '≈ ';
     if (pp.closed) {
@@ -589,7 +589,7 @@ export class Panel {
       const acc = waiting
         ? { text: `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`, title: '문서를 연 뒤 닫힌 입체의 부피·모멘트를 B-rep 곡면과 모서리 곡선에서 따로 적분하고 있습니다.' }
         : accuracyText(pp, (v, dg) => f.num(v, dg));
-      rows.push(h('div', { class: `prop-row${waiting ? ' busy acc' : ''}` }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
+      rows.push(h('div', { class: `prop-row${waiting ? ' pending acc' : ''}` }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
     }
     const b = pp.bounds;
     if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
@@ -644,7 +644,7 @@ export class Panel {
     if (!d || d.panelTab !== 'props' || !el?.isConnected || !this.physRebuild) return;
     const still = propsPendingFor(d, this.physSel) && d.props.state === 'running';
     if (still && this.physWaiting) {
-      const v = el.querySelector('.prop-row.busy.acc .v');
+      const v = el.querySelector('.prop-row.pending.acc .v');
       if (v) v.textContent = `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`;
       return;
     }

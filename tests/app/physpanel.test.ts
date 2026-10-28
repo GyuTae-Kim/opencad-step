@@ -47,7 +47,9 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     expect(r['주 관성 모멘트']).toBe('계산 중…');
     expect(r['정확도']).toBe('곡면 적분 계산 중(입체 0/2)');
     // 계산 중 글은 번역된다(값 칸에 translate="no"가 없다)
-    expect(panel.el.querySelector('.prop-row.busy .v')?.getAttribute('translate')).toBeNull();
+    expect(panel.el.querySelector('.prop-row.pending .v')?.getAttribute('translate')).toBeNull();
+    // 해석 덮개(.busy — 3D 보기를 덮는 절대 위치 막)와 같은 이름을 쓰지 않는다(쓰면 그 줄이 패널을 덮는다)
+    expect(panel.el.querySelector('.busy')).toBeNull();
     expect(translate('계산 중…', 'en')).not.toBe('계산 중…');
     expect(translate('곡면 적분 계산 중(입체 1/2)', 'en')).toMatch(/1\/2/);
     // 겉넓이·외형 크기는 질량 속성과 상관없어 바로 보인다
@@ -75,7 +77,7 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     const want = rows(p2.el);
     expect(r).toEqual(want);
     expect(r['정확도']).toBe('정확(B-rep 곡면 적분)');
-    expect(panel.el.querySelector('.prop-row.busy')).toBeNull();
+    expect(panel.el.querySelector('.prop-row.pending')).toBeNull();
     panel.el.remove();
     p2.el.remove();
   });
