@@ -9,6 +9,10 @@
  *    바깥 입체 안인지 +x 광선이 지나는 삼각형 수의 홀짝으로 보고 과반이면 "안에 듦"(inside)으로 알린다 — 통째로 들어간 부품,
  *    같은 자리에 겹쳐 놓인 부품. 빈 곳(BREP_WITH_VOIDS) 안에 든 부품은 홀짝이 짝수라 안에 들지 않은 것으로 친다.
  *    점은 안쪽 입체의 넓은 삼각형 가운데에서 바깥 법선 반대로 조금 들인 자리라 맞닿은 면 위에 놓이지 않는다. 열린 면 모형은 건너뛴다.
+ *
+ * 그물 하나가 여러 쌍에 들므로 삼각형마다의 범위 상자와 평면(법선·길이·원점 거리)은 그물마다 처음 쓸 때 한 번 구해 쌍 사이에 다시 쓰고,
+ * 삼각형 쌍 시험은 새 배열을 만들지 않는다. 시험하는 삼각형 쌍과 그 차례·셈은 쌍마다 꼭짓점을 다시 읽어 고르던 때와 같아
+ * 결과(쌍·교차 수·강조 삼각형)가 같다.
  */
 
 type V3 = [number, number, number];
@@ -54,6 +58,12 @@ interface World {
   lo: V3;
   hi: V3;
   closed: boolean;
+  /** 삼각형마다 범위 상자(최소 x·y·z, 최대 x·y·z — 처음 쓸 때 구한다) */
+  box?: Float64Array;
+  /** 삼각형마다 평면: 법선(두 변의 외적) x·y·z, 그 길이, 법선 · 첫 꼭짓점(처음 쓸 때 구한다) */
+  plane?: Float64Array;
+  /** 같은 삼각형을 한 번만 시험하는 표(시험 차례 번호) */
+  mark?: Uint32Array;
 }
 
 function toWorld(m: InterferenceMesh): World {
@@ -68,21 +78,84 @@ function toWorld(m: InterferenceMesh): World {
     const x = P[i * 3]! + o[0]!;
     const y = P[i * 3 + 1]! + o[1]!;
     const z = P[i * 3 + 2]! + o[2]!;
-    const w = M ? [M[0]! * x + M[4]! * y + M[8]! * z + M[12]!, M[1]! * x + M[5]! * y + M[9]! * z + M[13]!, M[2]! * x + M[6]! * y + M[10]! * z + M[14]!] : [x, y, z];
+    p[i * 3] = M ? M[0]! * x + M[4]! * y + M[8]! * z + M[12]! : x;
+    p[i * 3 + 1] = M ? M[1]! * x + M[5]! * y + M[9]! * z + M[13]! : y;
+    p[i * 3 + 2] = M ? M[2]! * x + M[6]! * y + M[10]! * z + M[14]! : z;
     for (let k = 0; k < 3; k++) {
-      p[i * 3 + k] = w[k]!;
-      if (w[k]! < lo[k]!) lo[k] = w[k]!;
-      if (w[k]! > hi[k]!) hi[k] = w[k]!;
+      const v = p[i * 3 + k]!;
+      if (v < lo[k]!) lo[k] = v;
+      if (v > hi[k]!) hi[k] = v;
     }
   }
   const idx = m.indices ?? null;
   return { id: m.id, p, idx, tris: Math.floor((idx ? idx.length : n) / 3), lo, hi, closed: !!m.closed };
 }
 
+/** 삼각형 t의 c번째 꼭짓점이 w.p에서 시작하는 자리 */
+const vat = (w: World, t: number, c: number): number => (w.idx ? w.idx[t * 3 + c]! : t * 3 + c) * 3;
+
 function vtx(w: World, t: number, c: number): V3 {
-  const i = (w.idx ? w.idx[t * 3 + c]! : t * 3 + c) * 3;
+  const i = vat(w, t, c);
   return [w.p[i]!, w.p[i + 1]!, w.p[i + 2]!];
 }
+
+/** 삼각형마다 범위 상자(그물마다 한 번) */
+function triBoxes(w: World): Float64Array {
+  if (w.box) return w.box;
+  const P = w.p;
+  const box = new Float64Array(w.tris * 6);
+  for (let t = 0; t < w.tris; t++) {
+    const i0 = vat(w, t, 0);
+    const i1 = vat(w, t, 1);
+    const i2 = vat(w, t, 2);
+    for (let k = 0; k < 3; k++) {
+      const a = P[i0 + k]!;
+      const b = P[i1 + k]!;
+      const c = P[i2 + k]!;
+      box[t * 6 + k] = Math.min(a, b, c);
+      box[t * 6 + 3 + k] = Math.max(a, b, c);
+    }
+  }
+  return (w.box = box);
+}
+
+/** 삼각형마다 평면(그물마다 한 번): trianglesCross가 쓰는 것과 같은 식·차례로 구한 법선·길이·원점 거리 */
+function triPlanes(w: World): Float64Array {
+  if (w.plane) return w.plane;
+  const P = w.p;
+  const pl = new Float64Array(w.tris * 5);
+  for (let t = 0; t < w.tris; t++) {
+    const i0 = vat(w, t, 0);
+    const i1 = vat(w, t, 1);
+    const i2 = vat(w, t, 2);
+    const x0 = P[i0]!, y0 = P[i0 + 1]!, z0 = P[i0 + 2]!;
+    const u0 = P[i1]! - x0, u1 = P[i1 + 1]! - y0, u2 = P[i1 + 2]! - z0;
+    const v0 = P[i2]! - x0, v1 = P[i2 + 1]! - y0, v2 = P[i2 + 2]! - z0;
+    const nx = u1 * v2 - u2 * v1;
+    const ny = u2 * v0 - u0 * v2;
+    const nz = u0 * v1 - u1 * v0;
+    pl[t * 5] = nx;
+    pl[t * 5 + 1] = ny;
+    pl[t * 5 + 2] = nz;
+    pl[t * 5 + 3] = Math.hypot(nx, ny, nz);
+    pl[t * 5 + 4] = nx * x0 + ny * y0 + nz * z0;
+  }
+  return (w.plane = pl);
+}
+
+/** 범위 상자가 상자 [lo, hi]와 겹치는 삼각형 번호(작은 차례 — 그물마다 한 번 구한 삼각형 상자로 거른다) */
+function trisInBox(w: World, lo: V3, hi: V3): number[] {
+  const box = triBoxes(w);
+  const out: number[] = [];
+  const [x0, y0, z0] = lo;
+  const [x1, y1, z1] = hi;
+  for (let t = 0, o = 0; t < w.tris; t++, o += 6)
+    if (!(box[o + 3]! < x0 || box[o]! > x1 || box[o + 4]! < y0 || box[o + 1]! > y1 || box[o + 5]! < z0 || box[o + 2]! > z1)) out.push(t);
+  return out;
+}
+
+/** 같은 삼각형을 한 번만 보는 표의 차례 번호(그물마다 mark 표에 쓴다) */
+let markStamp = 0;
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -90,40 +163,111 @@ const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[
 
 /** 두 삼각형이 서로의 평면을 eps보다 깊이 지나며 교차하는지(맞닿음·같은 평면은 아님) */
 export function trianglesCross(a: [V3, V3, V3], b: [V3, V3, V3], eps: number): boolean {
-  const n1 = cross(sub(a[1], a[0]), sub(a[2], a[0]));
-  const l1 = Math.hypot(...n1);
-  const n2 = cross(sub(b[1], b[0]), sub(b[2], b[0]));
-  const l2 = Math.hypot(...n2);
-  if (!(l1 > 0) || !(l2 > 0)) return false;
-  const d1 = dot(n1, a[0]);
-  const db = b.map((p) => (dot(n1, p) - d1) / l1);
-  // b가 a 평면 한쪽에만(또는 닿기만) 있으면 교차 아님
-  if (!(Math.min(...db) < -eps && Math.max(...db) > eps)) return false;
-  const d2 = dot(n2, b[0]);
-  const da = a.map((p) => (dot(n2, p) - d2) / l2);
-  if (!(Math.min(...da) < -eps && Math.max(...da) > eps)) return false;
-  // 두 평면의 교선 위에서 각 삼각형이 차지하는 구간이 겹치는지
-  const dir = cross(n1, n2);
-  const k = [Math.abs(dir[0]), Math.abs(dir[1]), Math.abs(dir[2])];
-  const ax = k[0]! >= k[1]! && k[0]! >= k[2]! ? 0 : k[1]! >= k[2]! ? 1 : 2;
-  const span = (t: [V3, V3, V3], d: number[]): [number, number] | null => {
-    const pts: number[] = [];
-    for (let i = 0; i < 3; i++) {
-      const j = (i + 1) % 3;
-      const di = d[i]!;
-      const dj = d[j]!;
-      if ((di < 0 && dj > 0) || (di > 0 && dj < 0)) {
-        const s = di / (di - dj);
-        pts.push(t[i]![ax]! + (t[j]![ax]! - t[i]![ax]!) * s);
-      } else if (di === 0) pts.push(t[i]![ax]!);
-    }
-    return pts.length >= 2 ? [Math.min(...pts), Math.max(...pts)] : null;
+  const one = (t: [V3, V3, V3]): World => ({ id: '', p: new Float64Array(t.flat()), idx: null, tris: 1, lo: [0, 0, 0], hi: [0, 0, 0], closed: false });
+  return crossAt(one(a), 0, one(b), 0, eps);
+}
+
+/** span이 구한 구간(교선 위 좌표의 최소·최대) */
+let spanLo = 0;
+let spanHi = 0;
+
+/**
+ * 삼각형(꼭짓점 자리 i0·i1·i2)이 두 평면의 교선 위에서 차지하는 구간(ax 좌표): 평면까지 부호 거리 d0·d1·d2가 바뀌는 변의 자리와
+ * 평면 위 꼭짓점. 둘 이상이면 spanLo·spanHi에 두고 참
+ */
+function span(P: Float64Array, i0: number, i1: number, i2: number, ax: number, d0: number, d1: number, d2: number): boolean {
+  let n = 0;
+  let q0 = 0;
+  let q1 = 0;
+  let q2 = 0;
+  const put = (v: number): void => {
+    if (n === 0) q0 = v;
+    else if (n === 1) q1 = v;
+    else q2 = v;
+    n++;
   };
-  const sa = span(a, da);
-  const sb = span(b, db);
-  if (!sa || !sb) return false;
+  const edge = (ii: number, ij: number, di: number, dj: number): void => {
+    if ((di < 0 && dj > 0) || (di > 0 && dj < 0)) {
+      const s = di / (di - dj);
+      put(P[ii + ax]! + (P[ij + ax]! - P[ii + ax]!) * s);
+    } else if (di === 0) put(P[ii + ax]!);
+  };
+  edge(i0, i1, d0, d1);
+  edge(i1, i2, d1, d2);
+  edge(i2, i0, d2, d0);
+  if (n < 2) return false;
+  spanLo = n === 2 ? Math.min(q0, q1) : Math.min(q0, q1, q2);
+  spanHi = n === 2 ? Math.max(q0, q1) : Math.max(q0, q1, q2);
+  return true;
+}
+
+/**
+ * A의 삼각형 s와 B의 삼각형 t가 서로의 평면을 eps보다 깊이 지나며 교차하는지(trianglesCross — 그물마다 한 번 구한 평면으로, 새 배열 없이).
+ * 식과 셈 차례는 꼭짓점 배열로 셈하던 것과 같아 판정이 같다
+ */
+function crossAt(A: World, s: number, B: World, t: number, eps: number): boolean {
+  const PA = triPlanes(A);
+  const PB = triPlanes(B);
+  const l1 = PA[s * 5 + 3]!;
+  const l2 = PB[t * 5 + 3]!;
+  if (!(l1 > 0) || !(l2 > 0)) return false;
+  const P = A.p;
+  const Q = B.p;
+  const a0 = vat(A, s, 0), a1 = vat(A, s, 1), a2 = vat(A, s, 2);
+  const b0 = vat(B, t, 0), b1 = vat(B, t, 1), b2 = vat(B, t, 2);
+  const n1x = PA[s * 5]!, n1y = PA[s * 5 + 1]!, n1z = PA[s * 5 + 2]!, d1 = PA[s * 5 + 4]!;
+  const db0 = (n1x * Q[b0]! + n1y * Q[b0 + 1]! + n1z * Q[b0 + 2]! - d1) / l1;
+  const db1 = (n1x * Q[b1]! + n1y * Q[b1 + 1]! + n1z * Q[b1 + 2]! - d1) / l1;
+  const db2 = (n1x * Q[b2]! + n1y * Q[b2 + 1]! + n1z * Q[b2 + 2]! - d1) / l1;
+  // b가 a 평면 한쪽에만(또는 닿기만) 있으면 교차 아님
+  if (!(Math.min(db0, db1, db2) < -eps && Math.max(db0, db1, db2) > eps)) return false;
+  const n2x = PB[t * 5]!, n2y = PB[t * 5 + 1]!, n2z = PB[t * 5 + 2]!, d2 = PB[t * 5 + 4]!;
+  const da0 = (n2x * P[a0]! + n2y * P[a0 + 1]! + n2z * P[a0 + 2]! - d2) / l2;
+  const da1 = (n2x * P[a1]! + n2y * P[a1 + 1]! + n2z * P[a1 + 2]! - d2) / l2;
+  const da2 = (n2x * P[a2]! + n2y * P[a2 + 1]! + n2z * P[a2 + 2]! - d2) / l2;
+  if (!(Math.min(da0, da1, da2) < -eps && Math.max(da0, da1, da2) > eps)) return false;
+  // 두 평면의 교선 위에서 각 삼각형이 차지하는 구간이 겹치는지
+  const k0 = Math.abs(n1y * n2z - n1z * n2y);
+  const k1 = Math.abs(n1z * n2x - n1x * n2z);
+  const k2 = Math.abs(n1x * n2y - n1y * n2x);
+  const ax = k0 >= k1 && k0 >= k2 ? 0 : k1 >= k2 ? 1 : 2;
+  if (!span(P, a0, a1, a2, ax, da0, da1, da2)) return false;
+  const lo = spanLo;
+  const hi = spanHi;
+  if (!span(Q, b0, b1, b2, ax, db0, db1, db2)) return false;
   // 구간이 eps보다 깊이 겹쳐야
-  return Math.min(sa[1], sb[1]) - Math.max(sa[0], sb[0]) > eps;
+  return Math.min(hi, spanHi) - Math.max(lo, spanLo) > eps;
+}
+
+/** 칸 열쇠(32비트 정수 — 쌍마다 칸 격자를 Map에 담던 때의 열쇠) */
+const cellKey = (x: number, y: number, z: number): number => (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+
+/** 64³ 칸 안에서 열쇠가 앞 칸과 같은 칸들: [앞 칸 x, y, z, 뒤 칸 x, y, z](처음 쓸 때 구한다 — 16쌍, 가장 작은 것도 57칸부터) */
+let keyTwins: number[][] | null = null;
+
+/**
+ * 한 변 cells칸 격자에서 칸 번호 → 목록 번호. 쌍마다 칸 격자를 열쇠(cellKey)로 Map에 담던 때 열쇠가 같은 두 칸은 한 목록을 함께 써서
+ * 시험 차례(강조 삼각형 한도에서 남는 삼각형)가 그 목록을 따랐다 — 그 차례를 지키려고 뒤 칸을 앞 칸 목록으로 보낸다. 그런 칸이 없으면 null
+ */
+function cellAlias(cells: number): Int32Array | null {
+  if (!keyTwins) {
+    keyTwins = [];
+    const first = new Map<number, number>();
+    for (let x = 0; x < 64; x++)
+      for (let y = 0; y < 64; y++)
+        for (let z = 0; z < 64; z++) {
+          const k = cellKey(x, y, z);
+          const f = first.get(k);
+          if (f === undefined) first.set(k, (x * 64 + y) * 64 + z);
+          else keyTwins.push([Math.floor(f / 4096), Math.floor(f / 64) % 64, f % 64, x, y, z]);
+        }
+  }
+  const twins = keyTwins.filter((t) => Math.max(...t) < cells);
+  if (!twins.length) return null;
+  const alias = new Int32Array(cells * cells * cells);
+  for (let c = 0; c < alias.length; c++) alias[c] = c;
+  for (const [x0, y0, z0, x1, y1, z1] of twins) alias[(x1! * cells + y1!) * cells + z1!] = alias[(x0! * cells + y0!) * cells + z0!]!;
+  return alias;
 }
 
 /** 간섭 검사. eps는 길이 허용 오차(기본: 장면 크기 × 1e-6), limit는 쌍마다 강조할 삼각형 수 한도 */
@@ -172,65 +316,65 @@ export function findInterference(
     // 겹친 상자
     const lo: V3 = [Math.max(A.lo[0], B.lo[0]) - eps, Math.max(A.lo[1], B.lo[1]) - eps, Math.max(A.lo[2], B.lo[2]) - eps];
     const hi: V3 = [Math.min(A.hi[0], B.hi[0]) + eps, Math.min(A.hi[1], B.hi[1]) + eps, Math.min(A.hi[2], B.hi[2]) + eps];
-    const inBox = (w: World) => {
-      const out: number[] = [];
-      for (let t = 0; t < w.tris; t++) {
-        const a = vtx(w, t, 0);
-        const b = vtx(w, t, 1);
-        const c = vtx(w, t, 2);
-        let ok = true;
-        for (let k = 0; k < 3 && ok; k++) if (Math.max(a[k]!, b[k]!, c[k]!) < lo[k]! || Math.min(a[k]!, b[k]!, c[k]!) > hi[k]!) ok = false;
-        if (ok) out.push(t);
-      }
-      return out;
-    };
-    const ta = inBox(A);
-    const tb = inBox(B);
+    const ta = trisInBox(A, lo, hi);
+    const tb = trisInBox(B, lo, hi);
     // 겹친 상자에 한쪽 삼각형이 없으면(깊이 든 작은 부품 둘레에 바깥 벽이 없음) 교차는 없다
     if (!ta.length || !tb.length) return contained();
     // 격자: 겹친 상자를 칸 수 ≈ 삼각형 수로 나눈다
     const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
     const cells = Math.max(1, Math.min(64, Math.round(Math.cbrt(ta.length + tb.length))));
     const cs = ext.map((e) => Math.max(e / cells, 1e-12));
-    const key = (x: number, y: number, z: number) => (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
-    const grid = new Map<number, number[]>();
-    const bounds = (w: World, t: number) => {
-      const a = vtx(w, t, 0);
-      const b = vtx(w, t, 1);
-      const c = vtx(w, t, 2);
-      const r = [0, 1, 2].map((k) => [Math.floor((Math.min(a[k]!, b[k]!, c[k]!) - lo[k]!) / cs[k]!), Math.floor((Math.max(a[k]!, b[k]!, c[k]!) - lo[k]!) / cs[k]!)]);
-      return { tri: [a, b, c] as [V3, V3, V3], r };
+    // 칸마다 A 삼각형 목록(CSR — start[칸]부터 start[칸 + 1] 앞까지, 넣은 차례). 열쇠가 같은 칸 짝은 한 목록(cellAlias)
+    const N = cells * cells * cells;
+    const alias = cellAlias(cells);
+    const at = (x: number, y: number, z: number): number => {
+      const c = (x * cells + y) * cells + z;
+      return alias ? alias[c]! : c;
+    };
+    const start = new Uint32Array(N + 1);
+    const boxA = triBoxes(A);
+    const boxB = triBoxes(B);
+    // 삼각형 t(범위 상자 bx)가 걸친 칸 범위
+    const r = [0, 0, 0, 0, 0, 0];
+    const bounds = (bx: Float64Array, t: number) => {
+      for (let k = 0; k < 3; k++) {
+        r[k * 2] = Math.max(0, Math.floor((bx[t * 6 + k]! - lo[k]!) / cs[k]!));
+        r[k * 2 + 1] = Math.min(cells - 1, Math.floor((bx[t * 6 + 3 + k]! - lo[k]!) / cs[k]!));
+      }
     };
     for (const t of ta) {
-      const { r } = bounds(A, t);
-      for (let x = Math.max(0, r[0]![0]!); x <= Math.min(cells - 1, r[0]![1]!); x++)
-        for (let y = Math.max(0, r[1]![0]!); y <= Math.min(cells - 1, r[1]![1]!); y++)
-          for (let z = Math.max(0, r[2]![0]!); z <= Math.min(cells - 1, r[2]![1]!); z++) {
-            const k = key(x, y, z);
-            let l = grid.get(k);
-            if (!l) grid.set(k, (l = []));
-            l.push(t);
-          }
+      bounds(boxA, t);
+      for (let x = r[0]!; x <= r[1]!; x++) for (let y = r[2]!; y <= r[3]!; y++) for (let z = r[4]!; z <= r[5]!; z++) start[at(x, y, z) + 1]!++;
+    }
+    for (let c = 0; c < N; c++) start[c + 1]! += start[c]!;
+    const fill = start.slice(0, N);
+    const list = new Uint32Array(start[N]!);
+    for (const t of ta) {
+      bounds(boxA, t);
+      for (let x = r[0]!; x <= r[1]!; x++) for (let y = r[2]!; y <= r[3]!; y++) for (let z = r[4]!; z <= r[5]!; z++) list[fill[at(x, y, z)]!++] = t;
     }
     const hitA = new Set<number>();
     const hitB = new Set<number>();
     let count = 0;
-    const tested = new Set<number>();
+    const seen = (A.mark ??= new Uint32Array(A.tris));
     for (const t of tb) {
-      const { tri, r } = bounds(B, t);
-      tested.clear();
-      for (let x = Math.max(0, r[0]![0]!); x <= Math.min(cells - 1, r[0]![1]!); x++)
-        for (let y = Math.max(0, r[1]![0]!); y <= Math.min(cells - 1, r[1]![1]!); y++)
-          for (let z = Math.max(0, r[2]![0]!); z <= Math.min(cells - 1, r[2]![1]!); z++)
-            for (const s of grid.get(key(x, y, z)) ?? []) {
-              if (tested.has(s)) continue;
-              tested.add(s);
-              if (trianglesCross([vtx(A, s, 0), vtx(A, s, 1), vtx(A, s, 2)], tri, eps)) {
+      bounds(boxB, t);
+      const stamp = ++markStamp;
+      for (let x = r[0]!; x <= r[1]!; x++)
+        for (let y = r[2]!; y <= r[3]!; y++)
+          for (let z = r[4]!; z <= r[5]!; z++) {
+            const c = at(x, y, z);
+            for (let k = start[c]!; k < start[c + 1]!; k++) {
+              const s = list[k]!;
+              if (seen[s] === stamp) continue;
+              seen[s] = stamp;
+              if (crossAt(A, s, B, t, eps)) {
                 count++;
                 if (hitA.size < limit) hitA.add(s);
                 if (hitB.size < limit) hitB.add(t);
               }
             }
+          }
     }
     if (count) pairs.push({ a: A.id, b: B.id, count, trisA: [...hitA].sort((x, y) => x - y), trisB: [...hitB].sort((x, y) => x - y) });
     else contained();
