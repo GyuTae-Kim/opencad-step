@@ -16,7 +16,7 @@
  * 보내는 이벤트는 같은 pointerId이고(코어가 손가락을 잊게 하는 pointercancel·두 손가락으로 넘기는 pointerdown은 'touch'),
  * PointerEvent가 없으면 MouseEvent에 두 값을 덧붙인다.
  */
-import { TOUCH_DRAG_START_PX } from 'opencad-viewer3d';
+import { TOUCH_DRAG_START_PX } from 'opencad-viewer3d/pointer';
 
 /** 이만큼(ms) 움직이지 않고 누르고 있으면 정밀 조준 */
 export const AIM_HOLD_MS = 350;

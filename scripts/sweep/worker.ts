@@ -11,7 +11,7 @@ import { sniffContainer } from '../../src/archive';
 import { parseStepFile } from '../../src/app/job';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode, type SweepClass } from './classify';
 import { qualityOptions } from './quality';
-import { sceneQuality, type SceneQuality } from './metrics';
+import { massPropsStats, sceneQuality, type MassPropsStats, type SceneQuality } from './metrics';
 
 export interface WorkerRecord {
   quality: string;
@@ -38,6 +38,8 @@ export interface WorkerRecord {
   failReasons?: Record<string, number>;
   /** 품질 지표 */
   q?: SceneQuality;
+  /** 닫힌 입체의 질량 속성(곡면 적분) 지표 */
+  mp?: MassPropsStats;
   /** 오류 코드와 글(앞 300자) */
   error?: string;
   message?: string;
@@ -76,6 +78,7 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
       instances: meta.stats.instances,
       warnings: codes,
       q: sceneQuality(s),
+      mp: massPropsStats(s),
     };
     const why = failReasons(warnings);
     if (Object.keys(why).length) rec.failReasons = why;

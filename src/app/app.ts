@@ -3,7 +3,8 @@
  *
  * - 한 번에 문서 하나를 연다(새로 열면 바꾼다). 해석은 웹 워커(src/worker/parse.worker.ts)에서 하고
  *   진행률·단계는 3D 보기 위 덮개에 보이며, 덮개의 취소 단추는 워커를 끝낸다.
- * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계).
+ * - Viewer3d는 처음 문서를 열 때 하나 만들어 계속 쓴다(WebGL 문맥 수 한계). 코어 입구는 열기 상자·끌어 오기·문서 열기를 시작할 때
+ *   나눠 받는다(core.ts — 첫 화면 JS를 줄인다). 받은 뒤 파일을 고르는 동안 뷰어(WebGL 문맥·셰이더)를 미리 만든다.
  * - 키: 캔버스에 초점이 있으면 뷰어가 F·1~7·Esc를 직접 받는다. 그 밖(입력 칸 제외)에서는 창이 받아
  *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
  * - 면 고르기: 도구 막대의 "면 고르기"를 켜거나 Alt(⌥)를 누른 채 누르면(onPick의 e.altKey), 부품 고르기와 함께 누른 B-rep 면을 찾아
@@ -16,7 +17,8 @@
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
-import { Viewer3d, type MeasureResult, type Pick3d, type Projection, type RenderMode, type SectionAxis, type SectionState, type SnapPoint, type ViewName } from 'opencad-viewer3d';
+import type { MeasureResult, Pick3d, Projection, RenderMode, SectionAxis, SectionState, SnapPoint, ViewName, Viewer3d } from 'opencad-viewer3d';
+import { loadViewerCore } from './core';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
@@ -464,9 +466,23 @@ export class StepApp {
 
   // ───────────────────────── 열기 ─────────────────────────
 
-  /** 열기 상자 */
+  /** 열기 상자(고르는 동안 3D 뷰어 코어를 받아 뷰어를 미리 만든다) */
   pickFile(): void {
     this.fileInput.click();
+    this.prepareViewer();
+  }
+
+  /**
+   * 곧 문서를 열 것 같을 때(열기 상자·끌어 오기): 코어 입구를 받기 시작하고, 받으면 열린 문서가 없을 때 뷰어를 미리 만든다
+   * (WebGL 문맥·셰이더 준비가 첫 열기를 늦추지 않게). 실패는 조용히 넘긴다 — 열 때 ensureViewer가 알기 쉬운 오류로 알린다
+   */
+  private prepareViewer(): void {
+    if (this.viewer) return;
+    void loadViewerCore()
+      .then(async () => {
+        if (!this.viewer && !this.doc && !this.loading) await this.ensureViewer();
+      })
+      .catch(() => undefined);
   }
 
   /**
@@ -634,6 +650,8 @@ export class StepApp {
     this.abort = ac;
     const t0 = performance.now();
     this.setLoading({ name, fraction: 0, stage: '파일 읽는 중' });
+    // 첫 문서면 3D 뷰어 코어를 읽기·해석과 함께 받기 시작한다(실패는 ensureViewer가 알린다)
+    if (!this.viewer) void loadViewerCore().catch(() => undefined);
     try {
       const buf = await read(ac.signal, (fraction, stage) => {
         if (seq === this.loadSeq) this.setLoading({ name, fraction, stage: stage.startsWith('받기 ') ? `파일 받는 중 (${stage.slice(3)})` : stageLabel(stage) });
@@ -656,6 +674,8 @@ export class StepApp {
       }
       this.setLoading({ name, fraction: 1, stage: '화면에 올리는 중' });
       await nextPaint();
+      if (seq !== this.loadSeq) return false;
+      await this.ensureViewer();
       if (seq !== this.loadSeq) return false;
       const doc = createDoc(name, size, res);
       this.showDoc(doc, carry);
@@ -684,8 +704,10 @@ export class StepApp {
     }
   }
 
+  /** 문서를 뷰어에 올린다(뷰어는 load가 ensureViewer로 먼저 만든다) */
   private showDoc(doc: StepDoc, carry: StepDoc | null = null): void {
-    const v = this.ensureViewer();
+    const v = this.viewer;
+    if (!v) throw new Error('3D 보기를 만들지 못했습니다.');
     // 앞 문서의 간섭 검사는 결과를 쓸 곳이 없다 — 워커를 멈춘다(돌던 채로 CPU를 쓰지 않게)
     this.checkWorker?.terminate();
     this.checkWorker = null;
@@ -756,9 +778,21 @@ export class StepApp {
     );
   }
 
-  private ensureViewer(): Viewer3d {
-    if (this.viewer) return this.viewer;
-    const v = new Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
+  /**
+   * 뷰어를 만든다(첫 문서 — 코어 입구를 받을 때까지 기다린다). 이미 있으면 그대로.
+   * 뷰어는 this.viewer로 쓴다(약속의 값으로 돌려주지 않는다 — 시험의 가짜 뷰어처럼 then이 있는 것도 그대로 두게)
+   */
+  private async ensureViewer(): Promise<void> {
+    if (this.viewer) return;
+    let core: Awaited<ReturnType<typeof loadViewerCore>>;
+    try {
+      core = await loadViewerCore();
+    } catch {
+      // 나눠 받는 코어 조각을 받지 못했다(오프라인에서 새 판 등) — 다음 열기에서 다시 받는다(core.ts)
+      throw new Error('3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.');
+    }
+    if (this.viewer) return;
+    const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     v.onPick((p, e) => {
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
       if (this.entMeasuring) {
@@ -812,7 +846,6 @@ export class StepApp {
     this.hostEl.addEventListener('pointermove', () => this.scheduleHoverSnap());
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
-    return v;
   }
 
   /** 뷰 큐브 크기: 휴대폰(좁은 화면·낮은 가로 화면)에서는 작게 */
@@ -2261,6 +2294,7 @@ export class StepApp {
       e.preventDefault();
       depth++;
       this.dropEl.hidden = false;
+      this.prepareViewer();
     });
     window.addEventListener('dragover', (e) => {
       if (!hasFiles(e)) return;
@@ -2645,16 +2679,9 @@ export class StepApp {
     else if (q.open) await this.openUrl(q.open);
     else if (q.sample) await this.openSample();
     else {
-      // 파일을 고르는 동안 해석 워커와 3D 보기(WebGL 문맥·셰이더 준비)를 미리 띄운다
-      const warm = () => {
-        this.client.warm();
-        if (this.doc || this.loading) return;
-        try {
-          this.ensureViewer();
-        } catch {
-          /* WebGL2가 없으면 열 때 알기 쉬운 오류로 알린다 */
-        }
-      };
+      // 첫 화면이 그려진 뒤 해석 워커를 미리 띄운다. 3D 뷰어 코어는 첫 화면 JS를 줄이려고 여기서 받지 않고
+      // 열기 상자·끌어 오기(prepareViewer)·문서 열기(load)를 시작할 때 받는다
+      const warm = () => this.client.warm();
       const idle = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
       if (idle) idle(warm, { timeout: 2000 });
       else setTimeout(warm, 500);

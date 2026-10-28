@@ -13,7 +13,7 @@ import { crc32 } from '../src/archive';
 import { STEP_EXTENSIONS as APP_STEP_EXTENSIONS } from '../src/app/files';
 import { IFC_MESSAGE } from '../src/app/protocol';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode } from '../scripts/sweep/classify';
-import { areaMismatch, itemQuality, sceneQuality } from '../scripts/sweep/metrics';
+import { areaMismatch, itemQuality, massPropsStats, sceneQuality } from '../scripts/sweep/metrics';
 import { qualityOptions } from '../scripts/sweep/quality';
 import { sweepOne } from '../scripts/sweep/worker';
 import { dedupe, extensionOf, keepOpenable, nameKind, STEP_EXTENSIONS, walkDirs } from '../scripts/sweep/files.mjs';
@@ -129,6 +129,18 @@ describe('훑기: 품질 지표', () => {
     expect(q.foldedRatio).toBeCloseTo(0.25, 6);
     const big = Math.sqrt(3) / 2;
     expect(q.foldedAreaRatio).toBeCloseTo(big / (1.5 + big), 6);
+  });
+  it('질량 속성 지표: 원기둥은 곡면 적분 정확, 삼각형 부피와의 차를 잰다, 같은 면 표는 한 번', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    const part = w.product('c', [cylinder(w, 5, 20)], ctx);
+    const root = w.product('asm', [w.ax2([0, 0, 0])], ctx, 'SHAPE_REPRESENTATION');
+    w.place(root, part, w.ax2([0, 0, 0]), 'a');
+    w.place(root, part, w.ax2([50, 0, 0]), 'b');
+    const mp = massPropsStats(stepToScene(w.bytes()));
+    expect(mp).toMatchObject({ solids: 1, exact: 1, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0 });
+    expect(mp.maxRelChange).toBeGreaterThan(1e-4);
+    expect(massPropsStats(stepToScene(w.bytes(), { propsBudget: { minMs: -1, share: 0 } }))).toMatchObject({ solids: 1, timeout: 1, exact: 0 });
   });
   it('면 표 넓이와 삼각형 넓이 차', () => {
     const m = { positions: P, indices: I };

@@ -11,6 +11,7 @@
  */
 import type { Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import { watertightness } from '../../src/analysis';
+import { PROPS_BREP, PROPS_TIMEOUT } from '../../src/massprops';
 
 export interface ItemQuality {
   triangles: number;
@@ -120,6 +121,48 @@ interface FaceTableLike {
   triStart: ArrayLike<number>;
   area?: ArrayLike<number>;
   exact?: ArrayLike<number>;
+  props?: ArrayLike<number>;
+}
+
+/**
+ * 닫힌 입체의 질량 속성(면 표 props — massprops.ts) 지표: 입체마다 한 번(같은 면 표를 여러 자리에 놓아도).
+ * - exact: 곡면 적분이고 어림 오차가 부피의 1e-9 이하, approx: 곡면 적분이지만 근삿값 면이 섞임, triangles: 삼각형으로 되돌아감,
+ *   timeout: 시간 한도로 삼각형
+ * - maxRelBound: 근삿값의 상대 어림 오차 최댓값, maxRelChange: 화면용 삼각형 부피와 견준 상대 차 최댓값(곡면 적분일 때 — 바뀐 크기)
+ */
+export interface MassPropsStats {
+  solids: number;
+  exact: number;
+  approx: number;
+  triangles: number;
+  timeout: number;
+  maxRelBound: number;
+  maxRelChange: number;
+}
+
+export function massPropsStats(scene: Pick<Scene3d, 'meshes' | 'meta'>): MassPropsStats {
+  const out: MassPropsStats = { solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0 };
+  const meta = scene.meta as { faceTables?: FaceTableLike[]; meshFaceTable?: ArrayLike<number> } | undefined;
+  const done = new Set<number>();
+  scene.meshes.forEach((m, i) => {
+    const ti = meta?.meshFaceTable?.[i] ?? -1;
+    const p = ti >= 0 ? meta?.faceTables?.[ti]?.props : undefined;
+    if (!p || done.has(ti)) return;
+    done.add(ti);
+    out.solids++;
+    const V = p[0]!;
+    const rel = V > 0 ? p[13]! / V : Infinity;
+    if (p[14] === PROPS_TIMEOUT) out.timeout++;
+    else if (p[14] !== PROPS_BREP) out.triangles++;
+    else if (rel <= 1e-9) out.exact++;
+    else out.approx++;
+    if (p[14] === PROPS_BREP) {
+      if (rel > 1e-9) out.maxRelBound = Math.max(out.maxRelBound, rel);
+      const tv = signedVolume(m.positions, m.indices ?? sequential(m.positions.length / 3));
+      if (tv > 0) out.maxRelChange = Math.max(out.maxRelChange, Math.abs(V - tv) / tv);
+    }
+  });
+  return out;
 }
 
 function triArea(P: ArrayLike<number>, I: ArrayLike<number>, t0: number, t1: number): number {

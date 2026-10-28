@@ -164,13 +164,16 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     expect(heads).toContain('부품 속성');
     expect(heads).toContain('물리 속성 · multibody / body-B');
     const vol = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '부피')!.querySelector('.v')!.textContent!;
-    expect(vol).toMatch(/≈ 1[,.]?000/);
+    // 평면 상자라 곡면 적분이 정확하다 — ≈ 없이, 정확도 줄에 "정확"
+    expect(vol).toMatch(/^1[,.]?000/);
+    const acc = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '정확도')!.querySelector('.v')!.textContent!;
+    expect(acc).toBe('정확(B-rep 곡면 적분)');
     // 부품(나무 마디)을 고르면 몸체 셋의 합(1000 + 1000 + 216)
     d.pick = null;
     d.selKey = '0/0';
     panel.redraw();
     const vol2 = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '부피')!.querySelector('.v')!.textContent!;
-    expect(vol2).toMatch(/≈ 2[,.]?216/);
+    expect(vol2).toMatch(/^2[,.]?216/);
     void a;
     panel.el.remove();
   });

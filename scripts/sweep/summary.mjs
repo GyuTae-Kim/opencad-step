@@ -60,6 +60,8 @@ export function summarizeQuality(records) {
     emptyFiles: 0,
     exceptions: 0,
   };
+  /** 닫힌 입체의 질량 속성(metrics.ts massPropsStats) 합 — 옛 결과에는 없다 */
+  const mp = { files: 0, solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0 };
   const times = [];
   for (const r of records) {
     count(classes, r.class);
@@ -70,6 +72,12 @@ export function summarizeQuality(records) {
     for (const w of r.warnings ?? []) count(warnings, w);
     for (const [k, v] of Object.entries(r.failReasons ?? {})) count(failReasons, k, v);
     if (Number.isFinite(r.ms)) times.push(r.ms);
+    if (r.mp) {
+      mp.files++;
+      for (const k of ['solids', 'exact', 'approx', 'triangles', 'timeout']) mp[k] += r.mp[k] ?? 0;
+      mp.maxRelBound = Math.max(mp.maxRelBound, r.mp.maxRelBound ?? 0);
+      mp.maxRelChange = Math.max(mp.maxRelChange, r.mp.maxRelChange ?? 0);
+    }
     if (r.class === 'empty') q.emptyFiles++;
     if (EXCEPTION_CLASSES.has(r.class)) q.exceptions++;
     q.triangles += r.triangles ?? 0;
@@ -121,6 +129,7 @@ export function summarizeQuality(records) {
       max: times.length ? times[times.length - 1] : 0,
     },
     quality: q,
+    ...(mp.files ? { massProps: { ...mp, maxRelBound: round(mp.maxRelBound), maxRelChange: round(mp.maxRelChange) } } : {}),
     slowest,
   };
 }
@@ -153,6 +162,11 @@ export function formatSummary(summary) {
       `  접힌 삼각형: 0.1% 넘는 파일 ${q.foldedFiles}(하나라도 ${q.foldedAnyFiles}), 최대 개수 비율 ${(q.foldedMaxRatio * 100).toFixed(2)}%, 최대 넓이 비율 ${(q.foldedMaxAreaRatio * 100).toFixed(3)}%`,
     );
     lines.push(`  넓이가 다른 면 ${q.areaMismatchFaces}(파일 ${q.areaMismatchFiles}), 유한하지 않은 좌표 파일 ${q.nonFiniteFiles}`);
+    const mp = s.massProps;
+    if (mp)
+      lines.push(
+        `  질량 속성(닫힌 입체 ${mp.solids}): 곡면 적분 정확 ${mp.exact}, 근삿값 섞임 ${mp.approx}(최대 ±${(mp.maxRelBound * 100).toPrecision(2)}%), 삼각형으로 ${mp.triangles}, 시간 한도 ${mp.timeout}, 삼각형 부피와 최대 차 ${(mp.maxRelChange * 100).toPrecision(2)}%`,
+      );
     lines.push(`  시간 합 ${(s.time.totalMs / 1000).toFixed(1)}s, p50 ${s.time.p50}ms, p90 ${s.time.p90}ms, p99 ${s.time.p99}ms, 최대 ${s.time.max}ms`);
     const errs = Object.entries(s.errors);
     if (errs.length) lines.push(`  오류 코드: ${errs.map(([k, n]) => `${k} ${n}`).join(', ')}`);

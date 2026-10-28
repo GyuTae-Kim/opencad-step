@@ -11,7 +11,7 @@ import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
 import { bodyTitle, instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
-import { inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
+import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
 import { selectRow } from './dialog';
 import { warningNodes } from './warnparts';
@@ -549,16 +549,23 @@ export class Panel {
     const u = f.unit ? ` ${f.unit}` : '';
     const rows: HTMLElement[] = [];
     const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
-    if (pp.closed) r('부피', `≈ ${f.vol(pp.volume)}`);
+    // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)
+    const ax = pp.exact ? '' : '≈ ';
+    if (pp.closed) r('부피', `${ax}${f.vol(pp.volume)}`);
     r('겉넓이', `${pp.areaExact ? '' : '≈ '}${f.area(pp.area)}`);
-    if (pp.mass !== null) r('질량', `≈ ${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
+    if (pp.mass !== null) r('질량', `${ax}${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
     if (pp.centroid) r('무게중심', `${f.pt(pp.centroid)}${u}`);
     // 관성 모멘트(무게중심 기준, 질량을 알 때만): 주 관성 모멘트 셋과 장면 축 대각 성분
     const it = pp.inertia;
     if (it) {
       const t = (v: number) => inertiaText(v, (x, dg) => f.num(x, dg));
-      r('주 관성 모멘트', `≈ ${it.principal.map(t).join(' · ')}`, `I1 · I2 · I3 (무게중심 기준, 작은 것부터)`);
-      r('관성 Ixx · Iyy · Izz', `≈ ${it.tensor.slice(0, 3).map(t).join(' · ')}`);
+      r('주 관성 모멘트', `${ax}${it.principal.map(t).join(' · ')}`, `I1 · I2 · I3 (무게중심 기준, 작은 것부터)`);
+      r('관성 Ixx · Iyy · Izz', `${ax}${it.tensor.slice(0, 3).map(t).join(' · ')}`);
+    }
+    // 정확도(번역되는 글이라 값 칸을 번역층에 맡긴다)
+    if (pp.closed) {
+      const acc = accuracyText(pp, (v, dg) => f.num(v, dg));
+      rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
     }
     const b = pp.bounds;
     if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
@@ -568,6 +575,7 @@ export class Panel {
     else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 그물(닫히지 않은 면)은 부피·질량에서 뺐습니다.'));
     if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.'));
     else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
+    if (pp.timedOut) notes.push(h('p', { class: 'hint' }, '파일이 커서 시간 한도를 넘은 입체는 곡면 적분 대신 화면용 삼각형으로 구했습니다.'));
     // 재질 고르기(파일에 밀도가 없는 부품에 쓴다)
     const opts: [string, string][] = [['', '고르지 않음'], ...MATERIALS.map(([name, rho]): [string, string] => [String(rho), `${name} · ${f.num(rho / 1000, 2)} g/cm³`])];
     const cur = d.density === null ? '' : MATERIALS.some(([, rho]) => rho === d.density) ? String(d.density) : 'custom';
@@ -589,7 +597,11 @@ export class Panel {
       ...notes,
       pick,
       custom,
-      h('p', { class: 'hint' }, '부피·질량·무게중심·관성 모멘트·외형 크기는 화면용 삼각형으로 잰 근삿값(≈)이라 곡면이 있으면 조금 작게 나옵니다(보통 품질에서 많게는 1~2%, 표시 설정에서 곡면 품질을 높이면 줄어듭니다). 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.'),
+      h(
+        'p',
+        { class: 'hint' },
+        '부피·질량·무게중심·관성 모멘트는 B-rep 곡면과 모서리 곡선을 적분해 구합니다. 평면·원기둥·원뿔·구·원환으로 된 입체는 정확하고, B-스플라인 같은 곡면이 섞이면 그 면만 화면용 삼각형으로 재어 어림 오차를 ±로 보입니다. 외형 크기는 화면용 삼각형으로 잰 값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.',
+      ),
     );
   }
 
