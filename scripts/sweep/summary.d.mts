@@ -19,6 +19,8 @@ export interface SweepRecord {
   warnings?: string[];
   failReasons?: Record<string, number>;
   q?: Record<string, number>;
+  /** 워커 → 화면 전송량(metrics.ts TransferStats — 옛 결과에는 없다) */
+  x?: { xfer: number; edges: number; curves: number; curved: number; exact: number };
   error?: string;
   message?: string;
   [key: string]: unknown;
@@ -35,6 +37,8 @@ export interface QualitySummary {
   time: { totalMs: number; p50: number; p90: number; p99: number; max: number };
   /** 연 뒤 질량 속성 적분 시간(기록에 propsMs가 있을 때만) */
   propsTime?: { files: number; totalMs: number; p50: number; p90: number; p99: number; max: number };
+  /** 워커 → 화면 전송량(기록에 x가 있을 때만): 파일 수, 바이트 합·백분위·최대, 모서리 표·곡선 정의 바이트, 곡선 모서리와 정의로 접선을 구하는 것 */
+  transfer?: { files: number; totalBytes: number; p50: number; p90: number; max: number; edgeBytes: number; curveBytes: number; curvedEdges: number; exactEdges: number };
   quality: Record<string, number>;
   slowest: { hash: string; ms: number; propsMs?: number; size: number | null; triangles: number | null; class: string }[];
 }

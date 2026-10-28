@@ -65,7 +65,14 @@ export function summarizeQuality(records) {
   const times = [];
   /** 연 뒤 질량 속성 적분 시간(일꾼이 따로 잰 것 — 옛 결과에는 없다) */
   const propsTimes = [];
+  /** 워커 → 화면 전송량(metrics.ts transferStats — 옛 결과에는 없다) */
+  const xfers = [];
+  const xs = { edges: 0, curves: 0, curved: 0, exact: 0 };
   for (const r of records) {
+    if (r.x && Number.isFinite(r.x.xfer)) {
+      xfers.push(r.x.xfer);
+      for (const k of Object.keys(xs)) xs[k] += r.x[k] ?? 0;
+    }
     count(classes, r.class);
     count(containers, r.container ?? 'plain');
     count(versions, r.ap ?? 'none');
@@ -111,6 +118,7 @@ export function summarizeQuality(records) {
   q.foldedMaxAreaRatio = round(q.foldedMaxAreaRatio);
   times.sort((a, b) => a - b);
   propsTimes.sort((a, b) => a - b);
+  xfers.sort((a, b) => a - b);
   const slowest = [...records]
     .filter((r) => Number.isFinite(r.ms))
     .sort((a, b) => b.ms - a.ms)
@@ -141,6 +149,21 @@ export function summarizeQuality(records) {
             p90: percentile(propsTimes, 90),
             p99: percentile(propsTimes, 99),
             max: propsTimes[propsTimes.length - 1],
+          },
+        }
+      : {}),
+    ...(xfers.length
+      ? {
+          transfer: {
+            files: xfers.length,
+            totalBytes: xfers.reduce((a, b) => a + b, 0),
+            p50: percentile(xfers, 50),
+            p90: percentile(xfers, 90),
+            max: xfers[xfers.length - 1],
+            edgeBytes: xs.edges,
+            curveBytes: xs.curves,
+            curvedEdges: xs.curved,
+            exactEdges: xs.exact,
           },
         }
       : {}),
@@ -186,6 +209,13 @@ export function formatSummary(summary) {
     lines.push(`  시간 합 ${(s.time.totalMs / 1000).toFixed(1)}s, p50 ${s.time.p50}ms, p90 ${s.time.p90}ms, p99 ${s.time.p99}ms, 최대 ${s.time.max}ms`);
     const pt = s.propsTime;
     if (pt) lines.push(`  연 뒤 질량 속성 적분(파일 ${pt.files}): 합 ${(pt.totalMs / 1000).toFixed(1)}s, p50 ${pt.p50}ms, p90 ${pt.p90}ms, p99 ${pt.p99}ms, 최대 ${pt.max}ms`);
+    const x = s.transfer;
+    const mb = (b) => (b / 2 ** 20).toFixed(1);
+    if (x)
+      lines.push(
+        `  워커 → 화면 전송량(파일 ${x.files}): 합 ${mb(x.totalBytes)} MiB, p50 ${(x.p50 / 1024).toFixed(1)} KiB, p90 ${(x.p90 / 1024).toFixed(1)} KiB, 최대 ${mb(x.max)} MiB` +
+          ` / 모서리 표 ${mb(x.edgeBytes)} MiB(곡선 정의 ${mb(x.curveBytes)} MiB) / 곡선 모서리 ${x.curvedEdges}개 가운데 정의로 접선 ${x.exactEdges}개`,
+      );
     const errs = Object.entries(s.errors);
     if (errs.length) lines.push(`  오류 코드: ${errs.map(([k, n]) => `${k} ${n}`).join(', ')}`);
     const warns = Object.entries(s.warnings);
