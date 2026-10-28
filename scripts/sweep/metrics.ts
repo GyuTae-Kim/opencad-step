@@ -129,6 +129,8 @@ interface FaceTableLike {
  * - exact: 곡면 적분이고 어림 오차가 부피의 1e-9 이하, approx: 곡면 적분이지만 근삿값 면이 섞임, triangles: 삼각형으로 되돌아감,
  *   timeout: 시간 한도로 삼각형
  * - maxRelBound: 근삿값의 상대 어림 오차 최댓값, maxRelChange: 화면용 삼각형 부피와 견준 상대 차 최댓값(곡면 적분일 때 — 바뀐 크기)
+ * - sig: 모든 입체의 질량 속성 값(PROPS_LEN칸, float64 비트 그대로)을 면 표가 처음 나온 차례로 이은 지문(FNV-1a 64비트 16진).
+ *   해석기를 고친 전·후로 값이 한 비트라도 바뀌었는지 본다(sweep:compare)
  */
 export interface MassPropsStats {
   solids: number;
@@ -138,17 +140,46 @@ export interface MassPropsStats {
   timeout: number;
   maxRelBound: number;
   maxRelChange: number;
+  sig: string;
+}
+
+/** float64 값들의 FNV-1a 64비트 지문(BigInt 없이 32비트 둘로) */
+export function propsSignature(list: readonly ArrayLike<number>[]): string {
+  // FNV-1a 64: offset 0xcbf29ce484222325, prime 0x100000001b3 — 위·아래 32비트로 나눠 곱한다
+  let hi = 0xcbf29ce4;
+  let lo = 0x84222325;
+  const buf = new DataView(new ArrayBuffer(8));
+  const eat = (byte: number) => {
+    lo = (lo ^ byte) >>> 0;
+    // (hi, lo) × 0x100_000001b3 mod 2⁶⁴: 아래 = lo × 0x1b3, 위 = hi × 0x1b3 + lo × 0x100 + 올림
+    const a = lo * 0x1b3;
+    const loNew = a >>> 0;
+    const carry = Math.floor(a / 0x100000000);
+    hi = (Math.imul(hi, 0x1b3) + Math.imul(lo, 0x100) + carry) >>> 0;
+    lo = loNew;
+  };
+  for (const p of list) {
+    for (let i = 0; i < p.length; i++) {
+      buf.setFloat64(0, p[i]!, true);
+      for (let k = 0; k < 8; k++) eat(buf.getUint8(k));
+    }
+    // 입체 사이 구분
+    eat(0x7c);
+  }
+  return hi.toString(16).padStart(8, '0') + lo.toString(16).padStart(8, '0');
 }
 
 export function massPropsStats(scene: Pick<Scene3d, 'meshes' | 'meta'>): MassPropsStats {
-  const out: MassPropsStats = { solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0 };
+  const out: MassPropsStats = { solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0, sig: '' };
   const meta = scene.meta as { faceTables?: FaceTableLike[]; meshFaceTable?: ArrayLike<number> } | undefined;
   const done = new Set<number>();
+  const values: ArrayLike<number>[] = [];
   scene.meshes.forEach((m, i) => {
     const ti = meta?.meshFaceTable?.[i] ?? -1;
     const p = ti >= 0 ? meta?.faceTables?.[ti]?.props : undefined;
     if (!p || done.has(ti)) return;
     done.add(ti);
+    values.push(p);
     out.solids++;
     const V = p[0]!;
     const rel = V > 0 ? p[13]! / V : Infinity;
@@ -162,6 +193,7 @@ export function massPropsStats(scene: Pick<Scene3d, 'meshes' | 'meta'>): MassPro
       if (tv > 0) out.maxRelChange = Math.max(out.maxRelChange, Math.abs(V - tv) / tv);
     }
   });
+  out.sig = propsSignature(values);
   return out;
 }
 

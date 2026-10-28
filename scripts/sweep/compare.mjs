@@ -25,9 +25,32 @@ export const METRICS = {
   nonFinite: (r) => r.q?.nonFinite,
   solids: (r) => r.q?.solids,
   triangles: (r) => r.triangles,
+  // 닫힌 입체의 질량 속성(metrics.ts massPropsStats): 구한 길별 입체 수와 값 지문(값이 한 비트라도 바뀌면 달라진다)
+  propsExact: (r) => r.mp?.exact,
+  propsApprox: (r) => r.mp?.approx,
+  propsTriangles: (r) => r.mp?.triangles,
+  propsTimeout: (r) => r.mp?.timeout,
+  propsSig: (r) => r.mp?.sig,
 };
 /** 순위를 매길 때 무게(분류·예외 다음) */
-const WEIGHT = { failedFaces: 50, windingSolids: 40, negativeVolumeSolids: 40, openShells: 30, nonFinite: 30, solids: 20, windingEdges: 10, foldedMaxRatio: 10, foldedTriangles: 5, areaMismatchFaces: 5, triangles: 1 };
+const WEIGHT = {
+  failedFaces: 50,
+  windingSolids: 40,
+  negativeVolumeSolids: 40,
+  openShells: 30,
+  nonFinite: 30,
+  solids: 20,
+  propsExact: 20,
+  propsApprox: 20,
+  propsTriangles: 20,
+  propsTimeout: 10,
+  propsSig: 15,
+  windingEdges: 10,
+  foldedMaxRatio: 10,
+  foldedTriangles: 5,
+  areaMismatchFaces: 5,
+  triangles: 1,
+};
 /** 요약에서 전·후를 나란히 보일 값 */
 const SUMMARY_KEYS = [
   'exceptions',
