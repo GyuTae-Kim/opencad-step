@@ -16,7 +16,10 @@ import {
   measureSnapOptions,
   snapLabel,
   snapPair,
+  TANGENT_LABEL,
+  type TangentHint,
   viewerLockHint,
+  viewerLockName,
 } from '../../src/app/snap';
 import { translate } from '../../site/i18n.mjs';
 import { StepText, plateWithHole } from '../stepText';
@@ -221,6 +224,25 @@ describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와
     expect(viewerLockHint(v(0, null, null))).toBeNull();
     expect(viewerLockHint(v(1, { ...edge, source: 'shift' }, edge))).toBe('모서리와 나란히 잠금');
     expect(viewerLockHint(v(0, { kind: 'axis', axis: 'x', direction: [1, 0, 0], source: 'api' }, null), true)).toBe('X축으로 잠금');
+  });
+
+  it('곡선 접선 잠금(tangent.ts — 받기 전이면 null): 잠갔으면 "접선 방향으로 잠금", 커서 아래에 접선이 있으면 Shift 안내, 결과·커서 아래 이름은 "접선 방향"', () => {
+    const v = (n: number, lock: LockViewer['measureInferenceLock'], hover: LockViewer['measureHoverLock']): LockViewer => ({ measurePointCount: n, measureInferenceLock: lock, measureHoverLock: hover });
+    const tan = (locked: boolean, now: boolean): TangentHint => ({ locked: () => locked, now: () => (now ? [0, 1, 0] : null) });
+    const dir = [0.6, 0.8, 0] as [number, number, number];
+    expect(viewerLockHint(v(1, null, null), false, tan(false, true))).toBe('Shift·화살표로 방향 잠금');
+    expect(viewerLockHint(v(1, null, null), false, tan(false, false))).toBe('화살표로 축 잠금');
+    expect(viewerLockHint(v(1, null, null), true, tan(false, true))).toBeNull();
+    expect(viewerLockHint(v(1, { kind: 'parallel', direction: dir, source: 'api' }, null), false, tan(true, false))).toBe('접선 방향으로 잠금');
+    expect(viewerLockName(v(1, { kind: 'parallel', direction: dir, source: 'api' }, null), tan(true, false))).toBe('tangent');
+    expect(viewerLockName(v(1, { kind: 'parallel', direction: dir, source: 'api' }, null), null)).toBe('parallel');
+    expect(lockHint(1, 'tangent')).toBe('접선 방향으로 잠금');
+    expect(hoverSnapLabel({ snap: 'parallel', locked: true }, true)).toBe('접선 방향 · 잠금');
+    expect(hoverSnapLabel({ snap: 'endpoint' }, true)).toBe('끝점');
+    expect(snapPair({ snapA: 'endpoint', snapB: 'parallel', lockedB: true, tangentB: true })).toEqual(['끝점', '접선 방향 · 잠금']);
+    expect(TANGENT_LABEL).toBe('접선 방향');
+    for (const t of [TANGENT_LABEL, '접선 방향으로 잠금', '접선 방향 · 잠금']) for (const l of ['en', 'ja', 'zh-CN', 'de']) expect(translate(t, l), `${l}: ${t}`).not.toMatch(/[가-힣]/);
+    expect(translate('접선 방향 · 잠금', 'en')).toBe('Along tangent · Locked');
   });
 
   it('화살표: →·←·↑는 X·Y·Z축(같은 축이면 풀기, 첫 점 전에도), ↓는 끝점을 잡는 동안 지금 방향(잠갔으면 풀기), 두 점을 다 찍었으면 넘긴다', () => {

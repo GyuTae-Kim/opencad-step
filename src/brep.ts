@@ -80,6 +80,34 @@ export interface EdgeTableData {
   length: Float64Array;
   /** 원호가 도는 각(라디안, 원이 아니면 0 — 한 바퀴는 2π) */
   sweep: Float64Array;
+  /**
+   * 곡선 모서리 두 끝의 단위 접선(EDGE_TANGENTS개씩: 시작 xyz, 끝 xyz — 형상 항목 좌표). 둘 다 모서리 방향(시작 꼭짓점 → 끝 꼭짓점,
+   * 다각선 차례)으로 간다 — 끝에서 곡선 안쪽으로 가는 방향은 끝 접선의 반대. B-rep 곡선의 1차 도함수(원·타원은 식, B-스플라인은 도함수)로 구한다.
+   * 직선과 매개변수를 모르는 모서리(꼭짓점이 곡선에서 먼 것)는 NaN. 없으면(옛 결과) 모두 모르는 것으로 친다
+   */
+  tangents?: Float32Array;
+}
+
+/** 모서리 표 접선 개수(모서리마다): 시작 접선 xyz, 끝 접선 xyz */
+export const EDGE_TANGENTS = 6;
+
+/**
+ * 곡선 c를 매개변수 ta → tb로 지날 때 ta에서의 진행 방향 단위 접선(1차 도함수, tb < ta면 뒤집는다). 도함수가 0이면(끝 조절점이 겹친
+ * B-스플라인 등) ta에서 tb 쪽으로 조금 간 점까지의 방향. 못 구하면 null
+ */
+export function curveEndTangent(c: { point(t: number): V3; d1(t: number): V3 }, ta: number, tb: number): V3 | null {
+  const s = tb >= ta ? 1 : -1;
+  let d = c.d1(ta);
+  let l = len(d);
+  if (!(l > 1e-12 * (1 + Math.abs(ta)))) {
+    const h = (tb - ta) * 1e-6;
+    d = sub(c.point(ta + h), c.point(ta));
+    l = len(d);
+    if (!(l > 0)) return null;
+    return [d[0] / l, d[1] / l, d[2] / l];
+  }
+  const k = s / l;
+  return Number.isFinite(k) && d.every(Number.isFinite) ? [d[0] * k, d[1] * k, d[2] * k] : null;
 }
 
 /** 한 형상 항목(입체·껍질 등)의 그물(형상 항목 좌표·단위 그대로) */
@@ -593,6 +621,7 @@ export class BrepMesher {
     const eParams: number[] = [];
     const eLen: number[] = [];
     const eSweep: number[] = [];
+    const eTan: number[] = [];
     for (const [eid] of edgeUse) {
       if (seams.has(eid)) continue;
       const poly = this.edgeCache.get(eid);
@@ -625,6 +654,13 @@ export class BrepMesher {
         eParams.push(...p);
         eLen.push(this.edgeLength(eid, poly));
         eSweep.push(sweep);
+        // 곡선 모서리 두 끝의 접선(측정 잠금 — 모서리 방향으로): 시작은 t1에서 t2 쪽, 끝은 t2에서 모서리 방향(t1에서 멀어지는 쪽)
+        const t1 = ep?.t[0];
+        const t2 = ep?.t[ep.t.length - 1];
+        const ts = c && kind !== 'line' && t1 !== undefined && t2 !== undefined && t1 !== t2 ? curveEndTangent(c, t1, t2) : null;
+        const te = ts ? curveEndTangent(c!, t2!, t1!) : null;
+        if (ts && te) eTan.push(...ts, -te[0], -te[1], -te[2]);
+        else eTan.push(NaN, NaN, NaN, NaN, NaN, NaN);
       }
       for (let i = 1; i < poly.length; i++) {
         const a = poly[i - 1]!;
@@ -706,6 +742,7 @@ export class BrepMesher {
             params: Float64Array.from(eParams),
             length: Float64Array.from(eLen),
             sweep: Float64Array.from(eSweep),
+            tangents: Float32Array.from(eTan),
           }
         : undefined,
     };

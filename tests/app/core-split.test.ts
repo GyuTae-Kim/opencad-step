@@ -80,10 +80,20 @@ describe('코어 나눠 받기', () => {
       expect(files.has(join(ROOT, `src/app/${m}.ts`)), m).toBe(false);
       expect(new Set(dynamic.filter((d) => d.spec === `./${m}`).map((d) => relative(ROOT, d.file))), m).toEqual(new Set(['src/app/app.ts']));
     }
+    // 측정 곡선 접선 잠금(tangent.ts)도 첫 화면 밖: core.ts의 import()로만(뷰어를 만들 때 받는다)
+    expect(files.has(join(ROOT, 'src/app/tangent.ts'))).toBe(false);
+    expect(dynamic.filter((d) => d.spec === './tangent').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
   });
 
   it('앱의 숫자 키 표는 코어 VIEW_KEYS 그 객체(작은 camera 모듈 — 코어 0.10.0)', () => {
     expect(VIEW_KEYS).toBe(CORE_VIEW_KEYS);
+  });
+
+  it('곡선 접선 잠금 조각을 한 번만 받는다', async () => {
+    const { loadCurveTangents } = await import('../../src/app/core');
+    const a = loadCurveTangents();
+    expect(loadCurveTangents()).toBe(a);
+    expect(typeof (await a).TangentLock).toBe('function');
   });
 
   it('코어 입구를 한 번만 받고 같은 모듈을 준다', async () => {

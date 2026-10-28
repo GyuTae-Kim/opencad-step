@@ -33,7 +33,7 @@ export type { StepPmiSemantic } from './pmi';
 export type StepFaceTable = FaceTableData;
 /** 모서리 표(meta.edgeTables의 한 칸): 윤곽선 선분 → B-rep 모서리. 뜻은 brep.ts EdgeTableData */
 export type StepEdgeTable = EdgeTableData;
-export { EDGE_KINDS, EDGE_PARAMS, FACE_KINDS, FACE_PARAMS } from './brep';
+export { EDGE_KINDS, EDGE_PARAMS, EDGE_TANGENTS, FACE_KINDS, FACE_PARAMS } from './brep';
 export { scaleProps } from './massprops';
 export { MassPropsJob, type PropsResult } from './propsjob';
 
