@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { EDGE_TANGENTS, stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { curveEndsAt, curveTangentAt, endPolyline, endTangent, pointTol, polylineNearest, type CurveEnd } from '../../src/app/tangent';
+import { curveEndsAt, curveTangentAt, curveTangentPick, endPolyline, endTangent, pointTol, polylineNearest, type CurveEnd } from '../../src/app/tangent';
 import { StepText } from '../stepText';
 import { BS_END, BS_START, BS_T0, BS_T1, curveStep, ELL_END, ELL_START, ELL_T0, ELL_T1, ellTangent, RIM, RIM_TANGENT, type V3 } from './curvescene';
 
@@ -133,6 +133,9 @@ describe('화면: 첫 점에 닿는 곡선 끝 찾기·커서 아래 점의 접�
     close(curveTangentAt(ends, RIM, poly[Math.ceil(n / 2) + 1]!), neg(RIM_TANGENT));
     // 아랫 테두리 점은 이 원 위가 아니다
     expect(curveTangentAt(ends, RIM, [RIM[0], RIM[1], 0])).toBeNull();
+    // 고른 끝의 첫 토막(현): 앞 절반이면 이음 꼭짓점 → 다음 꼭짓점, 뒤 절반이면 이음 꼭짓점 → 앞 꼭짓점
+    close(curveTangentPick(ends, RIM, poly[2]!)!.chord, unit(sub(poly[1]!, poly[0]!)), 1e-6);
+    close(curveTangentPick(ends, RIM, poly[n - 2]!)!.chord, unit(sub(poly[n - 1]!, poly[n]!)), 1e-6);
   });
 
   it('꺾은선 가장 가까운 점: 거리와 시작부터 길이', () => {

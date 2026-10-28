@@ -11,6 +11,7 @@ import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from '../../src/app/snap';
 import { curveEndsAt, endPolyline, TangentLock } from '../../src/app/tangent';
+import { StepText } from '../stepText';
 import { type FakeElement, installDom } from './fakeview';
 import { BS_END, BS_START, BS_T0, curveStep, ELL_START, ELL_T0, ellTangent, RIM, RIM_TANGENT, type V3 } from './curvescene';
 
@@ -26,7 +27,6 @@ afterAll(() => {
 
 const scene = stepToScene(curveStep());
 const ex = stepEdgeIndex(scene)!;
-const centers = circleCenters(scene.meshes, ex);
 const dot = (a: readonly number[], b: readonly number[]): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
 const sub = (a: readonly number[], b: readonly number[]): V3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
 const neg = (a: readonly number[]): V3 => [-a[0]!, -a[1]!, -a[2]!];
@@ -44,15 +44,30 @@ interface View {
 }
 
 /** 실제 코어 뷰어에 곡선 장면과 앱의 측정 붙잡기 선택을 주고 남동 등각으로 맞춘다(측정 모드) + 앱의 접선 잠금 */
-function view(): View {
+function view(s = scene): View {
+  const x = s === scene ? ex : stepEdgeIndex(s)!;
   const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false, renderMode: 'shaded' });
-  v.setScene(scene);
+  v.setScene(s);
   v.setView('seIso', false);
   v.fit(false);
   v.renderNow();
   v.setMeasureMode(true);
-  v.setMeasureSnap(measureSnapOptions(scene.meshes, ex, centers));
-  return { v, canvas: v.canvas as unknown as FakeElement, tl: new TangentLock(() => ({ meshes: scene.meshes, ex })) };
+  v.setMeasureSnap(measureSnapOptions(s.meshes, x, circleCenters(s.meshes, x)));
+  return { v, canvas: v.canvas as unknown as FakeElement, tl: new TangentLock(() => ({ meshes: s.meshes, ex: x })) };
+}
+
+/** 반원판: (10,0,0) → (−10,0,0) 지름과 +y 쪽 반원(반지름 10) — 첫 점 A = (10,0,0)은 반원의 끝이자 지름의 시작 */
+function halfDisc() {
+  const w = new StepText();
+  const mm = w.context('mm');
+  const A = w.vertex([10, 0, 0]);
+  const B = w.vertex([-10, 0, 0]);
+  const arc = w.edge(B, A, w.circle([0, 0, 0], 10), false);
+  const dia = w.edge(A, B, w.line([10, 0, 0], [-10, 0, 0]));
+  const face = w.face([w.bound(w.loop([w.oe(dia, true), w.oe(arc, true)]))], w.plane([0, 0, 0], [0, 0, -1]));
+  const item = w.add('FACE_BASED_SURFACE_MODEL', `'',(#${w.add('CONNECTED_FACE_SET', `'',(#${face})`)})`);
+  w.product('half-disc', [item], mm, 'SHAPE_REPRESENTATION');
+  return stepToScene(w.bytes());
 }
 
 const ptr = (w: View, type: string, x: number, y: number, buttons: number, shiftKey: boolean): void =>
@@ -212,6 +227,33 @@ describe('곡선 모서리 끝의 접선 잠금: 실제 코어 판정 + 앱 Tang
     // 본 것이 없으면 잠그지 않는다
     const x = from(BS_START);
     expect(x.tl.lockNow(x.v)).toBe(false);
+  });
+
+  it('반원판: 첫 점(반원 끝·지름 시작)에서 반원의 다른 끝 = 지름의 다른 끝이면 코어의 지름 방향(X축), 반원 꺾은선 꼭짓점이면 반원 접선(+Y)', () => {
+    const disc = halfDisc();
+    const w = view(disc);
+    const { v, tl } = w;
+    const A: V3 = [10, 0, 0];
+    clickAt(w, A);
+    expect(v.measurePointCount).toBe(1);
+    // 다른 끝: 코어는 지름(곧은 B-rep 모서리)으로 잠그려 한다 — 반원 현이 아니므로 그대로
+    hoverAt(w, [-10, 0, 0]);
+    expect(v.measureHoverLock).toMatchObject({ kind: 'axis', axis: 'x' });
+    expect(tl.now(v)).toBeNull();
+    shiftDown(w);
+    expect(viewerLockName(v, tl)).toBe('x');
+    shiftUp(w);
+    // 반원을 그린 꺾은선의 A 바로 옆 꼭짓점: 코어는 그 현으로 잠그려 하고, 앱은 반원 접선(A에서 +Y)
+    const x = stepEdgeIndex(disc)!;
+    const arc = curveEndsAt(disc.meshes, x, A)[0]!;
+    const poly = endPolyline(arc);
+    hoverAt(w, poly[poly.length - 2]!);
+    expect(angleDeg(v.measureHoverLock!.direction, [0, 1, 0])).toBeGreaterThan(1);
+    close(tl.now(v), [0, 1, 0]);
+    shiftDown(w);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    close(v.measureInferenceLock!.direction, [0, 1, 0]);
+    shiftUp(w);
   });
 
   it('새 첫 점이면 접선 기록을 잊는다(다른 잠금의 결과를 접선으로 읽지 않는다)', () => {

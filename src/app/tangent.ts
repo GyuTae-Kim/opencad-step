@@ -10,8 +10,9 @@
  *   한 바퀴 원처럼 두 끝이 모두 첫 점인 닫힌 모서리는 커서 아래 점이 꺾은선 길이로 앞 절반이면 시작 쪽, 뒤 절반이면 끝 쪽(거꾸로 도는 방향).
  * - "그 모서리 위": 커서 아래 점에서 그 모서리의 화면용 꺾은선(꼭짓점이 모두 곡선 위)까지가 허용치 안.
  * - 차례: 커서 아래가 방향 추론(축·나란함·수직 발)이면 코어 판정이 먼저, 그 밖의 점 붙잡기(끝점·가운데 점·교차점·모서리 위 점)가
- *   그 곡선 위면 접선이 먼저다(코어는 그때 꺾은선 첫 토막 방향으로 잠그려 한다). 지금 잠글 것을 못 보면(커서가 떠남) 코어처럼
- *   첫 점 뒤 마지막으로 본 것 — 접선이었으면 접선.
+ *   그 곡선 위면 접선이 먼저다(코어는 그때 꺾은선 첫 토막 방향으로 잠그려 한다). 다만 코어가 볼 잠금이 그 곡선의 첫 토막이 아닌
+ *   다른 직선(반원판의 지름처럼 첫 점에서 곡선의 다른 끝으로 이어진 곧은 모서리)이면 코어 판정 그대로다.
+ *   지금 잠글 것을 못 보면(커서가 떠남) 코어처럼 첫 점 뒤 마지막으로 본 것 — 접선이었으면 접선.
  * - 첫 점에 닿는 곡선 끝은 첫 점마다 한 번 장면에서 찾고(묶음마다 곡선 끝 상자로 먼저 거른다), 커서가 움직일 때는 그 몇 개만 본다.
  */
 import type { MeasureInferenceLock, MeasureResult, Viewer3d } from 'opencad-viewer3d';
@@ -193,19 +194,36 @@ export function endTangent(e: CurveEnd, end: 0 | 1 = e.end): V3 | null {
  * p가 a 자리거나 어느 모서리 위도 아니면 null. 여럿이면 p에 가장 가까운 모서리. 두 끝이 모두 a인 닫힌 모서리는 p가 놓인 쪽 끝(꺾은선 길이 절반으로 가른다)
  */
 export function curveTangentAt(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>): V3 | null {
+  return curveTangentPick(ends, a, p)?.dir ?? null;
+}
+
+/**
+ * curveTangentAt과 같고 그 끝의 첫 꺾은선 토막(현 — 코어가 이 곡선에서 잠그려 하는 방향, a에서 곡선 쪽 단위 벡터)도 준다.
+ * 현을 못 구하면(토막 길이 0) chord는 dir과 같다
+ */
+export function curveTangentPick(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>): { dir: V3; chord: V3 } | null {
   if (!ends.length) return null;
   if (Math.hypot(p[0]! - a[0]!, p[1]! - a[1]!, p[2]! - a[2]!) <= 4 * pointTol(a)) return null;
   const tolP = 4 * pointTol(p);
-  let best: { e: CurveEnd; dist: number; s: number; total: number } | null = null;
+  let best: { e: CurveEnd; poly: V3[]; dist: number; s: number; total: number } | null = null;
   for (const e of ends) {
-    const n = polylineNearest(endPolyline(e), p);
+    const poly = endPolyline(e);
+    const n = polylineNearest(poly, p);
     if (!(n.dist <= tolP)) continue;
-    if (!best || n.dist < best.dist) best = { e, ...n };
+    if (!best || n.dist < best.dist) best = { e, poly, ...n };
   }
   if (!best) return null;
   const b = best;
   const both = ends.some((o) => o.mesh === b.e.mesh && o.edge === b.e.edge && o.end !== b.e.end);
-  return endTangent(b.e, both ? (b.s <= b.total / 2 ? 0 : 1) : b.e.end);
+  const end = both ? (b.s <= b.total / 2 ? 0 : 1) : b.e.end;
+  const dir = endTangent(b.e, end);
+  if (!dir) return null;
+  // 그 끝의 첫 토막(끝 꼭짓점 → 곡선 쪽 이웃 꼭짓점)
+  const k = b.poly.length - 1;
+  const [q0, q1] = end ? [b.poly[k]!, b.poly[k - 1]!] : [b.poly[0]!, b.poly[1]!];
+  const c = q1 ? [q1[0] - q0[0], q1[1] - q0[1], q1[2] - q0[2]] : [0, 0, 0];
+  const l = Math.hypot(c[0]!, c[1]!, c[2]!);
+  return { dir, chord: l > 0 ? [c[0]! / l, c[1]! / l, c[2]! / l] : dir };
 }
 
 /** 이 모듈이 쓰는 뷰어 기능(시험에서 가짜로 바꿀 수 있게) */
@@ -220,7 +238,9 @@ export interface TangentScene {
 /** 방향 추론 붙잡기(첫 점을 지나는 선 위의 점): 곡선 접선보다 코어 판정이 먼저 */
 const INFERRED = new Set(['axis', 'parallel', 'perpendicular']);
 /** 같은 직선 방향(부호 무시)으로 볼 단위 벡터 내적 — 잠금 방향은 코어가 float64로 단위화한 값이라 아주 가깝다 */
-const sameLine = (a: readonly number[], b: readonly number[]): boolean => Math.abs(a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!) >= 1 - 1e-9;
+const sameLine = (a: readonly number[], b: readonly number[], min = 1 - 1e-9): boolean => Math.abs(a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!) >= min;
+/** 코어 잠금이 곡선의 첫 토막(현)인지 볼 내적: 같은 float32 윤곽선 꼭짓점에서 구한 방향이라 거의 같고, 축과 나란한 토막은 코어가 축 방향으로 바꾼다(각 1e-4 라디안 안) */
+const CHORD_SAME = 1 - 5e-9;
 
 /**
  * 곡선 접선 잠금의 앱 쪽 상태: 코어 측정 모드가 잠금 상태와 판정을 가지고, 이것은 곡선 끝에서 접선으로 잠그는 손잡이만 둔다.
@@ -244,8 +264,8 @@ export class TangentLock {
 
   constructor(private readonly scene: () => TangentScene | null) {}
 
-  /** 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선(첫 점마다 닿는 곡선 끝을 한 번 찾아 둔다) */
-  at(a: ArrayLike<number>, p: ArrayLike<number>): V3 | null {
+  /** 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선과 그 끝의 첫 토막(첫 점마다 닿는 곡선 끝을 한 번 찾아 둔다) */
+  pick(a: ArrayLike<number>, p: ArrayLike<number>): { dir: V3; chord: V3 } | null {
     const s = this.scene();
     if (!s?.ex) return null;
     const key = `${a[0]},${a[1]},${a[2]}`;
@@ -254,16 +274,28 @@ export class TangentLock {
       this.endsKey = key;
       this.ends = curveEndsAt(s.meshes, s.ex, a);
     }
-    return this.ends.length ? curveTangentAt(this.ends, a, p) : null;
+    return this.ends.length ? curveTangentPick(this.ends, a, p) : null;
   }
 
-  /** 커서 아래에서 잠글 접선: 끝점을 잡는 중이고 잠그지 않았으며, 커서 아래 점이 방향 추론이 아니고 첫 점에 닿는 곡선 위면 그 접선 */
+  /** 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선 */
+  at(a: ArrayLike<number>, p: ArrayLike<number>): V3 | null {
+    return this.pick(a, p)?.dir ?? null;
+  }
+
+  /**
+   * 커서 아래에서 잠글 접선: 끝점을 잡는 중이고 잠그지 않았으며, 커서 아래 점이 방향 추론이 아니고 첫 점에 닿는 곡선 위면 그 접선.
+   * 코어가 볼 잠금(measureHoverLock)이 그 곡선의 첫 토막(현)이 아닌 다른 직선이면 코어 판정을 둔다 — 반원판처럼 곡선의 다른 끝이
+   * 첫 점에서 곧은 모서리로도 이어지면 그 끝에서는 곧은 모서리 방향(코어 0.12.0 모서리 끝 잠금)
+   */
   now(v: TangentViewer): V3 | null {
     if (!v.measureMode || v.measurePointCount !== 1 || v.measureInferenceLock) return null;
     const hv = v.measureHoverSnap;
     if (!hv || (hv.snap && INFERRED.has(hv.snap))) return null;
     const first = v.measurePoints[0];
-    return first ? this.at(first.point, hv.point) : null;
+    const t = first ? this.pick(first.point, hv.point) : null;
+    if (!t) return null;
+    const core = v.measureHoverLock;
+    return core && !sameLine(core.direction, t.chord, CHORD_SAME) ? null : t.dir;
   }
 
   /** 코어 잠금이 앱이 건 접선 잠금인지 */
