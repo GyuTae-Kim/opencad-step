@@ -13,7 +13,7 @@ import { crc32 } from '../src/archive';
 import { STEP_EXTENSIONS as APP_STEP_EXTENSIONS } from '../src/app/files';
 import { IFC_MESSAGE } from '../src/app/protocol';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode } from '../scripts/sweep/classify';
-import { areaMismatch, itemQuality, massPropsStats, sceneQuality } from '../scripts/sweep/metrics';
+import { areaMismatch, itemQuality, massPropsStats, propsSignature, sceneQuality } from '../scripts/sweep/metrics';
 import { qualityOptions } from '../scripts/sweep/quality';
 import { sweepOne } from '../scripts/sweep/worker';
 import { dedupe, extensionOf, keepOpenable, nameKind, STEP_EXTENSIONS, walkDirs } from '../scripts/sweep/files.mjs';
@@ -140,7 +140,23 @@ describe('훑기: 품질 지표', () => {
     const mp = massPropsStats(stepToScene(w.bytes()));
     expect(mp).toMatchObject({ solids: 1, exact: 1, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0 });
     expect(mp.maxRelChange).toBeGreaterThan(1e-4);
-    expect(massPropsStats(stepToScene(w.bytes(), { propsBudget: { minMs: -1, share: 0 } }))).toMatchObject({ solids: 1, timeout: 1, exact: 0 });
+    const timedOut = massPropsStats(stepToScene(w.bytes(), { propsBudget: { minMs: -1, share: 0 } }));
+    expect(timedOut).toMatchObject({ solids: 1, timeout: 1, exact: 0 });
+    // 값 지문: 같은 해석은 같고, 다른 길로 구한 값(삼각형)은 다르다
+    expect(mp.sig).toMatch(/^[0-9a-f]{16}$/);
+    expect(massPropsStats(stepToScene(w.bytes())).sig).toBe(mp.sig);
+    expect(timedOut.sig).not.toBe(mp.sig);
+  });
+  it('질량 속성 값 지문: FNV-1a 64비트(float64 바이트), 한 비트만 달라도 바뀐다', () => {
+    // 빈 목록은 FNV-1a 64의 시작 값
+    expect(propsSignature([])).toBe('cbf29ce484222325');
+    const a = propsSignature([Float64Array.of(1, 2.5, -3)]);
+    expect(propsSignature([[1, 2.5, -3]])).toBe(a);
+    const ulp = new Float64Array([2.5]);
+    new BigUint64Array(ulp.buffer)[0]! += 1n;
+    expect(propsSignature([[1, ulp[0]!, -3]])).not.toBe(a);
+    // 입체 경계가 다르면 다르다
+    expect(propsSignature([[1], [2.5, -3]])).not.toBe(a);
   });
   it('면 표 넓이와 삼각형 넓이 차', () => {
     const m = { positions: P, indices: I };
@@ -319,5 +335,14 @@ describe('훑기: 요약과 비교', () => {
     expect(q.summary.windingFiles).toEqual([0, 1]);
     expect(formatCompare(res)).toContain('분류가 바뀐 파일 1개');
     expect(compareRecords(before, before).changed).toBe(false);
+  });
+
+  it('비교: 질량 속성 값 지문·구한 길이 바뀐 파일(옛 결과에 없으면 건너뜀)', () => {
+    const mp = { solids: 2, exact: 2, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0.01, sig: '0123456789abcdef' };
+    const before = [rec('a', { mp }), rec('b', { mp }), rec('c')];
+    const after = [rec('a', { mp }), rec('b', { mp: { ...mp, exact: 1, timeout: 1, sig: 'fedcba9876543210' } }), rec('c', { mp })];
+    const q = compareRecords(before, after).qualities.normal!;
+    expect(q.metricChanged).toBe(1);
+    expect(q.top[0]!.diff).toEqual({ propsExact: [2, 1], propsTimeout: [0, 1], propsSig: ['0123456789abcdef', 'fedcba9876543210'] });
   });
 });

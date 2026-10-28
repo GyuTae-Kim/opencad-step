@@ -77,8 +77,8 @@ describe('코어 나눠 받기', () => {
     expect(coreDyn.map((d) => `${relative(ROOT, d.file)}: ${d.spec}`)).toEqual(['src/app/core.ts: opencad-viewer3d']);
   });
 
-  it('앱의 숫자 키 표는 코어 VIEW_KEYS와 같다', () => {
-    expect(VIEW_KEYS).toEqual(CORE_VIEW_KEYS);
+  it('앱의 숫자 키 표는 코어 VIEW_KEYS 그 객체(작은 camera 모듈 — 코어 0.10.0)', () => {
+    expect(VIEW_KEYS).toBe(CORE_VIEW_KEYS);
   });
 
   it('코어 입구를 한 번만 받고 같은 모듈을 준다', async () => {

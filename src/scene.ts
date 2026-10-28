@@ -17,6 +17,8 @@ import { readLayers } from './layers';
 import { TRUNCATED_WARNING } from './messages';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
 import { isA, num, partOf, refId, refList, StepFile, StepRef, text } from './part21';
+import { scaleProps } from './massprops';
+import { DEFAULT_PROPS_BUDGET, MassPropsJob, type PropsBudget, type PropsResult, type PropsTarget } from './propsjob';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
 import { styleTextHeight, textLiterals, textSegments } from './pmitext';
 import type { GlyphSource } from './strokefont';
@@ -32,6 +34,8 @@ export type StepFaceTable = FaceTableData;
 /** 모서리 표(meta.edgeTables의 한 칸): 윤곽선 선분 → B-rep 모서리. 뜻은 brep.ts EdgeTableData */
 export type StepEdgeTable = EdgeTableData;
 export { EDGE_KINDS, EDGE_PARAMS, FACE_KINDS, FACE_PARAMS } from './brep';
+export { scaleProps } from './massprops';
+export { MassPropsJob, type PropsResult } from './propsjob';
 
 export interface StepOptions {
   /** 장면 이름(기본: 파일 머리의 FILE_NAME 또는 'STEP') */
@@ -52,10 +56,16 @@ export interface StepOptions {
   pmi?: boolean;
   /** 면 표(meta.faceTables·meta.meshFaceTable)를 만들지. 기본 true */
   faceTable?: boolean;
-  /** 닫힌 입체의 질량 속성(면 표 props — 곡면 적분)을 구할지. 기본 true(면 표가 있을 때만) */
+  /**
+   * 닫힌 입체의 질량 속성(면 표 props — 곡면 적분)을 구할지. 기본 true(면 표가 있을 때만).
+   * stepToScene은 삼각화를 마친 뒤 끝까지 적분하고, stepToSceneDeferred는 적분 거리(MassPropsJob)만 돌려준다
+   */
   props?: boolean;
-  /** 질량 속성 적분 시간 한도(brep.ts MeshOptions.propsBudget) */
-  propsBudget?: { minMs: number; share: number };
+  /**
+   * 질량 속성 적분 시간 한도: 적분에 쓴 시간이 minMs + share × 삼각화 시간을 넘으면 남은 입체는 화면용 삼각형으로 구한다
+   * (기본 1500 ms, 0.5 — propsjob.ts)
+   */
+  propsBudget?: PropsBudget;
   /**
    * PMI 글자 가운데 내장 획 글꼴(숫자·영문·기호)에 없는 글자(한글·일본어·중국어 등)의 모양(선택).
    * 해석기는 DOM에 기대지 않으므로 부르는 쪽이 준다 — 앱 워커는 브라우저 글꼴 윤곽선(src/app/glyphs.ts). 없으면 빈 상자
@@ -154,6 +164,8 @@ export interface StepMeta {
     totalMs: number;
     /** 시간 한도를 넘어 질량 속성을 곡면 적분 대신 삼각형으로 구한 입체 수(0이면 없음) */
     propsTimedOut?: number;
+    /** 질량 속성 적분 시간(ms) — 적분을 마친 장면만 */
+    propsMs?: number;
   };
   /** 길이 단위 이름(원래 파일) */
   lengthUnit: string;
@@ -184,8 +196,46 @@ interface RepInfo {
 
 const DEFAULT_COLOR: Rgba = [0.75, 0.75, 0.78, 1];
 
-/** STEP 바이트 → 장면 */
+/**
+ * STEP 바이트 → 장면. 닫힌 입체의 질량 속성(면 표 props)은 삼각화를 마친 뒤 끝까지 적분해 넣는다(props: false면 없다).
+ * 장면을 먼저 보이고 질량 속성은 나중에 구하려면 stepToSceneDeferred
+ */
 export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d {
+  const { scene, props } = stepToSceneDeferred(bytes, opts);
+  if (props) {
+    props.run();
+    applyProps(scene, props.take(), props);
+  }
+  return scene;
+}
+
+/** 장면과, 닫힌 입체가 있으면 그 질량 속성 적분 거리(면 표 props는 아직 없다 — run()·take() 뒤 applyProps) */
+export interface DeferredScene {
+  scene: Scene3d;
+  props: MassPropsJob | null;
+}
+
+/**
+ * 구한 질량 속성을 장면의 면 표(meta.faceTables)에 넣는다. job을 주면 다 끝났을 때 시간 한도 수·적분 시간을 meta.stats에 적는다
+ * (stepToScene은 적분 시간을 totalMs에도 더한다)
+ */
+export function applyProps(scene: Scene3d, results: readonly PropsResult[], job?: Pick<MassPropsJob, 'finished' | 'timedOut' | 'ms'>): void {
+  const meta = scene.meta as unknown as StepMeta | undefined;
+  const tables = meta?.faceTables;
+  if (!tables) return;
+  for (const r of results) {
+    const t = tables[r.table];
+    if (t) t.props = r.props;
+  }
+  if (job?.finished && meta) {
+    if (job.timedOut) meta.stats.propsTimedOut = job.timedOut;
+    meta.stats.propsMs = Math.round(job.ms);
+    meta.stats.totalMs = Math.round(meta.stats.totalMs + job.ms);
+  }
+}
+
+/** STEP 바이트 → 장면과 질량 속성 적분 거리(적분은 부르는 쪽이 MassPropsJob.run으로 — 앱 워커는 문서를 보인 뒤 나눠서) */
+export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): DeferredScene {
   const t0 = now();
   const progress = opts.onProgress ?? (() => {});
   progress(0, '읽기');
@@ -203,8 +253,9 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     angle: ((opts.angleTolerance ?? 20) * Math.PI) / 180,
     faceTable: opts.faceTable !== false,
     props: opts.props,
-    propsBudget: opts.propsBudget,
   });
+  /** 해석기를 만든 때 — 질량 속성 적분 시간 한도(삼각화 시간)의 기준 */
+  const tMesher = now();
   const wantCurves = opts.curves !== false;
   const wantPmi = opts.pmi !== false;
   const wantFaces = opts.faceTable !== false;
@@ -491,6 +542,8 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     if ((facesDone & 63) === 0 && totalFaceEstimate > 0) progress(0.1 + 0.85 * Math.min(1, facesDone / totalFaceEstimate), '삼각화');
   };
   const scaledMeshes = new Map<string, ItemMesh>();
+  /** 면 표 → 그 질량 속성을 구할 항목 그물과 장면 단위 배율 */
+  const tableSource = new Map<FaceTableData, { m: ItemMesh; k: number }>();
   const getMesh = (item: number, units: ContextUnits): ItemMesh | null => {
     let m = meshCache.get(item);
     if (m === undefined) {
@@ -508,7 +561,10 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
     }
     if (!m) return null;
     const k = units.lengthMm / sceneMm;
-    if (k === 1) return m;
+    if (k === 1) {
+      if (m.propsJob && m.faceTable) tableSource.set(m.faceTable, { m, k: 1 });
+      return m;
+    }
     const key = `${item}@${k}`;
     let sm = scaledMeshes.get(key);
     if (!sm) {
@@ -516,6 +572,7 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       const edges = m.edges.map((x) => x * k);
       sm = { ...m, positions: pos, edges, bbox: m.bbox ? [scaleV(m.bbox[0], k), scaleV(m.bbox[1], k)] : null };
       if (m.faceTable) sm.faceTable = scaleFaceTable(m.faceTable, k);
+      if (m.propsJob && sm.faceTable) tableSource.set(sm.faceTable, { m, k });
       if (m.edgeTable) sm.edgeTable = scaleEdgeTable(m.edgeTable, k);
       if (m.origin) sm.origin = scaleV(m.origin, k);
       scaledMeshes.set(key, sm);
@@ -1016,7 +1073,6 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
       parseMs: Math.round(tParse - t0),
       meshMs: Math.round(tMesh - tMesh0),
       totalMs: Math.round(now() - t0),
-      ...(mesher.propsTimedOut ? { propsTimedOut: mesher.propsTimedOut } : {}),
     },
     lengthUnit: lengthUnit || (sceneUnits === 'unknown' ? '' : sceneUnits),
   };
@@ -1049,7 +1105,20 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
   };
   if (points.length) scene.points = points;
   if (bounds) scene.bounds = bounds;
-  return scene;
+  // 질량 속성 적분 거리: 면 표 차례로 항목마다 한 번(같은 항목을 다른 단위로 놓으면 표마다 배율)
+  let props: MassPropsJob | null = null;
+  if (wantFaces && opts.props !== false) {
+    const targets = new Map<ItemMesh, PropsTarget>();
+    faceTables.forEach((t, index) => {
+      const src = tableSource.get(t);
+      if (!src?.m.propsJob) return;
+      let tg = targets.get(src.m);
+      if (!tg) targets.set(src.m, (tg = { item: src.m.propsJob, tables: [] }));
+      tg.tables.push({ index, k: src.k });
+    });
+    if (targets.size) props = new MassPropsJob([...targets.values()], tMesh - tMesher, opts.propsBudget ?? DEFAULT_PROPS_BUDGET);
+  }
+  return { scene, props };
 }
 
 function baseName(path: string): string {
@@ -1102,16 +1171,6 @@ function scaleFaceTable(t: FaceTableData, k: number): FaceTableData {
   return out;
 }
 
-/** 질량 속성(brep.ts FaceTableData.props) 단위 바꾸기: 부피·어림 오차 k³, 1차 모멘트 k⁴, 2차 모멘트 k⁵, 기준점 k */
-export function scaleProps(p: Float64Array, k: number): Float64Array {
-  const out = new Float64Array(p);
-  out[0] = p[0]! * k ** 3;
-  for (let i = 1; i <= 3; i++) out[i] = p[i]! * k ** 4;
-  for (let i = 4; i <= 9; i++) out[i] = p[i]! * k ** 5;
-  for (let i = 10; i <= 12; i++) out[i] = p[i]! * k;
-  out[13] = p[13]! * k ** 3;
-  return out;
-}
 
 /** 단위를 바꾼 그물의 모서리 표(반지름·중심·길이에 배율) */
 function scaleEdgeTable(t: EdgeTableData, k: number): EdgeTableData {

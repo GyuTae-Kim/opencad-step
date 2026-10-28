@@ -44,7 +44,7 @@ describe('크기·시간·수 글', () => {
   });
 
   it('stageLabel', () => {
-    expect(stageLabel('삼각화')).toBe('곡면 삼각화·물리 속성 계산 중');
+    expect(stageLabel('삼각화')).toBe('곡면 삼각화 중');
     expect(stageLabel('읽기')).toBe('파일 읽는 중');
     expect(stageLabel('새 단계')).toBe('새 단계 중');
     expect(stageLabel('')).toBe('읽는 중');

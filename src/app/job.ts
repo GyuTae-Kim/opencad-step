@@ -3,7 +3,7 @@
  * 워커(src/worker/parse.worker.ts)는 메시지만 주고받고 실제 일은 여기서 한다(Node 시험에서도 부를 수 있게).
  */
 import { isStepXml, sniffContainer, STEP_XML_MESSAGE, unpackStep } from '../archive';
-import { stepToScene } from '../scene';
+import { type MassPropsJob, stepToScene, stepToSceneDeferred, type StepOptions } from '../scene';
 import { browserGlyphs } from './glyphs';
 import { headSchemas, IFC_MESSAGE, sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
 
@@ -13,8 +13,16 @@ const UNPACK_SHARE = 0.15;
 /**
  * 파일 하나 해석. progress(0~1, 단계 이름)를 부른다. 압축 STEP(gzip·ZIP)은 '압축 풀기' 단계로 먼저 푼다.
  * STEP이 아니면(STEP-XML 포함) 알기 쉬운 오류를 던진다.
+ * onProps를 주면 닫힌 입체의 질량 속성을 적분하지 않고 적분 거리(MassPropsJob)를 넘긴다(결과 props에 기다리는 면 표) —
+ * 워커가 문서를 보인 뒤 따로 적분한다. 주지 않으면 장면 면 표에 질량 속성까지 넣어 돌려준다.
  */
-export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array, progress: (fraction: number, stage: string) => void = () => {}, options: ParseOptions = {}): Promise<ParseResult> {
+export async function parseStepFile(
+  name: string,
+  data: ArrayBuffer | Uint8Array,
+  progress: (fraction: number, stage: string) => void = () => {},
+  options: ParseOptions = {},
+  onProps?: (job: MassPropsJob) => void,
+): Promise<ParseResult> {
   const t0 = performance.now();
   let bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   const head = bytes.subarray(0, 64 * 1024);
@@ -44,16 +52,24 @@ export async function parseStepFile(name: string, data: ArrayBuffer | Uint8Array
   // IFC(건축 BIM)도 같은 Part 21 글이라 머리만으로는 통과한다 — 다 읽고 "형상 없음"이라 하기 전에 알기 쉽게 거절한다
   const schemas = headSchemas(bytes.subarray(0, 64 * 1024));
   if (schemas.length && schemas.every((x) => x.startsWith('IFC'))) throw new Error(IFC_MESSAGE);
-  const scene = stepToScene(bytes, {
+  const stepOpts: StepOptions = {
     name: sceneName,
     onProgress: (f, stage) => progress(base + f * (1 - base), stage),
     ...(options.tolerance ? { tolerance: options.tolerance } : {}),
     ...(options.angleTolerance ? { angleTolerance: options.angleTolerance } : {}),
     // 내장 획 글꼴에 없는 PMI 글자(한글 등)는 브라우저 글꼴 윤곽선으로(워커의 OffscreenCanvas — Node에서는 없어 예전처럼 빈 상자)
     glyphs: browserGlyphs(),
-  });
+  };
+  let scene: ParseResult['scene'];
+  let job: MassPropsJob | null = null;
+  if (onProps) ({ scene, props: job } = stepToSceneDeferred(bytes, stepOpts));
+  else scene = stepToScene(bytes, stepOpts);
   if (notes.length) scene.warnings = [...notes, ...(scene.warnings ?? [])];
   const res: ParseResult = { scene, ms: performance.now() - t0 };
   if (source) res.source = source;
+  if (job && onProps) {
+    res.props = { tables: job.tables(), solids: job.total };
+    onProps(job);
+  }
   return res;
 }

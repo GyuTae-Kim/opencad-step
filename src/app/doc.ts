@@ -12,7 +12,7 @@ import type { EdgePick } from './edges';
 import type { Picked, PickedMeasure } from './entpick';
 import type { FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
-import type { ParseResult, ParseSource } from './protocol';
+import type { ParseResult, ParseSource, PropsProgress } from './protocol';
 import { Visibility } from './visibility';
 
 export type ProductNode = StepProductNode;
@@ -50,6 +50,25 @@ export interface EdgeIndex {
   tables: StepEdgeTable[];
   /** 그물 id → 표 번호 */
   tableOf: Map<string, number>;
+}
+
+/**
+ * 닫힌 입체의 질량 속성(면 표 props) 적분 상태: 워커가 문서를 보인 뒤 따로 구한다(src/worker/parse.worker.ts).
+ * - running: 구하는 중 — pending의 면 표는 값을 기다린다(물리 속성은 "계산 중")
+ * - done: 다 구했다(또는 처음부터 장면에 들었다)
+ * - stopped: 다른 파일을 여느라(또는 워커가 멈춰) 그만뒀다 — 남은 면 표는 화면용 삼각형으로 잰다
+ */
+export interface DocProps {
+  state: 'running' | 'done' | 'stopped';
+  /** 값을 기다리는 면 표 번호 */
+  pending: Set<number>;
+  /** 끝낸·모든 입체 수 */
+  done: number;
+  total: number;
+  /** 시간 한도로 삼각형 값을 쓴 입체 수 */
+  timedOut: number;
+  /** 적분 시간(ms) */
+  ms: number;
 }
 
 /** 고른 항목 묶음(레이어·PMI 목록에서 고른 것) */
@@ -129,6 +148,8 @@ export interface StepDoc {
   measureLog: MeasureRecord[];
   /** 간섭 검사 상태·결과(돌린 적이 없으면 없음) */
   interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string };
+  /** 질량 속성 적분 상태 */
+  readonly props: DocProps;
 }
 
 /** 제품 나무 기본 줄 수 제한 */
@@ -171,7 +192,49 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     opacity: new Map(),
     explode: 0,
     measureLog: [],
+    props: res.props
+      ? { state: 'running', pending: new Set(res.props.tables), done: 0, total: res.props.solids, timedOut: 0, ms: 0 }
+      : { state: 'done', pending: new Set(), done: 0, total: 0, timedOut: 0, ms: 0 },
   };
+}
+
+/**
+ * 워커가 보낸 질량 속성 적분 소식을 문서에 넣는다: 값은 면 표(faces.tables[i].props)에, 기다리던 표에서 빼고,
+ * 다 했으면 done(시간 한도 수는 정보 탭 통계에도), 'stopped'면 멈춤(남은 표는 삼각형 값)
+ */
+export function applyDocProps(d: StepDoc, u: PropsProgress | 'stopped'): void {
+  const st = d.props;
+  if (st.state !== 'running') return;
+  if (u === 'stopped') {
+    st.state = 'stopped';
+    return;
+  }
+  for (const r of u.results) {
+    const t = d.faces?.tables[r.table];
+    if (t) t.props = r.props;
+    st.pending.delete(r.table);
+  }
+  st.done = u.done;
+  st.total = u.total;
+  st.timedOut = u.timedOut;
+  st.ms = u.ms;
+  if (u.finished) {
+    st.state = 'done';
+    st.pending.clear();
+    if (d.info.stats && u.timedOut) d.info.stats.propsTimedOut = u.timedOut;
+  }
+}
+
+/** 고른 그물(null이면 모두) 가운데 질량 속성 값이 아직 없는(기다리거나 멈춘) 닫힌 입체가 있는지 */
+export function propsPendingFor(d: Pick<StepDoc, 'props' | 'faces' | 'scene'>, ids: ReadonlySet<string> | null): boolean {
+  const st = d.props;
+  if (!st.pending.size || !d.faces) return false;
+  for (const m of d.scene.meshes) {
+    if (!m.closed || (ids && !ids.has(m.id))) continue;
+    const ti = d.faces.tableOf.get(m.id);
+    if (ti !== undefined && st.pending.has(ti)) return true;
+  }
+  return false;
 }
 
 /** 문서의 보이기 상태: 파일이 숨긴 레이어는 처음부터 끈다 */

@@ -11,6 +11,8 @@ export interface SweepRecord {
   schemas?: string[];
   ap?: string;
   ms?: number;
+  /** 연 뒤 질량 속성 적분 시간(ms) */
+  propsMs?: number;
   triangles?: number;
   faces?: number;
   failedFaces?: number;
@@ -31,8 +33,10 @@ export interface QualitySummary {
   warnings: Record<string, number>;
   failReasons: Record<string, number>;
   time: { totalMs: number; p50: number; p90: number; p99: number; max: number };
+  /** 연 뒤 질량 속성 적분 시간(기록에 propsMs가 있을 때만) */
+  propsTime?: { files: number; totalMs: number; p50: number; p90: number; p99: number; max: number };
   quality: Record<string, number>;
-  slowest: { hash: string; ms: number; size: number | null; triangles: number | null; class: string }[];
+  slowest: { hash: string; ms: number; propsMs?: number; size: number | null; triangles: number | null; class: string }[];
 }
 export const CLASSES: string[];
 export const EXCEPTION_CLASSES: Set<string>;
