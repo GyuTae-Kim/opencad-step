@@ -75,6 +75,11 @@ describe('코어 나눠 받기', () => {
     expect(core).toContain('camera');
     const coreDyn = dynamic.filter((d) => d.spec === 'opencad-viewer3d' || d.spec.startsWith('opencad-viewer3d/'));
     expect(coreDyn.map((d) => `${relative(ROOT, d.file)}: ${d.spec}`)).toEqual(['src/app/core.ts: opencad-viewer3d']);
+    // 보기 링크의 고른 것 낱말(selink.ts)과 STL·OBJ·CSV 내보내기(export.ts)도 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
+    for (const m of ['selink', 'export']) {
+      expect(files.has(join(ROOT, `src/app/${m}.ts`)), m).toBe(false);
+      expect(new Set(dynamic.filter((d) => d.spec === `./${m}`).map((d) => relative(ROOT, d.file))), m).toEqual(new Set(['src/app/app.ts']));
+    }
   });
 
   it('앱의 숫자 키 표는 코어 VIEW_KEYS 그 객체(작은 camera 모듈 — 코어 0.10.0)', () => {

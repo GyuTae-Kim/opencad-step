@@ -67,6 +67,17 @@ export function stageLabel(stage: string): string {
   return STAGES[stage] ?? (stage ? `${stage} 중` : '읽는 중');
 }
 
+/** 그림 저장 크기 글: "2배 — 2560 × 1600 화소"(코어 snapshotSize가 한도 — 한 변 GPU·넓이 4096² — 에 맞춰 줄였으면 그 크기와 알림) */
+export function imageSizeLabel(k: number, s: { width: number; height: number; scale: number }): string {
+  const clamped = s.scale < k * 0.999;
+  return `${k}배 — ${s.width} × ${s.height} 화소${clamped ? '(최대 크기로 줄임)' : ''}`;
+}
+
+/** 그림 파일 이름: 이름@2x-transparent.png */
+export function imageFileName(stem: string, o: { scale: number; transparent: boolean }): string {
+  return `${stem}${o.scale > 1 ? `@${o.scale}x` : ''}${o.transparent ? '-transparent' : ''}.png`;
+}
+
 function trimZeros(s: string): string {
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }

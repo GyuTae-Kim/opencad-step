@@ -36,7 +36,7 @@ import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
-import { formatBytes, fmtCount, fmtPercent, stageLabel } from './format';
+import { formatBytes, fmtCount, fmtPercent, imageFileName, imageSizeLabel, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
@@ -45,7 +45,7 @@ import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } fr
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, hoverSnapLabel, lockHint, lockMeasure, lockName, type LockName, lockStillValid, measureSnapOptions, shiftFallbackLock, snapPair } from './snap';
-import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
+import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
@@ -2239,6 +2239,7 @@ export class StepApp {
     }
     const u = this.doc?.scene.units ?? 'unknown';
     const head = `OpenCAD STEP viewer - ${d.name} - units ${u}`;
+    const { meshesToObj, meshesToStl } = await import('./export');
     const blob = format === 'stl' ? new Blob([meshesToStl(meshes, head)], { type: 'model/stl' }) : new Blob([meshesToObj(meshes, head)], { type: 'model/obj' });
     const how = await this.deliver(blob, `${stemName(d.name)}${pick ? '-selection' : ''}.${format}`);
     if (how === 'cancelled') return;
@@ -2263,6 +2264,7 @@ export class StepApp {
   async copyMeasureCsv(): Promise<void> {
     const d = this.doc;
     if (!d || !d.measureLog.length) return;
+    const { measureRows, toCsv } = await import('./export');
     const rows = measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
     await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
     trackExport('csv');
@@ -2274,6 +2276,7 @@ export class StepApp {
     if (!d || !d.pmi.semantic.length) return;
     const rows: (string | number)[][] = [[translateUi('종류'), translateUi('이름'), translateUi('값'), translateUi('이어진 면 수'), 'STEP #']];
     for (const x of d.pmi.semantic) rows.push([translateUi(semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
+    const { toCsv } = await import('./export');
     await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
     trackExport('csv');
   }

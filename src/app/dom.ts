@@ -28,11 +28,18 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = 
   return el;
 }
 
-/** 아이콘 SVG 요소 */
+const iconCache = new Map<string, SVGSVGElement>();
+
+/** 아이콘 SVG 요소(이름·크기마다 한 번 읽어 두고 복제한다 — 큰 제품 나무는 줄마다 눈·펼침·몸체 아이콘을 만든다) */
 export function icon(name: IconName, size = 18): SVGSVGElement {
-  const t = document.createElement('template');
-  t.innerHTML = `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
-  return t.content.firstElementChild as SVGSVGElement;
+  const k = `${name}/${size}`;
+  let svg = iconCache.get(k);
+  if (!svg) {
+    const t = document.createElement('template');
+    t.innerHTML = `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
+    iconCache.set(k, (svg = t.content.firstElementChild as SVGSVGElement));
+  }
+  return svg.cloneNode(true) as SVGSVGElement;
 }
 
 /** 아이콘 + 글 단추 */
