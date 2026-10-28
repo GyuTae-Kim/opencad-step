@@ -2644,7 +2644,9 @@ export class StepApp {
     this.busyEl.hidden = !l;
     if (l) {
       this.busyName.textContent = l.name;
-      this.busyStage.textContent = `${l.stage}…`;
+      // Keep stage messages separate from punctuation so every progress stage
+      // uses its catalog entry, including worker-provided stage names.
+      this.busyStage.replaceChildren(document.createTextNode(l.stage), document.createTextNode('…'));
       this.busyPct.textContent = fmtPercent(l.fraction);
       this.busyBar.style.width = `${Math.round(Math.max(0.02, l.fraction) * 1000) / 10}%`;
       this.busyBar.parentElement?.setAttribute('aria-valuenow', String(Math.round(l.fraction * 100)));
