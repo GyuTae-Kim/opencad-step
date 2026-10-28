@@ -8,6 +8,7 @@
  * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
  *   화살표 →·←·↑는 X·Y·Z축, ↓는 지금 방향을 잠근다(같은 키로 풀기). 손가락 기기는 측정 띠의 잠금 단추. 여기서는 잠금 이름·안내·키 판단만 한다.
+ *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
 import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, Viewer3d } from 'opencad-viewer3d';
@@ -202,16 +203,21 @@ export const LOCK_HINTS: Readonly<Record<LockName, string>> = Object.freeze({
   perpendicular: '모서리에 수직으로 잠금',
 });
 
-/** 키보드 기기에서 끝점을 잡는 동안 잠그는 법 */
+/** 키보드 기기에서 끝점을 잡는 동안 잠그는 법(커서 아래에 Shift로 잠글 방향이 있을 때) */
 export const LOCK_KEYS_HINT = 'Shift·화살표로 방향 잠금';
+
+/** 키보드 기기에서 끝점을 잡는 동안 잠그는 법(커서 아래에 잠글 방향이 없을 때 — 화살표 축 잠금은 늘 된다) */
+export const LOCK_ARROWS_HINT = '화살표로 축 잠금';
 
 /**
  * 잠금 안내: 잠갔으면 잠근 방향(첫 점을 찍기 전 화살표 축 잠금 포함), 아니면 끝점을 잡는 동안(첫 점을 찍은 뒤) 키보드 기기에만
- * Shift·화살표 안내(손가락 기기는 측정 띠의 잠금 단추). 그 밖에는 null
+ * 커서 아래에 Shift로 잠글 방향이 있으면(canLock — 코어 measureHoverLock) Shift·화살표 안내, 없으면 화살표 안내
+ * (손가락 기기는 측정 띠의 잠금 단추). 그 밖에는 null
  */
-export function lockHint(points: number, lock: LockName | null, touch = false): string | null {
+export function lockHint(points: number, lock: LockName | null, touch = false, canLock = true): string | null {
   if (lock) return LOCK_HINTS[lock];
-  return points === 1 && !touch ? LOCK_KEYS_HINT : null;
+  if (points !== 1 || touch) return null;
+  return canLock ? LOCK_KEYS_HINT : LOCK_ARROWS_HINT;
 }
 
 /** 화살표 → 축(SketchUp과 같이 → X, ← Y, ↑ Z — ↓는 지금 방향) */
@@ -229,44 +235,14 @@ export function arrowLock(key: string, points: number, cur: Pick<MeasureInferenc
   return cur ? false : true;
 }
 
-/** 측정 잠금이 쓰는 코어 뷰어 기능(0.10.0 — 시험은 가짜로) */
-export type LockViewer = Pick<Viewer3d, 'measureHoverSnap' | 'measureInferenceLock' | 'measurePointCount' | 'setMeasureInferenceLock'>;
+/** 측정 잠금 안내가 읽는 코어 뷰어 상태(0.12.0) */
+export type LockViewer = Pick<Viewer3d, 'measureHoverLock' | 'measureInferenceLock' | 'measurePointCount'>;
 
 /**
- * 측정 방향 잠그기(코어 setMeasureInferenceLock): 축은 그대로, true는 지금 미리 보기의 방향 추론(축·모서리와 나란히·수직).
- * 커서가 방향 추론이 아닌 점 붙잡기(첫 점에서 따라온 모서리의 가운데 점·끝점 등) 위면 코어는 첫 점 뒤 마지막으로 본 방향 추론을 잠근다.
- * 그 방향은 그 점을 지날 때만 맞다(첫 점을 지나는 그 모서리 방향) — 코어는 다음 그림에서 잠근 선으로 미리 보기를 다시 구하므로
- * 그때 lockStillValid로 확인한다(그 점이 선 밖이면 코어가 선으로 옮겨 찍는다 — from). 돌려주는 값: 잠갔으면 true, 그 점에서 확인할 것이 있으면
- * 그 점(세계 좌표), 못 잠갔으면 false
+ * 지금 측정 잠금 안내(상태 막대·측정 띠): 무엇을 잠글지는 코어가 정한다 — Shift·↓·잠금 단추는 커서 아래 방향 추론(축·모서리와 나란히·수직)이나,
+ * 첫 점을 지나는 모서리 위의 점 붙잡기(모서리 끝에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 — 코어 0.12.0)면 그 모서리 방향을 잠근다.
+ * 그 방향이 있는지(measureHoverLock)로 Shift 안내를 보일지 고른다
  */
-export function lockMeasure(v: LockViewer, want: true | SnapAxis): boolean | readonly number[] {
-  const before = v.measureHoverSnap;
-  if (!v.setMeasureInferenceLock(want)) return false;
-  if (want !== true || !before || before.direction || !before.snap) return true;
-  return before.point;
-}
-
-/**
- * lockMeasure가 점 붙잡기에서 건 잠금이 맞는지(코어가 미리 보기를 다시 구한 뒤): 커서가 아직 그 점 위인데 코어가 그 점을 잠근 선으로
- * 옮겨 찍으면(from이 그 점) 앞서 본 방향이 그 점을 지나지 않는다 — 풀고 false. 커서가 다른 곳으로 갔으면 그대로 둔다
- */
-export function lockStillValid(v: LockViewer, at: readonly number[]): boolean {
-  const h = v.measureHoverSnap;
-  if (!v.measureInferenceLock || !h?.locked || !h.from) return true;
-  const f = h.from;
-  const tol = 1e-9 * (1 + Math.hypot(at[0]!, at[1]!, at[2]!));
-  if (Math.hypot(f[0]! - at[0]!, f[1]! - at[1]!, f[2]! - at[2]!) > tol) return true;
-  v.setMeasureInferenceLock(false);
-  return false;
-}
-
-/**
- * Shift를 눌렀는데 코어가 잠그지 못했을 때(커서가 방향 추론이 아닌 점 붙잡기 위): 끝점을 잡는 중이면 lockMeasure(true)로 잠근다.
- * 앱이 잠갔으면 lockMeasure 값(true 또는 확인할 점), 아니면 false. Shift를 떼면 앱이 푼다(코어는 자기가 Shift로 건 잠금만 푼다)
- */
-export function shiftFallbackLock(v: LockViewer): boolean | readonly number[] {
-  if (v.measurePointCount !== 1 || v.measureInferenceLock) return false;
-  const h = v.measureHoverSnap;
-  if (!h?.snap || h.direction) return false;
-  return lockMeasure(v, true);
+export function viewerLockHint(v: LockViewer, touch = false): string | null {
+  return lockHint(v.measurePointCount, lockName(v.measureInferenceLock), touch, !!v.measureHoverLock);
 }
