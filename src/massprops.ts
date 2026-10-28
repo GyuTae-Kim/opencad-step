@@ -384,3 +384,14 @@ export function fluxToProps(f: ArrayLike<number>, c: V3, bound: number, how: num
   p[14] = how;
   return p;
 }
+
+/** 질량 속성(brep.ts FaceTableData.props) 단위 바꾸기: 부피·어림 오차 k³, 1차 모멘트 k⁴, 2차 모멘트 k⁵, 기준점 k */
+export function scaleProps(p: Float64Array, k: number): Float64Array {
+  const out = new Float64Array(p);
+  out[0] = p[0]! * k ** 3;
+  for (let i = 1; i <= 3; i++) out[i] = p[i]! * k ** 4;
+  for (let i = 4; i <= 9; i++) out[i] = p[i]! * k ** 5;
+  for (let i = 10; i <= 12; i++) out[i] = p[i]! * k;
+  out[13] = p[13]! * k ** 3;
+  return out;
+}

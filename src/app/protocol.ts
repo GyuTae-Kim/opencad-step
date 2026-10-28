@@ -19,6 +19,31 @@ export interface ParseRequest {
   options?: ParseOptions;
 }
 
+/**
+ * 질량 속성 적분 요청: 워커가 해석(id)과 함께 남긴 적분 거리를 면 단위로 나눠 적분하고 'props' 응답으로 보낸다.
+ * 앱은 문서를 보인 뒤 보낸다. 워커는 새 해석 요청을 받으면 앞 문서의 적분을 그만둔다
+ */
+export interface PropsRequest {
+  id: number;
+  type: 'props';
+}
+
+/** 구한 질량 속성 하나: 면 표 번호(meta.faceTables) → 값(massprops.ts PROPS_LEN칸, 장면 단위) */
+export interface PropsValue {
+  table: number;
+  props: Float64Array;
+}
+
+/** 질량 속성 적분 진행(이번에 끝낸 입체의 값, 끝낸·모든 입체 수, 다 했는지, 시간 한도로 삼각형 값을 쓴 입체 수, 적분 시간 ms) */
+export interface PropsProgress {
+  results: PropsValue[];
+  done: number;
+  total: number;
+  finished: boolean;
+  timedOut: number;
+  ms: number;
+}
+
 /** 삼각화 선택: 크기 대비 현 높이(기본 0.001)와 이웃 법선 사이 최대 각(도, 기본 20) */
 export interface ParseOptions {
   tolerance?: number;
@@ -28,7 +53,8 @@ export interface ParseOptions {
 export type ParseResponse =
   | { id: number; type: 'progress'; fraction: number; stage: string }
   | { id: number; type: 'done'; result: ParseResult }
-  | { id: number; type: 'error'; message: string };
+  | { id: number; type: 'error'; message: string }
+  | ({ id: number; type: 'props' } & PropsProgress);
 
 export interface ParseResult {
   scene: Scene3d;
@@ -36,6 +62,11 @@ export interface ParseResult {
   ms: number;
   /** 압축을 풀어 열었으면 그 내력(gzip·ZIP) */
   source?: ParseSource;
+  /**
+   * 질량 속성을 나중에 구하면(워커) 값을 기다리는 면 표 번호와 입체 수 — 면 표 props는 아직 없다(PropsRequest로 구한다).
+   * 없으면 장면에 이미 들었거나 구할 것이 없다
+   */
+  props?: { tables: number[]; solids: number };
 }
 
 /** 압축 STEP을 풀어 연 내력 */

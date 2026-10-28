@@ -26,7 +26,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { bodyTitle, carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, multiLabel, productAt, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -130,6 +130,8 @@ export interface AppState {
   containers: string[];
   /** 단면(꺼져 있으면 null) */
   section: { axis: string | null; t: number; position: number; flip: boolean } | null;
+  /** 질량 속성 적분(워커가 문서를 보인 뒤 따로): 상태·끝낸·모든 입체 수·적분 시간 ms */
+  props: { state: 'running' | 'done' | 'stopped'; done: number; total: number; ms: number } | null;
 }
 
 /** 측정 종류 */
@@ -683,6 +685,7 @@ export class StepApp {
       doc.openMs = performance.now() - t0;
       this.lastError = null;
       this.updateAll();
+      this.startProps(doc);
       const w = res.scene.warnings?.length ?? 0;
       if (res.scene.warnings?.includes(TRUNCATED_WARNING)) this.toast('파일이 중간에 끊긴 것 같습니다 — 읽은 데까지만 보입니다. 파일을 다시 받아 여십시오.', 'warn', 6000);
       else if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
@@ -702,6 +705,31 @@ export class StepApp {
         this.setLoading(null);
       }
     }
+  }
+
+  /**
+   * 문서를 보인 뒤(다음 그림 틈에) 워커에 닫힌 입체의 질량 속성 적분을 맡긴다. 그동안 물리 속성 표는 "계산 중"이고,
+   * 끝낸 입체의 값이 오는 대로(4번/초까지) 속성 탭을 고친다. 다른 파일을 열면 워커가 그만둔다(client.ts — 'stopped')
+   */
+  private startProps(doc: StepDoc): void {
+    if (doc.props.state !== 'running') return;
+    let last = 0;
+    const go = () => {
+      if (this.doc !== doc || doc.props.state !== 'running') return;
+      const ok = this.client.integrateProps((u) => {
+        applyDocProps(doc, u);
+        if (this.doc !== doc) return;
+        const now = performance.now();
+        if (u !== 'stopped' && !u.finished && now - last < 250) return;
+        last = now;
+        this.panel.onProps();
+      });
+      if (!ok) {
+        applyDocProps(doc, 'stopped');
+        this.panel.onProps();
+      }
+    };
+    requestAnimationFrame(() => setTimeout(go, 0));
   }
 
   /** 문서를 뷰어에 올린다(뷰어는 load가 ensureViewer로 먼저 만든다) */
@@ -2650,6 +2678,7 @@ export class StepApp {
         const st = this.viewer?.section;
         return st ? { axis: st.axis, t: st.t, position: st.position, flip: st.flip } : null;
       })(),
+      props: d ? { state: d.props.state, done: d.props.done, total: d.props.total, ms: d.props.ms } : null,
     };
   }
 

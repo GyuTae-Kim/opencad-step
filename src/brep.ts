@@ -7,14 +7,15 @@
  * TRIANGULATED_SURFACE_SET·COMPLEX_TRIANGULATED_SURFACE_SET)은 있는 삼각형을 그대로 쓴다.
  */
 import type { Rgba } from 'opencad-viewer3d/types';
-import { BSplineCurve, CircleCurve, type Curve, EllipseCurve, LineCurve, type Tol } from './curves';
+import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve, type Tol } from './curves';
 import type { Geometry } from './geometry';
 import { isClosedMesh, orientFaces } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
 import { bool, list, numList, refId, refList, type StepFile } from './part21';
 import { ConeSurface, CylinderSurface, PlaneSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
-import { addSliverFlux, faceFlux, FLUX, fluxToProps, integrableSurface, lineCurve, PROPS_BREP, PROPS_TIMEOUT, PROPS_TRIANGLES, type Seg, trianglesFlux } from './massprops';
-import { type FacePolygon, type MeshOut, tessellateFace, tessellatePlanarLoops, type UV } from './tessellate';
+import { FLUX, fluxToProps, PROPS_BREP, trianglesFlux } from './massprops';
+import type { EdgeParam, FaceFluxJob, ItemPropsJob, LoopEdge } from './propsjob';
+import { type FacePolygon, type MeshOut, tessellateFace, tessellatePlanarLoops } from './tessellate';
 
 /** 면 종류(면 표 kinds의 번호 → 이름) */
 export const FACE_KINDS = ['plane', 'cylinder', 'cone', 'sphere', 'torus', 'revolution', 'extrusion', 'bspline', 'offset', 'polygon', 'triangulated', 'unknown'] as const;
@@ -116,6 +117,11 @@ export interface ItemMesh {
    * 기준은 needsOrigin.
    */
   origin?: V3;
+  /**
+   * 닫힌 입체(B-rep 면)의 질량 속성 적분 거리(propsjob.ts) — 삼각화와 떼어 나중에 적분한다(면 표 props).
+   * 질량 속성을 끈 해석(MeshOptions.props false)이나 면 표가 없으면 없다
+   */
+  propsJob?: ItemPropsJob;
 }
 
 /**
@@ -144,11 +150,8 @@ interface FaceOut {
   area: number;
   perimeter: number;
   exact: number;
-  /** 질량 속성: 면의 흐름 값(FLUX개, 적분했을 때)·어림 오차·삼각형 넓이·굽은 면인지 */
-  flux: Float64Array | null;
-  fbound: number;
-  facet: number;
-  curved: boolean;
+  /** 질량 속성 적분 거리(닫힌 껍질 면, 삼각화에 성공했을 때) */
+  pj: FaceFluxJob | null;
 }
 
 /** 접힌 면 때문에 모서리를 더 잘게 나눠 다시 삼각화하는 최대 횟수 */
@@ -216,25 +219,11 @@ export interface MeshOptions {
   angle: number;
   /** 면 표(ItemMesh.faceTable)를 만들지. 기본 true */
   faceTable?: boolean;
-  /** 닫힌 입체의 질량 속성(면 표 props)을 곡면 적분으로 구할지. 기본 true(면 표가 있을 때만) */
-  props?: boolean;
   /**
-   * 질량 속성 적분 시간 한도: 지금까지 적분에 쓴 시간이 minMs + share × (그 밖의 해석 시간)을 넘으면 남은 입체는 삼각형으로 구한다
-   * (기본 1500 ms, 0.5)
+   * 닫힌 입체의 질량 속성(면 표 props)을 곡면 적분으로 구할 거리(ItemMesh.propsJob)를 남길지. 기본 true(면 표가 있을 때만).
+   * 적분은 propsjob.ts MassPropsJob이 삼각화와 따로 한다
    */
-  propsBudget?: { minMs: number; share: number };
-}
-
-/** 면 하나의 질량 속성 몫(meshFace가 채운다) */
-interface FaceFluxOut {
-  /** 흐름 값을 더할 곳(적분하지 않으면 null) */
-  out: Float64Array | null;
-  /** 기준점(항목 좌표)과 항목 크기(대각선) */
-  c: V3;
-  size: number;
-  bound: number;
-  facet: number;
-  curved: boolean;
+  props?: boolean;
 }
 
 interface FaceRef {
@@ -252,13 +241,6 @@ interface FaceInfo {
   /** 경계 길이(못 구하면 NaN) */
   perimeter: number;
   exact: boolean;
-}
-
-/** 모서리 곡선과 다각선 매개변수(시작 꼭짓점 → 끝 꼭짓점 방향, 안쪽 나눔 점 포함) */
-interface EdgeParam {
-  c: Curve;
-  /** t[0] = 시작, t[n-1] = 끝(곡선 매개변수, 끝이 작을 수 있다) */
-  t: number[];
 }
 
 /** 5점 가우스-르장드르(구간 [-1, 1]) */
@@ -366,11 +348,6 @@ export class BrepMesher {
   private faceReversed = false;
   /** 접힌 면 때문에 더 잘게 나눌 모서리 → 현 높이 나눗수(항목 하나 동안) */
   private readonly edgeRefine = new Map<number, number>();
-  /** 질량 속성 적분에 쓴 시간(ms)과 이 해석기를 만든 때 — 시간 한도(MeshOptions.propsBudget) */
-  private propsMs = 0;
-  private readonly born = performance.now();
-  /** 시간 한도를 넘어 삼각형으로 구한 입체 수 */
-  propsTimedOut = 0;
 
   constructor(
     readonly f: StepFile,
@@ -397,7 +374,7 @@ export class BrepMesher {
    * 반대) 겹치고 단일면 그리기에서 구멍처럼 보인다 — 접힌 면이 있으면 그 면의 모서리를 더 잘게(현 높이 ¼) 나눠 항목을 다시
    * 삼각화한다(두 번까지, 이웃 면도 같은 다각선을 쓰므로 틈이 생기지 않는다). 접힌 면이 없는 항목은 그대로다
    */
-  private meshItemPass(itemId: number, onFace: (() => void) | undefined, pass: number, prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number; propsOn: boolean }): ItemMesh | null {
+  private meshItemPass(itemId: number, onFace: (() => void) | undefined, pass: number, prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number }): ItemMesh | null {
     const e = this.f.get(itemId);
     if (!e) return null;
     if (TESS_TYPES.has(e.type)) return this.meshTessellated(itemId);
@@ -489,14 +466,10 @@ export class BrepMesher {
     const areas = new Float64Array(table ? nf : 0);
     const perimeters = new Float64Array(table ? nf : 0);
     const exact = new Uint8Array(table ? nf : 0);
-    // 질량 속성(닫힌 껍질): 면마다 흐름 값·어림 오차, 삼각형 넓이·굽은 면(삼각형으로 구할 때의 어림 오차). 시간 한도를 넘으면 적분하지 않는다
+    // 질량 속성(닫힌 껍질): 면마다 적분 거리만 남긴다(적분은 나중에 — propsjob.ts)
     const wantProps = table && closed && this.opts.props !== false;
-    const propsOn = wantProps && (prev ? prev.propsOn : this.propsWithinBudget());
     const propRef: V3 = Number.isFinite(lo[0]) ? boxCenter(lo, hi) : [0, 0, 0];
-    const flux = propsOn ? new Float64Array(nf * FLUX) : null;
-    const fbound = new Float64Array(wantProps ? nf : 0);
-    const facetA = new Float64Array(wantProps ? nf : 0);
-    const curved = new Uint8Array(wantProps ? nf : 0);
+    const pjobs: (FaceFluxJob | null)[] | null = wantProps ? new Array<FaceFluxJob | null>(nf).fill(null) : null;
     const info: FaceInfo = { stepId: 0, kind: KIND_INDEX.get('unknown')!, params: new Array<number>(FACE_PARAMS).fill(0), area: NaN, perimeter: NaN, exact: false };
     /** 면마다 첫 삼각형(방향 맞추기용) */
     const faceTri = new Uint32Array(nf + 1);
@@ -530,12 +503,7 @@ export class BrepMesher {
           perimeters[fi] = cached.perimeter;
           exact[fi] = cached.exact;
         }
-        if (wantProps) {
-          if (flux && cached.flux) flux.set(cached.flux, fi * FLUX);
-          fbound[fi] = cached.fbound;
-          facetA[fi] = cached.facet;
-          curved[fi] = cached.curved ? 1 : 0;
-        }
+        if (pjobs) pjobs[fi] = cached.pj;
       } else {
         if (table) {
           info.stepId = fr.id;
@@ -546,13 +514,9 @@ export class BrepMesher {
           info.exact = false;
         }
         this.faceReversed = false;
-        const fx: FaceFluxOut | null = wantProps ? { out: flux ? flux.subarray(fi * FLUX, (fi + 1) * FLUX) : null, c: propRef, size: diag, bound: 0, facet: 0, curved: false } : null;
-        r = this.meshFace(fr, b, edgeUse, seams, table ? info : null, fx);
-        if (fx) {
-          fbound[fi] = fx.bound;
-          facetA[fi] = fx.facet;
-          curved[fi] = fx.curved ? 1 : 0;
-        }
+        const pj: { job: FaceFluxJob | null } | null = pjobs ? { job: null } : null;
+        r = this.meshFace(fr, b, edgeUse, seams, table ? info : null, pj);
+        if (pjobs && pj) pjobs[fi] = pj.job;
         reversed = this.faceReversed;
         if (table) {
           stepIds[fi] = info.stepId;
@@ -584,10 +548,7 @@ export class BrepMesher {
           area: table ? areas[fi]! : NaN,
           perimeter: table ? perimeters[fi]! : NaN,
           exact: table ? exact[fi]! : 0,
-          flux: flux ? flux.slice(fi * FLUX, (fi + 1) * FLUX) : null,
-          fbound: wantProps ? fbound[fi]! : 0,
-          facet: wantProps ? facetA[fi]! : 0,
-          curved: wantProps ? curved[fi] === 1 : false,
+          pj: pjobs ? pjobs[fi]! : null,
         });
       }
     }
@@ -620,7 +581,7 @@ export class BrepMesher {
           for (let fi = 0; fi < nf; fi++) if (this.faceEdgeIds(faces[fi]!.id).some((eid) => changed.has(eid))) dirty.add(fi);
           this.unsupported.clear();
           for (const [k, v] of missBefore) this.unsupported.set(k, v);
-          return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris, propsOn });
+          return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris });
         }
       }
     }
@@ -750,49 +711,11 @@ export class BrepMesher {
     };
     if (solid) out.solid = true;
     if (origin) out.origin = origin;
-    // 닫힌 입체의 질량 속성: 면 흐름 값을 (뒤집은 면은 부호를 바꿔) 더하고, 삼각형 값과 견줘 받아들인다
-    if (solid && wantProps && out.faceTable) {
-      const tri = new Float64Array(FLUX);
-      trianglesFlux(tri, b.positions, indices, 0, nTri, propRef);
-      let triBound = 0;
-      for (let fi = 0; fi < nf; fi++) if (curved[fi]) triBound += facetA[fi]! * chord;
-      out.faceTable.props = this.itemProps(flux, fbound, flips, tri, triBound, propRef, diag);
+    // 닫힌 입체의 질량 속성: 삼각화한 그대로(면 방향 맞추기 전 정점·삼각형)와 면마다 적분 거리를 남긴다 — 적분은 나중에(propsjob.ts)
+    if (solid && pjobs && out.faceTable && pjobs.every((j) => j)) {
+      out.propsJob = { P: b.positions, I: b.indices, faceTri, vStart: b.vertsAtFaceStart, faces: pjobs as FaceFluxJob[], flips, c: propRef, diag, chord };
     }
     return out;
-  }
-
-  /** 질량 속성 적분을 할 시간이 남았는지(MeshOptions.propsBudget) */
-  private propsWithinBudget(): boolean {
-    const b = this.opts.propsBudget ?? { minMs: 1500, share: 0.5 };
-    const other = performance.now() - this.born - this.propsMs;
-    const ok = this.propsMs <= b.minMs + b.share * Math.max(0, other);
-    return ok;
-  }
-
-  /**
-   * 항목 질량 속성: B-rep 면 흐름 값의 합(닫힘 어긋남 |∮n dA| × 반 대각선 / 3을 어림 오차에 더한다)을 받아들일 만하면 그것,
-   * 아니면(적분을 못 했거나, 삼각형 부피와 삼각형 어림 오차의 네 배 넘게 어긋나거나, 어림 오차가 삼각형보다 크면) 삼각형 값
-   */
-  private itemProps(flux: Float64Array | null, fbound: Float64Array, flips: Uint8Array | null, tri: Float64Array, triBound: number, c: V3, diag: number): Float64Array {
-    if (!flux) {
-      this.propsTimedOut++;
-      return fluxToProps(tri, c, triBound, PROPS_TIMEOUT);
-    }
-    const nf = fbound.length;
-    const total = new Float64Array(FLUX);
-    let bound = 0;
-    for (let fi = 0; fi < nf; fi++) {
-      const sg = flips?.[fi] ? -1 : 1;
-      for (let k = 0; k < FLUX; k++) total[k]! += sg * flux[fi * FLUX + k]!;
-      bound += fbound[fi]!;
-    }
-    bound += (Math.hypot(total[10]!, total[11]!, total[12]!) * diag) / 6;
-    const vb = total[0]! / 3;
-    const vt = tri[0]! / 3;
-    const finite = total.every(Number.isFinite) && Number.isFinite(bound);
-    if (!finite || !(vb > 0) || Math.abs(vb - vt) > 4 * triBound + 1e-9 * Math.abs(vt) + 1e-12 * diag ** 3 || bound > triBound + 1e-9 * Math.abs(vt))
-      return fluxToProps(tri, c, triBound, PROPS_TRIANGLES);
-    return fluxToProps(total, c, bound, PROPS_BREP);
   }
 
   /** 와이어프레임 모서리용 허용 오차를 정하고 모서리 캐시를 비운다(그 뒤 edgePolyline을 부른다) */
@@ -1055,7 +978,7 @@ export class BrepMesher {
   }
 
   /** 면 하나(실패하면 이유) */
-  private meshFace(fr: FaceRef, b: Builder, edgeUse: Map<number, number>, seams: Set<number>, info: FaceInfo | null, fx: FaceFluxOut | null = null): string | null {
+  private meshFace(fr: FaceRef, b: Builder, edgeUse: Map<number, number>, seams: Set<number>, info: FaceInfo | null, pj: { job: FaceFluxJob | null } | null = null): string | null {
     let fe = this.f.get(fr.id);
     let reversed = fr.reversed;
     if (fe && fe.type === 'ORIENTED_FACE') {
@@ -1072,7 +995,7 @@ export class BrepMesher {
     const inFace = new Map<number, number>();
     let poly = false;
     // 넓이·둘레용: 고리마다 모서리(다각선, 고리를 도는 방향 ±1)와 바깥 고리인지
-    const loopEdges: { eid: number; poly: V3[]; dir: number }[][] = [];
+    const loopEdges: LoopEdge[][] = [];
     const loopOuter: boolean[] = [];
     /** 고리마다 FACE_BOUND 방향(질량 속성의 틈 메우기 방향) */
     const loopOrient: boolean[] = [];
@@ -1083,7 +1006,7 @@ export class BrepMesher {
       if (!loop) continue;
       const orient = bool(bnd.args[2], true);
       let pts: V3[] = [];
-      const edges: { eid: number; poly: V3[]; dir: number }[] = [];
+      const edges: LoopEdge[] = [];
       if (loop.type === 'EDGE_LOOP') {
         for (const oid of refList(loop.args[1])) {
           const oe = this.f.get(oid);
@@ -1157,102 +1080,19 @@ export class BrepMesher {
         info.perimeter = loops.reduce((s, l) => s + ringLength(l), 0);
         info.exact = true;
       }
-      // 질량 속성: 평평한 면이라 삼각형 그대로(정확). 모서리 곡선이 있으면 틈을 메운다
-      if (fx) {
-        fx.facet = facetArea(b, triStart);
-        if (fx.out) this.triangleFaceFlux(fx, b, triStart, loopEdges, loopOrient, inFace, reversed);
-      }
+      // 질량 속성: 평평한 면이라 삼각형 그대로(정확). 모서리 곡선이 있으면 틈을 메운다(나중에 — propsjob.ts)
+      if (pj) pj.job = { surf: null, loopEdges, loopOrient, inFace, reversed, sameSense, edgeParams: this.edgeParams };
       return null;
     }
-    const acc: { area: number; polys?: FacePolygon[]; uv?: number[] } = { area: 0, ...(fx?.out ? { uv: [] } : {}) };
-    const vStart = b.positions.length / 3;
-    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info || fx ? acc : undefined);
+    const acc: { area: number; polys?: FacePolygon[]; uv?: number[] } = { area: 0, ...(pj ? { uv: [] } : {}) };
+    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info || pj ? acc : undefined);
     if (r.error) return r.error;
     if (r.reversed) this.faceReversed = true;
     if (!r.triangles) return '삼각형 없음';
     if (info) this.faceMetrics(surf, loopEdges, loopOuter, inFace, acc.area, facetArea(b, triStart), info);
-    if (fx) {
-      fx.facet = facetArea(b, triStart);
-      fx.curved = !surf.planar;
-      if (fx.out) {
-        const t0 = performance.now();
-        if (!(integrableSurface(surf) && acc.polys && this.surfaceFaceFlux(fx, surf, acc.polys, loopEdges, sameSense))) {
-          this.triangleFaceFlux(fx, b, triStart, loopEdges, loopOrient, inFace, reversed);
-          if (!surf.planar) fx.bound = acc.uv ? facetDeviation(surf, b, triStart, vStart, acc.uv) : fx.facet * this.tol.chord;
-        }
-        this.propsMs += performance.now() - t0;
-      }
-    }
+    // 질량 속성: 해석적 곡면은 매개변수 공간 다각형의 경계 적분, 그 밖은 삼각형 — 적분 거리만 남긴다(propsjob.ts)
+    if (pj) pj.job = { surf, polys: acc.polys, uv: acc.uv, loopEdges, loopOrient, inFace, reversed, sameSense, edgeParams: this.edgeParams };
     return null;
-  }
-
-  /**
-   * 해석적 곡면 면의 흐름 값(massprops.ts faceFlux): 매개변수 공간 다각형의 토막이 모서리 다각선의 이웃한 두 점이면
-   * 그 모서리 곡선(매개변수가 없으면 두 점 사이 직선)으로, 아니면 매개변수 공간 직선으로 적분한다. 못 하면 false
-   */
-  private surfaceFaceFlux(fx: FaceFluxOut, surf: Surface, polys: FacePolygon[], loopEdges: { eid: number; poly: V3[]; dir: number }[][], sameSense: boolean): boolean {
-    const at = new Map<V3, [{ eid: number; poly: V3[] }, number][]>();
-    for (const l of loopEdges)
-      for (const e of l)
-        e.poly.forEach((p, i) => {
-          const list = at.get(p);
-          if (list) list.push([e, i]);
-          else at.set(p, [[e, i]]);
-        });
-    const seg = (a: UV, b: UV): Seg | null => {
-      for (const [e, ia] of at.get(a.p) ?? []) {
-        for (const ib of [ia + 1, ia - 1]) {
-          if (e.poly[ib] !== b.p) continue;
-          const ep = this.edgeParams.get(e.eid);
-          if (ep) return { c: ep.c, t0: ep.t[ia]!, t1: ep.t[ib]!, linear: ep.c.linear };
-          return { c: lineCurve(a.p, b.p), t0: 0, t1: 1, linear: true };
-        }
-      }
-      return null;
-    };
-    const tmp = new Float64Array(FLUX);
-    let bound: number;
-    try {
-      bound = faceFlux(surf, polys, fx.c, seg, tmp, fx.size);
-    } catch {
-      return false;
-    }
-    if (!Number.isFinite(bound) || !tmp.every(Number.isFinite)) return false;
-    const sg = sameSense ? 1 : -1;
-    for (let k = 0; k < FLUX; k++) fx.out![k] = sg * tmp[k]!;
-    fx.bound = bound;
-    return true;
-  }
-
-  /**
-   * 삼각형으로 구하는 면의 흐름 값: 이 면 삼각형(색인 triStart부터)에, 매개변수가 있는 모서리 곡선마다 꺾인 선과 곡선 사이 띠를 더한다
-   * (이웃 면이 곡선으로 적분되어도 겉면이 닫히게). 이음선(한 면에서 두 번 쓴 모서리)은 두 띠가 지워지므로 뺀다
-   */
-  private triangleFaceFlux(
-    fx: FaceFluxOut,
-    b: Builder,
-    triStart: number,
-    loopEdges: { eid: number; poly: V3[]; dir: number }[][],
-    loopOrient: boolean[],
-    inFace: Map<number, number>,
-    reversed: boolean,
-  ): void {
-    const out = fx.out!;
-    out.fill(0);
-    trianglesFlux(out, b.positions, b.indices, triStart / 3, b.indices.length / 3, fx.c);
-    loopEdges.forEach((l, li) => {
-      for (const e of l) {
-        if ((inFace.get(e.eid) ?? 0) >= 2) continue;
-        const ep = this.edgeParams.get(e.eid);
-        if (!ep || ep.t.length !== e.poly.length) continue;
-        // 면 경계 방향으로 도는지: 고리 안 방향 × FACE_BOUND 방향 × 면 뒤집힘
-        const d = e.dir * (loopOrient[li] ? 1 : -1) * (reversed ? -1 : 1);
-        for (let i = 0; i + 1 < e.poly.length; i++) {
-          if (d > 0) addSliverFlux(out, e.poly[i]!, e.poly[i + 1]!, ep.c, ep.t[i]!, ep.t[i + 1]!, fx.c);
-          else addSliverFlux(out, e.poly[i + 1]!, e.poly[i]!, ep.c, ep.t[i + 1]!, ep.t[i]!, fx.c);
-        }
-      }
-    });
   }
 
   /**
@@ -1262,7 +1102,7 @@ export class BrepMesher {
    */
   private faceMetrics(
     surf: Surface,
-    loopEdges: { eid: number; poly: V3[]; dir: number }[][],
+    loopEdges: LoopEdge[][],
     loopOuter: boolean[],
     inFace: Map<number, number>,
     uvArea: number,
@@ -1534,40 +1374,6 @@ function boxOf(pos: number[]): [V3, V3] | null {
       hi[k] = Math.max(hi[k]!, pos[i + k]!);
     }
   return [lo, hi];
-}
-
-/**
- * 삼각형으로 구한 곡면 면의 부피 어림 오차: 삼각형마다 (u,v) 가운데의 곡면 점과 삼각형 무게중심 사이 법선 방향 거리 × 넓이의 합
- * (곡면과 삼각형 사이 부피는 꼭짓점에서 0인 혹 모양이라 대개 가운데 거리 × 넓이의 ¾쯤이다 — 여유를 두어 그대로 더한다).
- * uv는 이 면이 내보낸 정점(번호 vStart부터)의 (u,v)
- */
-function facetDeviation(surf: Surface, b: Builder, triStart: number, vStart: number, uv: readonly number[]): number {
-  const P = b.positions;
-  const I = b.indices;
-  let s = 0;
-  for (let t = triStart; t + 2 < I.length; t += 3) {
-    const ia = I[t]!;
-    const ib = I[t + 1]!;
-    const ic = I[t + 2]!;
-    const ka = (ia - vStart) * 2;
-    const kb = (ib - vStart) * 2;
-    const kc = (ic - vStart) * 2;
-    if (Math.min(ka, kb, kc) < 0 || Math.max(ka, kb, kc) + 1 >= uv.length) continue;
-    const S = surf.point((uv[ka]! + uv[kb]! + uv[kc]!) / 3, (uv[ka + 1]! + uv[kb + 1]! + uv[kc + 1]!) / 3);
-    const a = ia * 3;
-    const c1 = ib * 3;
-    const c2 = ic * 3;
-    const ux = P[c1]! - P[a]!, uy = P[c1 + 1]! - P[a + 1]!, uz = P[c1 + 2]! - P[a + 2]!;
-    const wx = P[c2]! - P[a]!, wy = P[c2 + 1]! - P[a + 1]!, wz = P[c2 + 2]! - P[a + 2]!;
-    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
-    const dx = S[0] - (P[a]! + P[c1]! + P[c2]!) / 3;
-    const dy = S[1] - (P[a + 1]! + P[c1 + 1]! + P[c2 + 1]!) / 3;
-    const dz = S[2] - (P[a + 2]! + P[c1 + 2]! + P[c2 + 2]!) / 3;
-    // |d·n̂| × 넓이 = |d·n| / 2
-    const e = Math.abs(dx * nx + dy * ny + dz * nz) / 2;
-    if (Number.isFinite(e)) s += e;
-  }
-  return s;
 }
 
 /** 이번 면이 더한 삼각형(색인 triStart부터)의 넓이 */

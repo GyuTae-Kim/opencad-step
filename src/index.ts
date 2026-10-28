@@ -2,11 +2,16 @@
  * STEP(ISO 10303-21, AP203·AP214·AP242) 읽기와 삼각화. DOM·WebGL 없이 워커에서 돌 수 있다.
  */
 export {
+  applyProps,
+  type DeferredScene,
   EDGE_KINDS,
   EDGE_PARAMS,
   FACE_KINDS,
   FACE_PARAMS,
+  MassPropsJob,
+  type PropsResult,
   stepToScene,
+  stepToSceneDeferred,
   type StepEdgeTable,
   type StepFaceTable,
   type StepLayer,

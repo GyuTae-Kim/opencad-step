@@ -63,6 +63,8 @@ export function summarizeQuality(records) {
   /** 닫힌 입체의 질량 속성(metrics.ts massPropsStats) 합 — 옛 결과에는 없다 */
   const mp = { files: 0, solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0 };
   const times = [];
+  /** 연 뒤 질량 속성 적분 시간(일꾼이 따로 잰 것 — 옛 결과에는 없다) */
+  const propsTimes = [];
   for (const r of records) {
     count(classes, r.class);
     count(containers, r.container ?? 'plain');
@@ -72,6 +74,7 @@ export function summarizeQuality(records) {
     for (const w of r.warnings ?? []) count(warnings, w);
     for (const [k, v] of Object.entries(r.failReasons ?? {})) count(failReasons, k, v);
     if (Number.isFinite(r.ms)) times.push(r.ms);
+    if (Number.isFinite(r.propsMs)) propsTimes.push(r.propsMs);
     if (r.mp) {
       mp.files++;
       for (const k of ['solids', 'exact', 'approx', 'triangles', 'timeout']) mp[k] += r.mp[k] ?? 0;
@@ -107,11 +110,12 @@ export function summarizeQuality(records) {
   q.foldedMaxRatio = round(q.foldedMaxRatio);
   q.foldedMaxAreaRatio = round(q.foldedMaxAreaRatio);
   times.sort((a, b) => a - b);
+  propsTimes.sort((a, b) => a - b);
   const slowest = [...records]
     .filter((r) => Number.isFinite(r.ms))
     .sort((a, b) => b.ms - a.ms)
     .slice(0, 5)
-    .map((r) => ({ hash: String(r.hash ?? '').slice(0, 12), ms: r.ms, size: r.size ?? null, triangles: r.triangles ?? null, class: r.class }));
+    .map((r) => ({ hash: String(r.hash ?? '').slice(0, 12), ms: r.ms, ...(Number.isFinite(r.propsMs) ? { propsMs: r.propsMs } : {}), size: r.size ?? null, triangles: r.triangles ?? null, class: r.class }));
   return {
     files: records.length,
     classes,
@@ -128,6 +132,18 @@ export function summarizeQuality(records) {
       p99: percentile(times, 99),
       max: times.length ? times[times.length - 1] : 0,
     },
+    ...(propsTimes.length
+      ? {
+          propsTime: {
+            files: propsTimes.length,
+            totalMs: propsTimes.reduce((a, b) => a + b, 0),
+            p50: percentile(propsTimes, 50),
+            p90: percentile(propsTimes, 90),
+            p99: percentile(propsTimes, 99),
+            max: propsTimes[propsTimes.length - 1],
+          },
+        }
+      : {}),
     quality: q,
     ...(mp.files ? { massProps: { ...mp, maxRelBound: round(mp.maxRelBound), maxRelChange: round(mp.maxRelChange) } } : {}),
     slowest,
@@ -168,6 +184,8 @@ export function formatSummary(summary) {
         `  질량 속성(닫힌 입체 ${mp.solids}): 곡면 적분 정확 ${mp.exact}, 근삿값 섞임 ${mp.approx}(최대 ±${(mp.maxRelBound * 100).toPrecision(2)}%), 삼각형으로 ${mp.triangles}, 시간 한도 ${mp.timeout}, 삼각형 부피와 최대 차 ${(mp.maxRelChange * 100).toPrecision(2)}%`,
       );
     lines.push(`  시간 합 ${(s.time.totalMs / 1000).toFixed(1)}s, p50 ${s.time.p50}ms, p90 ${s.time.p90}ms, p99 ${s.time.p99}ms, 최대 ${s.time.max}ms`);
+    const pt = s.propsTime;
+    if (pt) lines.push(`  연 뒤 질량 속성 적분(파일 ${pt.files}): 합 ${(pt.totalMs / 1000).toFixed(1)}s, p50 ${pt.p50}ms, p90 ${pt.p90}ms, p99 ${pt.p99}ms, 최대 ${pt.max}ms`);
     const errs = Object.entries(s.errors);
     if (errs.length) lines.push(`  오류 코드: ${errs.map(([k, n]) => `${k} ${n}`).join(', ')}`);
     const warns = Object.entries(s.warnings);

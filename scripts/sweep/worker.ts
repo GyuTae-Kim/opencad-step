@@ -1,6 +1,7 @@
 /**
  * 훑기 일꾼(vite-node로 돈다): 표준 입력으로 `{"path","quality"}` JSON을 한 줄씩 받아 앱 해석 워커와 같은 길
  * (`parseStepFile` — 압축 풀기 → STEP 가리기 → stepToScene)로 열고, 결과 한 줄(JSON)을 표준 출력에 쓴다.
+ * 앱처럼 질량 속성은 문서를 연 뒤 따로 적분한다: ms는 문서를 여는 시간(질량 속성 빼고), propsMs는 그 뒤 적분 시간이다.
  * 해시·사본 수·경로는 운전(sweep.mjs)이 붙인다.
  */
 import { readFileSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { createInterface } from 'node:readline';
 import { headSchemas, sceneHasGeometry, type ParseOptions } from '../../src/app/protocol';
 import { sniffContainer } from '../../src/archive';
 import { parseStepFile } from '../../src/app/job';
+import { applyProps, type MassPropsJob } from '../../src/scene';
 import { errorCode, failReasons, sceneClass, schemaLabel, warningCode, type SweepClass } from './classify';
 import { qualityOptions } from './quality';
 import { massPropsStats, sceneQuality, type MassPropsStats, type SceneQuality } from './metrics';
@@ -22,7 +24,10 @@ export interface WorkerRecord {
   schemas: string[];
   /** 판(AP203·AP214·AP242 등) */
   ap: string;
+  /** 문서를 여는 시간(ms) — 질량 속성 적분은 빼고(앱처럼 연 뒤 따로) */
   ms: number;
+  /** 연 뒤 질량 속성 적분 시간(ms, 닫힌 입체가 있을 때만) */
+  propsMs?: number;
   parseMs?: number;
   meshMs?: number;
   meshes?: number;
@@ -54,8 +59,18 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
   let raw: Uint8Array | undefined;
   try {
     raw = new Uint8Array(readFileSync(path));
-    const res = await parseStepFile(basename(path), raw, () => {}, options);
+    let job: MassPropsJob | null = null;
+    const res = await parseStepFile(basename(path), raw, () => {}, options, (j) => (job = j));
     const s = res.scene;
+    // 앱 워커처럼 연 뒤 따로 적분해 면 표에 넣는다(질량 속성 지표·값 지문)
+    let propsMs: number | undefined;
+    if (job) {
+      const pj = job as MassPropsJob;
+      const t1 = performance.now();
+      pj.run();
+      applyProps(s, pj.take());
+      propsMs = Math.round(performance.now() - t1);
+    }
     const meta = s.meta as { schema?: string[]; stats: { parseMs: number; meshMs: number; triangles: number; faces: number; failedFaces: number; instances: number } };
     const warnings = s.warnings ?? [];
     const schemas = schemaNames(meta.schema ?? []);
@@ -67,6 +82,7 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
       schemas,
       ap: schemaLabel(schemas),
       ms: Math.round(res.ms),
+      ...(propsMs !== undefined ? { propsMs } : {}),
       parseMs: Math.round(meta.stats.parseMs),
       meshMs: Math.round(meta.stats.meshMs),
       meshes: s.meshes.length,

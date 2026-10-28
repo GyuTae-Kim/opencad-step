@@ -9,7 +9,7 @@ import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyTitle, instanceCounts, productAt, productCountKey, productKeyOf, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyTitle, instanceCounts, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
@@ -141,6 +141,11 @@ export class Panel {
   private filterTimer = 0;
   /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
   private interferenceEl: HTMLElement | null = null;
+  /** 속성 탭의 물리 속성 묶음(질량 속성 적분 진행에 따라 그것만 고친다 — onProps), 그 고른 것, "계산 중"을 보였는지, 다시 만들기 */
+  private physEl: HTMLElement | null = null;
+  private physSel: ReadonlySet<string> | null = null;
+  private physWaiting = false;
+  private physRebuild: (() => HTMLElement) | null = null;
 
   constructor(private readonly host: PanelHost) {
     this.tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '패널 탭' });
@@ -540,7 +545,12 @@ export class Panel {
   private physSection(d: StepDoc, ids: string[] | null, multi?: string): HTMLElement {
     const f = this.host.fmt;
     const owner = meshNodes(d.products);
-    const pp = physProps(d.scene.meshes, ids ? new Set(ids) : null, {
+    const sel = ids ? new Set(ids) : null;
+    // 질량 속성(곡면 적분)을 워커가 아직 구하는 중인 입체가 있으면 부피·질량·무게중심·관성은 "계산 중"
+    const missing = propsPendingFor(d, sel);
+    const waiting = missing && d.props.state === 'running';
+    this.physWaiting = waiting;
+    const pp = physProps(d.scene.meshes, sel, {
       faces: d.faces,
       sceneMm: sceneMm(d.scene.units),
       densityOf: (id) => owner.get(id)?.props?.density,
@@ -549,23 +559,37 @@ export class Panel {
     const u = f.unit ? ` ${f.unit}` : '';
     const rows: HTMLElement[] = [];
     const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
+    // 계산 중인 값(번역되는 글이라 값 칸을 번역층에 맡긴다)
+    const busy = (k: string) => rows.push(h('div', { class: 'prop-row busy' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, '계산 중…')));
     // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)
     const ax = pp.exact ? '' : '≈ ';
-    if (pp.closed) r('부피', `${ax}${f.vol(pp.volume)}`);
+    if (pp.closed) {
+      if (waiting) busy('부피');
+      else r('부피', `${ax}${f.vol(pp.volume)}`);
+    }
     r('겉넓이', `${pp.areaExact ? '' : '≈ '}${f.area(pp.area)}`);
-    if (pp.mass !== null) r('질량', `${ax}${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
-    if (pp.centroid) r('무게중심', `${f.pt(pp.centroid)}${u}`);
+    if (pp.mass !== null) {
+      if (waiting) busy('질량');
+      else r('질량', `${ax}${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
+    }
+    if (pp.centroid) {
+      if (waiting) busy('무게중심');
+      else r('무게중심', `${f.pt(pp.centroid)}${u}`);
+    }
     // 관성 모멘트(무게중심 기준, 질량을 알 때만): 주 관성 모멘트 셋과 장면 축 대각 성분
-    const it = pp.inertia;
+    const it = waiting ? null : pp.inertia;
+    if (waiting && pp.inertia) busy('주 관성 모멘트');
     if (it) {
       const t = (v: number) => inertiaText(v, (x, dg) => f.num(x, dg));
       r('주 관성 모멘트', `${ax}${it.principal.map(t).join(' · ')}`, `I1 · I2 · I3 (무게중심 기준, 작은 것부터)`);
       r('관성 Ixx · Iyy · Izz', `${ax}${it.tensor.slice(0, 3).map(t).join(' · ')}`);
     }
-    // 정확도(번역되는 글이라 값 칸을 번역층에 맡긴다)
+    // 정확도(번역되는 글이라 값 칸을 번역층에 맡긴다). 계산 중이면 끝낸 입체 수
     if (pp.closed) {
-      const acc = accuracyText(pp, (v, dg) => f.num(v, dg));
-      rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
+      const acc = waiting
+        ? { text: `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`, title: '문서를 연 뒤 닫힌 입체의 부피·모멘트를 B-rep 곡면과 모서리 곡선에서 따로 적분하고 있습니다.' }
+        : accuracyText(pp, (v, dg) => f.num(v, dg));
+      rows.push(h('div', { class: `prop-row${waiting ? ' busy acc' : ''}` }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
     }
     const b = pp.bounds;
     if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
@@ -576,6 +600,7 @@ export class Panel {
     if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.'));
     else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
     if (pp.timedOut) notes.push(h('p', { class: 'hint' }, '파일이 커서 시간 한도를 넘은 입체는 곡면 적분 대신 화면용 삼각형으로 구했습니다.'));
+    if (missing && d.props.state === 'stopped') notes.push(h('p', { class: 'hint' }, '다른 파일을 여느라 곡면 적분을 멈췄습니다 — 적분하지 못한 입체는 화면용 삼각형으로 잰 근삿값입니다. 이 파일을 다시 열면 다시 구합니다.'));
     // 재질 고르기(파일에 밀도가 없는 부품에 쓴다)
     const opts: [string, string][] = [['', '고르지 않음'], ...MATERIALS.map(([name, rho]): [string, string] => [String(rho), `${name} · ${f.num(rho / 1000, 2)} g/cm³`])];
     const cur = d.density === null ? '' : MATERIALS.some(([, rho]) => rho === d.density) ? String(d.density) : 'custom';
@@ -591,7 +616,7 @@ export class Panel {
       this.host.setDensity(Number.isFinite(g) && g > 0 ? g * 1000 : null);
     });
     const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
-    return section(
+    const el = section(
       multi ? `물리 속성 · ${multi}` : ids ? '물리 속성' : '모형 전체 물리 속성',
       ...rows,
       ...notes,
@@ -603,6 +628,29 @@ export class Panel {
         '부피·질량·무게중심·관성 모멘트는 B-rep 곡면과 모서리 곡선을 적분해 구합니다. 평면·원기둥·원뿔·구·원환으로 된 입체는 정확하고, B-스플라인 같은 곡면이 섞이면 그 면만 화면용 삼각형으로 재어 어림 오차를 ±로 보입니다. 외형 크기는 화면용 삼각형으로 잰 값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.',
       ),
     );
+    this.physEl = el;
+    this.physSel = sel;
+    this.physRebuild = () => this.physSection(d, ids, multi);
+    return el;
+  }
+
+  /**
+   * 질량 속성 적분 진행이 바뀜(워커): 속성 탭의 물리 속성 묶음만 고친다. 계산 중이던 고른 것이 그대로 계산 중이면 끝낸 입체 수 글만,
+   * 값이 다 왔거나 멈췄으면 묶음을 다시 그린다(재질 고르기 칸 등 나머지는 그대로)
+   */
+  onProps(): void {
+    const d = this.doc;
+    const el = this.physEl;
+    if (!d || d.panelTab !== 'props' || !el?.isConnected || !this.physRebuild) return;
+    const still = propsPendingFor(d, this.physSel) && d.props.state === 'running';
+    if (still && this.physWaiting) {
+      const v = el.querySelector('.prop-row.busy.acc .v');
+      if (v) v.textContent = `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`;
+      return;
+    }
+    if (!still && !this.physWaiting) return;
+    const next = this.physRebuild();
+    el.replaceWith(next);
   }
 
   // ───────────────────────── 레이어 탭 ─────────────────────────
