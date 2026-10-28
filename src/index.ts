@@ -24,6 +24,20 @@ export {
   type StepProductNode,
   type StepSavedView,
 } from './scene';
+export {
+  BSPLINE_RECORD_MAX,
+  type BsplineDef,
+  type CircleDef,
+  type CurveFoot,
+  edgeCurve,
+  type EdgeCurve,
+  type EllipseDef,
+  nearestOnBspline,
+  nearestOnCircle,
+  nearestOnCurve,
+  nearestOnEllipse,
+  nearestParam,
+} from './edgecurve';
 export { DERIVED, StepBinary, StepEnum, StepFile, StepRef, StepTyped, decodeStepString, type StepEntity, type StepHeader, type StepValue } from './part21';
 export { watertightness, meshArea, meshVolume, orientFaces, type WatertightReport } from './analysis';
 export { readProductProps, type StepProductProps } from './props';

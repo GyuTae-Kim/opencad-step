@@ -12,6 +12,7 @@
  */
 import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
 import { BrepMesher, EDGE_KINDS, EDGE_PARAMS, type EdgeTableData, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
+import { scaleCurveRecords } from './edgecurve';
 import { Geometry } from './geometry';
 import { readLayers } from './layers';
 import { TRUNCATED_WARNING } from './messages';
@@ -1181,7 +1182,9 @@ function scaleEdgeTable(t: EdgeTableData, k: number): EdgeTableData {
     params[o + 1] = params[o + 1]! * k;
     for (let q = 5; q < 8; q++) params[o + q] = params[o + q]! * k;
   }
-  return { ...t, params, length: t.length.map((x) => x * k) };
+  const out: EdgeTableData = { ...t, params, length: t.length.map((x) => x * k) };
+  if (t.curveStart && t.curves) out.curves = scaleCurveRecords(t.curveStart, t.curves, t.kinds, EDGE_KINDS, k);
+  return out;
 }
 
 function hasGeometricLink(f: StepFile, id: number): boolean {

@@ -8,6 +8,7 @@
  */
 import type { Rgba } from 'opencad-viewer3d/types';
 import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve, type Tol } from './curves';
+import { bsplineRecord, ellipseRecord } from './edgecurve';
 import type { Geometry } from './geometry';
 import { isClosedMesh, orientFaces } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
@@ -86,6 +87,13 @@ export interface EdgeTableData {
    * 직선과 매개변수를 모르는 모서리(꼭짓점이 곡선에서 먼 것)는 NaN. 없으면(옛 결과) 모두 모르는 것으로 친다
    */
   tangents?: Float32Array;
+  /**
+   * 곡선 정의(edgecurve.ts — 측정 접선 잠금이 곡선 위 아무 점의 접선을 구한다): 모서리 i의 기록은 curves[curveStart[i], curveStart[i+1]).
+   * 접선을 아는 곡선 모서리만 — 타원은 틀 x축, B-스플라인은 차수·매듭·조절점·가중치·모서리 매개변수 구간(한도 BSPLINE_RECORD_MAX를 넘으면 없음).
+   * 원은 params로 충분해 기록이 없다. 기록이 하나도 없으면 둘 다 없다(옛 결과와 같다 — 화면은 꺾은선 꼭짓점으로 어림)
+   */
+  curveStart?: Uint32Array;
+  curves?: Float64Array;
 }
 
 /** 모서리 표 접선 개수(모서리마다): 시작 접선 xyz, 끝 접선 xyz */
@@ -622,6 +630,8 @@ export class BrepMesher {
     const eLen: number[] = [];
     const eSweep: number[] = [];
     const eTan: number[] = [];
+    const eCurveStart: number[] = [];
+    const eCurves: number[] = [];
     for (const [eid] of edgeUse) {
       if (seams.has(eid)) continue;
       const poly = this.edgeCache.get(eid);
@@ -661,6 +671,10 @@ export class BrepMesher {
         const te = ts ? curveEndTangent(c!, t2!, t1!) : null;
         if (ts && te) eTan.push(...ts, -te[0], -te[1], -te[2]);
         else eTan.push(NaN, NaN, NaN, NaN, NaN, NaN);
+        // 곡선 정의(접선을 아는 타원·B-스플라인 — 원은 params로 충분)
+        eCurveStart.push(eCurves.length);
+        const rec = !ts || !te ? null : c instanceof EllipseCurve ? ellipseRecord(c.f.x) : c instanceof BSplineCurve ? bsplineRecord(c.nc, t1!, t2!, c.period, origin) : null;
+        if (rec) for (const v of rec) eCurves.push(v);
       }
       for (let i = 1; i < poly.length; i++) {
         const a = poly[i - 1]!;
@@ -743,6 +757,7 @@ export class BrepMesher {
             length: Float64Array.from(eLen),
             sweep: Float64Array.from(eSweep),
             tangents: Float32Array.from(eTan),
+            ...(eCurves.length ? { curveStart: Uint32Array.from([...eCurveStart, eCurves.length]), curves: Float64Array.from(eCurves) } : {}),
           }
         : undefined,
     };
