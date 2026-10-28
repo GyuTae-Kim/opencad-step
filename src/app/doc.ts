@@ -107,6 +107,8 @@ export interface StepDoc {
   selKey: string | null;
   /** 3D에서 고른 것 */
   pick: Pick3d | null;
+  /** 고른 몸체 하나(그물 id): 나무의 몸체 줄에서, 또는 몸체 단위로 3D에서(그때는 pick도) 골랐을 때 */
+  body: string | null;
   measure: MeasureResult | null;
   panelTab: PanelTab;
   /** 레이어(없으면 빈 배열) */
@@ -173,6 +175,7 @@ export function createDoc(name: string, size: number, res: ParseResult): StepDoc
     expanded: defaultExpanded(products),
     selKey: null,
     pick: null,
+    body: null,
     measure: null,
     panelTab: 'tree',
     layers,
@@ -250,11 +253,11 @@ export function createVisibility(layers: readonly DocLayer[], pmi: DocPmi): Visi
   return v;
 }
 
-/** 처음 펼침: 뿌리와 그 바로 아래(두 단계) */
+/** 처음 펼침: 뿌리와 그 바로 아래(두 단계) — 몸체가 여럿인 뿌리 부품(부품 하나짜리 파일)은 몸체 줄까지 */
 export function defaultExpanded(roots: readonly ProductNode[]): Set<string> {
   const exp = new Set<string>();
   roots.forEach((r, i) => {
-    if (r.children.length) exp.add(String(i));
+    if (r.children.length || hasBodies(r)) exp.add(String(i));
     r.children.forEach((c, j) => {
       if (c.children.length && roots.length === 1) exp.add(`${i}/${j}`);
     });
@@ -528,22 +531,53 @@ export function productAt(nodes: readonly ProductNode[], key: string): ProductNo
  * 고른 것의 그물 id("고른 부품 보기"·두 번 누르기 확대에 쓴다):
  * 나무 마디를 골랐으면 그 아래 모두, 아니면 3D에서 고른 그물 하나, 없으면 빈 배열.
  */
-export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'>): string[] {
+export function selectionMeshIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick'> & { body?: string | null }): string[] {
   const node = d.selKey ? productAt(d.products, d.selKey) : null;
   if (node) return subtreeMeshIds(node);
   // 윤곽선(모서리)을 골랐어도 그 그물
-  return d.pick?.kind === 'mesh' || d.pick?.kind === 'edge' ? [d.pick.id] : [];
+  if (d.pick?.kind === 'mesh' || d.pick?.kind === 'edge') return [d.pick.id];
+  return d.body ? [d.body] : [];
 }
 
 /**
  * 고른 것의 모든 항목 id(맞춰 보기용): 나무 마디면 그 아래 그물·선 모두, 레이어·PMI에서 골랐으면 그 항목들,
- * 아니면 3D에서 고른 항목 하나.
+ * 아니면 3D에서 고른 항목 하나(나무 몸체 줄에서 고른 몸체).
  */
-export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick' | 'items'>): string[] {
+export function selectionItemIds(d: Pick<StepDoc, 'products' | 'selKey' | 'pick' | 'items'> & { body?: string | null }): string[] {
   const node = d.selKey ? productAt(d.products, d.selKey) : null;
   if (node) return subtreeItemIds(node);
   if (d.items) return d.items.ids;
-  return d.pick ? [d.pick.id] : [];
+  if (d.pick) return [d.pick.id];
+  return d.body ? [d.body] : [];
+}
+
+/** 고른 몸체 하나: 나무 몸체 줄에서 고른 것, 또는 마디·묶음 없이 3D에서 고른 그물(몸체 단위로 누름), 아니면 null */
+export function selectedBody(d: Pick<StepDoc, 'selKey' | 'items' | 'pick'> & { body?: string | null }): string | null {
+  if (d.selKey || d.items) return null;
+  if (d.pick) return d.pick.kind === 'mesh' || d.pick.kind === 'edge' ? d.pick.id : null;
+  return d.body ?? null;
+}
+
+/** 고르기를 모두 푼다(나무 마디·3D·몸체·묶음·면·모서리) */
+export function resetSelection(d: StepDoc): void {
+  d.selKey = d.pick = d.body = d.items = d.face = d.edge = null;
+}
+
+/** 나무에 몸체 줄을 둘 부품: 바로 놓인 형상(입체)이 둘 이상 */
+export const hasBodies = (n: ProductNode): boolean => n.meshIds.length > 1;
+
+/** 몸체(형상 항목)의 파일 이름: 그물 이름 "부품 / 항목"의 항목, 이름이 없으면 '' */
+export function bodyName(node: ProductNode, item: { name?: string } | undefined): string {
+  const pre = `${node.name} / `;
+  return item?.name?.startsWith(pre) ? item.name.slice(pre.length) : '';
+}
+
+const meshMaps = new WeakMap<Scene3d, Map<string, Scene3d['meshes'][number]>>();
+/** 그물 id → 그물(장면마다 한 번 만든다 — 큰 나무에서 줄마다 찾지 않게) */
+export function meshById(scene: Scene3d, id: string): Scene3d['meshes'][number] | undefined {
+  let m = meshMaps.get(scene);
+  if (!m) meshMaps.set(scene, (m = new Map(scene.meshes.map((x) => [x.id, x]))));
+  return m.get(id);
 }
 
 /**
@@ -590,20 +624,35 @@ export function toggledItems(cur: readonly string[], ids: readonly string[]): st
   return [...cur.filter((id) => set.has(id)), ...ids.filter((id) => set.has(id) && !had.has(id))];
 }
 
-/** 여러 개 고른 항목의 이름표: 서로 다른 부품 자리(형상이 바로 놓인 마디) 수 — "부품 3개", 몸체 단위면 항목 수 — "몸체 3개" */
+/**
+ * 여러 개 고른 항목의 이름표: 서로 다른 부품 자리(형상이 바로 놓인 마디) 수 — "부품 3개", 몸체 단위면 항목 수 — "몸체 3개".
+ * 부품 단위라도 나무 몸체 줄로 부품의 일부 몸체만 골랐으면 그것은 몸체로 센다 — "부품 2개 · 몸체 1개"
+ */
 export function multiLabel(roots: readonly ProductNode[], ids: readonly string[], unit: PickUnit = 'part'): string {
   if (unit === 'body') return `몸체 ${ids.length}개`;
-  const owner = new Map<string, string>();
+  const owner = new Map<string, [string, number]>();
   const walk = (l: readonly ProductNode[], prefix: string) =>
     l.forEach((n, i) => {
       const key = prefix ? `${prefix}/${i}` : String(i);
-      for (const id of n.meshIds) owner.set(id, key);
-      for (const id of n.lineIds ?? []) owner.set(id, key);
+      const own = n.meshIds.length + (n.lineIds?.length ?? 0);
+      for (const id of n.meshIds) owner.set(id, [key, own]);
+      for (const id of n.lineIds ?? []) owner.set(id, [key, own]);
       walk(n.children, key);
     });
   walk(roots, '');
-  const parts = new Set(ids.map((id) => owner.get(id) ?? id));
-  return `부품 ${parts.size}개`;
+  const groups = new Map<string, [number, number]>();
+  for (const id of ids) {
+    const [k, own] = owner.get(id) ?? [id, 1];
+    const g = groups.get(k);
+    if (g) g[0]++;
+    else groups.set(k, [1, own]);
+  }
+  let parts = 0;
+  let bodies = 0;
+  for (const [n, own] of groups.values())
+    if (n >= own) parts++;
+    else bodies += n;
+  return bodies ? (parts ? `부품 ${parts}개 · 몸체 ${bodies}개` : `몸체 ${bodies}개`) : `부품 ${parts}개`;
 }
 
 /** 형상이 바로 놓인 마디(부품 자리) 수 */
@@ -664,6 +713,9 @@ export function docStatus(d: StepDoc): StatusItem[] {
 export function carryDocState(from: StepDoc, to: StepDoc): void {
   to.expanded = new Set(from.expanded);
   to.selKey = from.selKey && productAt(to.products, from.selKey) ? from.selKey : null;
+  // 고른 몸체(나무 몸체 줄·몸체 단위 3D 고르기)는 몸체로 잇는다(3D에서 누른 점은 새 삼각형에 맞지 않아 버린다)
+  const body = selectedBody(from);
+  if (!to.selKey && body && meshById(to.scene, body)) to.body = body;
   to.panelTab = from.panelTab;
   to.treeFilter = from.treeFilter;
   to.density = from.density;

@@ -9,7 +9,7 @@ import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyTitle, instanceCounts, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyName, bodyTitle, instanceCounts, meshById, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
@@ -37,6 +37,9 @@ export interface PanelHost {
   selectKey(key: string | null): void;
   /** 나무 마디를 고르고 그 아래 형상으로 맞춰 보기 */
   fitKey(key: string): void;
+  /** 나무 몸체 줄: 몸체 하나 고르기(null = 풀기), 고르고 맞춰 보기 */
+  selectBody(id: string | null): void;
+  fitBody(id: string): void;
   /** 여러 개 고르기: 항목들을 지금 고른 것에 더하거나(모두 들어 있으면) 뺀다 */
   toggleInSelection(ids: readonly string[]): void;
   /** 여러 개 고르기 모드(손가락 기기 — 나무 줄 누르기도 더하고 빼기) */
@@ -138,6 +141,8 @@ export class Panel {
   private doc: StepDoc | null = null;
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
+  /** 지금 그린 나무 줄(열쇠 → 줄 — 고르기만 바뀔 때 줄 표시를 고친다) */
+  private drawnRows = new Map<string, TreeRow>();
   private filterTimer = 0;
   /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
   private interferenceEl: HTMLElement | null = null;
@@ -181,7 +186,8 @@ export class Panel {
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
     } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
-    if (reveal) this.body.querySelector('.tree-row.sel, .tree-row.part-sel')?.scrollIntoView({ block: 'nearest' });
+    // 고른 줄(몸체 줄이 있으면 그 줄 — 부품 줄의 일부 고름 표시보다 먼저)
+    if (reveal) (this.body.querySelector('.tree-row.sel') ?? this.body.querySelector('.tree-row.part-sel'))?.scrollIntoView({ block: 'nearest' });
     this.renderFoot();
   }
 
@@ -300,23 +306,23 @@ export class Panel {
 
   // ───────────────────────── 제품 탭 ─────────────────────────
 
-  /** 펼침이 그대로면 고른 줄 표시만 바꾼다(큰 나무에서 다시 그리지 않게). 못 하면 false */
+  /**
+   * 펼침이 그대로면 고른 줄 표시만 바꾼다(큰 나무에서 다시 그리지 않게 — 마디·몸체·여러 개 고르기 모두). 못 하면 false
+   * (고른 마디·몸체 줄이 그려져 있지 않으면 다시 그린다)
+   */
   private patchTreeSelection(): boolean {
     const d = this.doc;
     if (!d || !this.drawnExpanded || d.treeFilter.trim()) return false;
     if (this.drawnExpanded.size !== d.expanded.size) return false;
     for (const k of d.expanded) if (!this.drawnExpanded.has(k)) return false;
-    const rows = this.body.querySelectorAll<HTMLElement>('.tree-row');
-    let found = !d.selKey;
-    // 몸체·여러 개 고르기는 줄마다 일부 고름(part-sel)까지 따져야 해서 다시 그린다
-    if (d.items || (d.pick && !d.selKey)) return false;
-    for (const r of rows) {
-      const sel = r.dataset.key === d.selKey;
-      if (sel) found = true;
-      r.classList.toggle('sel', sel);
-      // 여기 오는 고르기(마디·없음)에는 몸체 일부 고름이 없다
-      r.classList.remove('part-sel');
-      r.setAttribute('aria-selected', String(sel));
+    const picked = treePicked(d);
+    let found = !d.selKey && !selectedBody(d);
+    for (const el of this.body.querySelectorAll<HTMLElement>('.tree-row')) {
+      const r = this.drawnRows.get(el.dataset.key ?? '');
+      if (!r) continue;
+      const [sel, part] = rowMarks(d, r, picked);
+      if (sel || part) found = true;
+      markRow(el, sel, part);
     }
     return found;
   }
@@ -329,7 +335,7 @@ export class Panel {
     }
     const counts = instanceCounts(d.info);
     const filtering = !!d.treeFilter.trim();
-    const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
+    const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit, (n, i) => bodyName(n, meshById(d.scene, n.meshIds[i]!))) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
     const { rows, truncated, total } = res;
 
     // 이름 거르기
@@ -384,7 +390,9 @@ export class Panel {
     if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가는 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
 
     const list = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
-    for (const r of rows) list.append(this.treeRow(d, r, counts));
+    const picked = treePicked(d);
+    this.drawnRows = new Map(rows.map((r) => [r.key, r]));
+    for (const r of rows) list.append(this.treeRow(d, r, counts, picked));
     let more: HTMLElement | null = null;
     if (truncated) {
       const btn = h('button', { type: 'button', class: 'btn small' }, `${fmtCount(Math.min(TREE_LIMIT, total - rows.length))}줄 더 보기`);
@@ -421,14 +429,18 @@ export class Panel {
     }
   }
 
-  private treeRow(d: StepDoc, r: TreeRow, counts: Map<string, number>): HTMLElement {
-    const { name, instance } = nodeLabel(r.node);
+  private treeRow(d: StepDoc, r: TreeRow, counts: Map<string, number>, picked: Set<string> | null): HTMLElement {
+    const bodyId = r.body === undefined ? null : r.meshIds[0]!;
+    const mesh = bodyId ? meshById(d.scene, bodyId) : undefined;
+    // 몸체 줄 이름: 형상 항목 이름(파일 글), 없으면 "몸체 2"(부품 마디 바로 아래라 부품 이름은 되풀이하지 않는다 — 말풍선에 "부품 · 몸체 2")
+    const bname = bodyId ? bodyName(r.node, mesh) : '';
+    const { name, instance } = bodyId ? { name: bname || `몸체 ${r.body}`, instance: '' } : nodeLabel(r.node);
     const visible = nodeVisible(r.itemIds, (id) => this.host.isVisible(id));
-    const sel = d.selKey === r.key || inItems(d, r.itemIds);
-    // 이 부품의 몸체 일부만 고름(몸체 단위 고르기·여러 개 고르기): 줄에 옅게 표시
-    const part = !sel && ownsSelected(d, r.node);
-    const tog = h('button', { type: 'button', class: 'twisty', tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
+    // 고름 · 이 부품의 몸체 일부만 고름(몸체 단위 고르기·몸체 줄·여러 개 고르기 — 줄에 옅게 표시)
+    const [sel, part] = rowMarks(d, r, picked);
+    const tog = h('button', { type: 'button', class: `twisty${bodyId ? ' body-mark' : ''}`, tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
     if (r.hasChildren) tog.append(icon(r.open ? 'chevronDown' : 'chevronRight', 14));
+    else if (bodyId) tog.append(icon('body', 13));
     tog.addEventListener('click', (ev) => {
       ev.stopPropagation();
       d.expanded = toggleKey(d.expanded, r.key);
@@ -447,57 +459,64 @@ export class Panel {
       ev.stopPropagation();
       this.host.setItemsVisible(r.itemIds, !visible);
     });
-    const n = nodeInstances(r.node, counts);
+    const n = bodyId ? 0 : nodeInstances(r.node, counts);
     const lines = r.node.lineIds?.length ?? 0;
+    // 말풍선은 bodyTitle과 같은 글("부품 / 항목" 또는 "부품 · 몸체 2") — 줄마다 나무를 다시 훑지 않게 줄의 마디로 바로 만든다
+    const tip = bodyId
+      ? [bname ? mesh!.name! : `${r.node.name} · 몸체 ${r.body}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
+      : [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
     const item = h(
       'div',
       {
-        class: `tree-row${sel ? ' sel' : part ? ' part-sel' : ''}${visible ? '' : ' hidden-node'}${r.match ? ' match' : ''}`,
+        class: `tree-row${bodyId ? ' body-row' : ''}${sel ? ' sel' : part ? ' part-sel' : ''}${visible ? '' : ' hidden-node'}${r.match ? ' match' : ''}`,
         role: 'treeitem',
         'aria-level': String(r.depth + 1),
         'aria-selected': String(sel),
         'aria-expanded': r.hasChildren ? String(r.open) : null,
         tabindex: '0',
         style: `--depth:${r.depth}`,
-        title: [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'].filter(Boolean).join(' · '),
+        title: tip.filter(Boolean).join(' · '),
         'data-key': r.key,
       },
       tog,
       eye,
-      h('span', { class: 'tree-name' }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
+      h('span', { class: 'tree-name', translate: bname ? 'no' : null }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
       n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
     );
+    // 이 줄 고르기·맞춰 보기(몸체 줄은 그 몸체 하나, 마디 줄은 그 마디 아래 통째)
+    const isSel = () => (bodyId ? selectedBody(d) === bodyId : d.selKey === r.key);
+    const select = (on: boolean) => (bodyId ? this.host.selectBody(on ? bodyId : null) : this.host.selectKey(on ? r.key : null));
+    const fit = () => (bodyId ? this.host.fitBody(bodyId) : this.host.fitKey(r.key));
     // 첫 누르기에 나무를 다시 그릴 수 있으므로 dblclick 대신 누른 횟수(detail)로 두 번 누르기를 가린다
     item.addEventListener('click', (ev) => {
-      // Ctrl·⌘·Shift + 누르기(여러 개 고르기 모드면 그냥 누르기): 이 마디 아래 형상을 여러 개 고르기에 더하거나 뺀다
+      // Ctrl·⌘·Shift + 누르기(여러 개 고르기 모드면 그냥 누르기): 이 마디 아래 형상(몸체 줄은 그 몸체)을 여러 개 고르기에 더하거나 뺀다
       if (ev.ctrlKey || ev.metaKey || ev.shiftKey || this.host.multiPick) {
         if (ev.detail <= 1) this.host.toggleInSelection(r.itemIds);
         return;
       }
-      if (ev.detail === 2) this.host.fitKey(r.key);
-      else if (ev.detail <= 1) this.host.selectKey(d.selKey === r.key ? null : r.key);
+      if (ev.detail === 2) fit();
+      else if (ev.detail <= 1) select(!isSel());
     });
     // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
     item.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       // 여러 개 고르기 중에는 이 마디를 모은 것에 더해(이미 있으면 그대로) 메뉴가 모은 것 전체에 쓰이게 한다
       if (this.host.multiPick) {
-        if (!inItems(d, r.itemIds) && d.selKey !== r.key) this.host.toggleInSelection(r.itemIds);
-      } else if (d.selKey !== r.key) this.host.selectKey(r.key);
+        if (!rowMarks(d, r, treePicked(d))[0]) this.host.toggleInSelection(r.itemIds);
+      } else if (!isSel()) select(true);
       this.host.openContextMenu(ev.clientX, ev.clientY);
     });
     item.addEventListener('keydown', (ev) => {
       const refocus = () => (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
-      const isSel = d.selKey === r.key;
       if (ev.key === 'Enter') {
         // Enter: 고르기, 이미 골랐으면 맞춰 보기
         ev.preventDefault();
-        if (isSel) this.host.fitKey(r.key);
-        else this.host.selectKey(r.key);
+        if (isSel()) fit();
+        else select(true);
         refocus();
       } else if (ev.key === ' ') {
         ev.preventDefault();
-        this.host.selectKey(isSel ? null : r.key);
+        select(!isSel());
         refocus();
       } else if ((ev.key === 'ArrowRight' && r.hasChildren && !r.open) || (ev.key === 'ArrowLeft' && r.open)) {
         ev.preventDefault();
@@ -516,11 +535,11 @@ export class Panel {
 
   // ───────────────────────── 속성 탭 ─────────────────────────
 
-  /** 속성을 보일 나무 마디 열쇠: 나무에서 고른 마디, 아니면 3D에서 고른 그물의 마디 */
+  /** 속성을 보일 나무 마디 열쇠: 나무에서 고른 마디, 아니면 3D에서 고른 그물(나무에서 고른 몸체)의 마디 */
   private propsKey(d: StepDoc): string | null {
     if (d.selKey) return d.selKey;
-    if (d.pick) return productKeyOf(d.products, d.pick.id);
-    return null;
+    const id = d.pick?.id ?? (d.items ? null : d.body);
+    return id ? productKeyOf(d.products, id) : null;
   }
 
   private renderProps(d: StepDoc): void {
@@ -534,9 +553,9 @@ export class Panel {
       this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
     }
     // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만
-    const pid = !d.selKey && !d.items && d.pick && (d.pick.kind === 'mesh' || d.pick.kind === 'edge') ? d.pick.id : null;
+    const pid = selectedBody(d);
     const all = node ? subtreeMeshIds(node) : null;
-    const body = pid && all && all.length > 1 && all.includes(pid) ? d.scene.meshes.find((m) => m.id === pid) : undefined;
+    const body = pid && all && all.length > 1 && all.includes(pid) ? meshById(d.scene, pid) : undefined;
     if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, body)));
     else this.body.append(this.physSection(d, all ?? (d.items ? d.items.ids : null), d.items && !node ? d.items.label : undefined));
   }
@@ -879,7 +898,7 @@ export class Panel {
       // 윤곽선(모서리) 고르기의 id는 그물 id
       const item = p.kind === 'mesh' || p.kind === 'edge' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
-      const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item?.name ?? p.id, instance: '' };
+      const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item ? bodyTitle(d.products, item) : p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
       // 점·법선 조각을 따로 번역되게 나눈다
@@ -895,6 +914,9 @@ export class Panel {
       }
     } else if (d.items) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
+    } else if (d.body) {
+      const m = meshById(d.scene, d.body);
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', { translate: 'no' }, m ? bodyTitle(d.products, m) : d.body)), fitBtn()));
     }
     if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
     else if (d.measure) {
@@ -956,19 +978,25 @@ function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   return out;
 }
 
-/** 마디 아래 항목이 모두 여러 개 고르기(d.items)에 들었는지 */
-/** 마디에 바로 놓인 형상(몸체) 가운데 고른 것이 있는지(나무 마디를 통째로 고른 것은 빼고 — 몸체 단위·여러 개 고르기의 일부) */
-function ownsSelected(d: Pick<StepDoc, 'items' | 'pick' | 'selKey'>, n: { meshIds: readonly string[] }): boolean {
-  if (d.selKey || !n.meshIds.length) return false;
-  if (d.items) {
-    const set = new Set(d.items.ids);
-    return n.meshIds.some((id) => set.has(id));
-  }
-  return !!d.pick && n.meshIds.includes(d.pick.id);
+/** 나무 줄 표시에 쓰는 고른 항목: 여러 개 고르기 묶음이나 몸체 하나(마디를 통째로 고른 것은 열쇠로 따로), 없으면 null */
+function treePicked(d: StepDoc): Set<string> | null {
+  if (d.selKey) return null;
+  if (d.items) return new Set(d.items.ids);
+  const b = selectedBody(d);
+  return b ? new Set([b]) : null;
 }
 
-function inItems(d: Pick<StepDoc, 'items'>, ids: readonly string[]): boolean {
-  if (!d.items || !ids.length) return false;
-  const set = new Set(d.items.ids);
-  return ids.every((id) => set.has(id));
+/**
+ * 줄 표시 [고름, 일부 고름]: 마디를 통째로 골랐거나 줄 아래 항목이 모두 고른 것에 들면 고름,
+ * 아니면 부품 줄에 바로 놓인 몸체 가운데 고른 것이 있으면 일부 고름(몸체 단위·몸체 줄·여러 개 고르기)
+ */
+function rowMarks(d: StepDoc, r: TreeRow, picked: Set<string> | null): [boolean, boolean] {
+  const sel = d.selKey === r.key || (!!picked && r.itemIds.length > 0 && r.itemIds.every((id) => picked.has(id)));
+  return [sel, !sel && !!picked && r.body === undefined && r.node.meshIds.some((id) => picked.has(id))];
+}
+
+function markRow(el: HTMLElement, sel: boolean, part: boolean): void {
+  el.classList.toggle('sel', sel);
+  el.classList.toggle('part-sel', part);
+  el.setAttribute('aria-selected', String(sel));
 }
