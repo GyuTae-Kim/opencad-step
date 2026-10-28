@@ -271,14 +271,14 @@ npm run preview    # 빌드 결과 보기
 시험은 `tests/stepText.ts`(본문은 `src/app/stepText.ts`)로 만든 작은 STEP 글로 돌립니다(외부 STEP 파일은 넣지 않습니다).
 압축 시험은 `tests/zipText.ts`(시험용 ZIP 글쓴이, node:zlib)로 gzip·ZIP을 만듭니다.
 확인용으로 받은 공개 STEP 파일이나 임시 결과는 git이 무시하는 `.runtime/`에만 둡니다.
-3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.9.1`로 받습니다 — 올릴 때는
-`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.9.1"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
+3D 뷰어 코어는 `github:GyuTae-Kim/opencad-viewer3d#v0.11.0`으로 받습니다 — 올릴 때는
+`npm install "opencad-viewer3d@github:GyuTae-Kim/opencad-viewer3d#v0.11.0"`처럼 태그를 주어야 잠금 파일의 커밋이 바뀝니다(그냥 `npm install`은 옛 커밋을 남깁니다).
 B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡니다(와이어프레임·숨은선에 삼각형 변 없이 B-rep 모서리만). 삼각형 형식(TESSELLATED 등)과
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
 첫 화면 JS를 줄이려고 코어 입구(`opencad-viewer3d` — 뷰어·그리기·고르기)는 열기 상자를 열거나 파일을 끌어 오거나 문서를 열기 시작할 때 `src/app/core.ts`의 `import()`로 받습니다.
 앱 입구에서 닿는 모듈은 코어의 작은 모듈(`camera`·`pointer`·`viewcube`·`bounds`·`bvh`·`closest` 등)만 값으로 가져오고 코어 입구는 타입으로만 가져옵니다
-(`tests/app/core-split.test.ts`가 앱 입구의 정적 가져오기 그래프를 훑어 확인합니다. 숫자 키 표 `VIEW_KEYS`는 `keys.ts`에 같은 표를 두고 시험이 코어 표와 견줍니다).
+(`tests/app/core-split.test.ts`가 앱 입구의 정적 가져오기 그래프를 훑어 확인합니다. 숫자 키 표 `VIEW_KEYS`도 코어 0.10.0부터 작은 `camera` 모듈에서 가져옵니다).
 서비스 워커는 이 조각도 미리 담아 오프라인에서 엽니다.
 
 **공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
