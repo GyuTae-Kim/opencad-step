@@ -75,8 +75,10 @@ describe('코어 나눠 받기', () => {
     expect(core).toContain('camera');
     const coreDyn = dynamic.filter((d) => d.spec === 'opencad-viewer3d' || d.spec.startsWith('opencad-viewer3d/'));
     expect(coreDyn.map((d) => `${relative(ROOT, d.file)}: ${d.spec}`)).toEqual(['src/app/core.ts: opencad-viewer3d']);
-    // 보기 링크의 고른 것 낱말(selink.ts)과 STL·OBJ·CSV 내보내기(export.ts)도 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
-    for (const m of ['selink', 'export']) {
+    // 보기 링크의 고른 것 낱말(selink.ts)과 STL·OBJ·CSV 내보내기(export.ts), 분해 방식 단추·계획(explodebar.ts — explode.ts를 품음)도
+    // 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
+    expect(files.has(join(ROOT, 'src/app/explode.ts'))).toBe(false);
+    for (const m of ['selink', 'export', 'explodebar']) {
       expect(files.has(join(ROOT, `src/app/${m}.ts`)), m).toBe(false);
       expect(new Set(dynamic.filter((d) => d.spec === `./${m}`).map((d) => relative(ROOT, d.file))), m).toEqual(new Set(['src/app/app.ts']));
     }

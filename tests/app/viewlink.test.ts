@@ -23,9 +23,10 @@ describe('보기 링크 고른 것: 나무 자리 낱말', () => {
     expect(selectionTokens(tree, ['b2'])).toEqual(['0/6.2']);
     expect(selectionTokens(tree, ['b1', 'b2', 'm0'])).toEqual(['0/0', '0/6.1-2']);
     expect(selectionTokens(tree, ['b1', 'b2', 'b3'])).toEqual(['0/6']);
-    // 하위 조립의 자식을 모두(선 형상까지) 고르면 그 조립 하나, 선 형상을 빼면 몸체 낱말
+    // 하위 조립의 자식을 모두(선 형상까지) 고르면 그 조립 하나, 선 형상을 빼면 몸체 낱말, 선 형상만이면 입체 다음 차례
     expect(selectionTokens(tree, ['s0', 's1', 'l1', 's2'])).toEqual(['0/7']);
     expect(selectionTokens(tree, ['s0', 's1', 's2'])).toEqual(['0/7/0', '0/7/1.1', '0/7/2']);
+    expect(selectionTokens(tree, ['s0', 'l1'])).toEqual(['0/7/0', '0/7/1.2']);
     // 뿌리끼리도 범위, 나무에 없는 항목(표현 PMI 선)은 담지 않는다
     expect(selectionTokens(tree, [...subtreeItemIds(tree[0]!), 'x1', 'pmi-1'])).toEqual(['0-1']);
     expect(selectionTokens(tree, ['pmi-1'])).toEqual([]);
@@ -48,10 +49,9 @@ describe('보기 링크 고른 것: 나무 자리 낱말', () => {
     const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
     for (let k = 0; k < 200; k++) {
       const ids = all.filter(() => rnd() < 0.4);
-      // 선 형상만 따로 고른 것은 낱말이 없다(그 부품 마디를 통째로 — 몸체 s1과 함께 — 고를 때만 담긴다)
-      const want = ids.filter((id) => id !== 'l1' || ids.includes('s1'));
+      // 선 형상만 따로 고른 것도 낱말("0/7/1.2")로 담긴다
       const got = resolveTokens(tree, selectionTokens(tree, ids)).ids;
-      expect(new Set(got), JSON.stringify(ids)).toEqual(new Set(want));
+      expect(new Set(got), JSON.stringify(ids)).toEqual(new Set(ids));
     }
   });
 
@@ -83,5 +83,20 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
     expect(decodeViewLink('#view=sel:0/2,;iso:1')).toBeNull();
     expect(decodeViewLink('#view=sel:0/2.3.4')).toBeNull();
     expect(encodeViewLink({ sel: [], iso: true })).toBe('');
+  });
+
+  it('분해 정도(1~100%)와 방식(step·all)을 담고 되읽는다, 방식이 없으면 단계별, 0%·틀린 값은 담지 않는다', () => {
+    expect(encodeViewLink({ sel: ['0/2'], exp: { t: 0.6, mode: 'step' } })).toBe('view=sel:0/2;exp:60,step');
+    expect(decodeViewLink('#view=sel:0/2;exp:60,step')).toEqual({ sel: ['0/2'], exp: { t: 0.6, mode: 'step' } });
+    expect(decodeViewLink(`#${encodeViewLink({ exp: { t: 0.35, mode: 'all' } })}`)).toEqual({ exp: { t: 0.35, mode: 'all' } });
+    // 분해만 담은 링크도 보기다, 방식이 없거나 모르면 단계별, 100%를 넘으면 100%
+    expect(decodeViewLink('#view=exp:40')).toEqual({ exp: { t: 0.4, mode: 'step' } });
+    expect(decodeViewLink('#view=exp:250,zz')).toEqual({ exp: { t: 1, mode: 'step' } });
+    for (const bad of ['exp:0', 'exp:-5', 'exp:', 'exp:x,all']) expect(decodeViewLink(`#view=${bad}`), bad).toBeNull();
+    expect(encodeViewLink({ exp: { t: 0, mode: 'all' } })).toBe('');
+    // 아주 작은 분해도 1%로 남긴다(링크를 열면 분해 막대가 열린 채)
+    expect(encodeViewLink({ exp: { t: 0.001, mode: 'step' } })).toBe('view=exp:1,step');
+    // 카메라와 함께(예전 앱은 모르는 열쇠 exp를 건너뛰고 카메라만 쓴다)
+    expect(decodeViewLink('#view=cam:1,2,3,50,0.5,-0.25,o;exp:60,all')).toMatchObject({ cam: { projection: 'orthographic' }, exp: { t: 0.6, mode: 'all' } });
   });
 });

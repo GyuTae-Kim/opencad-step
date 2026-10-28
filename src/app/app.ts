@@ -26,7 +26,7 @@ import { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, meshById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
@@ -46,6 +46,8 @@ import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, type LockName, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
+import type { ExplodeMode } from './explode';
+import type { ExplodeControls } from './explodebar';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -260,8 +262,14 @@ export class StepApp {
   private readonly explodeBar: HTMLElement;
   private readonly explodeSlider: HTMLInputElement;
   private readonly explodeValue: HTMLElement;
+  private readonly explodeOpts: HTMLElement;
   /** 분해 막대를 열었는지(문서를 바꾸면 닫는다) */
   explodeOpen = false;
+  /** 분해 방식: 조립 단계별(바깥 조립부터 한 단계씩) · 한꺼번에 — 이 창에서 마지막에 고른 것 */
+  explodeMode: ExplodeMode = 'step';
+  /** 분해 조각(explodebar.ts·explode.ts — 방식 단추·단계 글·계획, 첫 화면 JS 밖, 문서를 열 때 받는다) */
+  private explodeUi: ExplodeControls | null = null;
+  private explodeLoad: Promise<unknown> | null = null;
   // ── 최근 문서(시작 화면) ──
   private readonly recent = new RecentStore();
   private readonly recentList = h('ul', { class: 'recent-list' });
@@ -428,7 +436,18 @@ export class StepApp {
     const explodeOff = h('button', { type: 'button', class: 'icon-btn', title: '분해 끄기(제자리로)', 'aria-label': '분해 끄기(제자리로)' });
     explodeOff.append(icon('close', 16));
     explodeOff.addEventListener('click', () => this.toggleExplode(false));
-    this.explodeBar = h('div', { class: 'explode-bar', role: 'group', 'aria-label': '분해 보기', hidden: true }, icon('explode', 16), h('span', { class: 'explode-label' }, '분해'), this.explodeSlider, this.explodeValue, explodeOff);
+    // 분해 방식(조립 단계별 · 한꺼번에)과 지금 벌리는 단계는 분해 조각을 받으면 끼운다
+    this.explodeOpts = h('div', { class: 'explode-opts' });
+    this.explodeBar = h(
+      'div',
+      { class: 'explode-bar', role: 'group', 'aria-label': '분해 보기', hidden: true },
+      icon('explode', 16),
+      h('span', { class: 'explode-label' }, '분해'),
+      this.explodeSlider,
+      this.explodeValue,
+      this.explodeOpts,
+      explodeOff,
+    );
     const topBars = h('div', { class: 'top-bars' }, this.explodeBar, this.isoBar);
     this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.sectionBar.handle, this.startEl, this.busyEl, this.dropEl, this.sectionBar.el, topBars, this.measureBar, this.toasts);
 
@@ -821,7 +840,7 @@ export class StepApp {
     this.panel.setOpen(this.panelOpen);
     document.title = `${doc.name} - OpenCAD STEP 뷰어`;
     // 문서가 있을 때만 쓰는 작은 조각(내보내기·보기 링크 고른 것)을 미리 받아 둔다 — 눌렀을 때 기다리지 않게(공유 시트·클립보드)
-    void Promise.all([import('./export'), import('./selink')]).catch(() => {});
+    void Promise.all([import('./export'), import('./selink'), this.loadExplode()]).catch(() => {});
     if (carry) {
       // 다시 삼각화: 카메라·단면은 그대로(keepView), 고른 것·격리를 다시 그린다
       if (selectionItemIds(doc).length) this.viewer?.highlight(selectionItemIds(doc));
@@ -834,12 +853,12 @@ export class StepApp {
         this.viewer?.fit(false);
         // 처음 맞춘 보기가 홈 뷰
         if (this.doc === doc && this.viewer) doc.home = this.viewer.getCamera();
-        // 주소의 보기 링크(카메라·단면·고른 것)
+        // 주소의 보기 링크(카메라·단면·고른 것·분해)
         const link = this.pendingView;
         if (link && this.doc === doc) {
           this.pendingView = null;
           void this.applyViewLink(link);
-          this.toast('주소의 보기(카메라·단면·고른 것)를 적용했습니다.');
+          this.toast('주소의 보기(카메라·단면·고른 것·분해)를 적용했습니다.');
         }
       }),
     );
@@ -1206,12 +1225,12 @@ export class StepApp {
     this.selectionChanged();
   }
 
-  /** 나무 몸체 줄: 몸체 하나 고르기(null = 풀기) — 몸체 단위로 3D에서 누른 것과 같다 */
+  /** 나무 몸체 줄: 몸체(입체·선 형상) 하나 고르기(null = 풀기) — 몸체 단위로 3D에서 누른 것과 같다 */
   selectBody(id: string | null): void {
     const d = this.doc;
     if (!d) return;
     resetSelection(d);
-    d.body = id && meshById(d.scene, id) ? id : null;
+    d.body = id && itemById(d.scene, id) ? id : null;
     this.showFace(null);
     this.viewer?.highlight(d.body ? [d.body] : null);
     this.selectionChanged();
@@ -1590,13 +1609,16 @@ export class StepApp {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
+    // 분해 양: 분해 조각을 받았으면 그 계획으로, 아직이면 받은 뒤 다시 건다(문서를 열 때 미리 받으므로 보통은 이미 있다)
+    const ui = d.explode > 0 ? this.explodeUi : null;
+    if (d.explode > 0 && !ui) void this.loadExplode().catch(() => this.toast('분해 보기를 받지 못했습니다.', 'warn'));
     const want = desiredLooks({
       items: [...d.scene.meshes, ...d.scene.lines, ...(d.scene.points ?? [])],
       products: d.products,
       opacity: d.opacity,
       dim: d.dim,
       partColors: this.partColors,
-      explode: d.explode,
+      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode) } : {}),
       fixed: d.vis.pmiIds,
     });
     this.lookMoves = new Map();
@@ -1677,6 +1699,30 @@ export class StepApp {
     this.syncExplode();
   }
 
+  /** 분해 방식 바꾸기(조립 단계별 · 한꺼번에) — 분해 정도는 그대로 */
+  setExplodeMode(mode: ExplodeMode): void {
+    if (this.explodeMode === mode) return;
+    this.explodeMode = mode;
+    this.applyLooks();
+    this.syncExplode();
+  }
+
+  /** 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식 단추를 막대에 끼우고 지금 문서의 분해를 다시 건다 */
+  private loadExplode(): Promise<unknown> {
+    return (this.explodeLoad ??= import('./explodebar').then(
+      (m) => {
+        this.explodeUi = new m.ExplodeControls((k) => this.setExplodeMode(k));
+        this.explodeOpts.append(...this.explodeUi.els);
+        if (this.doc?.explode) this.applyLooks();
+        this.syncExplode();
+      },
+      (e: unknown) => {
+        this.explodeLoad = null;
+        throw e;
+      },
+    ));
+  }
+
   /** 분해 막대 열고 닫기(닫으면 제자리로) */
   toggleExplode(on = !this.explodeOpen): void {
     this.explodeOpen = on && !!this.doc;
@@ -1694,10 +1740,13 @@ export class StepApp {
   }
 
   private syncExplode(): void {
-    const t = this.doc?.explode ?? 0;
-    this.explodeBar.hidden = !this.explodeOpen || !this.doc;
+    const d = this.doc;
+    const t = d?.explode ?? 0;
+    this.explodeBar.hidden = !this.explodeOpen || !d;
     if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
     this.explodeValue.textContent = `${Math.round(t * 100)}%`;
+    // 방식 단추와 지금 벌리는 단계(조각을 받은 뒤)
+    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen);
     this.toolbar.refresh();
   }
 
@@ -2312,7 +2361,7 @@ export class StepApp {
   }
 
   /**
-   * 지금 보기(카메라·단면·고른 것 — 나무 마디·몸체·여러 개)를 담은 주소 — 파일은 담지 않는다.
+   * 지금 보기(카메라·단면·고른 것 — 나무 마디·몸체·여러 개, 분해 정도·방식)를 담은 주소 — 파일은 담지 않는다.
    * 나무 마디 하나가 아닌 고른 것은 자리 낱말 모듈(sel — selink.ts)로 바꾸고, 글 한도를 넘으면 앞의 것만 담아 담은·고른 형상 수를 함께 돌려준다
    */
   viewLinkUrl(sel: typeof import('./selink') | null): { url: string; kept: number; total: number } {
@@ -2334,6 +2383,7 @@ export class StepApp {
       if (fit.dropped) kept = sel.resolveTokens(d.products, fit.tokens).ids.length;
     }
     if (link.sel && d?.vis.isolated) link.iso = true;
+    if (d && d.explode > 0) link.exp = { t: d.explode, mode: this.explodeMode };
     return { url: viewUrl(location.href, link), kept, total: ids.length };
   }
 
@@ -2347,14 +2397,14 @@ export class StepApp {
     const cut = kept < total ? [`고른 것이 많아 형상 ${fmtCount(total)}개 가운데 ${fmtCount(kept)}개만 담았습니다.`] : [];
     try {
       await navigator.clipboard.writeText(url);
-      this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', cut.length ? 6000 : 3500);
+      this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것·분해 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', cut.length ? 6000 : 3500);
     } catch {
       history.replaceState(history.state, '', url);
       this.toast(['클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', ...cut], 'warn');
     }
   }
 
-  /** 보기 링크 적용(지금 문서에): 카메라·단면은 바로, 고른 것(마디·몸체·여러 개)과 격리는 자리 낱말을 푼 뒤 */
+  /** 보기 링크 적용(지금 문서에): 카메라·단면·분해는 바로, 고른 것(마디·몸체·여러 개)과 격리는 자리 낱말을 푼 뒤 */
   async applyViewLink(link: ViewLink): Promise<void> {
     const v = this.viewer;
     const d = this.doc;
@@ -2364,6 +2414,12 @@ export class StepApp {
       v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
     }
     if (link.sec) v.setSection(link.sec);
+    // 분해는 링크대로(방식과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다), 링크에 없으면 접는다
+    if (link.exp) {
+      this.explodeMode = link.exp.mode;
+      this.explodeOpen = true;
+      this.setExplode(link.exp.t);
+    } else if (d.explode || this.explodeOpen) this.toggleExplode(false);
     this.toolbar.refresh();
     if (!link.sel) return;
     const r = (await import('./selink')).resolveTokens(d.products, link.sel);
@@ -2834,10 +2890,7 @@ export class StepApp {
       return `${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
     }
     const id = d.pick?.id ?? d.body;
-    if (id) {
-      const m = meshById(d.scene, id) ?? d.scene.lines.find((x) => x.id === id);
-      return m ? bodyTitle(d.products, m) : id;
-    }
+    if (id) return bodyTitle(d.products, d.scene, id);
     return d.items?.label ?? '';
   }
 

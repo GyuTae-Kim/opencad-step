@@ -48,9 +48,9 @@ describe('몸체 단위 고르기: 해석기가 형상 항목(입체)마다 그�
   it('bodyTitle: 이름 있는 몸체는 그물 이름, 이름 없는 몸체는 "부품 · 몸체 3", 몸체 하나인 부품은 그대로', () => {
     const d = newDoc();
     const [a, , c, o] = scene.meshes;
-    expect(bodyTitle(d.products, a!)).toBe('multibody / body-A');
-    expect(bodyTitle(d.products, c!)).toBe('multibody · 몸체 3');
-    expect(bodyTitle(d.products, o!)).toBe('other / other-body');
+    expect(bodyTitle(d.products, scene, a!.id)).toBe('multibody / body-A');
+    expect(bodyTitle(d.products, scene, c!.id)).toBe('multibody · 몸체 3');
+    expect(bodyTitle(d.products, scene, o!.id)).toBe('other / other-body');
     expect(translate('multibody · 몸체 3', 'en')).toBe('multibody · Body 3');
   });
 
@@ -205,11 +205,12 @@ describe('제품 나무 몸체 줄', () => {
     expect(row(panel, '0/1').hasAttribute('aria-expanded')).toBe(false);
     row(panel, '0/0').querySelector<HTMLElement>('.twisty')!.click();
     expect(rows(panel).map((r) => r.dataset.key)).toEqual(['0', '0/0', '0/0.1', '0/0.2', '0/0.3', '0/1']);
-    const names = rows(panel).filter((r) => r.classList.contains('body-row')).map((r) => r.querySelector('.tree-name')!.textContent);
+    const names = rows(panel).filter((r) => r.classList.contains('body-row')).map((r) => r.querySelector('.tree-name, .tree-name-gen')!.textContent);
     expect(names).toEqual(['body-A', 'body-B', '몸체 3']);
-    // 파일 이름은 번역하지 않고, "몸체 3"은 번역한다 · 말풍선은 "부품 · 몸체 3"
+    // 파일 이름은 번역하지 않고(.tree-name은 번역층이 건너뛴다), "몸체 3"은 번역한다(.tree-name-gen) · 말풍선은 "부품 · 몸체 3"
     expect(row(panel, '0/0.1').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
-    expect(row(panel, '0/0.3').querySelector('.tree-name')!.hasAttribute('translate')).toBe(false);
+    expect(row(panel, '0/0.3').querySelector('.tree-name')).toBeNull();
+    expect(row(panel, '0/0.3').querySelector('.tree-name-gen')!.hasAttribute('translate')).toBe(false);
     expect(row(panel, '0/0.3').title).toBe('multibody · 몸체 3 · 두 번 누르면 이 몸체로 맞춰 봅니다');
     expect(row(panel, '0/0.3').getAttribute('aria-level')).toBe('3');
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) {

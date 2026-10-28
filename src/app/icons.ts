@@ -44,6 +44,8 @@ export const ICONS = {
   pick: '<path d="M5 3.5 18.5 10l-6 1.8-2.6 6.2Z"/><path d="m12.5 11.8 5 5"/>',
   /** 몸체 단위: 한 부품 안의 입체 둘(하나는 칠함) */
   body: '<rect x="3" y="6.5" width="8" height="11" rx="1"/><rect x="13" y="6.5" width="8" height="11" rx="1" fill="currentColor" stroke="none" opacity=".35"/><rect x="13" y="6.5" width="8" height="11" rx="1"/>',
+  /** 선 형상(와이어프레임 곡선) 몸체 줄: 곡선 하나와 두 끝 */
+  wire: '<path d="M4 18c3-9 6 1 9-6s5-6 7-6"/><circle cx="4" cy="18" r="1.6"/><circle cx="20" cy="6" r="1.6"/>',
   /** 여러 개 고르기: 겹친 네모 둘과 더하기 */
   multi: '<rect x="3.5" y="7.5" width="11" height="11" rx="1.5"/><path d="M8 4.5h10a1.5 1.5 0 0 1 1.5 1.5v10"/><path d="M9 10v6M6 13h6"/>',
   /** 작업 메뉴(점 셋) */
