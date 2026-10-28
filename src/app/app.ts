@@ -44,7 +44,7 @@ import { Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair } from './snap';
+import { arrowLock, circleCenters, hoverSnapLabel, lockHint, lockMeasure, lockName, type LockName, lockStillValid, measureSnapOptions, shiftFallbackLock, snapPair } from './snap';
 import { imageFileName, imageSizeLabel, measureRows, meshesToObj, meshesToStl, toCsv, type MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -130,6 +130,8 @@ export interface AppState {
   containers: string[];
   /** 단면(꺼져 있으면 null) */
   section: { axis: string | null; t: number; position: number; flip: boolean } | null;
+  /** 두 점 측정의 방향 잠금(축·모서리와 나란히·수직, 없으면 null — 코어 0.10.0 추론 잠금) */
+  measureLock: LockName | null;
   /** 질량 속성 적분(워커가 문서를 보인 뒤 따로): 상태·끝낸·모든 입체 수·적분 시간 ms */
   props: { state: 'running' | 'done' | 'stopped'; done: number; total: number; ms: number } | null;
 }
@@ -226,6 +228,14 @@ export class StepApp {
   private hoverSnapRaf = 0;
   private readonly measureClear: HTMLButtonElement;
   private readonly measureClose: HTMLButtonElement;
+  /** 측정 띠의 방향 잠금 단추(Shift가 없는 손가락 기기 — 끝점을 잡는 동안·잠갔을 때만) */
+  private readonly measureLock: HTMLButtonElement;
+  /** 지금 보이는 잠금 상태(잠근 방향·찍은 점 수 — 바뀔 때만 상태 막대·띠를 고친다) */
+  private lockKey = '';
+  /** "잠글 방향이 없습니다" 알림 닫기(잠금이 걸리면 거둔다) */
+  private lockFailClose: (() => void) | null = null;
+  /** Shift로 코어 대신 앱이 건 잠금(커서가 첫 점을 지나는 모서리 위 점 붙잡기일 때) — Shift를 떼면 푼다 */
+  private shiftLock = false;
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
@@ -373,6 +383,20 @@ export class StepApp {
     this.faceLook.addEventListener('click', () => this.lookAtFace());
     this.faceCut = h('button', { type: 'button', class: 'mb-btn', title: '고른 면으로 자르기', 'aria-label': '자르기' }, icon('section', 16), h('span', {}, '자르기'));
     this.faceCut.addEventListener('click', () => this.sectionByFace());
+    // 방향 잠금(코어 0.10.0 추론 잠금 — Shift가 없는 손가락 기기): 끝점을 잡는 동안 누르면 지금 방향을 잠그고 다시 누르면 푼다.
+    // 정밀 조준 중 다른 손가락으로 누르면 둘째 손가락이라 click이 오지 않으므로 손가락·펜은 누르는 순간에 받는다
+    this.measureLock = h('button', { type: 'button', class: 'mb-btn icon mb-lock', title: '지금 방향 잠그기(다시 누르면 풀기)', 'aria-label': '방향 잠금', 'aria-pressed': 'false', hidden: true }, icon('lock', 16));
+    let lockPressedAt = -Infinity;
+    this.measureLock.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      lockPressedAt = performance.now();
+      this.toggleMeasureLock();
+    });
+    this.measureLock.addEventListener('click', () => {
+      if (performance.now() - lockPressedAt < 1000) return;
+      this.toggleMeasureLock();
+    });
     this.measureClose = h('button', { type: 'button', class: 'mb-btn icon' }, icon('close', 16));
     this.measureClose.addEventListener('click', () => {
       if (this.measuring) this.toggleMeasure(false);
@@ -381,7 +405,7 @@ export class StepApp {
       else if (this.clearSelection()) this.selectionChanged();
     });
     this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 붙잡을 점', hidden: true });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
+    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureLock, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -708,14 +732,19 @@ export class StepApp {
   }
 
   /**
-   * 문서를 보인 뒤(다음 그림 틈에) 워커에 닫힌 입체의 질량 속성 적분을 맡긴다. 그동안 물리 속성 표는 "계산 중"이고,
-   * 끝낸 입체의 값이 오는 대로(4번/초까지) 속성 탭을 고친다. 다른 파일을 열면 워커가 그만둔다(client.ts — 'stopped')
+   * 문서를 다 보인 뒤(그린 다음 틈, 큰 장면은 GPU에 나눠 올리기를 마친 뒤) 워커에 닫힌 입체의 질량 속성 적분을 맡긴다.
+   * 그동안 물리 속성 표는 "계산 중"이고, 끝낸 입체의 값이 오는 대로(4번/초까지) 속성 탭을 고친다.
+   * 다른 파일을 열면 워커가 그만둔다(client.ts — 'stopped')
    */
   private startProps(doc: StepDoc): void {
     if (doc.props.state !== 'running') return;
     let last = 0;
     const go = () => {
       if (this.doc !== doc || doc.props.state !== 'running') return;
+      if (this.upload !== null) {
+        setTimeout(go, 100);
+        return;
+      }
       const ok = this.client.integrateProps((u) => {
         applyDocProps(doc, u);
         if (this.doc !== doc) return;
@@ -1836,6 +1865,8 @@ export class StepApp {
 
   private showHoverSnap(): void {
     const v = this.viewer;
+    // Shift를 누르고 떼거나 이동의 shiftKey로 코어가 건·푼 잠금도 여기서 맞춘다
+    this.refreshLock();
     const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap) : null;
     if (text === this.hoverSnapText) return;
     this.hoverSnapText = text;
@@ -1843,6 +1874,114 @@ export class StepApp {
       el.hidden = !text;
       el.textContent = text ?? '';
     }
+  }
+
+  /**
+   * 잠금 상태가 바뀌었으면(잠근 방향·찍은 점 수) 상태 막대·측정 띠의 잠금 안내와 잠금 단추를 고친다.
+   * 잠금이 걸렸으면 "잠글 방향이 없습니다" 알림을 거둔다(띠의 잠금 안내와 어긋나지 않게 — 다른 알림은 둔다)
+   */
+  private refreshLock(): void {
+    const v = this.viewer;
+    const on = !!v && !!this.doc && v.measureMode && !this.entMeasuring;
+    const lock = on ? lockName(v.measureInferenceLock) : null;
+    if (lock) this.dropLockFail();
+    const key = on ? `${lock}|${v.measurePointCount}` : '';
+    if (key === this.lockKey) return;
+    this.lockKey = key;
+    this.updateStatus();
+    // 코어는 잠금이 바뀐 다음 그림에서 커서 아래 점을 다시 구한다 — 그 뒤 붙잡은 점 이름("… · 잠금")도 다시 읽는다
+    if (on) requestAnimationFrame(() => this.scheduleHoverSnap());
+  }
+
+  private dropLockFail(): void {
+    this.lockFailClose?.();
+    this.lockFailClose = null;
+  }
+
+  /** 지금 측정 잠금 안내(상태 막대·측정 띠 — 안내 글과 따로) */
+  private measureLockHint(): string | null {
+    const v = this.viewer;
+    if (!v || !this.doc || !v.measureMode || this.entMeasuring) return null;
+    return lockHint(v.measurePointCount, lockName(v.measureInferenceLock), this.touch);
+  }
+
+  /** 잠글 방향이 없을 때 알림(손가락 기기는 정밀 조준으로 맞추는 법) */
+  private lockFailed(): void {
+    this.dropLockFail();
+    this.lockFailClose = this.toast(
+      this.touch ? '잠글 방향이 없습니다: 길게 눌러 조준하며 축·모서리와 나란한 방향에 맞춘 뒤 누르십시오' : '잠글 방향이 없습니다: 커서를 축·모서리와 나란한 방향에 맞춘 뒤 누르십시오',
+      'warn',
+      3200,
+    );
+  }
+
+  /**
+   * 잠금 결과 다루기(lockMeasure·shiftFallbackLock 값): 못 잠갔으면 알림(fail), 점 붙잡기에서 잠갔으면 코어가 미리 보기를 다시 구한 뒤(두 프레임)
+   * 그 점이 잠근 선 위인지 보고 아니면 풀고 알린다. 잠갔으면(확인 전이라도) true
+   */
+  private afterLock(r: boolean | readonly number[], fail: boolean): boolean {
+    if (!r) {
+      if (fail) this.lockFailed();
+      return false;
+    }
+    if (r !== true) {
+      const at = r;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const v = this.viewer;
+          if (!v || lockStillValid(v, at)) return;
+          this.shiftLock = false;
+          if (fail) this.lockFailed();
+          this.refreshLock();
+        }),
+      );
+    }
+    return true;
+  }
+
+  /** 측정 띠 잠금 단추: 잠겼으면 풀고, 아니면 지금 방향을 잠근다(없으면 맞추는 법을 알린다) */
+  private toggleMeasureLock(): void {
+    const v = this.viewer;
+    if (!v?.measureMode || this.entMeasuring) return;
+    if (v.measureInferenceLock) {
+      v.setMeasureInferenceLock(false);
+      this.shiftLock = false;
+    } else this.afterLock(lockMeasure(v, true), true);
+    this.refreshLock();
+  }
+
+  /** 두 점 측정 중 화살표(→·←·↑ X·Y·Z축, ↓ 지금 방향 — 같은 키로 풀기). 패널·메뉴에 초점이 있으면 그쪽 키. 처리했으면 true */
+  private arrowMeasureLock(ev: KeyboardEvent): boolean {
+    const v = this.viewer;
+    if (!v?.measureMode || this.entMeasuring || ev.shiftKey || !ev.key.startsWith('Arrow')) return false;
+    const t = ev.target;
+    if (t instanceof Element && t !== document.body && t !== document.documentElement && !this.hostEl.contains(t)) return false;
+    const want = arrowLock(ev.key, v.measurePointCount, v.measureInferenceLock);
+    if (want === null) return false;
+    this.shiftLock = false;
+    if (want === false) v.setMeasureInferenceLock(false);
+    else this.afterLock(lockMeasure(v, want), true);
+    this.refreshLock();
+    return true;
+  }
+
+  /**
+   * Shift를 눌렀을 때(코어가 먼저 받는다): 코어가 잠그지 못했고 커서가 점 붙잡기 위면(첫 점에서 따라온 모서리의 가운데 점 등)
+   * 앞서 본 방향이 그 점을 지날 때 앱이 잠근다 — Shift를 떼면 푼다(코어의 Shift 잠금처럼)
+   */
+  private shiftDown(): void {
+    const v = this.viewer;
+    if (!v?.measureMode || this.entMeasuring) return;
+    if (this.afterLock(shiftFallbackLock(v), false)) this.shiftLock = true;
+    this.refreshLock();
+  }
+
+  private shiftUp(): void {
+    if (this.shiftLock) {
+      this.shiftLock = false;
+      this.viewer?.setMeasureInferenceLock(false);
+    }
+    this.refreshLock();
   }
 
   toggleMeasure(on = !this.measuring): void {
@@ -2314,6 +2453,13 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
+    // Shift를 떼면(코어는 스스로 잠금을 푼다) 앱이 건 잠금을 풀고 잠금 안내를 맞춘다
+    window.addEventListener('keyup', (ev) => {
+      if (ev.key === 'Shift') this.shiftUp();
+    });
+    window.addEventListener('blur', () => {
+      if (this.shiftLock) this.shiftUp();
+    });
     // 끌어다 놓기: 창 어디에나
     let depth = 0;
     const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -2363,14 +2509,20 @@ export class StepApp {
     const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc });
     if (!action) return;
     const v = this.viewer;
+    // 두 점 측정 방향 잠금: 화살표(→·←·↑ 축, ↓ 지금 방향)
+    if (action === 'viewer' && this.arrowMeasureLock(ev)) {
+      ev.preventDefault();
+      return;
+    }
     switch (action) {
       case 'open':
         ev.preventDefault();
         this.pickFile();
         return;
       case 'viewer':
-        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault)
+        // F·1~7 등 뷰어 키: 코어 규칙대로(처리하면 코어가 preventDefault). Shift는 코어가 측정 방향을 잠근다(0.10.0)
         v?.handleKey(ev);
+        if (ev.key === 'Shift' && !ev.repeat) this.shiftDown();
         return;
       case 'grid':
         this.toggleGrid();
@@ -2438,7 +2590,7 @@ export class StepApp {
   }
 
   /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다) */
-  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): void {
+  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): () => void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
@@ -2452,6 +2604,7 @@ export class StepApp {
     this.toasts.append(t);
     while (this.toasts.children.length > 3) this.toasts.firstElementChild?.remove();
     setTimeout(remove, ms);
+    return remove;
   }
 
   private updateAll(): void {
@@ -2483,7 +2636,14 @@ export class StepApp {
     const sel = d ? this.selectionText(d) : '';
     const detail = d && sel ? this.selectionDetail(d) : [];
     const sp = d?.measure ? snapPair(d.measure) : null;
-    this.statusSel.replaceChildren(sel, ...detail.flatMap((x) => [' · ', h('span', {}, x)]), ...(sp ? [' · ', h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])] : []));
+    // 측정 방향 잠금 안내는 따로 둔다(번역이 안내 글을 한 덩어리로 찾게)
+    const lock = this.measureLockHint();
+    this.statusSel.replaceChildren(
+      sel,
+      ...detail.flatMap((x) => [' · ', h('span', {}, x)]),
+      ...(sp ? [' · ', h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])] : []),
+      ...(lock ? [' · ', h('span', { class: 'st-lock' }, lock)] : []),
+    );
     this.refreshBar();
   }
 
@@ -2512,6 +2672,7 @@ export class StepApp {
       this.measureClose.title = close;
       this.measureClose.setAttribute('aria-label', close);
       this.measureClear.hidden = mode !== 'measure';
+      if (mode !== 'measure') this.measureLock.hidden = true;
       this.selFit.hidden = mode !== 'select' && mode !== 'multi';
       this.selProps.hidden = mode !== 'select' && mode !== 'multi';
       this.selMulti.hidden = mode !== 'select';
@@ -2531,6 +2692,7 @@ export class StepApp {
     const t = this.measureText;
     t.replaceChildren();
     if (mode === 'measure' && this.entMeasuring) {
+      this.measureLock.hidden = true;
       this.entityBarText(d, t);
       this.measureClear.disabled = !d.ent.picks.length;
     } else if (mode === 'measure') {
@@ -2541,6 +2703,14 @@ export class StepApp {
         const sp = snapPair(d.measure);
         if (sp) t.append(h('span', { class: 'mb-sub mb-snap' }, h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])));
       } else t.append(h('span', { class: 'mb-hint' }, measureHint(v.measurePointCount, false, this.touch)));
+      // 방향 잠금: 안내는 따로(키보드 기기는 Shift·화살표, 잠갔으면 잠근 방향), 단추는 끝점을 잡는 동안과 잠갔을 때
+      const lockText = this.measureLockHint();
+      if (lockText) t.append(h('span', { class: `mb-sub mb-lock-hint${v.measureInferenceLock ? ' on' : ''}` }, lockText));
+      const locked = !!v.measureInferenceLock;
+      this.measureLock.hidden = !(v.measurePointCount === 1 || locked);
+      this.measureLock.setAttribute('aria-pressed', String(locked));
+      this.measureLock.classList.toggle('on', locked);
+      this.measureLock.title = locked ? '방향 잠금 풀기' : '지금 방향 잠그기(다시 누르면 풀기)';
       this.measureClear.disabled = !d.measure && !v.measurePointCount;
     } else if (d.face || d.edge) {
       const f = d.face ? faceSummary(d.face, fm) : edgeSummary(d.edge!, fm);
@@ -2678,6 +2848,7 @@ export class StepApp {
         const st = this.viewer?.section;
         return st ? { axis: st.axis, t: st.t, position: st.position, flip: st.flip } : null;
       })(),
+      measureLock: this.viewer?.measureMode ? lockName(this.viewer.measureInferenceLock) : null,
       props: d ? { state: d.props.state, done: d.props.done, total: d.props.total, ms: d.props.ms } : null,
     };
   }

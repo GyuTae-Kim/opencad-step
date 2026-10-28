@@ -211,7 +211,7 @@ export class Toolbar {
     pick.el.setAttribute('aria-haspopup', 'menu');
     pick.el.setAttribute('aria-expanded', 'false');
     pick.el.classList.add('has-menu');
-    this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
+    this.toggle('measure', '측정', '두 점 거리·dx·dy·dz 재기 — 축·모서리와 나란한 방향에 붙고 Shift·화살표로 방향 잠금 (Esc = 지우기)', () => H.measuring, () => H.toggleMeasure());
     const exp = this.add('image', '내보내기', '내보내기: PNG 그림(크게·투명 배경) · STL·OBJ(보이는 것·고른 것) · 측정 기록·PMI 표 CSV 복사 · 보기 링크 복사', () => openMenu(exp.el, H.exportItems(), '내보내기'), undefined, 'wide-only');
     exp.el.setAttribute('aria-haspopup', 'menu');
     exp.el.setAttribute('aria-expanded', 'false');

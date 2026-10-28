@@ -745,6 +745,15 @@ select {
   opacity: 0.42;
   cursor: default;
 }
+/* 방향 잠금 단추(눌림 = 잠김)와 잠금 안내 */
+.mb-btn.mb-lock.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.mb-lock-hint.on {
+  color: var(--text);
+  font-weight: 600;
+}
 /* 측정 중에는 넓은 화면에도 띠(측정 종류 고르기 · 안내·결과 · 다시 재기·끝내기), 여러 개 고르기 중에도(모은 것·끝내기) */
 .measure-bar.measuring:not([hidden]),
 .measure-bar.multi:not([hidden]) {
