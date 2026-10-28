@@ -8,7 +8,7 @@ import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { curveDistance, curveMidpoint, edgeArc, type EdgeArc, refineOnArc, refineSnap, toLocal, toWorld } from '../../src/app/curvesnap';
 import { curveEndsAt, type CurveEnd } from '../../src/app/tangent';
-import { arcCuts, arcMidParam, type EllipseDef, ellipseEval, rtsafe } from '../../src/edgecurve';
+import { arcCuts, arcMidParam, type CircleDef, edgeCurve, type EllipseDef, ellipseEval, rtsafe } from '../../src/edgecurve';
 import { StepText } from '../stepText';
 import { bsAt, BS_START, bsTangentAt, curveStep, ellAt, ELL_START, ELL_T0, ELL_T1, ellTangent, footParam, RIM, RIM_H, RIM_R, rimAt, type V3 } from './curvescene';
 
@@ -229,6 +229,41 @@ describe('곡선 길이 가운데 점과 곡선까지 거리', () => {
     expect(Math.abs(simpson(speedB, 0, ub) - simpson(speedB, ub, 1))).toBeLessThan(1e-9);
     // 해석기가 모서리 표에 적분해 실은 길이와 같은 곡선
     expect(simpson(speedB, 0, 1)).toBeCloseTo(bsEnd.table.length[bsEnd.edge]!, 7);
+  });
+
+  it('원호 가운데 점의 두 끝 매개변수는 모서리 표 기록(해석기의 각): 꼭짓점이 float32로 반올림되는 원호(중심 100 둘레)도 각 가운데 1e-12. 옛 결과(기록 없음)는 float32 꼭짓점 정밀도', () => {
+    // 반지름 7.3, 중심 (100.37, −3.1, 2.2), 틀 x축 (1, 0, 0) — 0.3 → 2.1 라디안 호와 그 현(두 끝 꼭짓점은 float32로 정확하지 않은 수)
+    const C: V3 = [100.37, -3.1, 2.2];
+    const R = 7.3;
+    const on = (t: number): V3 => [C[0] + R * Math.cos(t), C[1] + R * Math.sin(t), C[2]];
+    const w = new StepText();
+    const mm = w.context('mm');
+    const A = on(0.3);
+    const B = on(2.1);
+    const VA = w.vertex(A);
+    const VB = w.vertex(B);
+    const arcE = w.edge(VA, VB, w.circle(C, R), true);
+    const chord = w.edge(VB, VA, w.line(B, A));
+    const face = w.face([w.bound(w.loop([w.oe(arcE, true), w.oe(chord, true)]))], w.plane(C));
+    w.product('arc-piece', [w.add('FACE_BASED_SURFACE_MODEL', `'',(#${w.add('CONNECTED_FACE_SET', `'',(#${face})`)})`)], mm, 'SHAPE_REPRESENTATION');
+    const sc = stepToScene(w.bytes());
+    const sx = stepEdgeIndex(sc)!;
+    const ce = curveEndsAt(sc.meshes, sx, A)[0]!;
+    expect(ce.mesh.origin).toBeUndefined();
+    // 원호 기록: 틀 x축(1, 0, 0)과 두 끝 각(해석기가 꼭짓점을 원에 내린 각)
+    const def = edgeCurve(ce.table, ce.edge, sx.kinds) as CircleDef;
+    expect(def.x).toEqual([1, 0, 0]);
+    expect(def.ta).toBeCloseTo(0.3, 14);
+    expect(def.tb).toBeCloseTo(2.1, 14);
+    const want = on(1.2);
+    close(curveMidpoint(ce.mesh, ce.table, ce.edge, sx.kinds), want, 1e-12);
+    // 옛 결과(원 기록 없음): 두 끝 각을 float32 꼭짓점에서 구한다 — 원 위이지만 가운데에서 꼭짓점 반올림만큼 비킨다
+    const old = { ...ce.table, curveStart: undefined, curves: undefined };
+    const E = new Float32Array(ce.mesh.edges!);
+    const m0 = curveMidpoint({ ...ce.mesh, edges: E }, old, ce.edge, sx.kinds)!;
+    expect(Math.abs(dist(m0, C) - R)).toBeLessThan(1e-12);
+    expect(dist(m0, want)).toBeLessThan(1e-5);
+    expect(dist(m0, want)).toBeGreaterThan(1e-9);
   });
 
   it('curveDistance: 원 위 점은 0, 반지름 쪽으로 1e-3 비킨 점은 1e-3(세계 단위), 돌린 부품의 B-스플라인도', () => {

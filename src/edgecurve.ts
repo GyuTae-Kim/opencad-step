@@ -5,8 +5,11 @@
  * 측정 붙잡기 점을 B-rep 곡선 위로 다듬을 때(app/curvesnap.ts — 수직 발·모서리 위 점의 근 찾기 rtsafe, 곡선 길이 가운데 arcMidParam) 쓴다.
  *
  * 모서리 표 기록(curves[curveStart[e], curveStart[e+1]) — 형상 항목 좌표·단위, 좌표는 묶음 원점을 뺀 값):
- * - 원: 기록 없음. 모서리 표 params(반지름·원 평면 법선·중심)로 가장 가까운 점과 접선을 식으로 구한다
- * - 타원: [xx, xy, xz] — 틀 x축(단위, 첫 반지름 a 쪽). 두 반지름·법선·중심은 params
+ * - 원호: [xx, xy, xz, ta, tb] — 틀 x축(단위)과 모서리 두 끝의 매개변수(틀 x축에서 잰 각 — 시작 꼭짓점 ta에서 끝 꼭짓점 tb로, 모서리 방향).
+ *   반지름·원 평면 법선·중심은 params라 가장 가까운 점과 접선은 식으로 구한다. 한 바퀴 원은 끝이 없어 기록이 없다(옛 결과의 원호도 기록 없음 —
+ *   틀과 끝 매개변수를 화면이 윤곽선 꼭짓점에서 구한다)
+ * - 타원 호: [xx, xy, xz, ta, tb] — 틀 x축(단위, 첫 반지름 a 쪽)과 두 끝의 매개변수 각. 두 반지름·법선·중심은 params.
+ *   한 바퀴 타원과 옛 결과는 [xx, xy, xz](틀 x축만)
  * - B-스플라인: [차수 p, 조절점 수 n, 유리 1·아니면 0, 모서리 시작 매개변수 ta, 끝 tb, 주기(닫힌 곡선, 아니면 0),
  *   매듭 n+p+1개, 조절점 n개(유리면 x,y,z,w — 아니면 x,y,z)]. 기록이 BSPLINE_RECORD_MAX 수를 넘으면 싣지 않는다
  *   (화면은 꺾은선 꼭짓점으로 접선을 어림한다)
@@ -30,6 +33,11 @@ export interface CircleDef {
   /** 원 평면 법선(단위가 아니어도 된다) */
   normal: V3;
   r: number;
+  /** 틀 x축(기록이 있을 때 — 매개변수 각은 여기서 잰다) */
+  x?: V3;
+  /** 모서리 시작·끝 꼭짓점의 매개변수 각(기록이 있을 때 — 모서리 방향으로, 닫힌 원은 한 바퀴 차) */
+  ta?: number;
+  tb?: number;
 }
 
 export interface EllipseDef {
@@ -40,6 +48,9 @@ export interface EllipseDef {
   x: V3;
   a: number;
   b: number;
+  /** 모서리 시작·끝 꼭짓점의 매개변수 각(옛 결과는 없다) */
+  ta?: number;
+  tb?: number;
 }
 
 export interface BsplineDef {
@@ -80,8 +91,14 @@ const finite3 = (a: readonly number[]): boolean => Number.isFinite(a[0]) && Numb
 
 // ── 기록 만들기(워커) ──
 
-/** 타원 기록: 틀 x축 */
-export function ellipseRecord(x: readonly number[]): number[] {
+/** 원·타원 호 기록: 틀 x축과 모서리 두 끝의 매개변수 각(시작 ta → 끝 tb). 수가 아니면 null */
+export function conicRecord(x: readonly number[], ta: number, tb: number): number[] | null {
+  const out = [x[0]!, x[1]!, x[2]!, ta, tb];
+  return out.every(Number.isFinite) ? out : null;
+}
+
+/** 한 바퀴 타원 기록: 틀 x축만(끝이 없다) */
+export function ellipseAxis(x: readonly number[]): number[] {
   return [x[0]!, x[1]!, x[2]!];
 }
 
@@ -149,12 +166,14 @@ export function edgeCurve(table: CurveTable, e: number, kindNames: readonly stri
     const normal: V3 = [P[o + 2]!, P[o + 3]!, P[o + 4]!];
     const center: V3 = [P[o + 5]!, P[o + 6]!, P[o + 7]!];
     if (!(r > 0) || !finite3(normal) || !finite3(center) || !unit(normal)) return null;
-    if (kind === 'circle') return { kind, center, normal, r };
+    // 기록: 틀 x축(3)과 두 끝 매개변수(2). 원은 없어도 되고(옛 결과), 타원은 x축만(옛 결과)이어도 된다
     const rec = record(table, e);
-    if (!rec || rec.length !== 3) return null;
-    const x: V3 = [rec[0]!, rec[1]!, rec[2]!];
+    const x: V3 | null = rec && (rec.length === 3 || rec.length === 5) ? [rec[0]!, rec[1]!, rec[2]!] : null;
+    if (x && !(finite3(x) && unit(x))) return kind === 'circle' ? { kind, center, normal, r } : null;
+    const ends = x && rec!.length === 5 && Number.isFinite(rec![3]) && Number.isFinite(rec![4]) && rec![3] !== rec![4] ? { ta: rec![3]!, tb: rec![4]! } : null;
+    if (kind === 'circle') return x && ends ? { kind, center, normal, r, x, ...ends } : { kind, center, normal, r };
     const b = P[o + 1]!;
-    return finite3(x) && unit(x) && b > 0 ? { kind, center, normal, x, a: r, b } : null;
+    return x && b > 0 ? { kind, center, normal, x, a: r, b, ...ends } : null;
   }
   if (kind !== 'bspline') return null;
   const rec = record(table, e);

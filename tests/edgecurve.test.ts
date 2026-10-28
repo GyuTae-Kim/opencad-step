@@ -11,9 +11,9 @@ import {
   BSPLINE_RECORD_MAX,
   bsplineRecord,
   type BsplineDef,
+  conicRecord,
   edgeCurve,
   type EllipseDef,
-  ellipseRecord,
   nearestOnBspline,
   nearestOnCircle,
   nearestOnCurve,
@@ -198,25 +198,41 @@ describe('기록 만들기·읽기·배율', () => {
     expect(Math.abs(f.t - 0.4)).toBeLessThan(1e-9);
   });
 
-  it('배율: B-스플라인 조절점 좌표만 k배(가중치·매듭·구간은 그대로), 타원 축은 그대로', () => {
+  it('원·타원 기록: 틀 x축과 두 끝 매개변수 각, 수가 아니면 null. 옛 결과(원은 기록 없음, 타원은 x축만)도 읽는다', () => {
+    expect(conicRecord([0.6, 0.8, 0], 0.25, -1.5)).toEqual([0.6, 0.8, 0, 0.25, -1.5]);
+    expect(conicRecord([0.6, 0.8, 0], NaN, 1)).toBeNull();
+    const params = Float64Array.of(5, 3, 0, 0, 1, 1, 2, 3, 5, 0, 0, 0, 1, 1, 2, 3);
+    const kinds = Uint8Array.of(EDGE_KINDS.indexOf('ellipse'), EDGE_KINDS.indexOf('circle'));
+    const rec = [...conicRecord([0.6, 0.8, 0], 0.25, 2)!, ...conicRecord([0, 1, 0], 1, 1 - 2 * Math.PI)!];
+    const t = { kinds, params, curveStart: Uint32Array.of(0, 5, 10), curves: Float64Array.from(rec) };
+    expect(edgeCurve(t, 0, EDGE_KINDS)).toEqual({ kind: 'ellipse', center: [1, 2, 3], normal: [0, 0, 1], x: [0.6, 0.8, 0], a: 5, b: 3, ta: 0.25, tb: 2 });
+    expect(edgeCurve(t, 1, EDGE_KINDS)).toEqual({ kind: 'circle', center: [1, 2, 3], normal: [0, 0, 1], r: 5, x: [0, 1, 0], ta: 1, tb: 1 - 2 * Math.PI });
+    // 옛 결과: 타원 x축만(끝 매개변수 없음), 원은 기록 없음(틀·끝 없음)
+    const old = { kinds, params, curveStart: Uint32Array.of(0, 3, 3), curves: Float64Array.of(0.6, 0.8, 0) };
+    expect(edgeCurve(old, 0, EDGE_KINDS)).toEqual({ kind: 'ellipse', center: [1, 2, 3], normal: [0, 0, 1], x: [0.6, 0.8, 0], a: 5, b: 3 });
+    expect(edgeCurve(old, 1, EDGE_KINDS)).toEqual({ kind: 'circle', center: [1, 2, 3], normal: [0, 0, 1], r: 5 });
+    expect(edgeCurve({ kinds, params }, 1, EDGE_KINDS)).toEqual({ kind: 'circle', center: [1, 2, 3], normal: [0, 0, 1], r: 5 });
+  });
+
+  it('배율: B-스플라인 조절점 좌표만 k배(가중치·매듭·구간은 그대로), 원·타원 기록(축·각)은 그대로', () => {
     const rb = bsplineRecord(nc, 0, 1, 0)!;
-    const re = ellipseRecord([0.6, 0.8, 0]);
+    const re = conicRecord([0.6, 0.8, 0], 0.5, 2)!;
     const curves = Float64Array.from([...re, ...rb]);
-    const curveStart = Uint32Array.of(0, 3, 3, curves.length);
+    const curveStart = Uint32Array.of(0, 5, 5, curves.length);
     const kinds = Uint8Array.of(EDGE_KINDS.indexOf('ellipse'), EDGE_KINDS.indexOf('line'), EDGE_KINDS.indexOf('bspline'));
     const s = scaleCurveRecords(curveStart, curves, kinds, EDGE_KINDS, 25.4);
-    expect([...s.subarray(0, 3)]).toEqual(re);
-    const sb = [...s.subarray(3)];
+    expect([...s.subarray(0, 5)]).toEqual(re);
+    const sb = [...s.subarray(5)];
     expect(sb.slice(0, BSPLINE_HEAD + 8)).toEqual(rb.slice(0, BSPLINE_HEAD + 8));
     const c0 = BSPLINE_HEAD + 8;
     for (let i = 0; i < 4; i++) {
       for (let q = 0; q < 3; q++) expect(sb[c0 + i * 4 + q]).toBeCloseTo(rb[c0 + i * 4 + q]! * 25.4, 12);
       expect(sb[c0 + i * 4 + 3]).toBe(rb[c0 + i * 4 + 3]);
     }
-    expect(curves[3 + c0 + 4]).toBe(2);
+    expect(curves[5 + c0 + 4]).toBe(2);
   });
 
-  it('해석기: 타원은 틀 x축, B-스플라인은 정의를 싣고 원·직선은 기록이 없다', () => {
+  it('해석기: 타원 호는 틀 x축과 두 끝 매개변수 각, B-스플라인은 정의를 싣고 한 바퀴 원·직선은 기록이 없다', () => {
     const scene = stepToScene(curveStep());
     const ex = stepEdgeIndex(scene)!;
     const seen: string[] = [];
@@ -230,13 +246,18 @@ describe('기록 만들기·읽기·배율', () => {
           expect(len).toBe(0);
           expect(d).toBeNull();
         } else if (kind === 'circle') {
+          // 원기둥 두 테두리는 한 바퀴 원이라 끝이 없다 — 기록 없이 params만
           expect(len).toBe(0);
-          expect(d).toMatchObject({ kind: 'circle', r: 10 });
+          expect(d).toMatchObject({ kind: 'circle', normal: [0, 0, 1], r: 10 });
+          expect(Object.keys(d!).sort()).toEqual(['center', 'kind', 'normal', 'r']);
         } else if (kind === 'ellipse') {
-          expect(len).toBe(3);
+          expect(len).toBe(5);
           const el = d as EllipseDef;
           near(el.x, [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), 0], 1e-15);
           expect([el.a, el.b]).toEqual([12, 6]);
+          // 호 π/6 → π(해석기가 꼭짓점을 곡선에 내린 각 — 꼭짓점 좌표 반올림만큼)
+          expect(el.ta).toBeCloseTo(Math.PI / 6, 12);
+          expect(el.tb).toBeCloseTo(Math.PI, 12);
         } else if (kind === 'bspline') {
           const bs = d as BsplineDef;
           expect(bs).toMatchObject({ degree: 3, rational: false, ta: 0, tb: 1, period: 0 });
@@ -245,7 +266,7 @@ describe('기록 만들기·읽기·배율', () => {
         }
         seen.push(kind);
       }
-      // 원기둥 표(원만)는 기록 배열이 없고, 타원·B-스플라인이 있는 표는 모서리마다 시작(+ 끝 하나)
+      // 원기둥 표(한 바퀴 원만)는 기록 배열이 없고, 타원·B-스플라인이 있는 표는 모서리마다 시작(+ 끝 하나)
       if (!here.includes('ellipse') && !here.includes('bspline')) expect(t.curveStart).toBeUndefined();
       else expect(t.curveStart).toHaveLength(t.kinds.length + 1);
     }

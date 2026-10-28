@@ -4,8 +4,8 @@
  * 코어 측정 붙잡기는 화면용 꺾은선(윤곽선) 토막 위의 점을 고른다. 그 토막이 곡선 모서리(원·타원·B-스플라인 — 모서리 표에 곡선 정의가 있는 것)의
  * 것이면 정확한 곡선 위로 옮긴 세계 점을 돌려준다. 직선 모서리·곡선 정의가 없는 모서리·선 형상 묶음은 null(코어 점 그대로).
  * - 꺾은선 꼭짓점은 곡선 위 점이다(해석기가 곡선 매개변수 t_i의 점으로 나눈다 — 두 끝은 STEP 꼭짓점). 모서리마다 꼭짓점의 곡선 매개변수를
- *   처음 쓸 때 구해 둔다: 원·타원은 틀 각(atan2)을 모서리 방향으로 펼쳐서(닫힌 모서리의 끝은 한 바퀴), B-스플라인은 두 끝이 곡선 정의의 ta·tb이고
- *   안쪽은 표본에서 가장 가까운 매개변수다. 토막 k는 곡선 매개변수 [T[k], T[k+1]]의 현이다.
+ *   처음 쓸 때 구해 둔다: 두 끝은 모서리 표 기록의 값(원·타원은 해석기가 구한 틀 각, B-스플라인은 모서리 구간 ta·tb), 안쪽은 원·타원이면 틀 각(atan2)을
+ *   모서리 방향으로 펼쳐서, B-스플라인이면 표본에서 가장 가까운 매개변수다. 토막 k는 곡선 매개변수 [T[k], T[k+1]]의 현이다.
  * - 수직 발('perpendicular'): 첫 점 F에서 곡선으로 내린 발. 토막 k 둘레(앞뒤 두 토막씩)의 곡선에서 (C − F)·C′ = 0인 매개변수 가운데
  *   코어 발(현 위)에 가장 가까운 것. 없으면 null
  * - 모서리 위 점('onEdge'): 커서 광선에 가장 가까운 곡선 위 점. 같은 둘레에서 광선까지 거리의 극소(모서리 끝으로 나가면 그 끝) 가운데 코어 점에 가장 가까운 것
@@ -87,7 +87,7 @@ function unitOf(d: readonly number[]): V3 | null {
 /** 곡선 모서리 하나(묶음 좌표): 곡선 정의·계산기, 꺾은선 토막 수와 꼭짓점 매개변수(처음 쓸 때 채운다) */
 export interface EdgeArc {
   def: EdgeCurve;
-  /** 점·1·2차 도함수(원·타원은 틀 각 — 원의 틀 x축은 중심에서 시작 꼭짓점 쪽) */
+  /** 점·1·2차 도함수(원·타원은 틀 각 — 원의 틀 x축은 기록의 것, 옛 결과는 중심에서 시작 꼭짓점 쪽) */
   ev: CurveEval;
   /** 꺾은선 토막 수(꼭짓점은 n + 1개) */
   n: number;
@@ -156,24 +156,26 @@ function makeArc(E: Float32Array, table: StepEdgeTable, e: number, kinds: readon
     };
     return { def, ev, n, param, vertex };
   }
-  // 원·타원: 틀 각(원은 a = b = 반지름, x축 = 중심에서 시작 꼭짓점 쪽)
+  // 원·타원: 틀 각(원은 a = b = 반지름). 기록이 있으면 틀 x축과 두 끝 매개변수가 해석기 값 그대로(정확), 옛 결과의 원은
+  // x축 = 중심에서 시작 꼭짓점 쪽이고 두 끝은 윤곽선 꼭짓점(float32)의 각
   const P0 = vertex(0);
   const a = def.kind === 'circle' ? def.r : def.a;
   const b = def.kind === 'circle' ? def.r : def.b;
-  const fr = ellipseEval({ center: def.center, normal: def.normal, x: def.kind === 'circle' ? sub(P0, def.center) : def.x, a, b });
+  const fr = ellipseEval({ center: def.center, normal: def.normal, x: def.kind === 'circle' ? (def.x ?? sub(P0, def.center)) : def.x, a, b });
   if (!fr) return null;
   const { X, Y } = fr;
   const angle = (q: readonly number[]): number => {
     const d = sub(q, def.center);
     return Math.atan2(dot(d, Y) / b, dot(d, X) / a);
   };
-  const t0 = angle(P0);
+  const known = def.ta !== undefined && def.tb !== undefined;
+  const t0 = known ? def.ta! : angle(P0);
   T[0] = t0;
   // 모서리 방향: 시작 꼭짓점에서 다음 꼭짓점으로 각이 느는 쪽이면 +1
-  const sgn = wrapPi(angle(vertex(1)) - t0) < 0 ? -1 : 1;
+  const sgn = known ? Math.sign(def.tb! - t0) : wrapPi(angle(vertex(1)) - t0) < 0 ? -1 : 1;
   // 끝: 닫힌 모서리(한 바퀴 원·타원 — 끝 꼭짓점이 시작과 같다)면 한 바퀴, 아니면 모서리 방향으로 잰 각
   const closed = dist(vertex(n), P0) <= 1e-7 * (1 + Math.hypot(P0[0], P0[1], P0[2]));
-  T[n] = t0 + sgn * (closed ? TAU : modTau(sgn * (angle(vertex(n)) - t0)));
+  T[n] = known ? def.tb! : t0 + sgn * (closed ? TAU : modTau(sgn * (angle(vertex(n)) - t0)));
   const param = (i: number): number => {
     if (Number.isNaN(T[i]!)) T[i] = t0 + sgn * modTau(sgn * (angle(vertex(i)) - t0));
     return T[i]!;
@@ -329,8 +331,9 @@ export function curveDistance(mesh: Mesh3d, table: StepEdgeTable, e: number, kin
 const midCache = new WeakMap<EdgeArc, V3 | null>();
 
 /**
- * 그물 mesh의 모서리 e 곡선 길이 가운데 점(세계 — 원은 각 가운데, 타원·B-스플라인은 길이 적분). 두 끝 매개변수는 윤곽선 꼭짓점(float32)에서
- * 구하므로 가운데 점의 자리도 그 정밀도를 따르고(점은 곡선 위), 곡선 정의가 없거나 못 구하면 null
+ * 그물 mesh의 모서리 e 곡선 길이 가운데 점(세계 — 원은 각 가운데, 타원·B-스플라인은 길이 적분). 두 끝 매개변수는 모서리 표 기록의 값
+ * (원·타원은 해석기가 구한 두 끝 꼭짓점의 각, B-스플라인은 모서리 구간)이라 곡선 위 정확한 가운데다. 기록이 없는 옛 결과의 원·타원만
+ * 윤곽선 꼭짓점(float32)에서 각을 구해 그 정밀도를 따른다. 곡선 정의가 없거나 못 구하면 null
  */
 export function curveMidpoint(mesh: Mesh3d, table: StepEdgeTable, e: number, kinds: readonly string[]): V3 | null {
   const E = mesh.edges;
