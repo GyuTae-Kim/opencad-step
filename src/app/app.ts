@@ -886,6 +886,8 @@ export class StepApp {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
+      // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다
+      labelAvoid: (a) => v.setMeasureLabelAvoid(a),
     });
     // 오른쪽 누르기(끌어 이동하지 않았을 때)로 작업 메뉴. 코어는 캔버스의 기본 메뉴만 막는다
     let rightDown: { x: number; y: number } | null = null;
