@@ -10,7 +10,7 @@ import { Viewer3d, type MeasureResult } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair, viewerLockHint, viewerLockName } from '../../src/app/snap';
-import { curveEndsAt, endPolyline, TangentLock } from '../../src/app/tangent';
+import { curveEndsAt, endPolyline, TangentLock, type TangentViewer } from '../../src/app/tangent';
 import { StepText } from '../stepText';
 import { type FakeElement, installDom } from './fakeview';
 import {
@@ -409,5 +409,78 @@ describe('곡선 모서리의 끝이 아닌 곳에서의 접선 잠금: 실제 �
     hoverAt(w, bsWorld([12, -4, 0]));
     expect(['endpoint', 'vertex']).toContain(v.measureHoverSnap!.snap);
     expect(tl.now(v)).toBeNull();
+  });
+});
+
+describe('코어 0.16.0 선분 식별자로 찾은 첫 점의 곡선과 커서 아래 판정이 좌표로 찾던 것과 같다(실제 코어)', () => {
+  /** 식별자를 지운 뷰어 상태(0.15.0 코어처럼) — 같은 코어 상태에서 예전 찾기를 돌린다 */
+  const bare = (v: Viewer3d): TangentViewer => ({
+    get measureMode() {
+      return v.measureMode;
+    },
+    get measurePointCount() {
+      return v.measurePointCount;
+    },
+    get measurePoints() {
+      return v.measurePoints.map((p) => {
+        const q = { ...p };
+        delete q.segment;
+        delete q.other;
+        return q;
+      });
+    },
+    get measureHoverSnap() {
+      const h = v.measureHoverSnap;
+      if (!h) return h;
+      const q = { ...h };
+      delete q.segment;
+      delete q.other;
+      return q;
+    },
+    get measureHoverLock() {
+      return v.measureHoverLock;
+    },
+    get measureInferenceLock() {
+      return v.measureInferenceLock;
+    },
+    setMeasureInferenceLock: (l: Parameters<Viewer3d['setMeasureInferenceLock']>[0]) => v.setMeasureInferenceLock(l),
+  });
+  const bsPoly = endPolyline(curveEndsAt(scene.meshes, ex, BS_START)[0]!);
+  const ellPoly = endPolyline(curveEndsAt(scene.meshes, ex, ELL_START)[0]!);
+
+  /** 첫 점을 찍고 여러 자리를 가리키며 두 TangentLock(식별자·좌표)의 접선을 견준다 */
+  function compare(w: View, first: V3, hovers: readonly V3[], by: 'segment' | 'coords', zoom?: [V3, V3]): number {
+    if (zoom) zoomAround(w, zoom[0], zoom[1]);
+    clickAt(w, first);
+    expect(w.v.measurePointCount).toBe(1);
+    if (zoom) {
+      w.v.fit(false);
+      w.v.renderNow();
+    }
+    const old = new TangentLock(() => ({ meshes: scene.meshes, ex }));
+    let locked = 0;
+    for (const p of hovers) {
+      hoverAt(w, p);
+      const a = w.tl.now(w.v);
+      const b = old.now(bare(w.v));
+      expect(!!a, `${p}`).toBe(!!b);
+      if (a && b) {
+        locked++;
+        for (let k = 0; k < 3; k++) expect(a[k]).toBe(b[k]);
+      }
+    }
+    expect(w.tl.firstBy).toBe(by);
+    expect(old.firstBy).toBe('coords');
+    return locked;
+  }
+
+  it('테두리 30° 지점(모서리 위 점)과 B-스플라인 중간 꼭짓점은 식별자로, 이음 꼭짓점(모서리 끝)·앱이 준 타원 가운데 점은 좌표로 — 접선이 비트까지 같다', () => {
+    const c = rimChordAt(rimPoly, Math.PI / 6);
+    const rimHovers = [rimPoly[c.seg + 1]!, rimPoly[c.seg + 3]!, rimPoly[c.seg - 1]!, BS_START, RIM];
+    expect(compare(view(), c.point, rimHovers, 'segment', [rimPoly[c.seg]!, rimPoly[c.seg + 1]!])).toBeGreaterThanOrEqual(2);
+    const k = 8;
+    expect(compare(view(), bsPoly[k]!, [bsPoly[k + 1]!, bsPoly[k - 1]!, bsPoly[k + 3]!, bsWorld([12, -4, 0])], 'segment', [bsPoly[k - 1]!, bsPoly[k + 1]!])).toBeGreaterThanOrEqual(2);
+    expect(compare(view(), RIM, [rimPoly[2]!, rimPoly[rimPoly.length - 3]!, halfway(rimPoly)], 'coords')).toBeGreaterThanOrEqual(2);
+    expect(compare(view(), halfway(ellPoly), [ELL_END, ELL_START], 'coords')).toBe(2);
   });
 });
