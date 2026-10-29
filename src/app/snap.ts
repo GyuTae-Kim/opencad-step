@@ -32,7 +32,7 @@ export interface SnapEdgeIndex {
 export interface CurveSnap {
   /**
    * 코어 setMeasureSnap의 refine: 곡선 모서리 토막의 수직 발(0.15.0 열린 수직 발 포함)·모서리 위 점·코어 가운데 점 → 곡선 위 세계 점,
-   * 교차점(0.15.0 — 코어 교차점과 넓힌 교차) → 두 모서리 곡선의 교차점(아니면 null)
+   * 교차점(0.15.0 — 코어 교차점과 넓힌 교차) → 두 모서리 곡선의 교차점, 축과 선분의 교차(0.18.0 'axisEdge') → 축 직선과 모서리 곡선의 교차(아니면 null)
    */
   refine(c: SnapRefineInput): readonly number[] | null;
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
@@ -147,35 +147,49 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
 /**
  * 두 점 측정의 추론 붙잡기: 교차점·수직 발·축 방향과 모서리와 나란히, Shift 잠금, 끌어온 축(코어 0.16.0 track — 마우스·펜 커서가
  * 점 붙잡기 위에 0.5초 머물면 그 점을 기억하고 그 점을 지나는 X·Y·Z 축에 붙는다). 터치는 머무르지 않는다: 손가락 길게 누르기는
- * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다
+ * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다.
+ * 코어 0.18.0: 첫 점 축이 모서리(윤곽선)와 만나는 점(axisEdges), 첫 점 축·끌어온 축이 면을 뚫는 점(axisFaces)
  */
-export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true });
+export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true, axisEdges: true, axisFaces: true });
 
 /** 축 붙잡기의 축 이름(번역층이 옮긴다) */
 const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향', z: 'Z축 방향' };
 
 /**
- * 끌어온 축 위 점의 종류(코어는 셋 다 'axis'·axis·trackFrom으로 준다): true = 끌어온 축(0.16.0), 'edge' = 끌어온 축이 선분·윤곽선과
- * 만나는 점(0.17.0 — segment가 그 선분), 'x'·'y'·'z' = 끌어온 축끼리의 교차(0.17.0 — 둘째 끌어온 축 trackOther의 축)
+ * 축 위 점의 종류(코어는 모두 'axis'·axis로 준다). 끌어온 축(trackFrom): true = 끌어온 축(0.16.0), 'edge' = 끌어온 축이 선분·윤곽선과
+ * 만나는 점(0.17.0 — segment가 그 선분), 'face' = 끌어온 축이 면을 뚫는 점(0.18.0 — face가 그 면), 'x'·'y'·'z' = 끌어온 축끼리의 교차
+ * (0.17.0 — 둘째 끌어온 축 trackOther의 축). 첫 점 축(trackFrom 없음 — 0.18.0): 'axisEdge' = 선분·윤곽선과 만나는 점, 'axisFace' = 면을 뚫는 점
  */
-export type TrackMark = true | 'edge' | SnapAxis;
+export type TrackMark = true | 'edge' | 'face' | 'axisEdge' | 'axisFace' | SnapAxis;
 
 /**
- * 찍은 점·커서 아래 점(measurePoints·measureHoverSnap)의 끌어온 축 종류 — 코어 0.17.0 README의 가르는 법: trackOther가 있으면 축끼리의 교차,
- * trackFrom과 segment면 모서리 위, trackFrom과 direction뿐이면 첫 점 축 위 나란한 자리(첫 점에서 그 축 방향 — false), 그 밖의 trackFrom은 끌어온 축.
- * 끌어온 점이 없으면 false
+ * 찍은 점·커서 아래 점(measurePoints·measureHoverSnap)의 축 위 점 종류 — 코어 0.17.0·0.18.0 README의 가르는 법: trackOther가 있으면 축끼리의 교차,
+ * face면 면 위, segment면 모서리 위(trackFrom이 있으면 끌어온 축, 없으면 첫 점 축), trackFrom과 direction뿐이면 첫 점 축 위 나란한 자리
+ * (첫 점에서 그 축 방향 — false), 그 밖의 trackFrom은 끌어온 축. 첫 점 축 그대로는 false
  */
-export function trackMark(p: { trackFrom?: readonly number[]; trackOther?: { axis: SnapAxis }; segment?: unknown; direction?: readonly number[] } | null | undefined): TrackMark | false {
-  if (!p?.trackFrom) return false;
+export function trackMark(
+  p: { trackFrom?: readonly number[]; trackOther?: { axis: SnapAxis }; segment?: unknown; face?: unknown; direction?: readonly number[] } | null | undefined,
+): TrackMark | false {
+  if (!p) return false;
+  if (!p.trackFrom) return p.face ? 'axisFace' : p.segment ? 'axisEdge' : false;
   if (p.trackOther) return p.trackOther.axis;
+  if (p.face) return 'face';
   if (p.segment) return 'edge';
   return !p.direction;
 }
 
-/** 끌어온 축 위 점의 이름: "끌어온 점에서 X축", 모서리와 만나면 "끌어온 점에서 X축 · 모서리 위", 축끼리의 교차면 "끌어온 X축과 Y축의 교차"(사전에 모두 있다) */
+/**
+ * 축 위 점의 이름: "끌어온 점에서 X축", 모서리·면과 만나면 "끌어온 점에서 X축 · 모서리 위"·"… · 면 위", 첫 점 축이면 "X축 · 모서리 위"·"X축 · 면 위",
+ * 축끼리의 교차면 "끌어온 X축과 Y축의 교차"(사전에 모두 있다)
+ */
 function trackLabel(axis: SnapAxis, track: TrackMark): string {
-  const a = axis.toUpperCase();
-  return track === true ? `끌어온 점에서 ${a}축` : track === 'edge' ? `끌어온 점에서 ${a}축 · 모서리 위` : `끌어온 ${a}축과 ${track.toUpperCase()}축의 교차`;
+  const a = `${axis.toUpperCase()}축`;
+  if (track === 'axisEdge') return `${a} · 모서리 위`;
+  if (track === 'axisFace') return `${a} · 면 위`;
+  if (track === true) return `끌어온 점에서 ${a}`;
+  if (track === 'edge') return `끌어온 점에서 ${a} · 모서리 위`;
+  if (track === 'face') return `끌어온 점에서 ${a} · 면 위`;
+  return `끌어온 ${a}과 ${track.toUpperCase()}축의 교차`;
 }
 
 /**
@@ -183,7 +197,7 @@ function trackLabel(axis: SnapAxis, track: TrackMark): string {
  * 곡선 모서리 위 점, 코어 0.14.0) '곡선 위 점'.
  * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB),
  * 끌어온 축(track — trackMark, 코어 0.16.0·0.17.0: 기억한 점을 지나는 축이라 첫 점에서 그 방향이 아니다)이면 "끌어온 점에서 X축"·
- * "끌어온 점에서 X축 · 모서리 위"·"끌어온 X축과 Y축의 교차"
+ * "끌어온 점에서 X축 · 모서리 위"·"끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나는 점(0.18.0)이면 "X축 · 모서리 위"·"X축 · 면 위"
  */
 export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined = false, track: TrackMark | boolean = false): string {
   switch (kind) {
@@ -256,6 +270,7 @@ export function hoverSnapLabel(
         trackFrom?: readonly number[];
         trackOther?: { axis: SnapAxis };
         segment?: unknown;
+        face?: unknown;
         direction?: readonly number[];
       }
     | null
@@ -263,7 +278,7 @@ export function hoverSnapLabel(
   tangent = false,
 ): string | null {
   if (!h) return null;
-  // 끌어온 축 위 점(trackMark): 끌어온 축·모서리 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로)
+  // 축 위 점(trackMark): 끌어온 축·모서리 위·면 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로)
   const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined, h.snap === 'axis' ? trackMark(h) : false);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }

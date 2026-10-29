@@ -12,6 +12,8 @@
  * - 모서리 위 점('onEdge'): 커서 광선에 가장 가까운 곡선 위 점. 같은 둘레에서 광선까지 거리의 극소(모서리 끝으로 나가면 그 끝) 가운데 코어 점에 가장 가까운 것
  * - 코어 가운데 점('midpoint'): 그 토막 두 끝 매개변수의 가운데(원은 그 호의 길이 가운데와 같다). STEP은 코어 가운데 점을 끄므로 지금은 오지 않는다
  * - 교차점('intersection' — 0.15.0, 코어 교차점과 넓힌 교차): 두 토막의 모서리 곡선의 3D 교차점(intersectEdges)
+ * - 축과 선분의 교차('axisEdge' — 0.18.0, 첫 점 축·끌어온 축): 축 직선(line)과 그 토막의 모서리 곡선의 교차(intersectAxis — 곧은 모서리·원·타원은 식,
+ *   B-스플라인은 반복). 돌려주는 점은 축 직선 위다
  * - 그 밖의 종류(코어가 뒤에 더할 것)는 null
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
@@ -400,19 +402,33 @@ export function edgeHit(sg: SnapSegment, meshes: ReadonlyMap<string, Mesh3d>, ex
 
 // ── 두 모서리 곡선의 교차점(코어 0.15.0 'intersection') ──
 
-/** 교차점을 풀 모서리 하나(세계 좌표) */
-interface Side {
+/** 매개변수 곡선(세계): 점·1·2차 도함수와 매개변수 범위(free면 자르지 않는다) — 두 곡선 가우스-뉴턴이 쓴다 */
+interface Track {
+  ev: CurveEval;
+  lo: number;
+  hi: number;
+  free: boolean;
+}
+
+/** 원·타원의 세계 틀: 중심, 단위 틀 축 X·Y, 반지름 a·b(각 t의 점 = c + a cos t X + b sin t Y — 묶음 좌표의 틀 각과 같은 t) */
+interface Conic {
+  c: V3;
+  X: V3;
+  Y: V3;
+  a: number;
+  b: number;
+}
+
+/**
+ * 교차점을 풀 모서리 하나(세계 좌표). ev는 곡선(곧은 모서리는 시작 → 끝 꼭짓점 직선, 매개변수 [0, 1]), lo·hi는 모서리 범위,
+ * free = 한 바퀴가 모두 모서리인 닫힌 주기 곡선(매개변수를 구간으로 자르지 않는다)
+ */
+interface Side extends Track {
   h: EdgeHit;
   /** 곡선 모서리(곧은 모서리는 null) */
   arc: EdgeArc | null;
   /** 모서리 두 끝 꼭짓점 */
   ends: [V3, V3];
-  /** 점·1·2차 도함수(곧은 모서리는 시작 → 끝 꼭짓점 직선, 매개변수 [0, 1]) */
-  ev: CurveEval;
-  lo: number;
-  hi: number;
-  /** 한 바퀴가 모두 모서리인 닫힌 주기 곡선이면 true — 매개변수를 구간으로 자르지 않는다 */
-  free: boolean;
   /** 커서 둘레(토막 k 앞뒤 두 토막) 매개변수 표본, 오름차순 */
   ts: number[];
   /** 토막 길이와 토막 끝의 float32 묶음 좌표 크기(자리 배율을 곱한 것) — 허용치 */
@@ -420,6 +436,8 @@ interface Side {
   mag: number;
   line: { a: V3; d: V3 } | null;
   circle: { c: V3; n: V3; r: number } | null;
+  /** 원·타원이면 세계 틀(0.18.0 축 직선과의 교차 — 식) */
+  conic: Conic | null;
 }
 
 /** 자리 변환의 길이 배율(회전·균등 배율·거울) */
@@ -448,7 +466,7 @@ function sideOf(sg: SnapSegment, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEd
     const a = ends[0];
     const d = sub(ends[1], a);
     const ev: CurveEval = (t) => [[a[0] + t * d[0], a[1] + t * d[1], a[2] + t * d[2]], d, [0, 0, 0]];
-    return { h, arc: null, ends, ev, lo: 0, hi: 1, free: false, ts: [0, 1], len, mag, line: { a, d }, circle: null };
+    return { h, arc: null, ends, ev, lo: 0, hi: 1, free: false, ts: [0, 1], len, mag, line: { a, d }, circle: null, conic: null };
   }
   const arc = edgeArc(h.E, h.table, h.e, ex.kinds);
   if (!arc) return null;
@@ -466,7 +484,12 @@ function sideOf(sg: SnapSegment, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEd
   if (!w.ts.every(Number.isFinite)) return null;
   const n = def.kind === 'circle' ? dirToWorld(mesh, def.normal[0], def.normal[1], def.normal[2]) : null;
   const circle = def.kind === 'circle' && n ? { c: W(def.center), n, r: def.r * sc } : null;
-  return { h, arc, ends, ev, lo: Math.min(t0, t1), hi: Math.max(t0, t1), free, ts: w.ts.sort((x, y) => x - y), len, mag, line: null, circle };
+  // 원·타원 틀(묶음 좌표의 단위 틀 축을 세계로 — 자리 변환은 회전·균등 배율·거울이라 직교·같은 각이다)
+  const cn = arc.conic;
+  const X = cn ? dirToWorld(mesh, cn.X[0], cn.X[1], cn.X[2]) : null;
+  const Y = cn ? dirToWorld(mesh, cn.Y[0], cn.Y[1], cn.Y[2]) : null;
+  const conic = cn && X && Y && def.kind !== 'bspline' ? { c: W(def.center), X, Y, a: cn.a * sc, b: cn.b * sc } : null;
+  return { h, arc, ends, ev, lo: Math.min(t0, t1), hi: Math.max(t0, t1), free, ts: w.ts.sort((x, y) => x - y), len, mag, line: null, circle, conic };
 }
 
 /** 세계 점 X가 모서리 범위 안인지(곧은 모서리는 두 끝 사이, 원·타원 호는 두 끝 각 사이 — 허용치 slack만큼 넓혀). B-스플라인은 늘 참(반복이 구간 안에 머문다) */
@@ -571,8 +594,8 @@ function circleCircle(c1: { c: V3; n: V3; r: number }, c2: { c: V3; n: V3; r: nu
  * 늘면 걸음을 반씩). 매개변수는 모서리 구간 안으로(닫힌 주기 곡선은 그대로). 만나는 두 곡선이면 두 차례로 줄어 교차점에 닿고,
  * 비켜 지나가면 가장 가까운 두 점에 머문다. 두 접선이 나란해지면(접하는 자리) 멈춘다
  */
-function closestOnPair(A: Side, B: Side, s: number, t: number): Pair {
-  const fit = (x: Side, v: number): number => (x.free ? v : Math.min(x.hi, Math.max(x.lo, v)));
+function closestOnPair(A: Track, B: Track, s: number, t: number): Pair {
+  const fit = (x: Track, v: number): number => (x.free ? v : Math.min(x.hi, Math.max(x.lo, v)));
   let [P, DA] = A.ev(s);
   let [Q, DB] = B.ev(t);
   let F = sub(P, Q);
@@ -679,13 +702,124 @@ export function intersectEdges(c: SnapRefineInput, meshes: ReadonlyMap<string, M
   return best;
 }
 
+// ── 축 직선과 모서리 곡선의 교차(코어 0.18.0 'axisEdge') ──
+
+/** 축 직선(지나는 점 a, 단위 방향 d — 매개변수 s의 점 = a + s d) */
+interface Line3 {
+  a: V3;
+  d: V3;
+}
+
+/** 축 직선과 곧은 모서리(a + t g, t ∈ [0, 1] — 범위는 onSide가 본다)의 가장 가까운 두 점(식). 나란하면 없다. 짝은 [직선 위, 모서리 위] */
+function axisLine(L: Line3, a: V3, g: V3): Pair[] {
+  const w = sub(L.a, a);
+  const b = dot(L.d, g);
+  const c = dot(g, g);
+  const den = c - b * b;
+  if (!(den > 1e-12 * c)) return [];
+  const p = dot(L.d, w);
+  const e = dot(g, w);
+  return [[addK(L.a, L.d, (b * e - c * p) / den), addK(a, g, (e - b * p) / den)]];
+}
+
+/**
+ * 축 직선과 원·타원(식): 직선이 곡선 평면을 지나는 점과, 직선을 평면에 내린 그림자가 곡선과 만나는 두 점((u/a)² + (v/b)² = 1의 이차식 —
+ * 직선이 평면 위에 놓일 때의 교점, 닿을락 말락이면 가장 가까운 자리 하나). 곡선 위 짝은 그 점의 틀 각 atan2(v/b, u/a)의 점이라,
+ * 직선 위 점이 곡선 위가 아니면 둘이 떨어진다(허용치로 거른다). 짝은 [직선 위, 곡선 위]
+ */
+function axisConic(L: Line3, k: Conic): Pair[] {
+  const n = crossV(k.X, k.Y);
+  const r = sub(L.a, k.c);
+  const u0 = dot(r, k.X);
+  const v0 = dot(r, k.Y);
+  const du = dot(L.d, k.X);
+  const dv = dot(L.d, k.Y);
+  const dw = dot(L.d, n);
+  const out: Pair[] = [];
+  const push = (s: number): void => {
+    if (!Number.isFinite(s)) return;
+    const t = Math.atan2((v0 + s * dv) / k.b, (u0 + s * du) / k.a);
+    out.push([addK(L.a, L.d, s), addK(addK(k.c, k.X, k.a * Math.cos(t)), k.Y, k.b * Math.sin(t))]);
+  };
+  if (Math.abs(dw) > 1e-12) push(-dot(r, n) / dw);
+  const ia = 1 / (k.a * k.a);
+  const ib = 1 / (k.b * k.b);
+  const A = du * du * ia + dv * dv * ib;
+  if (!(A > 1e-24)) return out;
+  const B = 2 * (u0 * du * ia + v0 * dv * ib);
+  const C = u0 * u0 * ia + v0 * v0 * ib - 1;
+  const D = B * B - 4 * A * C;
+  if (!(D > 0)) {
+    push(-B / (2 * A));
+    return out;
+  }
+  // 근의 공식의 빼기 오차를 피하는 꼴
+  const q = -0.5 * (B + (B < 0 ? -1 : 1) * Math.sqrt(D));
+  push(q / A);
+  if (q !== 0) push(C / q);
+  return out;
+}
+
+/**
+ * 축 직선과 그 밖의 곡선(B-스플라인 — 반복): 모서리의 커서 둘레 표본마다 축 직선까지 거리를 재고, 그 거리의 극소 세 곳에서
+ * 두 매개변수 가우스-뉴턴(closestOnPair — 직선 쪽은 자르지 않는다). 짝은 [직선 위, 곡선 위]
+ */
+function axisCurve(L: Line3, S: Side): Pair[] {
+  const line: Track = { ev: (s) => [addK(L.a, L.d, s), L.d, [0, 0, 0]], lo: -Infinity, hi: Infinity, free: true };
+  const ss: number[] = [];
+  const d: number[] = [];
+  for (const t of S.ts) {
+    const p = S.ev(t)[0];
+    const s = dot(sub(p, L.a), L.d);
+    ss.push(s);
+    d.push(dist(p, addK(L.a, L.d, s)));
+  }
+  const mins: number[] = [];
+  for (let i = 0; i < d.length; i++) if ((i === 0 || d[i]! <= d[i - 1]!) && (i === d.length - 1 || d[i]! <= d[i + 1]!)) mins.push(i);
+  mins.sort((x, y) => d[x]! - d[y]!);
+  return mins.slice(0, 3).map((i) => {
+    const [q, p] = closestOnPair(S, line, S.ts[i]!, ss[i]!);
+    return [p, q];
+  });
+}
+
+/**
+ * 코어 축과 선분의 교차(0.18.0 'axisEdge' — 첫 점 축·끌어온 축이 꺾은선 토막과 만나는 점) → 축 직선(c.line)과 그 토막의 B-rep 모서리 곡선의 교차(세계, 축 직선 위 점).
+ * - 곧은 모서리는 두 끝 꼭짓점(float32 윤곽선)을 잇는 직선과의 가장 가까운 두 점, 원·타원은 식(axisConic), B-스플라인은 반복(axisCurve)
+ * - 허용치 tol = 1e-6 × (토막 길이 + 토막 끝 묶음 좌표 크기)(교차점과 같다): 직선 위 점과 곡선 위 점 사이가 이보다 멀면 만나지 않는 것.
+ *   곡선 위 점이 모서리 범위(곧은 모서리는 두 끝 사이, 호는 두 끝 각 사이) 안이어야 하고, 축이 지나는 점(첫 점·끌어온 점) 자리는 뺀다
+ *   (그 점이 곡선 위라서 만나는 것 — 코어도 뺀다). 후보가 여럿(평면 위 직선과 원의 두 교점 등)이면 코어 점에 가장 가까운 것
+ * - 돌려주는 점은 직선 위 점이다(세계 축이면 지나는 점과 남은 두 좌표가 정확히 같다 — 코어 acceptOnLine이 다시 축 위로 내려도 그대로)
+ * 결과는 토막·코어 점·축 직선으로만 정해진다(커서 광선·첫 점을 쓰지 않는다 — 코어가 커서 광선을 빼고 기억한다)
+ */
+export function intersectAxis(c: SnapRefineInput, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEdgeIndex): V3 | null {
+  const l = c.line;
+  const d = l ? unitOf(l.dir) : null;
+  if (!l || !d || !l.origin.every(Number.isFinite)) return null;
+  const S = sideOf(c.segment, meshes, ex);
+  if (!S) return null;
+  const L: Line3 = { a: [l.origin[0], l.origin[1], l.origin[2]], d };
+  const tol = 1e-6 * (S.len + S.mag);
+  const pairs = S.line ? axisLine(L, S.line.a, S.line.d) : S.conic ? axisConic(L, S.conic) : axisCurve(L, S);
+  let best: V3 | null = null;
+  let bd = Infinity;
+  for (const [P, Q] of pairs) {
+    if (!(dist(P, Q) <= tol) || !onSide(S, Q, tol) || dist(P, L.a) <= tol) continue;
+    const e = dist(P, c.point);
+    if (e < bd) [bd, best] = [e, P];
+  }
+  return best && best.every(Number.isFinite) ? best : null;
+}
+
 /**
  * 코어 refine 입력 → 다듬은 세계 점. 수직 발(열린 후보 포함)·모서리 위 점·코어 가운데 점은 그 토막의 곡선 위로(refineOnArc), 교차점은 두 모서리 곡선의
- * 교차점(intersectEdges). 모르는 종류, 직선·곡선 정의 없음·선 형상·못 찾으면 null. 토막의 두 끝이 그물 윤곽선 꼭짓점과 맞지 않으면
+ * 교차점(intersectEdges), 축과 선분의 교차(0.18.0 'axisEdge')는 축 직선과 모서리 곡선의 교차(intersectAxis — 곧은 모서리도).
+ * 모르는 종류, 직선·곡선 정의 없음·선 형상·못 찾으면 null. 토막의 두 끝이 그물 윤곽선 꼭짓점과 맞지 않으면
  * (분해·다른 자리 등 장면이 어긋남) 다듬지 않는다
  */
 export function refineSnap(c: SnapRefineInput, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEdgeIndex): V3 | null {
   if (c.kind === 'intersection') return intersectEdges(c, meshes, ex);
+  if (c.kind === 'axisEdge') return intersectAxis(c, meshes, ex);
   if (c.kind !== 'perpendicular' && c.kind !== 'midpoint' && c.kind !== 'onEdge') return null;
   const h = edgeHit(c.segment, meshes, ex);
   const arc = h ? edgeArc(h.E, h.table, h.e, ex.kinds) : null;
