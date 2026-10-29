@@ -7,6 +7,8 @@
  * 3. earcut으로 (구멍 포함) 다각형을 삼각화하고, 곡면에서 벗어나는(현 높이·법선 각·매개변수 간격) 안쪽 모서리를
  *    반으로 나누기를 되풀이하며 Lawson 뒤집기로 모양을 다듬는다. 경계 모서리는 나누지 않으므로 이웃 면과 틈이 없다.
  * 4. 정점은 곡면 위 점(경계는 원래 3D 점), 법선은 곡면에서 구하고 면 방향(same_sense)에 맞춰 감는다.
+ * 5. 극점이 있는 다각형에서 극점 밖 정점이 3D로 거의 겹치면(극점 가까이 폭이 0으로 모이는 곡면 — 바늘 삼각형) 극점 둘레(캡)를
+ *    빛살·깊이 줄로 따로 나누고 나머지를 다시 한다(poleCaps·buildCap·capTriangles). 경계 다각선은 그대로라 이웃 면과 틈이 없다.
  */
 import earcut, { deviation, refine as lawson } from 'earcut';
 import type { Tol } from './curves';
@@ -792,8 +794,12 @@ export class EdgeHash {
   }
 }
 
-/** 곡면 오차·법선 각·매개변수 간격으로 안쪽 모서리를 나누는 되풀이 */
-function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): number[] {
+/**
+ * 곡면 오차·법선 각·매개변수 간격으로 안쪽 모서리를 나누는 되풀이.
+ * minSplit > 0이면 삼각형 단위 나누기(곡면에서 먼 삼각형·접힌 삼각형의 가장 긴 안쪽 모서리)는 그 모서리가 이보다 길 때만 한다
+ * (극점 둘레를 따로 나눈 면 — 폭이 0으로 모이는 곳에서 짧은 모서리를 거듭 나눠 점이 겹치지 않게)
+ */
+function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSplit = 0): number[] {
   const s = vs.s;
   const cosLim = Math.cos(tol.angle);
   // 접힘 판정: 곡면 법선은 ∂u×∂v 쪽(Surface.normal 약속)이라 반시계(uv) 삼각형의 3D 법선은 정점 법선과 같은 쪽이어야 한다
@@ -890,9 +896,9 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number): numbe
         [c, a, dist(Pc, Pa)],
       ];
       es.sort((x, y) => y[2] - x[2]);
-      for (const [x, y] of es) {
+      for (const [x, y, l] of es) {
         if (count[edges.find(x, y)] === 2) {
-          mark(x, y);
+          if (!(minSplit > 0 && l <= minSplit)) mark(x, y);
           break;
         }
       }
@@ -1086,40 +1092,436 @@ export function tessellateFace(
 
   let total = 0;
   for (const pg of polys) {
-    const vs = new Verts(s, su, sv);
-    const holeIdx: number[] = [];
-    const ring = (r: UV[]) => {
-      for (const q of r) vs.add(q.u, q.v, q.p);
-    };
-    ring(pg.outer);
-    for (const h of pg.holes) {
-      holeIdx.push(vs.u.length);
-      ring(h);
-    }
-    let tris = triangulateRobust(vs.xy, holeIdx, vs.u.length);
-    if (!tris.length) continue;
-    // 반시계(uv)로 맞추기: earcut 결과는 한 방향으로 감기므로 넓이 합의 부호로 한꺼번에(거의 평평한 삼각형의 반올림 부호에 휘둘리지 않게)
-    let signed = 0;
-    for (let t = 0; t < tris.length; t += 3) {
-      const a = tris[t]!;
-      const b = tris[t + 1]!;
-      const c = tris[t + 2]!;
-      signed += (vs.xy[b * 2]! - vs.xy[a * 2]!) * (vs.xy[c * 2 + 1]! - vs.xy[a * 2 + 1]!) - (vs.xy[c * 2]! - vs.xy[a * 2]!) * (vs.xy[b * 2 + 1]! - vs.xy[a * 2 + 1]!);
-    }
-    if (signed < 0)
-      for (let t = 0; t < tris.length; t += 3) {
-        const b = tris[t + 1]!;
-        tris[t + 1] = tris[t + 2]!;
-        tris[t + 2] = b;
+    let m = meshPolygon(s, pg, tol, su, sv, maxTris);
+    if (!m) continue;
+    // 극점 둘레 바늘 삼각형: 극점에서 나간 모서리를 거듭 나눈 점들이 3D로 거의 겹치면(극점 가까이 폭이 0으로 모이는 곡면)
+    // 극점 둘레를 따로 빛살·고리로 나눠 다시 한다(그렇지 않은 면은 예전과 같다)
+    if (!s.planar && m.pole.some((x) => x === 1)) {
+      const sep = poleSeparation(m.vs, m.tris, m.pole);
+      if (sep < POLE_NEEDLE * eps) {
+        const capped = poleCaps(s, pg, tol, eps);
+        const alt = capped ? meshPolygon(s, { outer: capped.outer, holes: pg.holes }, tol, su, sv, maxTris, capped.caps) : null;
+        if (alt && poleSeparation(alt.vs, alt.tris, alt.pole) > sep) m = alt;
       }
-    if (!s.planar) {
-      lawson(tris, vs.xy, 2);
-      tris = refineMesh(vs, tris, tol, maxTris);
     }
+    const { vs, tris } = m;
     if (acc && QUADRATURE_KINDS.has(s.kind)) acc.area += uvArea(s, vs.u, vs.v, tris);
     total += emit(vs, tris, sameSense, out, acc?.uv);
   }
   return flags.reversed ? { triangles: total, reversed: true } : { triangles: total };
+}
+
+/** 극점이 아닌 두 정점이 이보다(eps 배) 가까운 삼각형 모서리가 있으면 극점 둘레를 따로 나눈다 */
+const POLE_NEEDLE = 10;
+
+/**
+ * 매개변수 다각형 하나 → 정점·삼각형(반시계, 곡면이면 다듬기까지). caps가 있으면 다듬은 뒤 극점 둘레 빛살 삼각형을 붙인다
+ * (빛살 끝 점은 다각형 고리 점이라 다듬기가 나누지 않는다). pole: 정점마다 극점(3D가 극점)인지
+ */
+function meshPolygon(s: Surface, pg: Polygon, tol: Tol, su: number, sv: number, maxTris: number, caps?: PoleCap[]): { vs: Verts; tris: number[]; pole: Uint8Array } | null {
+  const vs = new Verts(s, su, sv);
+  const holeIdx: number[] = [];
+  const index = caps ? new Map<UV, number>() : null;
+  const poleIdx: number[] = [];
+  const ring = (r: UV[]) => {
+    for (const q of r) {
+      index?.set(q, vs.u.length);
+      if (q.pole >= 0) poleIdx.push(vs.u.length);
+      vs.add(q.u, q.v, q.p);
+    }
+  };
+  ring(pg.outer);
+  for (const h of pg.holes) {
+    holeIdx.push(vs.u.length);
+    ring(h);
+  }
+  let tris = triangulateRobust(vs.xy, holeIdx, vs.u.length);
+  if (!tris.length) return null;
+  // 반시계(uv)로 맞추기: earcut 결과는 한 방향으로 감기므로 넓이 합의 부호로 한꺼번에(거의 평평한 삼각형의 반올림 부호에 휘둘리지 않게)
+  let signed = 0;
+  for (let t = 0; t < tris.length; t += 3) {
+    const a = tris[t]!;
+    const b = tris[t + 1]!;
+    const c = tris[t + 2]!;
+    signed += (vs.xy[b * 2]! - vs.xy[a * 2]!) * (vs.xy[c * 2 + 1]! - vs.xy[a * 2 + 1]!) - (vs.xy[c * 2]! - vs.xy[a * 2]!) * (vs.xy[b * 2 + 1]! - vs.xy[a * 2 + 1]!);
+  }
+  if (signed < 0)
+    for (let t = 0; t < tris.length; t += 3) {
+      const b = tris[t + 1]!;
+      tris[t + 1] = tris[t + 2]!;
+      tris[t + 2] = b;
+    }
+  if (!s.planar) {
+    lawson(tris, vs.xy, 2);
+    tris = refineMesh(vs, tris, tol, maxTris, caps ? tol.chord * 0.25 : 0);
+  }
+  if (caps && index) for (const cap of caps) capTriangles(vs, cap, index, tris, poleIdx);
+  const pole = new Uint8Array(vs.u.length);
+  for (const i of poleIdx) pole[i] = 1;
+  return { vs, tris, pole };
+}
+
+/** 삼각형 모서리 가운데 두 끝이 모두 극점은 아닌 것의 가장 짧은 3D 길이 */
+function poleSeparation(vs: Verts, tris: number[], pole: Uint8Array): number {
+  let min = Infinity;
+  const P = vs.p;
+  for (let t = 0; t < tris.length; t += 3)
+    for (let e = 0; e < 3; e++) {
+      const a = tris[t + e]!;
+      const b = tris[t + ((e + 1) % 3)]!;
+      if (pole[a] && pole[b]) continue;
+      const d = Math.hypot(P[a * 3]! - P[b * 3]!, P[a * 3 + 1]! - P[b * 3 + 1]!, P[a * 3 + 2]! - P[b * 3 + 2]!);
+      if (d < min) min = d;
+    }
+  return min;
+}
+
+/**
+ * 극점 둘레(캡) 하나. 다각형 바깥 고리에서 극점 줄(극선 위에 펼친 점들)의 앞·뒤로 극점에서 나가는 두 경계 모서리는 매개변수 공간에서
+ * 자유 좌표가 일정한 선(t0·t1)을 따라간다. 캡은 그 두 경계 위 고리 점 A·B(극점 줄 바로 앞·뒤 점에서 시작해, 극점 가까이 폭이 0으로
+ * 모이는 곡면이면 A–B 3D 거리가 현 높이의 CAP_WIDTH배가 될 때까지 경계를 따라 더 들어간 점)와 극점 사이 영역이다. 극점에서 자유 좌표
+ * t마다 곧게(자유 좌표 일정) 나가는 빛살이 A–B 직선(Γ, 매개변수 공간) 위 점 Q에서 끝난다. 빛살은 현 높이·법선 각으로 나누되 가장 얕은
+ * 줄에서 이웃 빛살이 3D로 너무 가까워지면 더 나누지 않는다. 빛살 안쪽 점은 모든 빛살이 함께 쓰는 깊이 줄(극선에서 잰 고정 좌표 거리)에
+ * 둔다. 경계 빛살(A·B 쪽)에는 원래 고리 점만 쓴다(이웃 면과 같은 경계 다각선이어야 틈이 없다)
+ */
+interface PoleCap {
+  /** 극점 3D(고리의 극점 점 그대로 — 이웃 면과 같은 점) */
+  p: V3;
+  /** 극선: fixed 차원이 c */
+  fx: 0 | 1;
+  c: number;
+  /** 빛살 자유 좌표 t[0..m](t[0]은 A, t[m]은 B 쪽) */
+  t: number[];
+  /** 빛살 끝 점(Γ) Q[0..m] — Q[0] = A, Q[m] = B, 사이는 바깥 고리에 넣은 점(같은 객체) */
+  Q: UV[];
+  /** 경계 빛살의 고리 점(극점 가까운 것부터, 끝이 A·B) */
+  left: UV[];
+  right: UV[];
+  /** 안쪽 빛살마다 안쪽 점의 깊이(극선에서 잰 고정 좌표 거리, 오름차순 — 빛살끼리 같은 깊이 줄을 써서 이은 삼각형이 접히지 않게) */
+  rows: number[][];
+}
+
+/** 캡 빛살 나누기 되풀이 수(빛살 2⁸개까지)·깊이 줄 나누기 되풀이 수·줄을 정할 때 보는 빛살 수 */
+const CAP_RAY_DEPTH = 8;
+const CAP_LEVEL_DEPTH = 10;
+const CAP_TEST_RAYS = 16;
+/** 캡 끝 A–B의 3D 거리가 현 높이의 이 배수가 될 때까지 경계를 따라 들어간다 */
+const CAP_WIDTH = 2;
+/** 경계를 따라 들어가는 고리 점 수 한도(한쪽) */
+const CAP_CHAIN = 64;
+/** 캡 깊이 줄 수 한도(빛살 2⁸개와 곱해 캡 정점 수를 묶는다) */
+const CAP_MAX_ROWS = 512;
+
+/**
+ * 다각형 바깥 고리의 극점 줄마다 캡을 만들고, 고리에서 캡이 차지한 점(극점 줄과 경계 빛살의 안쪽 점)을 Γ 점들로 바꾼다.
+ * 만들 수 있는 캡이 없으면 null. 극점 줄 앞·뒤 점이 극점 줄과 같은 자유 좌표가 아니거나, 캡이 다른 고리 점을 품거나 Γ가 다른 고리 변과
+ * 엇갈리면 그 극점 줄은 그대로 둔다(덜 들어간 캡부터 다시 본다)
+ */
+function poleCaps(s: Surface, pg: Polygon, tol: Tol, eps: number): { outer: UV[]; caps: PoleCap[] } | null {
+  const outer = pg.outer;
+  const n = outer.length;
+  const r0 = outer.findIndex((q) => q.pole < 0);
+  if (r0 < 0 || n < 4) return null;
+  const ring = [...outer.slice(r0), ...outer.slice(0, r0)];
+  const at = (k: number) => ring[((k % n) + n) % n]!;
+  // 극점 줄 찾기(ring[0]은 극점이 아니다)
+  const runs: { i: number; j: number }[] = [];
+  for (let i = 1; i < n; ) {
+    if (ring[i]!.pole < 0) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j + 1 < n && ring[j + 1]!.pole === ring[i]!.pole) j++;
+    runs.push({ i, j });
+    i = j + 1;
+  }
+  const segs: [UV, UV][] = [];
+  for (const l of [ring, ...pg.holes]) for (let i = 0; i < l.length; i++) segs.push([l[i]!, l[(i + 1) % l.length]!]);
+  const caps: PoleCap[] = [];
+  /** 캡이 가져간 고리 번호(바깥 고리에서 뺀다)와 Γ 점을 넣을 자리(A 다음) */
+  const removed = new Set<number>();
+  const insertAfter = new Map<number, UV[]>();
+  const gammas: [UV, UV][] = [];
+  for (const { i, j } of runs) {
+    const first = ring[i]!;
+    const last = ring[j]!;
+    if (at(i - 1).pole >= 0 || at(j + 1).pole >= 0) continue;
+    const pl = s.poles[first.pole]!;
+    const fx = pl.fixed;
+    const fd = 1 - fx;
+    const c = pl.value;
+    // 경계 빛살: 같은 자유 좌표를 따라 극점에서 멀어지는 고리 점들(다른 캡이 쓴 점 앞에서 멈춘다)
+    const chain = (start: number, dir: number, t: number): number[] => {
+      const out: number[] = [];
+      const sc = 1 + Math.abs(t);
+      let prev = 0;
+      for (let k = 0; k < CAP_CHAIN && out.length + (j - i + 1) < n - 2; k++) {
+        const idx = start + dir * k;
+        const q = at(idx);
+        const norm = ((idx % n) + n) % n;
+        if (q.pole >= 0 || removed.has(norm) || (norm >= i && norm <= j)) break;
+        if (Math.abs(coord(q, fd) - t) > 1e-9 * sc) break;
+        const d = Math.abs(coord(q, fx) - c);
+        if (!(d > prev)) break;
+        prev = d;
+        out.push(norm);
+      }
+      return out;
+    };
+    const ca = chain(i - 1, -1, coord(first, fd));
+    const cb = chain(j + 1, 1, coord(last, fd));
+    if (!ca.length || !cb.length) continue;
+    // 깊이: A–B가 현 높이의 CAP_WIDTH배가 될 때까지 다음 점이 극점에 더 가까운 쪽부터 한 점씩 들어가고,
+    // 얕은 쪽은 깊은 쪽 깊이까지 따라 들어간다(Γ가 극선과 나란하게 — 같은 깊이 줄끼리 잇는다)
+    let ia = 1;
+    let ib = 1;
+    const depth = (k: number) => Math.abs(coord(ring[k]!, fx) - c);
+    for (;;) {
+      const da = depth(ca[ia - 1]!);
+      const db = depth(cb[ib - 1]!);
+      const na = ia < ca.length ? depth(ca[ia]!) : Infinity;
+      const nb = ib < cb.length ? depth(cb[ib]!) : Infinity;
+      if (da < db && na <= db * (1 + 1e-9)) ia++;
+      else if (db < da && nb <= da * (1 + 1e-9)) ib++;
+      else if (dist(ring[ca[ia - 1]!]!.p, ring[cb[ib - 1]!]!.p) >= CAP_WIDTH * tol.chord || (na === Infinity && nb === Infinity)) break;
+      else if (na <= nb) ia++;
+      else ib++;
+    }
+    for (;;) {
+      const left = ca.slice(0, ia).map((k) => ring[k]!);
+      const right = cb.slice(0, ib).map((k) => ring[k]!);
+      const A = left[left.length - 1]!;
+      const B = right[right.length - 1]!;
+      const capPoly = [...left.slice().reverse(), ...ring.slice(i, j + 1), ...right];
+      const inCap = new Set(capPoly);
+      // 바깥 고리에는 A·B 말고도 원래 점이 하나 이상 남아야 한다
+      let ok = n - (j - i + 1) - (ia - 1) - (ib - 1) >= 3;
+      for (const l of [ring, ...pg.holes]) {
+        for (const q of l) {
+          if (!ok) break;
+          if (inCap.has(q)) continue;
+          if (pointInPoly(q.u, q.v, capPoly)) ok = false;
+        }
+      }
+      for (const [a, b] of [...segs, ...gammas]) {
+        if (!ok) break;
+        if (a === A || a === B || b === A || b === B) continue;
+        if (segmentsCross(A, B, a, b)) ok = false;
+      }
+      const cap = ok ? buildCap(s, tol, eps, left, right, first) : null;
+      if (cap) {
+        gammas.push([A, B]);
+        caps.push(cap);
+        for (let k = i; k <= j; k++) removed.add(k);
+        for (const k of ca.slice(0, ia - 1)) removed.add(k);
+        for (const k of cb.slice(0, ib - 1)) removed.add(k);
+        insertAfter.set(ca[ia - 1]!, cap.Q.slice(1, -1));
+        break;
+      }
+      if (ia === 1 && ib === 1) break;
+      if (ia > 1 && (ib === 1 || depth(ca[ia - 1]!) >= depth(cb[ib - 1]!))) ia--;
+      else ib--;
+    }
+  }
+  if (!caps.length) return null;
+  const out: UV[] = [];
+  for (let k = 0; k < n; k++) {
+    if (removed.has(k)) continue;
+    out.push(ring[k]!);
+    const g = insertAfter.get(k);
+    if (g) out.push(...g);
+  }
+  return { outer: out, caps };
+}
+
+/**
+ * 극점 줄 첫 점 first와 두 경계 빛살의 고리 점(극점 가까운 것부터, 끝이 A·B)으로 캡의 빛살과 깊이 줄을 정한다.
+ * 깊이는 극선에서 잰 고정 좌표 거리다. 줄은 두 경계 빛살 고리 점의 깊이를 모두 쓰고, 그 사이를 현 높이·법선 각으로 더 나눈다
+ * (가장 얕은 경계 점보다 극점 쪽에는 줄을 두지 않는다 — 그 안은 극점 부채꼴). 빛살은 이웃 빛살 사이 곡면이 현 높이보다 멀거나
+ * 넓은데 법선 각이 크면 나누되, 가장 얕은 줄에서 이웃 빛살 간격이 eps의 POLE_NEEDLE배보다 좁아지면 더 나누지 않는다
+ */
+function buildCap(s: Surface, tol: Tol, eps: number, left: UV[], right: UV[], first: UV): PoleCap | null {
+  const A = left[left.length - 1]!;
+  const B = right[right.length - 1]!;
+  const pl = s.poles[first.pole]!;
+  const fx = pl.fixed;
+  const fd = 1 - fx;
+  const c = pl.value;
+  const t0 = coord(A, fd);
+  const t1 = coord(B, fd);
+  const scaleT = 1 + Math.abs(t0) + Math.abs(t1);
+  if (!(Math.abs(t1 - t0) > 1e-9 * scaleT)) return null;
+  const cA = coord(A, fx);
+  const cB = coord(B, fx);
+  if (!((cA - c) * (cB - c) > 0)) return null;
+  const sg = Math.sign(cA - c);
+  const P = first.p;
+  const cosLim = Math.cos(tol.angle);
+  const maxFd = fd === 0 ? s.maxStepU : s.maxStepV;
+  const maxFx = fx === 0 ? s.maxStepU : s.maxStepV;
+  /** 빛살 t의 Γ 쪽 끝 깊이 */
+  const D = (t: number) => Math.abs(cA + ((cB - cA) * (t - t0)) / (t1 - t0) - c);
+  const uvAt = (d: number, t: number): [number, number] => {
+    const x = c + sg * d;
+    return fx === 0 ? [x, t] : [t, x];
+  };
+  const pt = (d: number, t: number): V3 => {
+    if (d === 0) return P;
+    const [u, v] = uvAt(d, t);
+    return s.point(u, v);
+  };
+  /** 빛살 끝(Γ) 점 */
+  const end = (t: number): V3 => (t === t0 ? A.p : t === t1 ? B.p : pt(D(t), t));
+  const nrm = (d: number, t: number): V3 => {
+    const [u, v] = uvAt(d, t);
+    return s.normal(u, v);
+  };
+  const mid3 = (a: V3, b: V3): V3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  // 깊이 줄: 경계 고리 점의 깊이(같은 깊이는 하나로)
+  const base = [...left, ...right].map((q) => Math.abs(coord(q, fx) - c)).sort((a, b) => a - b);
+  const dMax = Math.max(D(t0), D(t1));
+  const rows0: number[] = [];
+  for (const d of base) if (!rows0.length || d - rows0[rows0.length - 1]! > 1e-9 * dMax) rows0.push(d);
+  // 빛살: 이웃 빛살 사이(같은 깊이 두 점의 현)가 곡면에서 현 높이보다 멀거나, 넓은데 법선 각이 크면 나눈다
+  const dMin = rows0[0]!;
+  const sepMin = POLE_NEEDLE * eps;
+  const needRay = (ta: number, tb: number): boolean => {
+    const qa = end(ta);
+    const qb = end(tb);
+    if (dist(qa, qb) <= tol.chord * 0.25) return false;
+    if (dist(pt(dMin, ta), pt(dMin, tb)) < 2 * sepMin) return false;
+    if (Math.abs(tb - ta) > maxFd) return true;
+    const tm = (ta + tb) / 2;
+    const dm = Math.min(D(ta), D(tb));
+    for (const [a, b, d] of [
+      [qa, qb, -1],
+      [pt(dm / 2, ta), pt(dm / 2, tb), dm / 2],
+    ] as const) {
+      const m = d < 0 ? end(tm) : pt(d, tm);
+      if (dist(m, mid3(a, b)) > tol.chord) return true;
+      if (dist(a, b) > tol.chord && dot(d < 0 ? nrm(D(ta), ta) : nrm(d, ta), d < 0 ? nrm(D(tb), tb) : nrm(d, tb)) < cosLim) return true;
+    }
+    return false;
+  };
+  const t: number[] = [t0];
+  const splitRay = (ta: number, tb: number, depth: number) => {
+    if (depth < CAP_RAY_DEPTH && needRay(ta, tb)) {
+      const tm = (ta + tb) / 2;
+      splitRay(ta, tm, depth + 1);
+      splitRay(tm, tb, depth + 1);
+    } else t.push(tb);
+  };
+  splitRay(t0, t1, 0);
+  t[t.length - 1] = t1;
+  const m = t.length - 1;
+  const Q: UV[] = t.map((tr, r) => {
+    if (r === 0) return A;
+    if (r === m) return B;
+    const [u, v] = uvAt(D(tr), tr);
+    return { u, v, p: s.point(u, v), pole: -1 };
+  });
+  // 줄 사이를 빛살을 따라 현 높이·법선 각·매개변수 간격으로 더 나눈다(그 깊이까지 닿는 안쪽 빛살 몇 개를 보고)
+  const rowsAll: number[] = [];
+  if (m > 1) {
+    const test: number[] = [];
+    const step = Math.max(1, Math.floor((m - 1) / CAP_TEST_RAYS));
+    for (let r = 1; r < m; r += step) test.push(t[r]!);
+    const needLevel = (da: number, db: number): boolean => {
+      for (const tr of test) {
+        if (db > D(tr)) continue;
+        const a = pt(da, tr);
+        const b = pt(db, tr);
+        const l = dist(a, b);
+        if (l <= tol.chord * 0.25) continue;
+        if (db - da > maxFx) return true;
+        if (dist(pt((da + db) / 2, tr), mid3(a, b)) > tol.chord) return true;
+        if (l > tol.chord && dot(nrm(da, tr), nrm(db, tr)) < cosLim) return true;
+      }
+      return false;
+    };
+    const splitLevel = (da: number, db: number, depth: number) => {
+      if (depth >= CAP_LEVEL_DEPTH || rowsAll.length >= CAP_MAX_ROWS || !needLevel(da, db)) return;
+      const dm = (da + db) / 2;
+      splitLevel(da, dm, depth + 1);
+      rowsAll.push(dm);
+      splitLevel(dm, db, depth + 1);
+    };
+    for (let k = 0; k < rows0.length; k++) {
+      if (k) splitLevel(rows0[k - 1]!, rows0[k]!, 0);
+      rowsAll.push(rows0[k]!);
+    }
+    // 줄이 너무 많으면(곡면이 극점 둘레에서 심하게 굽음) 캡을 만들지 않는다 — 예전 삼각화로
+    if (rowsAll.length >= CAP_MAX_ROWS) return null;
+  }
+  // 안쪽 빛살마다: 그 빛살 끝보다 얕고 끝 점과 현 높이의 ¼ 넘게 떨어진 줄
+  const rows = t.map((tr, r) => {
+    if (r === 0 || r === m) return [];
+    const q = Q[r]!.p;
+    return rowsAll.filter((d) => d < D(tr) && dist(pt(d, tr), q) > tol.chord * 0.25);
+  });
+  return { p: P, fx, c, t, Q, left, right, rows };
+}
+
+/**
+ * 캡 삼각형을 붙인다: 빛살마다 [극점(극선 위 그 빛살 자리), 안쪽 점…, Q] 줄을 만들고(경계 빛살은 원래 고리 점), 이웃 두 줄 사이를
+ * 깊이 차례로 지퍼처럼 잇는다. 첫 두 삼각형은 (극점, 극점, 오른쪽 첫 점) — 3D 넓이 0이라 내보낼 때 빠진다 — 과
+ * (극점, 오른쪽 첫 점, 왼쪽 첫 점)(극점 부채꼴). 감기는 매개변수 넓이 부호로 반시계에 맞춘다
+ */
+function capTriangles(vs: Verts, cap: PoleCap, index: Map<UV, number>, tris: number[], poleIdx: number[]): void {
+  const fd = 1 - cap.fx;
+  const m = cap.t.length - 1;
+  const depth = (q: UV) => Math.abs(coord(q, cap.fx) - cap.c);
+  /** 고리 점의 정점(바깥 고리에 없는 경계 빛살 점은 새로 넣는다) */
+  const vertex = (q: UV): number => {
+    let i = index.get(q);
+    if (i === undefined) {
+      i = vs.add(q.u, q.v, q.p);
+      index.set(q, i);
+    }
+    return i;
+  };
+  const cols: { d: number; i: number }[][] = cap.t.map((tr, r) => {
+    const pu = cap.fx === 0 ? cap.c : tr;
+    const pv = cap.fx === 0 ? tr : cap.c;
+    const pi = vs.add(pu, pv, cap.p);
+    poleIdx.push(pi);
+    const col = [{ d: 0, i: pi }];
+    if (r === 0 || r === m) return [...col, ...(r === 0 ? cap.left : cap.right).map((q) => ({ d: depth(q), i: vertex(q) }))];
+    const q = cap.Q[r]!;
+    const sg = Math.sign(coord(q, cap.fx) - cap.c);
+    for (const d of cap.rows[r]!) {
+      const x = cap.c + sg * d;
+      const u = cap.fx === 0 ? x : coord(q, fd);
+      const v = cap.fx === 0 ? coord(q, fd) : x;
+      col.push({ d, i: vs.add(u, v, vs.s.point(u, v)) });
+    }
+    col.push({ d: depth(q), i: vertex(q) });
+    return col;
+  });
+  const put = (a: number, b: number, c: number) => {
+    const ar = (vs.u[b]! - vs.u[a]!) * (vs.v[c]! - vs.v[a]!) - (vs.u[c]! - vs.u[a]!) * (vs.v[b]! - vs.v[a]!);
+    if (ar < 0) tris.push(a, c, b);
+    else tris.push(a, b, c);
+  };
+  for (let r = 0; r < m; r++) {
+    const L = cols[r]!;
+    const R = cols[r + 1]!;
+    put(L[0]!.i, R[0]!.i, R[1]!.i);
+    put(L[0]!.i, R[1]!.i, L[1]!.i);
+    let i = 1;
+    let j = 1;
+    while (i + 1 < L.length || j + 1 < R.length) {
+      const advL = j + 1 >= R.length || (i + 1 < L.length && L[i + 1]!.d <= R[j + 1]!.d);
+      if (advL) {
+        put(L[i]!.i, R[j]!.i, L[i + 1]!.i);
+        i++;
+      } else {
+        put(L[i]!.i, R[j]!.i, R[j + 1]!.i);
+        j++;
+      }
+    }
+  }
 }
 
 /**
