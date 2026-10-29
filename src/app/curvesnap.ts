@@ -13,7 +13,7 @@
  * - 코어 가운데 점('midpoint'): 그 토막 두 끝 매개변수의 가운데(원은 그 호의 길이 가운데와 같다). STEP은 코어 가운데 점을 끄므로 지금은 오지 않는다
  * - 교차점('intersection' — 0.15.0, 코어 교차점과 넓힌 교차): 두 토막의 모서리 곡선의 3D 교차점(intersectEdges)
  * - 축과 선분의 교차('axisEdge' — 0.18.0, 첫 점 축·끌어온 축): 축 직선(line)과 그 토막의 모서리 곡선의 교차(intersectAxis — 곧은 모서리·원·타원은 식,
- *   B-스플라인은 반복). 돌려주는 점은 축 직선 위다. 0.20.0의 열린 후보(open — 직선이 꺾은선 토막의 활꼴만 지나 현과 만나지 않는다)와
+ *   B-스플라인은 반복 — 접하는 자리는 접선이 직선과 나란한 매개변수를 따로 푼다). 돌려주는 점은 축 직선 위다. 0.20.0의 열린 후보(open — 직선이 꺾은선 토막의 활꼴만 지나 현과 만나지 않는다)와
  *   축이 아닌 잠근 선(line.axis 없음 — 나란함·앱이 정한 방향·곡선 접선)도 같은 계산이다(line.origin·line.dir만 읽는다)
  * - 그 밖의 종류(코어가 뒤에 더할 것)는 null
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
@@ -594,14 +594,16 @@ function circleCircle(c1: { c: V3; n: V3; r: number }, c2: { c: V3; n: V3; r: nu
 /**
  * 두 매개변수 가우스-뉴턴: F(s, t) = A(s) − B(t)의 제곱을 줄인다(정규 방정식 [A′·A′, −A′·B′; −A′·B′, B′·B′] Δ = −[A′·F, −B′·F],
  * 늘면 걸음을 반씩). 매개변수는 모서리 구간 안으로(닫힌 주기 곡선은 그대로). 만나는 두 곡선이면 두 차례로 줄어 교차점에 닿고,
- * 비켜 지나가면 가장 가까운 두 점에 머문다. 두 접선이 나란해지면(접하는 자리) 멈춘다
+ * 비켜 지나가면 가장 가까운 두 점에 머문다. 두 접선이 나란해지면(접하는 자리) 멈춘다(parallel — 그 자리의 A 매개변수 s).
+ * 접하는 자리에서는 거리가 매개변수 차의 제곱으로만 줄어 멈춘 곳이 접점에서 곡률 반지름의 1e-7배쯤 비켜 있다(축과 곡선은 touchParam이 다시 푼다)
  */
-function closestOnPair(A: Track, B: Track, s: number, t: number): Pair {
+function closestOnPair(A: Track, B: Track, s: number, t: number): { pair: Pair; s: number; parallel: boolean } {
   const fit = (x: Track, v: number): number => (x.free ? v : Math.min(x.hi, Math.max(x.lo, v)));
   let [P, DA] = A.ev(s);
   let [Q, DB] = B.ev(t);
   let F = sub(P, Q);
   let f2 = dot(F, F);
+  let parallel = false;
   for (let it = 0; it < 64 && f2 > 0; it++) {
     const a11 = dot(DA, DA);
     const a12 = -dot(DA, DB);
@@ -609,7 +611,10 @@ function closestOnPair(A: Track, B: Track, s: number, t: number): Pair {
     const g1 = dot(DA, F);
     const g2 = -dot(DB, F);
     const det = a11 * a22 - a12 * a12;
-    if (!(det > 1e-14 * a11 * a22)) break;
+    if (!(det > 1e-14 * a11 * a22)) {
+      parallel = true;
+      break;
+    }
     const ds = (-g1 * a22 + g2 * a12) / det;
     const dt = (-g2 * a11 + g1 * a12) / det;
     let moved = false;
@@ -628,7 +633,7 @@ function closestOnPair(A: Track, B: Track, s: number, t: number): Pair {
     }
     if (!moved) break;
   }
-  return [[P[0], P[1], P[2]], [Q[0], Q[1], Q[2]]];
+  return { pair: [[P[0], P[1], P[2]], [Q[0], Q[1], Q[2]]], s, parallel };
 }
 
 /**
@@ -663,7 +668,7 @@ function curvePairs(A: Side, B: Side): Pair[] {
   for (let i = 0; i < d.length; i++) if ((i === 0 || d[i]! <= d[i - 1]!) && (i === d.length - 1 || d[i]! <= d[i + 1]!)) mins.push(i);
   mins.sort((x, y) => d[x]! - d[y]!);
   return mins.slice(0, 3).map((i) => {
-    const [p, q] = closestOnPair(S, T, S.ts[i]!, tt[i]!);
+    const [p, q] = closestOnPair(S, T, S.ts[i]!, tt[i]!).pair;
     return swap ? [q, p] : [p, q];
   });
 }
@@ -780,14 +785,50 @@ function axisCurve(L: Line3, S: Side): Pair[] {
   for (let i = 0; i < d.length; i++) if ((i === 0 || d[i]! <= d[i - 1]!) && (i === d.length - 1 || d[i]! <= d[i + 1]!)) mins.push(i);
   mins.sort((x, y) => d[x]! - d[y]!);
   return mins.slice(0, 3).map((i) => {
-    const [q, p] = closestOnPair(S, line, S.ts[i]!, ss[i]!);
+    const r = closestOnPair(S, line, S.ts[i]!, ss[i]!);
+    const [q, p] = r.pair;
+    const t = r.parallel ? touchParam(S, L, r.s) : null;
+    if (t !== null) {
+      // 접점(곡선 위)과 그 점을 직선에 내린 발. 멈춘 자리보다 직선에서 멀어지면(반올림 몫은 넘어간다) 그대로 둔다
+      const Q = S.ev(t)[0];
+      const P = addK(L.a, L.d, dot(sub(Q, L.a), L.d));
+      if (P.every(Number.isFinite) && dist(P, Q) <= Math.max(dist(p, q), 1e-12 * S.mag)) return [P, Q];
+    }
     return [p, q];
   });
 }
 
 /**
+ * 축 직선이 B-스플라인 등 곡선에 접하는 자리(24차 — 두 접선이 나란해 가우스-뉴턴이 멈춘 곳): 곡선 접선 C′(t)가 직선 방향 d와 나란한 매개변수를
+ * 1차원 뉴턴(rtsafe — 부호가 바뀌는 구간 안에서만, 더디거나 구간 밖으로 나가면 반 나눔)으로 푼다.
+ * ψ(t) = (C′(t) × d)·m, m은 멈춘 자리 s에서 C″ × d의 단위 벡터(곡선이 굽는 쪽 — 그 둘레에서 ψ′ = (C″ × d)·m > 0).
+ * 구간은 s 앞뒤로 표본 간격의 1.5배(곧은 모서리 구간 안 — 닫힌 주기 곡선은 그대로)라 먼 곳의 나란한 자리로 건너가지 않는다.
+ * 곧은 곳(C″ × d가 0 — 굽는 쪽이 없다)이나 구간 끝에서 ψ의 부호가 같으면(변곡점·접점이 모서리 밖) null — 가우스-뉴턴 점 그대로.
+ * 받은 접점이 직선에서 허용치 안인지는 부르는 쪽(intersectAxis)이 본다
+ */
+function touchParam(S: Side, L: Line3, s: number): number | null {
+  const m = unitOf(crossV(S.ev(s)[2], L.d));
+  const n = S.ts.length;
+  if (!m || n < 2) return null;
+  const h = (1.5 * (S.ts[n - 1]! - S.ts[0]!)) / (n - 1);
+  const lo = S.free ? s - h : Math.max(S.lo, s - h);
+  const hi = S.free ? s + h : Math.min(S.hi, s + h);
+  const gh = (t: number): [number, number] => {
+    const [, D, A] = S.ev(t);
+    return [dot(crossV(D, L.d), m), dot(crossV(A, L.d), m)];
+  };
+  const a = gh(lo)[0];
+  const b = gh(hi)[0];
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a * b > 0 || !(hi > lo)) return null;
+  if (a === 0) return lo;
+  if (b === 0) return hi;
+  return a < 0 ? rtsafe(gh, lo, hi) : rtsafe(gh, hi, lo);
+}
+
+/**
  * 코어 축과 선분의 교차(0.18.0 'axisEdge' — 첫 점 축·끌어온 축이 꺾은선 토막과 만나는 점) → 축 직선(c.line)과 그 토막의 B-rep 모서리 곡선의 교차(세계, 축 직선 위 점).
  * - 곧은 모서리는 두 끝 꼭짓점(float32 윤곽선)을 잇는 직선과의 가장 가까운 두 점, 원·타원은 식(axisConic), B-스플라인은 반복(axisCurve)
+ *   (직선이 곡선에 접해 반복이 멈추면 접점을 따로 풀어(touchParam) 직선에서 허용치 안일 때만 그 접점의 발 — 24차)
  * - 허용치 tol = 1e-6 × (토막 길이 + 토막 끝 묶음 좌표 크기)(교차점과 같다): 직선 위 점과 곡선 위 점 사이가 이보다 멀면 만나지 않는 것.
  *   곡선 위 점이 모서리 범위(곧은 모서리는 두 끝 사이, 호는 두 끝 각 사이) 안이어야 하고, 축이 지나는 점(첫 점·끌어온 점) 자리는 뺀다
  *   (그 점이 곡선 위라서 만나는 것 — 코어도 뺀다). 후보가 여럿(평면 위 직선과 원의 두 교점 등)이면 코어 점에 가장 가까운 것
