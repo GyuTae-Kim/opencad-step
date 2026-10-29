@@ -9,13 +9,15 @@
  * ∮_∂D G dv(G(u,v) = ∫_{u_ref}^{u} F(s,v) ds)로 바꾼다(Sommariva–Vianello 2009의 매개변수 공간 가우스–그린 적분과 같은 생각).
  * - 안쪽 적분 G: 평면은 F가 u의 3차 다항식이라 3점 가우스로 정확하다. 원기둥·원뿔·구·원환은 S가 (cos u, sin u)의 일차식이고
  *   N도 일차식이라 F가 u의 4차 이하 삼각 다항식이다 — 등간격 9점 값으로 푸리에 계수를 구해 닫힌 식으로 적분한다(정확).
+ *   회전 곡면(직선·원·타원·B-스플라인 윤곽)도 S − c와 N이 (cos u, sin u)의 일차식이라 같은 식으로 정확하다(revInner).
  * - 바깥 적분: 경계 토막이 모서리 곡선이면 곡선 매개변수 t의 8점 가우스로(곡선 위 점을 곡면에 되짚어 (u,v)·dv/dt),
  *   이음선·극선·정의역 끝처럼 매개변수 공간에서 곧은 토막은 (u,v) 직선 위 가우스로. 둘 다 각 π/8 넘는 토막은 나눈다.
  * 경계가 직선·원·타원이고 곡면 위에 있으면 반올림 오차 수준(1e-12 안팎)으로 맞는다. 곡선이 곡면에서 떨어져 있으면(B-스플라인 교선,
  * 꼭짓점이 곡선에서 먼 모서리의 꺾인 선) 떨어진 거리로 부피 어림 오차(bound)를 더한다.
  */
+import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve } from './curves';
 import type { V3 } from './math';
-import { ConeSurface, CylinderSurface, PlaneSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
+import { ConeSurface, CylinderSurface, PlaneSurface, RevolutionSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
 import type { Polygon, UV } from './tessellate';
 
 /** 흐름 값 개수: [3V, 4Mx, 4My, 4Mz, 5Sxx, 5Syy, 5Szz, 5Sxy, 5Syz, 5Szx, ∮Nx, ∮Ny, ∮Nz] */
@@ -132,16 +134,22 @@ export function lineCurve(a: V3, b: V3): BoundaryCurve {
   return { point: (t) => [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t], d1: () => d };
 }
 
-/** 정확히 적분할 수 있는 곡면(평면·원기둥·원뿔·구·원환) */
+/** 정확히 적분할 수 있는 곡면(평면·원기둥·원뿔·구·원환, 직선·원·타원·B-스플라인 윤곽의 회전 곡면) */
 export function integrableSurface(s: Surface): boolean {
+  if (s instanceof RevolutionSurface) {
+    const c = s.c;
+    return c instanceof LineCurve || c instanceof CircleCurve || c instanceof EllipseCurve || c instanceof BSplineCurve;
+  }
   return s instanceof PlaneSurface || s instanceof CylinderSurface || s instanceof ConeSurface || s instanceof SphereSurface || s instanceof TorusSurface;
 }
 
 /** 곡면 계산기: 안쪽 적분 G(u,v)를 out에 w배로 더한다 */
 interface Inner {
   readonly plane: boolean;
-  /** v가 각(구·원환)인지 */
+  /** v가 각(구·원환, 원·타원 윤곽의 회전 곡면)인지 */
   readonly angularV: boolean;
+  /** 매개변수 공간 직선 토막을 나눌 v 값(회전 곡면 B-스플라인 윤곽의 매듭 — 구간마다 다항식이라 가우스가 정확), 없으면 빈 배열 */
+  readonly vBreaks: readonly number[];
   add(out: Float64Array, w: number, u: number, v: number): void;
 }
 
@@ -155,6 +163,7 @@ function planeInner(s: PlaneSurface, c: V3, uref: number): Inner {
   return {
     plane: true,
     angularV: false,
+    vBreaks: [],
     add(out, w, u, v) {
       const h = (u - uref) / 2;
       if (h === 0) return;
@@ -182,10 +191,9 @@ function rotInner(s: CylinderSurface | ConeSurface | SphereSurface | TorusSurfac
   else profile = (v) => [s.R + s.r * Math.cos(v), -s.r * Math.sin(v), s.r * Math.sin(v), s.r * Math.cos(v)];
   const angularV = s instanceof SphereSurface || s instanceof TorusSurface;
   const W = new Float64Array(NF);
-  // 표본 방향(반지름 r_j·접선 t_j)과 u_ref 쪽 몫 Σ_m sin m(u_ref − s_j)/m은 면마다 한 번
+  // 표본 방향(반지름 r_j·접선 t_j)과 u_ref 쪽 몫은 면마다 한 번
   const R = new Float64Array(NF * 3);
   const T = new Float64Array(NF * 3);
-  const REF = new Float64Array(NF);
   for (let j = 0; j < NF; j++) {
     const cj = CJ[j]!;
     const sj = SNJ[j]!;
@@ -193,21 +201,14 @@ function rotInner(s: CylinderSurface | ConeSurface | SphereSurface | TorusSurfac
       R[j * 3 + k] = X[k]! * cj + Y[k]! * sj;
       T[j * 3 + k] = Y[k]! * cj - X[k]! * sj;
     }
-    REF[j] = sinSeries(Math.sin(uref - SJ[j]!), Math.cos(uref - SJ[j]!));
   }
+  const REF = fourierRef(uref);
   return {
     plane: false,
     angularV,
+    vBreaks: [],
     add(out, w, u, v) {
-      const du = u - uref;
-      const su = Math.sin(u);
-      const cu = Math.cos(u);
-      for (let j = 0; j < NF; j++) {
-        // x = u − s_j: sin x·cos x를 덧셈 정리로(삼각 함수 호출을 줄인다)
-        const sx = su * CJ[j]! - cu * SNJ[j]!;
-        const cx = cu * CJ[j]! + su * SNJ[j]!;
-        W[j] = du / NF + (2 / NF) * (sinSeries(sx, cx) - REF[j]!);
-      }
+      fourierWeights(W, u, uref, REF);
       const [rho, drho, zeta, dzeta] = profile(v);
       for (let j = 0; j < NF; j++) {
         const rx = R[j * 3]!, ry = R[j * 3 + 1]!, rz = R[j * 3 + 2]!;
@@ -219,6 +220,75 @@ function rotInner(s: CylinderSurface | ConeSurface | SphereSurface | TorusSurfac
       }
     },
   };
+}
+
+/**
+ * 곡선을 축 둘레로 돌린 곡면 S = a0 + R_u q(v)(q = c(v) − a0, R_u는 축 ax 둘레 u 회전): S_u = R_u(ax × q), S_v = R_u q'이라
+ * N = R_u((ax × q) × q')와 S − c는 (cos u, sin u)의 일차식이고 F는 u의 3차 이하 삼각 다항식이다 — rotInner와 같은 9점 몫으로 정확
+ * (윤곽 곡선이 축과 한 평면에 있지 않아도 된다). v 쪽: 원·타원 윤곽은 각(π/8 토막), B-스플라인 윤곽은 매듭 구간마다 다항식이라
+ * 매개변수 공간 직선 토막을 매듭에서 나눈다(3차 윤곽이면 F가 v의 14차 이하 — 8점 가우스로 정확)
+ */
+function revInner(s: RevolutionSurface, c: V3, uref: number): Inner {
+  const { a0, ax } = s;
+  const prof = s.c;
+  const dx = a0[0] - c[0], dy = a0[1] - c[1], dz = a0[2] - c[2];
+  const ax0 = ax[0], ax1 = ax[1], ax2 = ax[2];
+  const W = new Float64Array(NF);
+  const REF = fourierRef(uref);
+  return {
+    plane: false,
+    angularV: prof instanceof CircleCurve || prof instanceof EllipseCurve,
+    vBreaks: prof instanceof BSplineCurve ? prof.bp : [],
+    add(out, w, u, v) {
+      fourierWeights(W, u, uref, REF);
+      // q = h·ax + e(축에 수직), f = ax × e: R_s q = h·ax + cos s·e + sin s·f, R_s(ax × q) = cos s·f − sin s·e
+      const P = prof.point(v);
+      const D = prof.d1(v);
+      const qx = P[0] - a0[0], qy = P[1] - a0[1], qz = P[2] - a0[2];
+      const h = qx * ax0 + qy * ax1 + qz * ax2;
+      const ex = qx - h * ax0, ey = qy - h * ax1, ez = qz - h * ax2;
+      const fx = ax1 * ez - ax2 * ey, fy = ax2 * ex - ax0 * ez, fz = ax0 * ey - ax1 * ex;
+      const hd = D[0] * ax0 + D[1] * ax1 + D[2] * ax2;
+      const edx = D[0] - hd * ax0, edy = D[1] - hd * ax1, edz = D[2] - hd * ax2;
+      const fdx = ax1 * edz - ax2 * edy, fdy = ax2 * edx - ax0 * edz, fdz = ax0 * edy - ax1 * edx;
+      for (let j = 0; j < NF; j++) {
+        const cs = CJ[j]!;
+        const sn = SNJ[j]!;
+        const ux = cs * fx - sn * ex, uy = cs * fy - sn * ey, uz = cs * fz - sn * ez;
+        const vx = hd * ax0 + cs * edx + sn * fdx, vy = hd * ax1 + cs * edy + sn * fdy, vz = hd * ax2 + cs * edz + sn * fdz;
+        addFlux(
+          out,
+          w * W[j]!,
+          dx + h * ax0 + cs * ex + sn * fx,
+          dy + h * ax1 + cs * ey + sn * fy,
+          dz + h * ax2 + cs * ez + sn * fz,
+          uy * vz - uz * vy,
+          uz * vx - ux * vz,
+          ux * vy - uy * vx,
+        );
+      }
+    },
+  };
+}
+
+/** u_ref 쪽 몫 Σ_m sin m(u_ref − s_j)/m(면마다 한 번) */
+function fourierRef(uref: number): Float64Array {
+  const REF = new Float64Array(NF);
+  for (let j = 0; j < NF; j++) REF[j] = sinSeries(Math.sin(uref - SJ[j]!), Math.cos(uref - SJ[j]!));
+  return REF;
+}
+
+/** W_j(u) = (u − u_ref)/9 + (2/9) Σ_{m=1..4} [sin m(u − s_j) − sin m(u_ref − s_j)]/m → W */
+function fourierWeights(W: Float64Array, u: number, uref: number, REF: Float64Array): void {
+  const du = u - uref;
+  const su = Math.sin(u);
+  const cu = Math.cos(u);
+  for (let j = 0; j < NF; j++) {
+    // x = u − s_j: sin x·cos x를 덧셈 정리로(삼각 함수 호출을 줄인다)
+    const sx = su * CJ[j]! - cu * SNJ[j]!;
+    const cx = cu * CJ[j]! + su * SNJ[j]!;
+    W[j] = du / NF + (2 / NF) * (sinSeries(sx, cx) - REF[j]!);
+  }
 }
 
 /** Σ_{m=1..4} sin(m x)/m (sin x·cos x에서 배각 공식으로) */
@@ -250,7 +320,7 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
     }
   if (!n) return NaN;
   uref /= n;
-  const inner = s instanceof PlaneSurface ? planeInner(s, c, uref) : rotInner(s as CylinderSurface, c, uref);
+  const inner = s instanceof PlaneSurface ? planeInner(s, c, uref) : s instanceof RevolutionSurface ? revInner(s, c, uref) : rotInner(s as CylinderSurface, c, uref);
   const Pu = s.periodU;
   const Pv = s.periodV;
   /** 이보다 작은 v 변화는 0으로 본다(v가 일정한 곡선 — 원기둥 둘레 원 등 — 의 반올림 값) */
@@ -297,12 +367,32 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
         if (dv === 0) continue;
         if (ruling) nsub = 1;
         const rule = inner.plane || ruling ? G3 : G8;
-        for (let k = 0; k < nsub; k++) {
-          const f0 = k / nsub;
-          const h = 1 / nsub / 2;
-          for (const [x, gw] of rule) {
-            const f = f0 + h * (1 + x);
-            inner.add(out, sign * gw * h * dv, a.u + du * f, a.v + dv * f);
+        // 토막 안의 v 매듭(주기면 주기만큼 옮긴 것도)에서 나눈다 — 비율 0 < f < 1
+        const cuts = [0];
+        if (inner.vBreaks.length) {
+          const lo = Math.min(a.v, b.v);
+          const hi = Math.max(a.v, b.v);
+          for (const x0 of inner.vBreaks) {
+            const n0 = Pv > 0 ? Math.ceil((lo - x0) / Pv) : 0;
+            const n1 = Pv > 0 ? Math.floor((hi - x0) / Pv) : 0;
+            for (let n = n0; n <= n1; n++) {
+              const x = x0 + n * Pv;
+              if (x > lo && x < hi) cuts.push((x - a.v) / dv);
+            }
+          }
+          cuts.sort((x, y) => x - y);
+        }
+        cuts.push(1);
+        for (let p = 0; p + 1 < cuts.length; p++) {
+          const fa = cuts[p]!;
+          const span = cuts[p + 1]! - fa;
+          for (let k = 0; k < nsub; k++) {
+            const f0 = fa + (span * k) / nsub;
+            const h = span / nsub / 2;
+            for (const [x, gw] of rule) {
+              const f = f0 + h * (1 + x);
+              inner.add(out, sign * gw * h * dv, a.u + du * f, a.v + dv * f);
+            }
           }
         }
         continue;
