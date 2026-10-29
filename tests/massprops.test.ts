@@ -46,14 +46,48 @@ function gauss(f: (x: number) => number, a: number, b: number): number {
   return (s * (b - a)) / 2;
 }
 
-/** z축 회전체(반지름 ρ(z), z ∈ [z0, z1]) */
-function revolved(rho: (z: number) => number, z0: number, z1: number): Expect {
-  const V = gauss((z) => Math.PI * rho(z) ** 2, z0, z1);
-  const zc = gauss((z) => z * Math.PI * rho(z) ** 2, z0, z1) / V;
-  const xx = gauss((z) => (Math.PI * rho(z) ** 4) / 4, z0, z1);
-  const zz = gauss((z) => (z - zc) ** 2 * Math.PI * rho(z) ** 2, z0, z1);
+/** z축 회전체(반지름 ρ(z), z ∈ [z0, z1]). breaks: ρ가 조각 다항식이면 그 이음 z(가우스를 조각마다) */
+function revolved(rho: (z: number) => number, z0: number, z1: number, breaks: number[] = []): Expect {
+  const zs = [z0, ...breaks, z1];
+  const g = (f: (z: number) => number) => zs.slice(1).reduce((s, b, i) => s + gauss(f, zs[i]!, b), 0);
+  const V = g((z) => Math.PI * rho(z) ** 2);
+  const zc = g((z) => z * Math.PI * rho(z) ** 2) / V;
+  const xx = g((z) => (Math.PI * rho(z) ** 4) / 4);
+  const zz = g((z) => (z - zc) ** 2 * Math.PI * rho(z) ** 2);
   return { V, c: [0, 0, zc], S: [xx, xx, zz, 0, 0, 0] };
 }
+
+/** 원환(큰 반지름 R, 작은 반지름 rr, z축) */
+function torusExpect(R: number, rr: number): Expect {
+  const V = 2 * Math.PI * Math.PI * R * rr * rr;
+  const xx = (V * (R * R + (3 * rr * rr) / 4)) / 2;
+  return { V, c: [0, 0, 0], S: [xx, xx, (V * rr * rr) / 4, 0, 0, 0] };
+}
+
+/** 3차 B-스플라인 값(드 부어) */
+function deBoor3(knots: number[], ctrl: number[], t: number): number {
+  const p = 3;
+  let k = p;
+  while (k < ctrl.length - 1 && t >= knots[k + 1]!) k++;
+  const d = Array.from({ length: p + 1 }, (_, j) => ctrl[j + k - p]!);
+  for (let r = 1; r <= p; r++)
+    for (let j = p; j >= r; j--) {
+      const i = j + k - p;
+      const a = (t - knots[i]!) / (knots[i + p - r + 1]! - knots[i]!);
+      d[j] = (1 - a) * d[j - 1]! + a * d[j]!;
+    }
+  return d[p]!;
+}
+
+/**
+ * 꽃병 윤곽: 매듭 하나(t = VASE_KNOT — 삼각화가 이음선을 나누는 t = 1/2와 다른 자리)인 3차 B-스플라인, 반지름 조절점 VASE_R,
+ * 높이는 z = VASE_H·t(그레빌 점에 둔 조절점 — 일차 정확)
+ */
+const VASE_KNOT = 0.3;
+const VASE_KNOTS = [0, 0, 0, 0, VASE_KNOT, 1, 1, 1, 1];
+const VASE_R = [6, 9, 4, 7, 5];
+const VASE_H = 12;
+const vaseRho = (z: number) => deBoor3(VASE_KNOTS, VASE_R, z / VASE_H);
 
 /** a×b×c 상자(모서리 o) */
 function boxExpect(a: number, b: number, c: number, o: P3 = [0, 0, 0]): Expect {
@@ -101,6 +135,46 @@ function extrudedCylinder(w: StepText, rad: number, h: number): number {
   return w.solid([bottom, top, side], 'xcyl');
 }
 
+/** z축 회전 곡면(SURFACE_OF_REVOLUTION) */
+function revSurface(w: StepText, curve: number): number {
+  const axis = w.add('AXIS1_PLACEMENT', `'',#${w.pt([0, 0, 0])},#${w.dir([0, 0, 1])}`);
+  return w.add('SURFACE_OF_REVOLUTION', `'',#${curve},#${axis}`);
+}
+
+/** 원환을 회전 곡면으로: xz 평면의 원(가운데 (R,0,0), 반지름 rr)을 z축 둘레로 돌린 면 하나, 두 이음선 원 */
+function revTorus(w: StepText, R: number, rr: number): number {
+  const V = w.vertex([R + rr, 0, 0]);
+  const Q = w.edge(V, V, w.circle([0, 0, 0], R + rr));
+  const M = w.edge(V, V, w.circle([R, 0, 0], rr, [0, -1, 0], [1, 0, 0]));
+  const surf = revSurface(w, w.circle([R, 0, 0], rr, [0, -1, 0], [1, 0, 0]));
+  const f = w.face([w.bound(w.loop([w.oe(Q, true), w.oe(M, true), w.oe(Q, false), w.oe(M, false)]))], surf);
+  return w.solid([f], 'rtorus');
+}
+
+/**
+ * 꽃병: B-스플라인 윤곽(xz 평면)을 z축 둘레로 돌린 옆면과 위·아래 원판. seam이면 윤곽 이음선 모서리 하나,
+ * 아니면 옆면 경계가 위·아래 원 둘뿐(삼각화가 매개변수 공간 이음선으로 잇는다 — 그 직선 토막이 매듭을 지난다)
+ */
+function vase(w: StepText, seam = true): number {
+  const greville = VASE_R.map((_, i) => (VASE_KNOTS[i + 1]! + VASE_KNOTS[i + 2]! + VASE_KNOTS[i + 3]!) / 3);
+  const pts = VASE_R.map((x, i) => w.pt([x, 0, VASE_H * greville[i]!]));
+  const profile = () => w.add('B_SPLINE_CURVE_WITH_KNOTS', `'',3,(${pts.map((p) => `#${p}`).join(',')}),.UNSPECIFIED.,.F.,.F.,(4,1,4),(0.,${VASE_KNOT},1.),.UNSPECIFIED.`);
+  const r0 = VASE_R[0]!;
+  const r1 = VASE_R[VASE_R.length - 1]!;
+  const V0 = w.vertex([r0, 0, 0]);
+  const V1 = w.vertex([r1, 0, VASE_H]);
+  const C0 = w.edge(V0, V0, w.circle([0, 0, 0], r0));
+  const C1 = w.edge(V1, V1, w.circle([0, 0, VASE_H], r1));
+  const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
+  const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, VASE_H]));
+  let side: number;
+  if (seam) {
+    const L = w.edge(V0, V1, profile());
+    side = w.face([w.bound(w.loop([w.oe(C0, true), w.oe(L, true), w.oe(C1, false), w.oe(L, false)]))], revSurface(w, profile()));
+  } else side = w.face([w.bound(w.loop([w.oe(C0, true)])), w.bound(w.loop([w.oe(C1, false)]), false)], revSurface(w, profile()));
+  return w.solid([bottom, top, side], 'vase');
+}
+
 /** 입체 하나를 열어 면 표 질량 속성과 장면을 돌려준다 */
 function open(build: (w: StepText) => number, opts: Parameters<typeof stepToScene>[1] = {}, unit: 'mm' | 'inch' = 'mm') {
   const w = new StepText();
@@ -133,16 +207,10 @@ const CASES: { name: string; build: (w: StepText) => number; want: Expect; size:
   { name: '정육면체(자리 옮김)', build: (w) => cube(w, 10, [3, -4, 5]).solid, want: boxExpect(10, 10, 10, [3, -4, 5]), size: 10 },
   { name: '원기둥', build: (w) => cylinder(w, 5, 20), want: revolved(() => 5, 0, 20), size: 20 },
   { name: '구', build: (w) => sphere(w, 7), want: { V: (4 / 3) * Math.PI * 343, c: [0, 0, 0], S: [0, 1, 2].map(() => ((4 / 3) * Math.PI * 343 * 49) / 5).concat([0, 0, 0]) as Sym }, size: 14 },
-  {
-    name: '원환',
-    build: (w) => torus(w, 10, 3),
-    want: (() => {
-      const V = 2 * Math.PI * Math.PI * 10 * 9;
-      const xx = (V * (100 + (3 * 9) / 4)) / 2;
-      return { V, c: [0, 0, 0] as P3, S: [xx, xx, (V * 9) / 4, 0, 0, 0] as Sym };
-    })(),
-    size: 26,
-  },
+  { name: '원환', build: (w) => torus(w, 10, 3), want: torusExpect(10, 3), size: 26 },
+  { name: '회전 곡면(원 윤곽) 원환', build: (w) => revTorus(w, 10, 3), want: torusExpect(10, 3), size: 26 },
+  { name: '회전 곡면(B-스플라인 윤곽, 매듭 하나) 꽃병', build: (w) => vase(w), want: revolved(vaseRho, 0, VASE_H, [VASE_H * VASE_KNOT]), size: 18 },
+  { name: '회전 곡면 꽃병(윤곽 이음선 모서리 없이 위·아래 원만)', build: (w) => vase(w, false), want: revolved(vaseRho, 0, VASE_H, [VASE_H * VASE_KNOT]), size: 18 },
   { name: '구멍 판', build: (w) => plateWithHole(w), want: minus(boxExpect(20, 10, 2), { ...revolved(() => 2, 0, 2), c: [10, 5, 1] }), size: 20 },
   { name: '원뿔대', build: (w) => frustum(w, 6, 2, 8), want: revolved((z) => 6 + ((2 - 6) * z) / 8, 0, 8), size: 12 },
   { name: '원뿔(꼭짓점 극)', build: (w) => cone(w, 4, 9), want: revolved((z) => 4 * (1 - z / 9), 0, 9), size: 9 },
