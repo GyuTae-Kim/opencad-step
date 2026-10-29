@@ -2,11 +2,16 @@
  * B-rep 질량 속성(massprops.ts·brep.ts·physics.ts): 해석적 입체를 합성 STEP으로 만들어 부피·무게중심·무게중심 기준 2차 모멘트를
  * 닫힌 식과 견준다. 평면·원기둥·원뿔·구·원환과 직선·원 모서리로 된 입체는 곡면 적분이라 반올림 수준(여기서는 상대 1e-9)으로 맞아야 한다.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { stepToScene } from '../src/index';
-import { FLUX, KRONROD15, PROPS_BREP, PROPS_LEN, PROPS_TIMEOUT, addSliverFlux, faceFlux, gaussRule, lineCurve, trianglesFlux } from '../src/massprops';
+import { BSplineCurve, CircleCurve, CompositeCurve, TrimmedCurve } from '../src/curves';
+import { FLUX, KRONROD15, PROPS_BREP, PROPS_LEN, PROPS_TIMEOUT, addFlux, addSliverFlux, faceFlux, gaussRule, lineCurve, trianglesFlux, type BoundaryCurve, type Seg } from '../src/massprops';
+import type { V3 } from '../src/math';
+import { NurbsCurve, NurbsSurface } from '../src/nurbs';
 import type { StepFaceTable } from '../src/scene';
-import { scaleProps } from '../src/scene';
+import { applyProps, scaleProps, stepToSceneDeferred } from '../src/scene';
+import { BSplineSurface, ExtrusionSurface } from '../src/surfaces';
+import type { UV } from '../src/tessellate';
 import { createDoc } from '../src/app/doc';
 import { accuracyText, localProps, physProps } from '../src/app/physics';
 import { cone, cube, cylinder, plateWithHole, r, sphere, StepText, torus, type P3 } from './stepText';
@@ -741,6 +746,210 @@ describe('B-스플라인 곡면·B-스플라인 곡선을 민 곡면 질량 속�
     expect(bound / want.V).toBeLessThan(1e-7);
     const e = relErr(got, want, 20);
     expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+  });
+});
+
+/** 물결 친 쌍삼차 B-스플라인 곡면(가로 10·세로 8, 매듭 U·V) */
+function wavyPatch(U: readonly number[], V: readonly number[]): BSplineSurface {
+  const nu = U.length - 4;
+  const nv = V.length - 4;
+  const ctrl = Array.from({ length: nu }, (_, i) => Array.from({ length: nv }, (_, j): V3 => [(10 * i) / (nu - 1), (8 * j) / (nv - 1), 1.5 * Math.sin(1.3 * i + 0.7 * j) + 0.4 * Math.cos(2.1 * j - i)]));
+  return new BSplineSurface(new NurbsSurface(3, 3, Float64Array.from(U), Float64Array.from(V), ctrl, null), 1e-9);
+}
+
+/**
+ * 곡면 g 위 (u,v) 원(가운데 (uc, vc), 반지름 rad, t = 각)을 곡면 법선 쪽으로 off 띄운 경계 곡선과, 그 원을 n토막 낸 면 다각형·토막 함수.
+ * 곡선 점을 구한 횟수(n)를 센다
+ */
+function diskFace(g: BSplineSurface, uc: number, vc: number, rad: number, off: number, n = 32) {
+  const curve: BoundaryCurve & { n: number } = {
+    n: 0,
+    point: (t) => curve.pointD1!(t)[0],
+    d1: (t) => curve.pointD1!(t)[1],
+    pointD1(t) {
+      curve.n++;
+      const u = uc + rad * Math.cos(t);
+      const v = vc + rad * Math.sin(t);
+      const ut = -rad * Math.sin(t);
+      const vt = rad * Math.cos(t);
+      const [S, Su, Sv, Suu, Suv, Svv] = g.derivs2(u, v);
+      const D: V3 = [Su[0] * ut + Sv[0] * vt, Su[1] * ut + Sv[1] * vt, Su[2] * ut + Sv[2] * vt];
+      if (!off) return [S, D];
+      // X = S + off·n̂, X' = D + off·n̂′(n = S_u × S_v, n̂′ = (n′ − n̂(n̂·n′)) / |n|)
+      const cr = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+      const nn = cr(Su, Sv);
+      const L = Math.hypot(...nn);
+      const nh: V3 = [nn[0] / L, nn[1] / L, nn[2] / L];
+      const Sut: V3 = [Suu[0] * ut + Suv[0] * vt, Suu[1] * ut + Suv[1] * vt, Suu[2] * ut + Suv[2] * vt];
+      const Svt: V3 = [Suv[0] * ut + Svv[0] * vt, Suv[1] * ut + Svv[1] * vt, Suv[2] * ut + Svv[2] * vt];
+      const a = cr(Sut, Sv);
+      const b = cr(Su, Svt);
+      const np: V3 = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+      const k = nh[0] * np[0] + nh[1] * np[1] + nh[2] * np[2];
+      return [
+        [S[0] + off * nh[0], S[1] + off * nh[1], S[2] + off * nh[2]],
+        [D[0] + (off * (np[0] - nh[0] * k)) / L, D[1] + (off * (np[1] - nh[1] * k)) / L, D[2] + (off * (np[2] - nh[2] * k)) / L],
+      ];
+    },
+  };
+  const ts = new Map<UV, number>();
+  const outer: UV[] = [];
+  for (let k = 0; k < n; k++) {
+    const t = (2 * Math.PI * k) / n;
+    const q: UV = { u: uc + rad * Math.cos(t), v: vc + rad * Math.sin(t), p: curve.pointD1!(t)[0], pole: -1 };
+    ts.set(q, t);
+    outer.push(q);
+  }
+  curve.n = 0;
+  const seg = (a: UV, b: UV): Seg => {
+    const ta = ts.get(a)!;
+    let tb = ts.get(b)!;
+    if (tb < ta) tb += 2 * Math.PI;
+    return { c: curve, t0: ta, t1: tb, linear: false };
+  };
+  return { curve, polys: [{ outer, holes: [] }], seg };
+}
+
+/** 흐름 값 둘의 차이(묶음마다 그 묶음 값의 최댓값으로 나눈 것 가운데 큰 쪽): 3V, 4M, 5S, ∮N */
+function fluxDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let worst = 0;
+  for (const [i, j] of [
+    [0, 1],
+    [1, 4],
+    [4, 10],
+    [10, 13],
+  ] as const) {
+    let m = 0;
+    let d = 0;
+    for (let k = i; k < j; k++) {
+      m = Math.max(m, Math.abs(a[k]!));
+      d = Math.max(d, Math.abs(a[k]! - b[k]!));
+    }
+    worst = Math.max(worst, d / m);
+  }
+  return worst;
+}
+
+describe('B-스플라인 곡면 적분: 모서리 곡선 위 점 되짚기', () => {
+  it('곡선 위 점을 토막 끝 (u,v) 사이 짐작에서 곧장 되짚어 곡면 계산이 점마다 4번 이하(곡면 되짚기·격자 짐작 없이), 값은 극좌표 가우스 기대값과 상대 1e-11 안', () => {
+    // 매듭 구간 하나(베지어 조각): 흐름 값 피적분 함수가 u·v의 다항식(합친 차수 28 이하)이라 극좌표 15점 가우스 × 64등분으로 정확한 기대값
+    const K = [0, 0, 0, 0, 1, 1, 1, 1];
+    const s = wavyPatch(K, K);
+    const g = wavyPatch(K, K);
+    const c: V3 = [5, 4, 0];
+    const [uc, vc, rad] = [0.5, 0.45, 0.3];
+    const want = new Float64Array(FLUX);
+    const G = gaussRule(15);
+    for (let i = 0; i < G.length; i += 2) {
+      const rho = (rad * (1 + G[i]!)) / 2;
+      for (let j = 0; j < 64; j++) {
+        const th = (2 * Math.PI * (j + 0.25)) / 64;
+        const [S, Su, Sv] = g.derivs(uc + rho * Math.cos(th), vc + rho * Math.sin(th));
+        const N: V3 = [Su[1] * Sv[2] - Su[2] * Sv[1], Su[2] * Sv[0] - Su[0] * Sv[2], Su[0] * Sv[1] - Su[1] * Sv[0]];
+        addFlux(want, ((G[i + 1]! * rad) / 2) * rho * ((2 * Math.PI) / 64), S[0] - c[0], S[1] - c[1], S[2] - c[2], N[0], N[1], N[2]);
+      }
+    }
+    const { curve, polys, seg } = diskFace(g, uc, vc, rad, 0);
+    const proj = vi.spyOn(s, 'project');
+    const ev = vi.spyOn(s.ns, 'eval');
+    const out = new Float64Array(FLUX);
+    let bound: number;
+    // 센 값은 되돌리기(mockRestore — 기록도 지운다) 전에 읽는다
+    let projected = -1;
+    let evals = -1;
+    try {
+      bound = faceFlux(s, polys, c, seg, out, 13);
+    } finally {
+      projected = proj.mock.calls.length;
+      evals = ev.mock.calls.filter((a) => a[2] === true).length;
+      proj.mockRestore();
+      ev.mockRestore();
+    }
+    expect(projected).toBe(0);
+    expect(curve.n).toBeGreaterThan(100);
+    // 예전 길(곡면 되짚기 — 가우스–뉴턴이 반올림 수준에서 반씩 여덟 번 줄여 보고, footOf가 같은 점을 다시)은 여기서 점마다 5.3번(지금 3.1번)
+    expect(evals / curve.n, `evals ${evals} points ${curve.n}`).toBeLessThan(4);
+    expect(fluxDiff(want, out)).toBeLessThan(1e-11);
+    expect(bound / Math.abs(want[0]!)).toBeLessThan(1e-12);
+  });
+
+  it('곡선이 곡면에서 떨어져 projTol보다 멀면 곡면 되짚기(격자 짐작)도 해 가까운 쪽 — 매듭을 지나는 원이 법선 쪽으로 1e-5 떠도 projTol과 상관없이 같은 값', () => {
+    const U = [0, 0, 0, 0, 0.35, 0.7, 1, 1, 1, 1];
+    const V = [0, 0, 0, 0, 0.5, 1, 1, 1, 1];
+    const c: V3 = [5, 4, 0];
+    const run = (projTol: number) => {
+      const s = wavyPatch(U, V);
+      s.projTol = projTol;
+      const { polys, seg } = diskFace(wavyPatch(U, V), 0.45, 0.5, 0.3, 1e-5);
+      const proj = vi.spyOn(s, 'project');
+      const out = new Float64Array(FLUX);
+      try {
+        const bound = faceFlux(s, polys, c, seg, out, 13);
+        return { out, bound, projected: proj.mock.calls.length };
+      } finally {
+        proj.mockRestore();
+      }
+    };
+    const near = run(1e-3);
+    const far = run(1e-9);
+    expect(near.projected).toBe(0);
+    expect(far.projected).toBeGreaterThan(100);
+    expect(fluxDiff(near.out, far.out)).toBeLessThan(1e-12);
+    // 띠로 닫아 어림 오차는 관(π·d²)만큼 — 부피 몫보다 아주 작다
+    expect(Math.abs(near.bound - far.bound)).toBeLessThanOrEqual(1e-6 * near.bound);
+    expect(near.bound / Math.abs(near.out[0]! / 3)).toBeLessThan(1e-8);
+  });
+
+  it('닫힌 입체: B-스플라인 곡면·B-스플라인 곡선을 민 곡면을 적분하는 동안 곡면 되짚기(project)를 부르지 않고(곡선이 projTol보다 먼 관만 부른다) 값은 닫힌 식과 상대 1e-9 안', () => {
+    // [만들기, 기대값, 크기, 곡면 되짚기를 부르는지] — 관의 위 닫힌 곡선을 (1 + 1e-4)배로 키우면 옆 곡면에서 6e-4쯤 떨어져 projTol(현 높이의 5%)보다 멀다
+    const CASES: [(w: StepText) => number, Expect, number, boolean][] = [
+      [(w) => roofBlock(w, 12, 8), roofExpect(12, 8), 16, false],
+      [(w) => splineTube(w, 9), tubeExpect(9), 15, false],
+      [(w) => splineTube(w, 9, 1 + 1e-4), tubeExpect(9), 15, true],
+      [(w) => splinePrism(w, 10, 5), prismExpect(10, 5), 13, false],
+    ];
+    for (const [build, want, size, far] of CASES) {
+      const w = new StepText();
+      const ctx = w.context('mm');
+      w.product('p', [build(w)], ctx);
+      const d = stepToSceneDeferred(w.bytes());
+      const spies = [vi.spyOn(BSplineSurface.prototype, 'project'), vi.spyOn(ExtrusionSurface.prototype, 'project')];
+      let calls: number[];
+      try {
+        d.props!.run();
+      } finally {
+        calls = spies.map((x) => x.mock.calls.length);
+        for (const x of spies) x.mockRestore();
+      }
+      if (far) expect(calls[0]).toBeGreaterThan(0);
+      else expect(calls).toEqual([0, 0]);
+      applyProps(d.scene, d.props!.take());
+      const props = ((d.scene.meta as { faceTables?: StepFaceTable[] }).faceTables ?? [])[0]!.props!;
+      expect(props[14]).toBe(PROPS_BREP);
+      const e = relErr(central(props), want, size);
+      expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+    }
+  });
+
+  it('곡선 pointD1: B-스플라인(비유리·유리)·잘린·복합·원 곡선 모두 point·d1을 따로 부른 값과 비트까지 같다', () => {
+    const knots = Float64Array.from([0, 0, 0, 0, 0.4, 1, 1, 1, 1]);
+    const pts: V3[] = [
+      [0, 0, 0],
+      [1, 2, 0],
+      [3, 1, 1],
+      [4, -1, 2],
+      [6, 0, 1],
+    ];
+    const bs = new BSplineCurve(new NurbsCurve(3, knots, pts, null));
+    const rat = new BSplineCurve(new NurbsCurve(3, knots, pts, [1, 0.7, 1.3, 0.9, 1]));
+    const tr = new TrimmedCurve(rat, 0.9, 0.2);
+    const cc = new CompositeCurve([new TrimmedCurve(bs, 0.1, 0.6), tr]);
+    const ci = new CircleCurve({ o: [1, 2, 3], x: [0, 1, 0], y: [0, 0, 1], z: [1, 0, 0] }, 2.5);
+    for (const cv of [bs, rat, tr, cc, ci])
+      for (const f of [0, 0.13, 0.4, 0.77, 1]) {
+        const t = cv.t0 + (cv.t1 - cv.t0) * f;
+        expect(cv.pointD1(t)).toEqual([cv.point(t), cv.d1(t)]);
+      }
   });
 });
 

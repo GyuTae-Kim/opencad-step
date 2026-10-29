@@ -28,6 +28,10 @@ export abstract class Curve {
     const h = this.fdStep(t);
     return scale(sub(this.point(t + h), this.point(t - h)), 1 / (2 * h));
   }
+  /** 점과 1차 도함수를 함께 — point·d1을 따로 부른 값과 같다(B-스플라인은 기저를 한 번만 구한다) */
+  pointD1(t: number): [V3, V3] {
+    return [this.point(t), this.d1(t)];
+  }
   protected fdStep(t: number): number {
     const span = Number.isFinite(this.t1 - this.t0) ? this.t1 - this.t0 : 1;
     return Math.max(1e-9, Math.abs(t) * 1e-9, span * 1e-7);
@@ -348,6 +352,11 @@ export class BSplineCurve extends Curve {
   override d1(t: number): V3 {
     return this.nc.evalDerivs(this.wrap(t), 1)[1]!;
   }
+  override pointD1(t: number): [V3, V3] {
+    // 점은 evalDerivs(t, 0)과 같은 계산(기저 값·합이 도함수 차수와 무관)
+    const r = this.nc.evalDerivs(this.wrap(t), 1);
+    return [r[0]!, r[1]!];
+  }
   protected override seeds(): number[] {
     if (this.seedCache) return this.seedCache;
     const out: number[] = [];
@@ -455,6 +464,10 @@ export class TrimmedCurve extends Curve {
   override d1(s: number): V3 {
     return scale(this.basis.d1(this.ta + (this.tb - this.ta) * s), this.tb - this.ta);
   }
+  override pointD1(s: number): [V3, V3] {
+    const [p, d] = this.basis.pointD1(this.ta + (this.tb - this.ta) * s);
+    return [p, scale(d, this.tb - this.ta)];
+  }
   override sample(sa: number, sb: number, tol: Tol, out: number[]): void {
     const tmp: number[] = [];
     const k = this.tb - this.ta;
@@ -497,6 +510,10 @@ export class CompositeCurve extends Curve {
   override d1(t: number): V3 {
     const [c, s] = this.at(this.period > 0 && t > this.t1 ? t - this.period : t);
     return c.d1(s);
+  }
+  override pointD1(t: number): [V3, V3] {
+    const [c, s] = this.at(this.period > 0 && t > this.t1 ? t - this.period : t);
+    return c.pointD1(s);
   }
   override project(p: V3): number {
     let best = 0;
