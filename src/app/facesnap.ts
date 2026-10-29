@@ -10,6 +10,7 @@
  * - 잘린 면의 경계 안인지: 해석기는 면을 매개변수 공간 경계 다각형 안에서 삼각화하고 경계 꼭짓점을 모서리 위에 둔다. 교점의 접평면에 그 면의 삼각형을 펼쳐
  *   교점이 어느 삼각형 안(허용치 tol — 교점과 코어 점 사이의 두 배, 곧 곡면이 삼각형에서 벗어난 만큼)인지 본다. 경계 밖이면 null(코어 점 그대로)
  * 결과는 넘긴 값과 면 표·그물·곡면 정의로만 정해진다(커서 광선을 쓰지 않는다 — 코어가 커서 광선을 빼고 기억한다).
+ * 직선은 line.origin·line.dir만 읽는다(코어 0.20.0부터 축이 아닌 잠근 선은 line.axis가 없다 — 같은 계산으로 다듬는다).
  */
 import type { SnapRefineFaceInput } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';

@@ -149,7 +149,7 @@ export function cylinderRim(w: StepText, rad: number, h: number, x: P3): number 
 }
 
 /** 타원 판: 타원 호(π/6 → π) + 끝 → 중심 → 시작 직선 둘(위에서 볼 때 반시계, 법선 +Z) */
-function ellipsePlate(w: StepText): number {
+export function ellipsePlate(w: StepText): number {
   const V0 = w.vertex(ELL_START);
   const V1 = w.vertex(ELL_END);
   const VC = w.vertex(ELL_C);
@@ -162,7 +162,7 @@ function ellipsePlate(w: StepText): number {
 }
 
 /** B-스플라인 판(판 좌표): 곡선 P0 → P3(위로 부푼 쪽) + P3 → (12,−4) → (0,−4) → P0 직선 셋(시계 — 법선 −Z) */
-function bsplinePlate(w: StepText): number {
+export function bsplinePlate(w: StepText): number {
   const Q: P3 = [12, -4, 0];
   const R: P3 = [0, -4, 0];
   const V0 = w.vertex(BS_CP[0]!);
