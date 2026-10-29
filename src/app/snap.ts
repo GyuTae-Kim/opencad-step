@@ -15,7 +15,7 @@
  *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
-import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineFaceInput, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt, edgeDetails, isFullCircle } from './edges';
 
@@ -37,6 +37,8 @@ export interface CurveSnap {
   refine(c: SnapRefineInput): readonly number[] | null;
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
   mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
+  /** 코어 0.19.0 refineFace: 축이 면을 뚫는 점 → 축 직선과 그 B-rep 곡면의 교점(facesnap.ts — 면 표가 있을 때만, 평면·모르면 null) */
+  refineFace?(c: SnapRefineFaceInput): readonly number[] | null;
 }
 
 /** 표 하나의 원·타원 중심(형상 좌표, origin 빼기 전 값 그대로 — 표 매개변수), 같은 자리는 하나로 */
@@ -121,7 +123,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
  * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로, 교차점을 두 곡선의 교차점으로 다듬고(코어 0.14.0·0.15.0 refine),
- * 곡선 가운데 점도 곡선 위 점으로 준다
+ * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점도 그 곡면 위로(0.19.0 refineFace)
  */
 export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
@@ -141,6 +143,7 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
       return last;
     },
     ...(curve ? { refine: (c: SnapRefineInput) => curve.refine(c) } : {}),
+    ...(curve?.refineFace ? { refineFace: (c: SnapRefineFaceInput) => curve.refineFace!(c) } : {}),
   };
 }
 

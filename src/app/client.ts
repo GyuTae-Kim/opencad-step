@@ -6,7 +6,8 @@
  * 질량 속성: 해석 결과에 기다리는 면 표가 있으면(ParseResult.props) 화면이 문서를 보인 뒤 integrateProps로 적분을 맡기고
  * 진행(PropsProgress)을 받는다. 다른 파일을 해석하기 시작하거나 워커가 멈추면 그 문서의 적분은 멈춘다(onUpdate에 'stopped').
  */
-import type { ParseOptions, ParseRequest, ParseResponse, ParseResult, PropsProgress, PropsRequest } from './protocol';
+import type { FaceSurfacePayload } from '../facesurf';
+import type { ParseOptions, ParseRequest, ParseResponse, ParseResult, PropsProgress, PropsRequest, SurfacesRequest } from './protocol';
 
 /** 질량 속성 적분 소식: 진행(끝낸 입체의 값) 또는 멈춤(다른 파일을 열었거나 워커가 멈춤) */
 export type PropsUpdate = PropsProgress | 'stopped';
@@ -33,6 +34,30 @@ export class ParseClient {
   private lastDone = 0;
   /** 적분 소식을 받을 곳(해석 하나) */
   private propsTo: { id: number; onUpdate: (u: PropsUpdate) => void } | null = null;
+  /** 마지막으로 끝낸 해석 가운데 워커에 곡면 정의가 남은 것과 그 요청을 기다리는 곳 */
+  private lastSurf = 0;
+  private surfTo = new Map<number, (d: FaceSurfacePayload | null) => void>();
+
+  /**
+   * 마지막으로 끝낸 해석의 면 표에 식이 없는 곡면 정의(ParseResult.surfaces가 있을 때 — 측정에서). 받을 것이 없거나 그동안 다른 해석을 시작했으면 null
+   */
+  faceSurfaces(): Promise<FaceSurfacePayload | null> {
+    const w = this.worker;
+    const id = this.lastSurf;
+    if (!w || !id || this.pending.size) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      this.surfTo.set(id, resolve);
+      const req: SurfacesRequest = { id, type: 'surfaces' };
+      w.postMessage(req);
+    });
+  }
+
+  /** 곡면 정의를 기다리는 곳을 null로 끝낸다(다른 해석·워커 멈춤) */
+  private dropSurfaces(): void {
+    this.lastSurf = 0;
+    for (const r of this.surfTo.values()) r(null);
+    this.surfTo.clear();
+  }
 
   /** 해석 중인 요청이 있는지 */
   get busy(): boolean {
@@ -48,9 +73,10 @@ export class ParseClient {
       return Promise.reject(e instanceof Error ? e : new Error(String(e)));
     }
     const id = ++this.seq;
-    // 워커는 새 해석을 받으면 앞 문서의 적분을 그만둔다
+    // 워커는 새 해석을 받으면 앞 문서의 적분을 그만두고 곡면 정의도 버린다
     this.stopProps();
     this.lastDone = 0;
+    this.dropSurfaces();
     return new Promise<ParseResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, progress });
       const req: ParseRequest = { id, type: 'parse', name, bytes: data, ...(options ? { options } : {}) };
@@ -120,6 +146,12 @@ export class ParseClient {
         to.onUpdate({ results: m.results, done: m.done, total: m.total, finished: m.finished, timedOut: m.timedOut, ms: m.ms });
         return;
       }
+      if (m.type === 'surfaces') {
+        const r = this.surfTo.get(m.id);
+        this.surfTo.delete(m.id);
+        r?.(m.data);
+        return;
+      }
       const p = this.pending.get(m.id);
       if (!p) return;
       if (m.type === 'progress') {
@@ -129,6 +161,7 @@ export class ParseClient {
       this.pending.delete(m.id);
       if (m.type === 'done') {
         if (m.result.props) this.lastDone = m.id;
+        if (m.result.surfaces) this.lastSurf = m.id;
         p.resolve(m.result);
       } else p.reject(new Error(m.message));
     };
@@ -137,6 +170,7 @@ export class ParseClient {
       this.fail(new Error(ev.message || '해석 워커가 멈췄습니다(메모리가 모자랄 수 있습니다)'));
       this.stopProps();
       this.lastDone = 0;
+      this.dropSurfaces();
       w.terminate();
       if (this.worker === w) this.worker = null;
     };
@@ -149,6 +183,7 @@ export class ParseClient {
     if (e instanceof ParseCancelled) {
       this.stopProps();
       this.lastDone = 0;
+      this.dropSurfaces();
     }
     const all = [...this.pending.values()];
     this.pending.clear();

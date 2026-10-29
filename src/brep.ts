@@ -158,7 +158,15 @@ export interface ItemMesh {
    * 질량 속성을 끈 해석(MeshOptions.props false)이나 면 표가 없으면 없다
    */
   propsJob?: ItemPropsJob;
+  /**
+   * 면 표에 식이 없는 곡면(회전·밀기·B-스플라인·띄운 곡면 — PARAM_FACE_KINDS)의 면마다 곡면(형상 항목 좌표, 그 밖의 면은 null).
+   * 측정에서 축이 곡면을 뚫는 점을 그 곡면 위로 옮길 때 앱 워커가 화면에 보낸다(src/facesurf.ts). 장면(Scene3d)에는 넣지 않는다. 그런 면이 없으면 없다
+   */
+  faceSurfaces?: (Surface | null)[];
 }
+
+/** 면 표에 식(매개변수)이 없어 곡면 정의를 따로 보내는 면 종류 */
+export const PARAM_FACE_KINDS: readonly FaceKind[] = ['revolution', 'extrusion', 'bspline', 'offset'];
 
 /**
  * 묶음 원점이 필요한지: 좌표 크기 M(상자 꼭짓점 성분의 절댓값 최대)이 1e4 단위 이상이고 묶음 크기 S(상자 대각선)의
@@ -305,6 +313,7 @@ function integrate(ts: readonly number[], f: (t: number) => number): number {
 }
 
 const KIND_INDEX = new Map<string, number>(FACE_KINDS.map((k, i) => [k, i]));
+const PARAM_KIND_INDEX = new Set(PARAM_FACE_KINDS.map((k) => KIND_INDEX.get(k)!));
 const EDGE_KIND_INDEX = new Map<string, number>(EDGE_KINDS.map((k, i) => [k, i]));
 
 /** 곡면·면 방향 → 면 표 종류와 매개변수 */
@@ -502,6 +511,8 @@ export class BrepMesher {
     const areas = new Float64Array(table ? nf : 0);
     const perimeters = new Float64Array(table ? nf : 0);
     const exact = new Uint8Array(table ? nf : 0);
+    /** 면 표에 식이 없는 곡면(측정 refineFace용 — ItemMesh.faceSurfaces) */
+    let surfs: (Surface | null)[] | null = null;
     // 질량 속성(닫힌 껍질): 면마다 적분 거리만 남긴다(적분은 나중에 — propsjob.ts)
     const wantProps = table && closed && this.opts.props !== false;
     const propRef: V3 = Number.isFinite(lo[0]) ? boxCenter(lo, hi) : [0, 0, 0];
@@ -566,6 +577,10 @@ export class BrepMesher {
           perimeters[fi] = ok ? info.perimeter : NaN;
           exact[fi] = ok && info.exact ? 1 : 0;
         }
+      }
+      if (table && !r && PARAM_KIND_INDEX.has(kinds[fi]!)) {
+        const s = this.faceSurface(stepIds[fi]!);
+        if (s) (surfs ??= new Array<Surface | null>(nf).fill(null))[fi] = s;
       }
       if (r) fail(r);
       else if (reversed) suspect.push(fi);
@@ -771,6 +786,7 @@ export class BrepMesher {
     };
     if (solid) out.solid = true;
     if (origin) out.origin = origin;
+    if (surfs) out.faceSurfaces = surfs;
     // 닫힌 입체의 질량 속성: 삼각화한 그대로(면 방향 맞추기 전 정점·삼각형)와 면마다 적분 거리를 남긴다 — 적분은 나중에(propsjob.ts)
     if (solid && pjobs && out.faceTable && pjobs.every((j) => j)) {
       out.propsJob = { P: b.positions, I: b.indices, faceTri, vStart: b.vertsAtFaceStart, faces: pjobs as FaceFluxJob[], flips, c: propRef, diag, chord };
@@ -876,6 +892,13 @@ export class BrepMesher {
   }
 
   /** 평면(또는 곡면을 모르는·다각 고리) 면인지 — 안쪽 점 없이 고리만으로 삼각화한다 */
+  /** 면 개체(ORIENTED_FACE를 벗긴 것 — 면 표 stepIds)의 곡면(없으면 null) */
+  private faceSurface(faceId: number): Surface | null {
+    const fe = this.f.get(faceId);
+    if (!fe || fe.type === 'FACE' || !FACE_TYPES.has(fe.type)) return null;
+    return this.g.surface(refId(fe.args[2]));
+  }
+
   private isPlanarFace(faceId: number): boolean {
     let fe = this.f.get(faceId);
     if (fe && fe.type === 'ORIENTED_FACE') fe = this.f.get(refId(fe.args[2]));

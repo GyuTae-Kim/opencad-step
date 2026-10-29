@@ -3,7 +3,7 @@
  * 워커(src/worker/parse.worker.ts)는 메시지만 주고받고 실제 일은 여기서 한다(Node 시험에서도 부를 수 있게).
  */
 import { isStepXml, sniffContainer, STEP_XML_MESSAGE, unpackStep } from '../archive';
-import { type MassPropsJob, stepToScene, stepToSceneDeferred, type StepOptions } from '../scene';
+import { type FaceSurfaceSet, type MassPropsJob, stepToScene, stepToSceneDeferred, type StepOptions } from '../scene';
 import { browserGlyphs } from './glyphs';
 import { headSchemas, IFC_MESSAGE, sniffStep, type ParseOptions, type ParseResult, type ParseSource } from './protocol';
 
@@ -15,6 +15,7 @@ const UNPACK_SHARE = 0.15;
  * STEP이 아니면(STEP-XML 포함) 알기 쉬운 오류를 던진다.
  * onProps를 주면 닫힌 입체의 질량 속성을 적분하지 않고 적분 거리(MassPropsJob)를 넘긴다(결과 props에 기다리는 면 표) —
  * 워커가 문서를 보인 뒤 따로 적분한다. 주지 않으면 장면 면 표에 질량 속성까지 넣어 돌려준다.
+ * onSurfaces를 주면(onProps와 함께) 면 표에 식이 없는 곡면을 넘긴다(결과 surfaces에 그 면 수 — 측정 refineFace용, 워커가 화면 요청 때 보낸다).
  */
 export async function parseStepFile(
   name: string,
@@ -22,6 +23,7 @@ export async function parseStepFile(
   progress: (fraction: number, stage: string) => void = () => {},
   options: ParseOptions = {},
   onProps?: (job: MassPropsJob) => void,
+  onSurfaces?: (set: FaceSurfaceSet) => void,
 ): Promise<ParseResult> {
   const t0 = performance.now();
   let bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -62,7 +64,8 @@ export async function parseStepFile(
   };
   let scene: ParseResult['scene'];
   let job: MassPropsJob | null = null;
-  if (onProps) ({ scene, props: job } = stepToSceneDeferred(bytes, stepOpts));
+  let surfaces: FaceSurfaceSet | null | undefined = null;
+  if (onProps) ({ scene, props: job, surfaces } = stepToSceneDeferred(bytes, stepOpts));
   else scene = stepToScene(bytes, stepOpts);
   if (notes.length) scene.warnings = [...notes, ...(scene.warnings ?? [])];
   const res: ParseResult = { scene, ms: performance.now() - t0 };
@@ -70,6 +73,10 @@ export async function parseStepFile(
   if (job && onProps) {
     res.props = { tables: job.tables(), solids: job.total };
     onProps(job);
+  }
+  if (surfaces && onSurfaces) {
+    res.surfaces = surfaces.tables.reduce((n, t) => n + (t ? t.surfs.filter((s) => s).length : 0), 0);
+    onSurfaces(surfaces);
   }
   return res;
 }

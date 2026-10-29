@@ -18,11 +18,12 @@
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
  */
-import type { SnapRefineInput, SnapSegment } from 'opencad-viewer3d';
+import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { arcCuts, arcMidParam, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt } from './edges';
+import { type FaceSurfaceLookup, refineFaceHit, type SnapFaceIndex } from './facesnap';
 import type { CurveSnap, SnapEdgeIndex } from './snap';
 
 type V3 = [number, number, number];
@@ -836,12 +837,17 @@ export function refineSnap(c: SnapRefineInput, meshes: ReadonlyMap<string, Mesh3
   return w.every(Number.isFinite) ? w : null;
 }
 
-/** 장면의 곡선 붙잡기(코어 refine과 앱 곡선 가운데 점). 모서리 표가 없으면 null */
-export function curveSnap(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null): CurveSnap | null {
-  if (!ex) return null;
+/**
+ * 장면의 곡선 붙잡기(코어 refine과 앱 곡선 가운데 점, 면 표 faces가 있으면 0.19.0 refineFace — 축이 곡면을 뚫는 점, facesnap.ts).
+ * surfaces는 면 표에 식이 없는 곡면(B-스플라인 등)의 정의(해석 워커에서 받은 것 — 없으면 그런 면은 삼각형 위 점 그대로).
+ * 모서리 표도 면 표도 없으면 null
+ */
+export function curveSnap(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, faces: SnapFaceIndex | null = null, surfaces: FaceSurfaceLookup | null = null): CurveSnap | null {
+  if (!ex && !faces) return null;
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
   return {
-    refine: (c) => refineSnap(c, byId, ex),
-    mid: (mesh, table, e) => curveMidpoint(mesh, table, e, ex.kinds),
+    refine: (c) => (ex ? refineSnap(c, byId, ex) : null),
+    mid: (mesh, table, e) => (ex ? curveMidpoint(mesh, table, e, ex.kinds) : null),
+    ...(faces ? { refineFace: (c: SnapRefineFaceInput) => refineFaceHit(c, byId, faces, surfaces) } : {}),
   };
 }

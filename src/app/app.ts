@@ -46,6 +46,7 @@ import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
+import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeMode } from './explode';
 import type { ExplodeControls } from './explodebar';
 import type { MeasureRecord } from './export';
@@ -245,6 +246,9 @@ export class StepApp {
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 문서마다 곡선 붙잡기(곡선 위로 다듬기·곡선 가운데 점) */
   private readonly curveSnaps = new WeakMap<StepDoc, CurveSnap | null>();
+  /** 면 표에 식이 없는 곡면을 워커에 남긴 문서와, 받은 곡면 정의(축이 곡면을 뚫는 점 — 받는 중이면 0) */
+  private readonly surfDocs = new WeakSet<StepDoc>();
+  private readonly faceSurfs = new WeakMap<StepDoc, FaceSurfaceLookup | 0 | null>();
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
@@ -730,6 +734,7 @@ export class StepApp {
       await this.ensureViewer();
       if (seq !== this.loadSeq) return false;
       const doc = createDoc(name, size, res);
+      if (res.surfaces) this.surfDocs.add(doc);
       this.showDoc(doc, carry);
       this.source = { name, read, input };
       doc.openMs = performance.now() - t0;
@@ -1961,8 +1966,29 @@ export class StepApp {
     const make = this.curveSnapOf;
     if (!make) return null;
     let c = this.curveSnaps.get(d);
-    if (c === undefined) this.curveSnaps.set(d, (c = make(d.scene.meshes, d.edges)));
+    if (c === undefined) this.curveSnaps.set(d, (c = make(d.scene.meshes, d.edges, d.faces, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null)));
     return c;
+  }
+
+  /** 면 표에 식이 없는 곡면 정의(받기 전이면 받기 시작하고 undefined — 그동안 그 면은 삼각형 위 점) */
+  private faceSurfaceAt(d: StepDoc, t: number, f: number) {
+    const s = this.faceSurfs.get(d);
+    if (s === undefined) this.fetchFaceSurfaces(d);
+    return s ? s(t, f) : s === null ? null : undefined;
+  }
+
+  /**
+   * 해석 워커에 남은 곡면 정의를 받아 곡면 조각(facesurf.ts — 곡면 계산과 함께 나눠 받는다)으로 되살린다
+   * (두 점 측정을 켤 때·처음 쓸 때 한 번 — 지금 문서만, 못 받으면 null).
+   * 받은 뒤의 refineFace부터 곡면 위로 옮긴다(코어가 기억한 앞 결과는 그대로 — 붙잡기 선택을 다시 주면 잠금도 풀리므로)
+   */
+  private fetchFaceSurfaces(d: StepDoc): void {
+    if (this.faceSurfs.has(d) || !this.surfDocs.has(d) || this.doc !== d) return;
+    this.faceSurfs.set(d, 0);
+    Promise.all([this.client.faceSurfaces(), loadCurveTangents().then((m) => m.loadFaceSurfaces())]).then(
+      ([p, m]) => this.faceSurfs.set(d, m.reviveFaceSurfaces(p)),
+      () => this.faceSurfs.set(d, null),
+    );
   }
 
   /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */
@@ -2088,6 +2114,8 @@ export class StepApp {
     const ent = on && this.measureKind === 'entities';
     // 측정은 제자리 형상으로(분해를 접는다)
     if (on) this.collapseExplode();
+    // 축이 곡면을 뚫는 점에 쓸 곡면 정의를 미리 받는다(B-스플라인 등이 있는 문서만)
+    if (on && !ent && this.doc) this.fetchFaceSurfaces(this.doc);
     // 두 점은 코어 측정 모드, 개체는 코어 측정을 끄고 고르기 알림(윤곽선 포함)으로 모은다
     v.setMeasureMode(on && !ent);
     this.setEntMeasuring(ent);
