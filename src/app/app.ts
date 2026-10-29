@@ -1205,6 +1205,9 @@ export class StepApp {
           ...(this.tangents?.result(m) ? { tangentB: true } : {}),
           ...(pts[0]?.refined ? { refinedA: true } : {}),
           ...(pts[1]?.refined ? { refinedB: true } : {}),
+          // 끌어온 축(코어 0.16.0)으로 찍은 점: 결과에는 축만 실리므로 찍은 점의 trackFrom으로 가른다(둘째 점은 첫 점 축 방향이 없을 때만)
+          ...(pts[0]?.trackFrom && m.snapA === 'axis' ? { trackA: true } : {}),
+          ...(pts[1]?.trackFrom && m.snapB === 'axis' && !m.directionB ? { trackB: true } : {}),
         }
       : m;
     // 측정 기록(CSV 복사용, 이 문서 동안)

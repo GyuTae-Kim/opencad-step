@@ -144,18 +144,25 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
   };
 }
 
-/** 두 점 측정의 추론 붙잡기: 교차점·수직 발·축 방향과 모서리와 나란히, Shift 잠금 */
-export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true });
+/**
+ * 두 점 측정의 추론 붙잡기: 교차점·수직 발·축 방향과 모서리와 나란히, Shift 잠금, 끌어온 축(코어 0.16.0 track — 마우스·펜 커서가
+ * 점 붙잡기 위에 0.5초 머물면 그 점을 기억하고 그 점을 지나는 X·Y·Z 축에 붙는다). 터치는 머무르지 않는다: 손가락 길게 누르기는
+ * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다
+ */
+export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true });
 
 /** 축 붙잡기의 축 이름(번역층이 옮긴다) */
 const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향', z: 'Z축 방향' };
+/** 끌어온 축(첫 점이 아니라 기억한 점을 지나는 축) 위 점의 이름 */
+const TRACK_AXIS_LABEL: Record<SnapAxis, string> = { x: '끌어온 점에서 X축', y: '끌어온 점에서 Y축', z: '끌어온 점에서 Z축' };
 
 /**
  * 붙잡은 종류 → 한국어 이름(번역층이 옮긴다). 붙잡지 않았으면(면 위 자유 점) '면 위 점', 그 점을 앱이 곡선 위로 다듬었으면(refined —
  * 곡선 모서리 위 점, 코어 0.14.0) '곡선 위 점'.
- * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB)
+ * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB),
+ * 끌어온 축(track — 코어 0.16.0, 기억한 점을 지나는 축이라 첫 점에서 그 방향이 아니다)이면 "끌어온 점에서 X축"
  */
-export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined = false): string {
+export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined = false, track = false): string {
   switch (kind) {
     case 'vertex':
       return '꼭짓점';
@@ -172,7 +179,7 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'perpendicular':
       return '수직 발';
     case 'axis':
-      return axis ? AXIS_LABEL[axis] : '축 방향';
+      return axis ? (track ? TRACK_AXIS_LABEL : AXIS_LABEL)[axis] : '축 방향';
     case 'parallel':
       return '모서리와 나란히';
     default:
@@ -203,20 +210,26 @@ export function snapPair(m: {
   tangentB?: boolean;
   refinedA?: boolean;
   refinedB?: boolean;
+  trackA?: boolean;
+  trackB?: boolean;
 }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB && !m.refinedA && !m.refinedB) return null;
-  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, !!m.refinedB);
-  return [snapLabel(m.snapA, m.axisA, !!m.refinedA), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
+  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, !!m.refinedB, !!m.trackB);
+  return [snapLabel(m.snapA, m.axisA, !!m.refinedA, !!m.trackA), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
 /**
  * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
  * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점'). 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금"
  */
-export function hoverSnapLabel(h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean; refined?: boolean } | null | undefined, tangent = false): string | null {
+export function hoverSnapLabel(
+  h: { snap: SnapKind | null; axis?: SnapAxis; locked?: boolean; refined?: boolean; trackFrom?: readonly number[]; direction?: readonly number[] } | null | undefined,
+  tangent = false,
+): string | null {
   if (!h) return null;
-  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined);
+  // 끌어온 축 위 점: 끌어온 점(trackFrom)이 있고 첫 점 축 방향(direction)이 없다(첫 점 축 위 나란한 자리는 그 축 방향)
+  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined, !!h.trackFrom && !h.direction);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }
 

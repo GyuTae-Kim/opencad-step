@@ -4,6 +4,7 @@
  * 화면용 꺾은선 첫 토막(현)의 방향과는 다르다는 것도 수치로 보인다.
  */
 import { describe, expect, it } from 'vitest';
+import type { SnapSegment } from 'opencad-viewer3d';
 import { EDGE_TANGENTS, stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import {
@@ -15,10 +16,13 @@ import {
   curveTangentThrough,
   endPolyline,
   endTangent,
+  firstOnSegment,
   pointTol,
   polylineNearest,
+  segmentOnEdge,
   throughTangent,
   type CurveEnd,
+  type CurveOn,
 } from '../../src/app/tangent';
 import { StepText } from '../stepText';
 import {
@@ -29,6 +33,7 @@ import {
   BS_T1,
   bsTangentAt,
   curveStep,
+  ELL_C,
   ellAt,
   ELL_END,
   ELL_START,
@@ -306,5 +311,83 @@ describe('화면: 곡선 모서리의 끝이 아닌 곳(화면용 꺾은선 위)
     // 원 테두리 안쪽 꼭짓점의 어림은 대칭이라 정확한 접선과 같다
     const r = curvesThrough(scene.meshes, ex, rimPoly[7]!);
     expect(angle(approxTangent(r[0]!)!, throughTangent(r[0]!, ex.kinds)!.dir)).toBeLessThan(1e-4);
+  });
+});
+
+describe('화면: 코어 0.16.0 선분 식별자로 첫 점의 모서리·커서 아래 점이 그 모서리 위인지', () => {
+  const rimEnd = curveEndsAt(scene.meshes, ex, RIM)[0]!;
+  const rimPoly = endPolyline(rimEnd);
+  const bsEnd = curveEndsAt(scene.meshes, ex, BS_START)[0]!;
+  const bsPoly = endPolyline(bsEnd);
+  /** 모서리 e(그 그물·표)의 k번째 토막 식별자(코어 SnapSegment 꼴 — 세계 끝점) */
+  const segOf = (e: Pick<CurveEnd, 'mesh' | 'table' | 'edge'>, k: number): SnapSegment => {
+    const poly = endPolyline(e);
+    const raw = e.table.segStart[e.edge]! + k;
+    return { kind: 'edge', id: e.mesh.id, index: raw, raw, ends: [poly[k]!, poly[k + 1]!] };
+  };
+  const ts = { meshes: scene.meshes, ex };
+  const lerp = (a: V3, b: V3, f: number): V3 => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  /** 타원 판의 곧은 모서리(타원 중심 → 타원 시작) */
+  const straight = (() => {
+    for (const mesh of scene.meshes) {
+      const ti = ex.tableOf.get(mesh.id);
+      const table = ti === undefined ? undefined : ex.tables[ti];
+      if (!table) continue;
+      for (let e = 0; e < table.kinds.length; e++) {
+        if (ex.kinds[table.kinds[e]!] !== 'line') continue;
+        const p = endPolyline({ mesh, table, edge: e });
+        if (dist(p[0]!, ELL_C) < 1e-4 && dist(p[p.length - 1]!, ELL_START) < 1e-4) return { mesh, table, edge: e };
+      }
+    }
+    throw new Error('곧은 모서리 없음');
+  })();
+
+  it('곡선 모서리 안쪽(토막 위·안쪽 꼭짓점): 좌표로 훑은 curvesThrough와 같은 CurveOn, 끝 꼭짓점은 end', () => {
+    for (const [poly, e, k, f] of [
+      [rimPoly, rimEnd, 3, 0.3],
+      [rimPoly, rimEnd, 5, 0],
+      [rimPoly, rimEnd, 4, 1],
+      [bsPoly, bsEnd, 7, 0.6],
+    ] as const) {
+      const a = lerp(poly[k]!, poly[k + 1]!, f);
+      const own = firstOnSegment(ts, segOf(e, k), a);
+      const coords = curvesThrough(scene.meshes, ex, a);
+      expect(coords).toHaveLength(1);
+      expect(own).not.toBeNull();
+      expect(typeof own).toBe('object');
+      const o = own as CurveOn;
+      const c = coords[0]!;
+      expect([o.mesh.id, o.edge, o.seg, o.vertex]).toEqual([c.mesh.id, c.edge, c.seg, c.vertex]);
+      expect(o.f).toBe(c.f);
+      expect(o.s).toBe(c.s);
+    }
+    // 모서리 끝(이음 꼭짓점·B-스플라인 끝): 꼭짓점에 닿는 다른 모서리도 있을 수 있어 좌표로 찾게 'end'
+    expect(firstOnSegment(ts, segOf(rimEnd, 0), rimPoly[0]!)).toBe('end');
+    expect(firstOnSegment(ts, segOf(bsEnd, bsPoly.length - 2), bsPoly[bsPoly.length - 1]!)).toBe('end');
+  });
+
+  it('곧은 모서리 안쪽은 none(닿는 곡선 없음), 끝은 end. 선 형상·끝이 어긋난 식별자·멀리 떨어진 점은 null(좌표로 찾기)', () => {
+    const sp = endPolyline(straight);
+    expect(firstOnSegment(ts, segOf(straight, 0), lerp(sp[0]!, sp[1]!, 0.4))).toBe('none');
+    expect(firstOnSegment(ts, segOf(straight, 0), sp[1]!)).toBe('end');
+    expect(firstOnSegment(ts, { ...segOf(rimEnd, 3), kind: 'line' }, lerp(rimPoly[3]!, rimPoly[4]!, 0.5))).toBeNull();
+    const moved = segOf(rimEnd, 3);
+    moved.ends = [[moved.ends[0][0] + 1, moved.ends[0][1], moved.ends[0][2]], moved.ends[1]];
+    expect(firstOnSegment(ts, moved, lerp(rimPoly[3]!, rimPoly[4]!, 0.5))).toBeNull();
+    expect(firstOnSegment(ts, segOf(rimEnd, 3), [0, 0, 0])).toBeNull();
+    expect(firstOnSegment(ts, null, rimPoly[3]!)).toBeNull();
+  });
+
+  it('커서 아래 점의 식별자가 그 모서리 토막이면 거리를 재지 않고 그 위로 본다(곡선에서 조금 떨어진 점도), 다른 모서리 식별자는 예전처럼 거리로', () => {
+    const ends = curveEndsAt(scene.meshes, ex, BS_START);
+    // 토막 3 가운데에서 꺾은선 허용치·화살 높이 한도보다 멀리(옆으로 0.5) 비킨 점
+    const m = lerp(bsPoly[3]!, bsPoly[4]!, 0.5);
+    const off: V3 = [m[0], m[1], m[2] + 0.5];
+    expect(curveTangentPick(ends, BS_START, off, ex.kinds)).toBeNull();
+    close(curveTangentPick(ends, BS_START, off, ex.kinds, [segOf(bsEnd, 3)])!.dir, BS_T0);
+    expect(segmentOnEdge([segOf(bsEnd, 3)], bsEnd.mesh, bsEnd.table, bsEnd.edge)).toBe(3);
+    expect(segmentOnEdge([segOf(rimEnd, 3)], bsEnd.mesh, bsEnd.table, bsEnd.edge)).toBe(-1);
+    // 꺾은선 위 점은 다른 모서리 식별자가 와도 예전처럼 거리로 그 위
+    close(curveTangentPick(ends, BS_START, m, ex.kinds, [segOf(rimEnd, 3)])!.dir, BS_T0);
   });
 });

@@ -151,6 +151,16 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(hoverSnapLabel({ snap: 'intersection' })).toBe('교차점');
   });
 
+  it('끌어온 축(코어 0.16.0 track): 끌어온 점이 있고 첫 점 축 방향이 없으면 "끌어온 점에서 Z축", 첫 점 축 위 나란한 자리는 그 축 방향', () => {
+    expect(snapLabel('axis', 'z', false, true)).toBe('끌어온 점에서 Z축');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3] })).toBe('끌어온 점에서 Z축');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], direction: [1, 0, 0] })).toBe('X축 방향');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], locked: true, direction: [0, 1, 0] })).toBe('Y축 방향 · 잠금');
+    // 결과(코어 결과에는 끌어온 점이 없어 앱이 찍은 점 measurePoints의 trackFrom으로 trackA·trackB를 담는다)
+    expect(snapPair({ snapA: 'axis', axisA: 'y', snapB: 'axis', axisB: 'z', trackA: true, trackB: true })).toEqual(['끌어온 점에서 Y축', '끌어온 점에서 Z축']);
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'x' })).toEqual(['꼭짓점', 'X축 방향']);
+  });
+
   it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
     expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
     expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
@@ -169,8 +179,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     const centers = circleCenters(s.meshes, ex);
     const o = measureSnapOptions(s.meshes, ex, centers);
     expect(o.edges).toBe(true);
-    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금
-    expect(o.inference).toEqual({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true });
+    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축
+    expect(o.inference).toEqual({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true });
     expect(o.inference).toBe(MEASURE_INFERENCE);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);

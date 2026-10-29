@@ -362,7 +362,7 @@ export function curveMidpoint(mesh: Mesh3d, table: StepEdgeTable, e: number, kin
 }
 
 /** 코어가 넘긴 윤곽선 토막의 그물·모서리 표·모서리 번호와 모서리 안 토막 번호 k, 모서리 꼭짓점(묶음 좌표 float32 — 0 = 시작 … n = 끝) */
-interface EdgeHit {
+export interface EdgeHit {
   mesh: Mesh3d;
   table: StepEdgeTable;
   E: Float32Array;
@@ -373,7 +373,7 @@ interface EdgeHit {
 }
 
 /** 토막 → 모서리. 선 형상·모르는 그물이거나 토막의 두 끝이 그물 윤곽선 꼭짓점과 맞지 않으면(분해·다른 자리 등 장면이 어긋남) null */
-function edgeHit(sg: SnapSegment, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEdgeIndex): EdgeHit | null {
+export function edgeHit(sg: SnapSegment, meshes: ReadonlyMap<string, Mesh3d>, ex: SnapEdgeIndex): EdgeHit | null {
   if (sg.kind !== 'edge') return null;
   const mesh = meshes.get(sg.id);
   const ti = ex.tableOf.get(sg.id);

@@ -14,6 +14,10 @@
  *   다른 직선(반원판의 지름처럼 첫 점에서 곡선의 다른 끝으로 이어진 곧은 모서리)이면 코어 판정 그대로다.
  *   지금 잠글 것을 못 보면(커서가 떠남) 코어처럼 첫 점 뒤 마지막으로 본 것 — 접선이었으면 접선.
  * - 첫 점에 닿는 곡선 끝은 첫 점마다 한 번 장면에서 찾고(묶음마다 곡선 끝 상자로 먼저 거른다), 커서가 움직일 때는 그 몇 개만 본다.
+ * - 코어 0.16.0 선분 식별자: 첫 점(measurePoints[0].segment)이 모서리 안쪽이면 그 모서리만 본다(firstOnSegment — 좌표로 훑지 않는다).
+ *   식별자는 꼭짓점을 함께 쓰는 모서리 가운데 하나만 가리키므로 모서리 끝(꼭짓점)이면 다른 곡선도 보려고 좌표로 찾고, 식별자가 없는 점
+ *   (앱이 준 곡선 가운데 점·그물 꼭짓점·축 위 점)도 좌표로. 커서 아래 점(measureHoverSnap.segment·other)의 토막이 그 모서리 것이면
+ *   거리를 재지 않고 그 위로 보고(segmentOnEdge), 아니면 아래의 거리 판정
  *
  * 첫 점이 곡선 모서리의 끝이 아닌 곳(코어 모서리 위 점·가운데 점, 앱의 곡선 가운데 점, 꺾은선 안쪽 꼭짓점 — 화면용 꺾은선 위)이고
  * 커서 아래 점이 같은 모서리 위면 그 점에서의 곡선 접선으로 잠근다(curvesThrough·curveTangentThrough).
@@ -28,11 +32,12 @@
  * 그 곡선까지의 거리를 재서 허용치 안이면 그 모서리 위로 본다(곡선 정의가 없는 모서리는 꺾은선 거리만).
  * 다듬기는 이 조각의 curveSnap(curvesnap.ts)이 코어에 준다 — 이 조각과 함께 문서를 열 때 받는다.
  */
-import type { MeasureInferenceLock, MeasureResult, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureInferenceLock, MeasureResult, SnapSegment, Viewer3d } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { edgeCurve, nearestOnCurve } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
-import { curveDistance, dirToWorld, toLocal, toWorld } from './curvesnap';
+import { curveDistance, dirToWorld, edgeHit, toLocal, toWorld } from './curvesnap';
+import { edgeAt } from './edges';
 import type { SnapEdgeIndex } from './snap';
 
 export { curveSnap } from './curvesnap';
@@ -227,14 +232,16 @@ export function curveTangentAt(ends: readonly CurveEnd[], a: ArrayLike<number>, 
  * curveTangentAt과 같고 그 끝의 첫 꺾은선 토막(현 — 코어가 이 곡선에서 잠그려 하는 방향, a에서 곡선 쪽 단위 벡터)도 준다.
  * 현을 못 구하면(토막 길이 0) chord는 dir과 같다. kinds(모서리 종류 이름)를 주면 곡선 위로 다듬은 p도 그 모서리 위로 본다(edgeNearest)
  */
-export function curveTangentPick(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[] | null = null): TangentPick | null {
+export function curveTangentPick(ends: readonly CurveEnd[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[] | null = null, segs: readonly SnapSegment[] = []): TangentPick | null {
   if (!ends.length) return null;
   if (Math.hypot(p[0]! - a[0]!, p[1]! - a[1]!, p[2]! - a[2]!) <= 4 * pointTol(a)) return null;
   const tolP = 4 * pointTol(p);
   let best: { e: CurveEnd; poly: V3[]; dist: number; s: number; total: number } | null = null;
   for (const e of ends) {
     const poly = endPolyline(e);
-    const n = edgeNearest(e, poly, p, tolP, kinds);
+    // 커서 아래 점의 선분 식별자가 이 모서리의 토막이면 그 위(거리를 재지 않는다), 아니면 예전처럼 거리로
+    const k = segs.length ? segmentOnEdge(segs, e.mesh, e.table, e.edge) : -1;
+    const n = k >= 0 ? onSegmentOf(poly, k, p) : edgeNearest(e, poly, p, tolP, kinds);
     if (!(n.dist <= tolP)) continue;
     if (!best || n.dist < best.dist) best = { e, poly, ...n };
   }
@@ -311,49 +318,145 @@ export function curvesThrough(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
       const b = k * 6;
       const w = t + c.sag[k]!;
       if (x < B[b]! - w || x > B[b + 3]! + w || y < B[b + 1]! - w || y > B[b + 4]! + w || z < B[b + 2]! - w || z > B[b + 5]! + w) continue;
-      const e = c.edges[k]!;
-      const s0 = table.segStart[e]!;
-      const s1 = table.segStart[e + 1]!;
-      let best = Infinity;
-      let seg = -1;
-      let f = 0;
-      let segLen = 0;
-      for (let q = s0; q < s1; q++) {
-        const o = q * 6;
-        const dx = E[o + 3]! - E[o]!;
-        const dy = E[o + 4]! - E[o + 1]!;
-        const dz = E[o + 5]! - E[o + 2]!;
-        const l2 = dx * dx + dy * dy + dz * dz;
-        const u = l2 > 0 ? Math.max(0, Math.min(1, ((x - E[o]!) * dx + (y - E[o + 1]!) * dy + (z - E[o + 2]!) * dz) / l2)) : 0;
-        const d = Math.hypot(x - E[o]! - dx * u, y - E[o + 1]! - dy * u, z - E[o + 2]! - dz * u);
-        if (d < best) {
-          best = d;
-          seg = q - s0;
-          f = u;
-          segLen = Math.sqrt(l2);
-        }
-      }
-      // 꺾은선 밖이면 곡선 위 점인지(곡선 정의로 잰 거리)
-      if (!(best <= t) && !(best <= w && (curveDistance(mesh, table, e, ex.kinds, a, seg) ?? Infinity) <= tol)) continue;
-      const n = s1 - s0;
-      let vertex = f * segLen <= t ? seg : (1 - f) * segLen <= t ? seg + 1 : -1;
-      // 모서리 끝(두 끝이 모두 첫 점인 닫힌 모서리의 이음 꼭짓점 포함)은 curveEndsAt이 맡는다
-      if (vertex === 0 || vertex === n) continue;
-      if (vertex < 0 && closeTo(E, s0 * 6, x, y, z, t)) continue;
-      if (vertex < 0 && closeTo(E, (s1 - 1) * 6 + 3, x, y, z, t)) continue;
-      if (vertex > 0) {
-        seg = vertex;
-        f = 0;
-      }
-      const poly = endPolyline({ mesh, table, edge: e });
-      let sa = 0;
-      for (let i = 1; i <= seg; i++) sa += Math.hypot(poly[i]![0] - poly[i - 1]![0], poly[i]![1] - poly[i - 1]![1], poly[i]![2] - poly[i - 1]![2]);
-      if (f > 0) sa += f * Math.hypot(poly[seg + 1]![0] - poly[seg]![0], poly[seg + 1]![1] - poly[seg]![1], poly[seg + 1]![2] - poly[seg]![2]);
-      out.push({ mesh, table, edge: e, poly, seg, f, vertex: Math.max(-1, vertex), s: sa, at: [a[0]!, a[1]!, a[2]!] });
+      const on = onEdge(mesh, table, E, c.edges[k]!, c.sag[k]!, L.p, t, tol, a, ex.kinds);
+      if (!on || on === 'end') continue;
+      out.push(on);
       if (out.length >= limit) return out;
     }
   }
   return out;
+}
+
+/**
+ * 묶음 좌표 점 L(세계 a)이 곡선 모서리 e(화살 높이 한도 sag) 위 끝이 아닌 곳이면 그 CurveOn, 모서리 끝(꼭짓점)이면 'end', 모서리에서 멀면 null.
+ * t는 묶음 좌표 허용치, tol은 세계 허용치
+ */
+function onEdge(mesh: Mesh3d, table: StepEdgeTable, E: Float32Array, e: number, sag: number, L: readonly number[], t: number, tol: number, a: ArrayLike<number>, kinds: readonly string[]): CurveOn | 'end' | null {
+  const x = L[0]!;
+  const y = L[1]!;
+  const z = L[2]!;
+  const w = t + sag;
+  const s0 = table.segStart[e]!;
+  const s1 = table.segStart[e + 1]!;
+  let best = Infinity;
+  let seg = -1;
+  let f = 0;
+  let segLen = 0;
+  for (let q = s0; q < s1; q++) {
+    const o = q * 6;
+    const dx = E[o + 3]! - E[o]!;
+    const dy = E[o + 4]! - E[o + 1]!;
+    const dz = E[o + 5]! - E[o + 2]!;
+    const l2 = dx * dx + dy * dy + dz * dz;
+    const u = l2 > 0 ? Math.max(0, Math.min(1, ((x - E[o]!) * dx + (y - E[o + 1]!) * dy + (z - E[o + 2]!) * dz) / l2)) : 0;
+    const d = Math.hypot(x - E[o]! - dx * u, y - E[o + 1]! - dy * u, z - E[o + 2]! - dz * u);
+    if (d < best) {
+      best = d;
+      seg = q - s0;
+      f = u;
+      segLen = Math.sqrt(l2);
+    }
+  }
+  // 꺾은선 밖이면 곡선 위 점인지(곡선 정의로 잰 거리)
+  if (!(best <= t) && !(best <= w && (curveDistance(mesh, table, e, kinds, a, seg) ?? Infinity) <= tol)) return null;
+  const n = s1 - s0;
+  let vertex = f * segLen <= t ? seg : (1 - f) * segLen <= t ? seg + 1 : -1;
+  // 모서리 끝(두 끝이 모두 첫 점인 닫힌 모서리의 이음 꼭짓점 포함)은 curveEndsAt이 맡는다
+  if (vertex === 0 || vertex === n) return 'end';
+  if (vertex < 0 && closeTo(E, s0 * 6, x, y, z, t)) return 'end';
+  if (vertex < 0 && closeTo(E, (s1 - 1) * 6 + 3, x, y, z, t)) return 'end';
+  if (vertex > 0) {
+    seg = vertex;
+    f = 0;
+  }
+  const poly = endPolyline({ mesh, table, edge: e });
+  let sa = 0;
+  for (let i = 1; i <= seg; i++) sa += Math.hypot(poly[i]![0] - poly[i - 1]![0], poly[i]![1] - poly[i - 1]![1], poly[i]![2] - poly[i - 1]![2]);
+  if (f > 0) sa += f * Math.hypot(poly[seg + 1]![0] - poly[seg]![0], poly[seg + 1]![1] - poly[seg]![1], poly[seg + 1]![2] - poly[seg]![2]);
+  return { mesh, table, edge: e, poly, seg, f, vertex: Math.max(-1, vertex), s: sa, at: [a[0]!, a[1]!, a[2]!] };
+}
+
+const meshMaps = new WeakMap<readonly Mesh3d[], Map<string, Mesh3d>>();
+
+/** 그물 id → 그물(장면마다 한 번) */
+function meshMap(meshes: readonly Mesh3d[]): Map<string, Mesh3d> {
+  let m = meshMaps.get(meshes);
+  if (!m) meshMaps.set(meshes, (m = new Map(meshes.map((x) => [x.id, x]))));
+  return m;
+}
+
+/**
+ * 첫 점 a의 선분 식별자(코어 0.16.0 measurePoints[0].segment — 붙잡은 윤곽선 토막)로 a가 놓인 모서리를 찾는다:
+ * 곡선 모서리 끝이 아닌 곳이면 그 CurveOn, 곧은 모서리 끝이 아닌 곳이면 'none'(닿는 곡선 없음), 모서리 끝(꼭짓점)이면 'end'
+ * (식별자는 꼭짓점을 함께 쓰는 모서리 가운데 하나만 가리키므로 그 꼭짓점에 닿는 곡선 끝은 좌표로 찾는다), 식별자를 못 쓰면 null
+ * (선 형상·식별자가 없음·장면과 끝이 어긋남·a가 그 모서리에서 멂 — 예전처럼 좌표로 찾는다)
+ */
+export function firstOnSegment(s: TangentScene, sg: SnapSegment | null | undefined, a: ArrayLike<number>, tol = 4 * pointTol(a)): CurveOn | 'end' | 'none' | null {
+  if (!sg || sg.kind !== 'edge' || !s.ex) return null;
+  const h = edgeHit(sg, meshMap(s.meshes), s.ex);
+  const L = h ? toLocal(h.mesh, a) : null;
+  if (!h || !L) return null;
+  const t = tol / L.scale;
+  const c = h.table.tangents ? curveIndex(h.E, h.table) : null;
+  const k = c ? sortedIndex(c.edges, h.e) : -1;
+  if (c && k >= 0) return onEdge(h.mesh, h.table, h.E, h.e, c.sag[k]!, L.p, t, tol, a, s.ex.kinds);
+  // 곧은 모서리(접선을 아는 곡선 모서리가 아님): 끝이면 'end', 그 토막 위면 곡선 없음
+  const [x, y, z] = L.p;
+  const s0 = h.table.segStart[h.e]!;
+  const s1 = h.table.segStart[h.e + 1]!;
+  if (closeTo(h.E, s0 * 6, x, y, z, t) || closeTo(h.E, (s1 - 1) * 6 + 3, x, y, z, t)) return 'end';
+  const p0 = h.vertex(h.k);
+  const p1 = h.vertex(h.k + 1);
+  return segDistance(p0, p1, L.p) <= t ? 'none' : null;
+}
+
+/** 오름차순 배열에서 v의 자리(없으면 -1) */
+function sortedIndex(arr: Int32Array, v: number): number {
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid]! === v) return mid;
+    if (arr[mid]! < v) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}
+
+/** 점 p에서 선분 a–b까지 거리 */
+function segDistance(a: readonly number[], b: readonly number[], p: readonly number[]): number {
+  const dx = b[0]! - a[0]!;
+  const dy = b[1]! - a[1]!;
+  const dz = b[2]! - a[2]!;
+  const l2 = dx * dx + dy * dy + dz * dz;
+  const u = l2 > 0 ? Math.max(0, Math.min(1, ((p[0]! - a[0]!) * dx + (p[1]! - a[1]!) * dy + (p[2]! - a[2]!) * dz) / l2)) : 0;
+  return Math.hypot(p[0]! - a[0]! - dx * u, p[1]! - a[1]! - dy * u, p[2]! - a[2]! - dz * u);
+}
+
+/**
+ * 커서 아래 점의 선분 식별자(코어 0.16.0 measureHoverSnap.segment·교차점의 other) 가운데 모서리 e(그 그물의 표)의 토막이 있으면
+ * 그 모서리 안 토막 번호, 없으면 -1
+ */
+export function segmentOnEdge(segs: readonly SnapSegment[], mesh: Pick<Mesh3d, 'id'>, table: Pick<StepEdgeTable, 'segStart'>, e: number): number {
+  for (const sg of segs) if (sg.kind === 'edge' && sg.id === mesh.id && edgeAt(table, sg.raw) === e) return sg.raw - table.segStart[e]!;
+  return -1;
+}
+
+/** 꺾은선 토막 k 위에서 p에 가장 가까운 자리의 꺾은선 길이(시작부터)와 전체 길이 — 식별자로 그 모서리 위라고 안 커서 아래 점 */
+function onSegmentOf(pts: readonly V3[], k: number, p: ArrayLike<number>): { dist: number; s: number; total: number } {
+  let acc = 0;
+  let s = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    if (i - 1 === k) {
+      const u = l > 0 ? Math.max(0, Math.min(1, ((p[0]! - a[0]) * (b[0] - a[0]) + (p[1]! - a[1]) * (b[1] - a[1]) + (p[2]! - a[2]) * (b[2] - a[2])) / (l * l))) : 0;
+      s = acc + l * u;
+    }
+    acc += l;
+  }
+  return { dist: 0, s, total: acc };
 }
 
 /** 윤곽선 꼭짓점(E[o..o+2])이 (x, y, z)에서 t 안인지 */
@@ -422,7 +525,7 @@ export function approxTangent(on: Pick<CurveOn, 'mesh' | 'table' | 'edge' | 'pol
  * a에서의 접선(커서 쪽 — a → p와 내적이 양수, 수직이면 꺾은선 길이로 p가 앞이면 모서리 방향)과 a가 놓인 토막의 현(꼭짓점이면 이웃 두 토막).
  * p가 a 자리거나 어느 모서리 위도 아니면 null
  */
-export function curveTangentThrough(ons: readonly CurveOn[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[]): (TangentPick & { exact: boolean }) | null {
+export function curveTangentThrough(ons: readonly CurveOn[], a: ArrayLike<number>, p: ArrayLike<number>, kinds: readonly string[], segs: readonly SnapSegment[] = []): (TangentPick & { exact: boolean }) | null {
   if (!ons.length) return null;
   const w: V3 = [p[0]! - a[0]!, p[1]! - a[1]!, p[2]! - a[2]!];
   const wl = Math.hypot(w[0], w[1], w[2]);
@@ -430,7 +533,8 @@ export function curveTangentThrough(ons: readonly CurveOn[], a: ArrayLike<number
   const tolP = 4 * pointTol(p);
   let best: { on: CurveOn; dist: number; s: number } | null = null;
   for (const on of ons) {
-    const nr = edgeNearest(on, on.poly, p, tolP, kinds);
+    const k = segs.length ? segmentOnEdge(segs, on.mesh, on.table, on.edge) : -1;
+    const nr = k >= 0 ? onSegmentOf(on.poly, k, p) : edgeNearest(on, on.poly, p, tolP, kinds);
     if (nr.dist <= tolP && (!best || nr.dist < best.dist)) best = { on, dist: nr.dist, s: nr.s };
   }
   if (!best) return null;
@@ -490,21 +594,32 @@ export class TangentLock {
    * 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선과 코어가 그 곡선에서 잠그려 할 현: a가 그 곡선의 끝이면 끝 접선,
    * 끝이 아닌 곳이면 a에서의 곡선 접선(첫 점마다 닿는 곡선 끝·지나는 곡선 모서리를 한 번 찾아 둔다)
    */
-  pick(a: ArrayLike<number>, p: ArrayLike<number>): TangentPick | null {
+  pick(a: ArrayLike<number>, p: ArrayLike<number>, first: SnapSegment | null = null, under: readonly SnapSegment[] = []): TangentPick | null {
     const s = this.scene();
     if (!s?.ex) return null;
-    const key = `${a[0]},${a[1]},${a[2]}`;
+    const key = `${a[0]},${a[1]},${a[2]}${first ? `|${first.id}|${first.raw}` : ''}`;
     if (this.endsSrc !== s.ex || this.endsKey !== key) {
       this.endsSrc = s.ex;
       this.endsKey = key;
-      this.ends = curveEndsAt(s.meshes, s.ex, a);
-      this.through = null;
+      // 첫 점의 선분 식별자: 모서리 안쪽이면 그 모서리만(좌표로 훑지 않는다), 꼭짓점이거나 식별자를 못 쓰면 좌표로
+      const own = firstOnSegment(s, first, a);
+      this.firstBy = own === null || own === 'end' ? 'coords' : 'segment';
+      if (own === null || own === 'end') {
+        this.ends = curveEndsAt(s.meshes, s.ex, a);
+        this.through = null;
+      } else {
+        this.ends = [];
+        this.through = own === 'none' ? [] : [own];
+      }
     }
-    const e = this.ends.length ? curveTangentPick(this.ends, a, p, s.ex.kinds) : null;
+    const e = this.ends.length ? curveTangentPick(this.ends, a, p, s.ex.kinds, under) : null;
     if (e) return e;
     this.through ??= curvesThrough(s.meshes, s.ex, a);
-    return this.through.length ? curveTangentThrough(this.through, a, p, s.ex.kinds) : null;
+    return this.through.length ? curveTangentThrough(this.through, a, p, s.ex.kinds, under) : null;
   }
+
+  /** 지금 첫 점에 닿는 곡선을 무엇으로 찾았는지(선분 식별자 또는 좌표 — 시험·진단용) */
+  firstBy: 'segment' | 'coords' | null = null;
 
   /** 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선 */
   at(a: ArrayLike<number>, p: ArrayLike<number>): V3 | null {
@@ -522,7 +637,9 @@ export class TangentLock {
     const hv = v.measureHoverSnap;
     if (!hv || (hv.snap && INFERRED.has(hv.snap))) return null;
     const first = v.measurePoints[0];
-    const t = first ? this.pick(first.point, hv.point) : null;
+    // 코어 0.16.0 선분 식별자: 첫 점의 토막, 커서 아래 점의 토막(교차점이면 둘째 토막도)
+    const under = [hv.segment, hv.other].filter((x): x is SnapSegment => !!x);
+    const t = first ? this.pick(first.point, hv.point, first.segment ?? null, under) : null;
     if (!t) return null;
     const core = v.measureHoverLock;
     return core && !t.chords.some((c) => sameLine(core.direction, c, CHORD_SAME)) ? null : t.dir;
@@ -610,5 +727,6 @@ export class TangentLock {
     this.through = null;
     this.endsKey = '';
     this.endsSrc = null;
+    this.firstBy = null;
   }
 }
