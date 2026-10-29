@@ -48,6 +48,24 @@ export abstract class Surface {
     return Math.max(1e-9, Math.abs(t) * 1e-9, span * 1e-6);
   }
 
+  /** 2차 편도함수 [∂uu, ∂uv, ∂vv] (기본: 1차 편도함수의 중심 차분) */
+  hess(u: number, v: number): [V3, V3, V3] {
+    const hu = this.fd(u, this.u0, this.u1);
+    const hv = this.fd(v, this.v0, this.v1);
+    const [, au, av] = this.derivs(u + hu, v);
+    const [, bu, bv] = this.derivs(u - hu, v);
+    const [, , cv] = this.derivs(u, v + hv);
+    const [, , dv] = this.derivs(u, v - hv);
+    return [scale(sub(au, bu), 1 / (2 * hu)), scale(sub(av, bv), 1 / (2 * hu)), scale(sub(cv, dv), 1 / (2 * hv))];
+  }
+
+  /** [점, ∂u, ∂v, ∂uu, ∂uv, ∂vv] */
+  derivs2(u: number, v: number): [V3, V3, V3, V3, V3, V3] {
+    const [p, du, dv] = this.derivs(u, v);
+    const [uu, uv, vv] = this.hess(u, v);
+    return [p, du, dv, uu, uv, vv];
+  }
+
   /** 단위 법선(∂u×∂v 방향). 특이점이면 안쪽으로 조금 옮겨서 */
   normal(u: number, v: number): V3 {
     const [, du, dv] = this.derivs(u, v);
@@ -197,6 +215,13 @@ export class PlaneSurface extends Surface {
   override derivs(u: number, v: number): [V3, V3, V3] {
     return [this.point(u, v), this.f.x, this.f.y];
   }
+  override hess(): [V3, V3, V3] {
+    return [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ];
+  }
   override normal(): V3 {
     return this.f.z;
   }
@@ -229,6 +254,9 @@ export class CylinderSurface extends Surface {
     const c = Math.cos(u);
     const s = Math.sin(u);
     return [framePoint(this.f, this.r * c, this.r * s, v), add(scale(this.f.x, -this.r * s), scale(this.f.y, this.r * c)), this.f.z];
+  }
+  override hess(u: number): [V3, V3, V3] {
+    return [add(scale(this.f.x, -this.r * Math.cos(u)), scale(this.f.y, -this.r * Math.sin(u))), [0, 0, 0], [0, 0, 0]];
   }
   override normal(u: number): V3 {
     return add(scale(this.f.x, Math.cos(u)), scale(this.f.y, Math.sin(u)));
@@ -275,6 +303,12 @@ export class ConeSurface extends Surface {
       add(scale(this.f.x, -rr * s), scale(this.f.y, rr * c)),
       add(add(scale(this.f.x, this.t * c), scale(this.f.y, this.t * s)), this.f.z),
     ];
+  }
+  override hess(u: number, v: number): [V3, V3, V3] {
+    const c = Math.cos(u);
+    const s = Math.sin(u);
+    const rr = this.r + v * this.t;
+    return [add(scale(this.f.x, -rr * c), scale(this.f.y, -rr * s)), add(scale(this.f.x, -this.t * s), scale(this.f.y, this.t * c)), [0, 0, 0]];
   }
   override normal(u: number, v: number): V3 {
     // ∂u×∂v ∝ (r+vt)·(radial − t·z): 꼭짓점에서도 방향은 정해진다
@@ -331,6 +365,18 @@ export class SphereSurface extends Surface {
       add(add(scale(this.f.x, -R * sv * cu), scale(this.f.y, -R * sv * su)), scale(this.f.z, R * cv)),
     ];
   }
+  override hess(u: number, v: number): [V3, V3, V3] {
+    const cu = Math.cos(u);
+    const su = Math.sin(u);
+    const cv = Math.cos(v);
+    const sv = Math.sin(v);
+    const R = this.r;
+    return [
+      add(scale(this.f.x, -R * cv * cu), scale(this.f.y, -R * cv * su)),
+      add(scale(this.f.x, R * sv * su), scale(this.f.y, -R * sv * cu)),
+      add(add(scale(this.f.x, -R * cv * cu), scale(this.f.y, -R * cv * su)), scale(this.f.z, -R * sv)),
+    ];
+  }
   override normal(u: number, v: number): V3 {
     const n = normalize(sub(this.point(u, v), this.f.o));
     return this.r < 0 ? scale(n, -1) : n;
@@ -375,6 +421,18 @@ export class TorusSurface extends Surface {
       framePoint(this.f, rr * cu, rr * su, this.r * sv),
       add(scale(this.f.x, -rr * su), scale(this.f.y, rr * cu)),
       add(add(scale(this.f.x, -this.r * sv * cu), scale(this.f.y, -this.r * sv * su)), scale(this.f.z, this.r * cv)),
+    ];
+  }
+  override hess(u: number, v: number): [V3, V3, V3] {
+    const cu = Math.cos(u);
+    const su = Math.sin(u);
+    const cv = Math.cos(v);
+    const sv = Math.sin(v);
+    const rr = this.R + this.r * cv;
+    return [
+      add(scale(this.f.x, -rr * cu), scale(this.f.y, -rr * su)),
+      add(scale(this.f.x, this.r * sv * su), scale(this.f.y, -this.r * sv * cu)),
+      add(add(scale(this.f.x, -this.r * cv * cu), scale(this.f.y, -this.r * cv * su)), scale(this.f.z, -this.r * sv)),
     ];
   }
   override normal(u: number, v: number): V3 {
@@ -620,6 +678,15 @@ export class BSplineSurface extends Surface {
     if (this.periodU > 0 || this.periodV > 0) [u, v] = this.wrapPeriodic(u, v);
     const r = this.ns.eval(u, v, true);
     return [r[0]!, r[1]!, r[2]!];
+  }
+  override hess(u: number, v: number): [V3, V3, V3] {
+    const r = this.derivs2(u, v);
+    return [r[3], r[4], r[5]];
+  }
+  override derivs2(u: number, v: number): [V3, V3, V3, V3, V3, V3] {
+    if (this.periodU > 0 || this.periodV > 0) [u, v] = this.wrapPeriodic(u, v);
+    const r = this.ns.eval2(u, v);
+    return [r[0]!, r[1]!, r[2]!, r[3]!, r[4]!, r[5]!];
   }
   private wrapPeriodic(u: number, v: number): [number, number] {
     if (this.periodU > 0 && (u < this.u0 || u > this.u1)) {

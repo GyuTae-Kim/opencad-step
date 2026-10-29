@@ -355,6 +355,168 @@ function wrapNear(x: number, ref: number, P: number): number {
 }
 
 /**
+ * 모서리 곡선이 곡면에서 떨어진 곳의 부피 어림 오차(곡선 길이당, 떨어진 거리 d에 곱할 몫 π·d²): 두 이웃 면은 각자 곡선을 곡면에 되짚은
+ * 자리에서 띠로 곡선까지 이어 겉면을 닫는다. 곡선과 두 곡면 사이 거리를 반지름으로 한 관(허용 오차 관) 안에서는 경계가 어디로 지나도
+ * 같은 모형이라, 그 관의 단면 넓이 π·d²(면마다 제 거리로 — 둘을 더하면 큰 쪽 관보다 크다)를 곡선 길이로 적분해 어림 오차로 한다
+ */
+const TUBE = Math.PI;
+
+/** 곡선 위 점 t를 곡면에 되짚은 값 */
+interface Foot {
+  /** 곡선 점과 도함수 */
+  X: V3;
+  D: V3;
+  u: number;
+  v: number;
+  /** 곡면 점과 편도함수 */
+  S: V3;
+  Su: V3;
+  Sv: V3;
+  dudt: number;
+  dvdt: number;
+  /** 곡선 점과 곡면 점 사이 거리 */
+  dev: number;
+  /** 곡선이 곡면에서 떨어진 점이고 되짚기 사상의 정확한 도함수를 구했다 — 띠(addStrip)로 겉면을 닫는다 */
+  off: boolean;
+}
+
+/** footOf 할 일: 되짚은 그대로(RAW), 곡선이 곡면에서 떨어졌으면 가장 가까운 점으로 다듬은 (u,v)까지(POS), 그 점에서 되짚기 사상의 도함수까지(EXACT) */
+const RAW = 0;
+const POS = 1;
+const EXACT = 2;
+
+/**
+ * 곡선 점 X(도함수 D)를 되짚은 (u,v)에서 곡면 점·dv/dt. 곡선이 곡면 위면 최소 제곱 [S_u S_v](u′, v′) ≈ D가 곧 도함수다.
+ * 곡선이 곡면에서 tinyDev보다 떨어져 있으면(mode ≥ POS) 되짚은 점을 뉴턴법(2차 편도함수)으로 가장 가까운 점까지 다듬고 — 가우스–뉴턴
+ * 되짚기는 정의역 끝에 걸리면 덜 맞아 t를 따라 들쭉날쭉하다 — (mode = EXACT) 가장 가까운 점 조건 r·S_u = r·S_v = 0(r = X − S)을
+ * t로 미분한 [S_u·S_u − r·S_uu, S_u·S_v − r·S_uv; S_u·S_v − r·S_uv, S_v·S_v − r·S_vv](u′, v′) = (D·S_u, D·S_v)를 푼다(off) —
+ * 최소 제곱 값은 이 사상의 도함수가 아니라서, 그래야 ∮G dv가 되짚은 곡선(면 조각의 실제 경계) 위 선적분이 된다.
+ * 정의역 끝에 걸린 매개변수는 고정이다(그 방향 도함수 0). 다듬기가 안 되거나 야코비안이 특이하면 off = false(되짚은 그대로와 최소 제곱 값 —
+ * 부르는 쪽이 떨어진 거리로 1차 어림 오차를 더한다)
+ */
+function footOf(s: Surface, X: V3, D: V3, u: number, v: number, tinyDev: number, mode: number): Foot {
+  const [S, Su, Sv] = s.derivs(u, v);
+  const A = Su[0] * Su[0] + Su[1] * Su[1] + Su[2] * Su[2];
+  const B = Su[0] * Sv[0] + Su[1] * Sv[1] + Su[2] * Sv[2];
+  const C = Sv[0] * Sv[0] + Sv[1] * Sv[1] + Sv[2] * Sv[2];
+  const ru = Su[0] * D[0] + Su[1] * D[1] + Su[2] * D[2];
+  const rv = Sv[0] * D[0] + Sv[1] * D[1] + Sv[2] * D[2];
+  const det = A * C - B * B;
+  const dvdt = det > 1e-12 * A * C && det > 0 ? (A * rv - B * ru) / det : C > 0 ? rv / C : 0;
+  const dev = Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]);
+  const raw: Foot = { X, D, u, v, S, Su, Sv, dudt: 0, dvdt, dev, off: false };
+  if (mode === RAW || !(dev > tinyDev)) return raw;
+  const f = polishFoot(s, X, u, v, dev, tinyDev);
+  if (!f) return raw;
+  const [S2, Su2, Sv2, Suu, Suv, Svv] = f.d;
+  const rx = X[0] - S2[0], ry = X[1] - S2[1], rz = X[2] - S2[2];
+  const out: Foot = { X, D, u: f.u, v: f.v, S: S2, Su: Su2, Sv: Sv2, dudt: 0, dvdt: 0, dev: Math.hypot(rx, ry, rz), off: false };
+  if (mode !== EXACT) return out;
+  const A2 = dot3(Su2, Su2);
+  const C2 = dot3(Sv2, Sv2);
+  const a = A2 - (rx * Suu[0] + ry * Suu[1] + rz * Suu[2]);
+  const b = dot3(Su2, Sv2) - (rx * Suv[0] + ry * Suv[1] + rz * Suv[2]);
+  const cc = C2 - (rx * Svv[0] + ry * Svv[1] + rz * Svv[2]);
+  const pu = dot3(Su2, D);
+  const pv = dot3(Sv2, D);
+  if (f.cu && f.cv) out.off = true;
+  else if (f.cu || f.cv) {
+    const k = f.cu ? cc : a;
+    if (k > 1e-12 * (f.cu ? C2 : A2) && Number.isFinite(k)) {
+      out.dudt = f.cu ? 0 : pu / k;
+      out.dvdt = f.cu ? pv / k : 0;
+      out.off = true;
+    }
+  } else {
+    const dj = a * cc - b * b;
+    if (dj > 1e-12 * Math.abs(a * cc) && dj > 0 && Number.isFinite(dj)) {
+      out.dudt = (cc * pu - b * pv) / dj;
+      out.dvdt = (a * pv - b * pu) / dj;
+      out.off = true;
+    }
+  }
+  return out.off ? out : raw;
+}
+
+function dot3(a: V3, b: V3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+/**
+ * 점 X에 가장 가까운 곡면 점을 (u,v)에서 뉴턴법으로 다듬는다(거리 제곱의 기울기 −(r·S_u, r·S_v), 헤세 행렬 [S_u·S_u − r·S_uu, …]).
+ * 주기가 아닌 매개변수가 정의역 끝이면 고정하고 다른 쪽만. 거리 dev의 1e-10까지(반올림 여유) 맞으면 그 점과 [S, S_u, S_v, S_uu, S_uv, S_vv],
+ * 여섯 번 안에 안 되면 null
+ */
+function polishFoot(s: Surface, X: V3, u: number, v: number, dev: number, tinyDev: number): { u: number; v: number; d: [V3, V3, V3, V3, V3, V3]; cu: boolean; cv: boolean } | null {
+  const fixU = !(s.periodU > 0);
+  const fixV = !(s.periodV > 0);
+  let cu = fixU && (u <= s.u0 || u >= s.u1);
+  let cv = fixV && (v <= s.v0 || v >= s.v1);
+  const tol = 1e-10 * dev + 1e-3 * tinyDev;
+  for (let it = 0; it < 6; it++) {
+    const d = s.derivs2(u, v);
+    const [S, Su, Sv, Suu, Suv, Svv] = d;
+    const rx = X[0] - S[0], ry = X[1] - S[1], rz = X[2] - S[2];
+    const gu = rx * Su[0] + ry * Su[1] + rz * Su[2];
+    const gv = rx * Sv[0] + ry * Sv[1] + rz * Sv[2];
+    const A = dot3(Su, Su);
+    const C = dot3(Sv, Sv);
+    if ((cu || Math.abs(gu) <= tol * Math.sqrt(A)) && (cv || Math.abs(gv) <= tol * Math.sqrt(C))) return { u, v, d, cu, cv };
+    const a = A - (rx * Suu[0] + ry * Suu[1] + rz * Suu[2]);
+    const b = dot3(Su, Sv) - (rx * Suv[0] + ry * Suv[1] + rz * Suv[2]);
+    const cc = C - (rx * Svv[0] + ry * Svv[1] + rz * Svv[2]);
+    let du = 0;
+    let dv = 0;
+    if (cu) dv = gv / cc;
+    else if (cv) du = gu / a;
+    else {
+      const dj = a * cc - b * b;
+      if (!(dj > 0)) return null;
+      du = (cc * gu - b * gv) / dj;
+      dv = (a * gv - b * gu) / dj;
+    }
+    if (!Number.isFinite(du) || !Number.isFinite(dv)) return null;
+    u += du;
+    v += dv;
+    if (fixU && (u <= s.u0 || u >= s.u1)) {
+      u = Math.min(Math.max(u, s.u0), s.u1);
+      cu = true;
+    }
+    if (fixV && (v <= s.v0 || v >= s.v1)) {
+      v = Math.min(Math.max(v, s.v0), s.v1);
+      cv = true;
+    }
+  }
+  return null;
+}
+
+/**
+ * 띠의 흐름 값 w·∫₀¹ F·(Y_τ × Y_t) dτ를 out에: 곡면 위 경계점 S(t)에서 곡선 점 X(t)까지 곧은 선분 Y(t,τ) = S + τ(X − S)
+ * (Y_t = (1 − τ)(S_u u′ + S_v v′) + τ·D). 면 조각의 경계(되짚은 곡선)에서 모서리 곡선까지 이어, 이웃 면도 같은 곡선까지
+ * 이으면 겉면이 닫힌다(면 경계 방향으로 도는 t에서 법선 Y_τ × Y_t가 면 법선 쪽 — addSliverFlux와 같은 방향).
+ * F는 τ의 4차 이하라 3점 가우스로 정확
+ */
+function addStrip(out: Float64Array, w: number, f: Foot, c: V3): void {
+  const { S, X, D, Su, Sv } = f;
+  const rx = X[0] - S[0], ry = X[1] - S[1], rz = X[2] - S[2];
+  const px = Su[0] * f.dudt + Sv[0] * f.dvdt;
+  const py = Su[1] * f.dudt + Sv[1] * f.dvdt;
+  const pz = Su[2] * f.dudt + Sv[2] * f.dvdt;
+  for (const [y, gt] of G3) {
+    const tau = (1 + y) / 2;
+    const tx = (1 - tau) * px + tau * D[0];
+    const ty = (1 - tau) * py + tau * D[1];
+    const tz = (1 - tau) * pz + tau * D[2];
+    addFlux(out, (w * gt) / 2, S[0] - c[0] + tau * rx, S[1] - c[1] + tau * ry, S[2] - c[2] + tau * rz, ry * tz - rz * ty, rz * tx - rx * tz, rx * ty - ry * tx);
+  }
+}
+
+/** 띠로 닫은 점의 부피 어림 오차(가중치 |w| 곱하기 전): 관 단면 π·d² × |D| */
+function tubeBound(f: Foot): number {
+  return TUBE * f.dev * f.dev * Math.hypot(f.D[0], f.D[1], f.D[2]);
+}
+
+/**
  * 면 하나의 ∬_D F du dv(S_u×S_v 방향, 흐름 값 FLUX개)를 out에 더한다. polys는 tessellate.ts faceDomain의 다각형
  * (바깥 + 구멍, 점의 p는 경계 3D 점), seg(a, b)는 고리 토막 a → b의 경계 곡선(없으면 매개변수 공간 직선 — 이음선·극선·정의역 끝).
  * 고리 방향은 넓이 부호로 맞춘다(바깥 반시계, 구멍 시계). 돌려주는 값은 부피 어림 오차(곡선이 곡면에서 떨어진 만큼), 못 하면 NaN
@@ -382,21 +544,19 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
   const tinyDev = 1e-12 * size;
   let bound = 0;
   /** 곡선 위 점 t의 (u,v)·dv/dt·곡면 점(u, v를 가까운 주기로) */
-  const at = (sg: Seg, t: number, uNear: number, vNear: number) => {
+  const at = (sg: Seg, t: number, uNear: number, vNear: number, mode = EXACT): Foot => {
     const X = sg.c.point(t);
     const D = sg.c.d1(t);
     let [u, v] = s.project(X);
     u = wrapNear(u, uNear, Pu);
     v = wrapNear(v, vNear, Pv);
-    const [S, Su, Sv] = s.derivs(u, v);
-    const A = Su[0] * Su[0] + Su[1] * Su[1] + Su[2] * Su[2];
-    const B = Su[0] * Sv[0] + Su[1] * Sv[1] + Su[2] * Sv[2];
-    const C = Sv[0] * Sv[0] + Sv[1] * Sv[1] + Sv[2] * Sv[2];
-    const ru = Su[0] * D[0] + Su[1] * D[1] + Su[2] * D[2];
-    const rv = Sv[0] * D[0] + Sv[1] * D[1] + Sv[2] * D[2];
-    const det = A * C - B * B;
-    const dvdt = det > 1e-12 * A * C && det > 0 ? (A * rv - B * ru) / det : C > 0 ? rv / C : 0;
-    return { X, D, u, v, dvdt, dev: Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]) };
+    return footOf(s, X, D, u, v, tinyDev, mode);
+  };
+  /** 평면에서 떨어진 거리 */
+  const planeDev = (X: V3): number => {
+    const [u, v] = s.project(X);
+    const S = s.point(u, v);
+    return Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]);
   };
   const ring = (pts: readonly UV[], sign: number) => {
     const m = pts.length;
@@ -414,7 +574,9 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
         const S = s.point(a.u, (a.v + b.v) / 2);
         ruling = Math.hypot(m[0] - S[0], m[1] - S[1], m[2] - S[2]) <= tinyDev;
       }
-      if (!sg || (sg.linear && inner.plane) || ruling) {
+      // 평면 위 직선 모서리: 두 끝이 평면 위면 매개변수 공간 직선과 같다(떨어져 있으면 곡선처럼 되짚고 띠로 닫는다)
+      const flatLine = !!sg && sg.linear && inner.plane && planeDev(sg.c.point(sg.t0)) <= tinyDev && planeDev(sg.c.point(sg.t1)) <= tinyDev;
+      if (!sg || flatLine || ruling) {
         // 매개변수 공간 직선(평면 위 직선 모서리·원기둥과 원뿔의 모선 포함)
         if (dv === 0) continue;
         if (ruling) nsub = 1;
@@ -453,7 +615,7 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
       const T = sg.t1 - sg.t0;
       if (Math.abs(dv) <= tinyV) {
         // v가 일정한 곡선(원기둥·원뿔 둘레 원, 구·원환의 위도 원)은 ∮G dv 몫이 없다 — 가운데 점에서 v·dv/dt·곡면과의 거리를 보고 건너뛴다
-        const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v);
+        const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v, RAW);
         if (Math.abs(mid.v - a.v) <= tinyV && Math.abs(mid.dvdt * T) <= tinyV && mid.dev <= tinyDev) continue;
       }
       for (let k = 0; k < nsub; k++) {
@@ -463,9 +625,15 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
           const t = tm + h * x;
           const frac = (t - sg.t0) / (T || 1);
           const q = at(sg, t, a.u + du * frac, a.v + dv * frac);
-          if (Math.abs(q.dvdt * T) > tinyV) inner.add(out, sign * gw * h * q.dvdt, q.u, q.v);
-          // 곡선이 곡면에서 떨어진 거리 × |q| × 길이 / 3 — 부피 어림 오차
-          if (q.dev > 0) bound += (Math.abs(gw * h) * q.dev * Math.hypot(q.X[0] - c[0], q.X[1] - c[1], q.X[2] - c[2]) * Math.hypot(q.D[0], q.D[1], q.D[2])) / 3;
+          const w = sign * gw * h;
+          if (Math.abs(q.dvdt * T) > tinyV) inner.add(out, w * q.dvdt, q.u, q.v);
+          if (q.off) {
+            // 곡면 위 경계에서 곡선까지 띠로 닫고, 허용 오차 관의 부피를 어림 오차로
+            addStrip(out, w, q, c);
+            bound += Math.abs(gw * h) * tubeBound(q);
+          }
+          // 닫지 못한 틈: 곡선이 곡면에서 떨어진 거리 × |q| × 길이 / 3 — 부피 어림 오차
+          else if (q.dev > 0) bound += (Math.abs(gw * h) * q.dev * Math.hypot(q.X[0] - c[0], q.X[1] - c[1], q.X[2] - c[2]) * Math.hypot(q.D[0], q.D[1], q.D[2])) / 3;
         }
       }
     }
@@ -1004,22 +1172,16 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
   const uSpan = inner.uBreaks[inner.uBreaks.length - 1]! - inner.uBreaks[0]!;
   const tmp = new Float64Array(FLUX);
   let bound = 0;
-  const at = (sg: Seg, t: number, uNear: number, vNear: number) => {
+  /** 곡선 위 점 t를 되짚은 값(exact: 곡선이 곡면에서 떨어졌으면 되짚기 사상의 정확한 도함수까지 — 매듭 찾기에는 (u,v)만) */
+  const at = (sg: Seg, t: number, uNear: number, vNear: number, mode = EXACT): Foot => {
     const X = sg.c.point(t);
     const D = sg.c.d1(t);
     let [u, v] = s.project(X, [uNear, vNear]);
     u = wrapNear(u, uNear, Pu);
     v = wrapNear(v, vNear, Pv);
-    const [S, Su, Sv] = s.derivs(u, v);
-    const A = Su[0] * Su[0] + Su[1] * Su[1] + Su[2] * Su[2];
-    const B = Su[0] * Sv[0] + Su[1] * Sv[1] + Su[2] * Sv[2];
-    const C = Sv[0] * Sv[0] + Sv[1] * Sv[1] + Sv[2] * Sv[2];
-    const ru = Su[0] * D[0] + Su[1] * D[1] + Su[2] * D[2];
-    const rv = Sv[0] * D[0] + Sv[1] * D[1] + Sv[2] * D[2];
-    const det = A * C - B * B;
-    const dvdt = det > 1e-12 * A * C && det > 0 ? (A * rv - B * ru) / det : C > 0 ? rv / C : 0;
-    return { X, D, u, v, dvdt, dev: Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]) };
+    return footOf(s, X, D, u, v, tinyDev, mode);
   };
+  const strip = new Float64Array(FLUX);
   /** G 3V 성분만 따로 구할 때(유리 곡면 직선 토막의 어림 오차) */
   const g0 = (u: number, v: number): number => {
     tmp.fill(0);
@@ -1039,7 +1201,7 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
     for (let it = 0; it < 30; it++) {
       const t = (ta * fb - tb * fa) / (fb - fa);
       const frac = (t - A.t) / (B.t - A.t);
-      const q = at(sg, t, A.u + (B.u - A.u) * frac, A.v + (B.v - A.v) * frac);
+      const q = at(sg, t, A.u + (B.u - A.u) * frac, A.v + (B.v - A.v) * frac, POS);
       const f = (k ? q.v : q.u) - x;
       best = { t, u: q.u, v: q.v };
       if (Math.abs(f) <= tol || Math.abs(tb - ta) <= 1e-15 * Math.abs(B.t - A.t)) break;
@@ -1105,7 +1267,7 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
       const T = sg.t1 - sg.t0;
       if (!(Math.abs(T) > 0)) continue;
       if (Math.abs(dv) <= tinyV) {
-        const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v);
+        const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v, RAW);
         if (Math.abs(mid.v - a.v) <= tinyV && Math.abs(mid.dvdt * T) <= tinyV && mid.dev <= tinyDev) continue;
       }
       const knots: number[] = [];
@@ -1114,7 +1276,7 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
       const cps: CurvePt[] = [{ t: sg.t0, u: a.u, v: a.v }];
       for (const t of knots) {
         const frac = (t - sg.t0) / T;
-        const q = at(sg, t, a.u + du * frac, a.v + dv * frac);
+        const q = at(sg, t, a.u + du * frac, a.v + dv * frac, POS);
         cps.push({ t, u: q.u, v: q.v });
       }
       cps.push({ t: sg.t1, u: b.u, v: b.v });
@@ -1167,8 +1329,16 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
           g7 += wg * wt * tmp[0]!;
           if (e) extra += Math.abs(wk * wt) * e;
         }
-        // 곡선이 곡면에서 떨어진 거리 × |q| × 길이 — 부피 어림 오차(3배)
-        if (q.dev > 0) extra += Math.abs(wk * h) * q.dev * Math.hypot(q.X[0] - c[0], q.X[1] - c[1], q.X[2] - c[2]) * Math.hypot(q.D[0], q.D[1], q.D[2]);
+        if (q.off) {
+          // 곡면 위 경계에서 곡선까지 띠로 닫는다(크론로드 어림에도 넣는다), 허용 오차 관의 부피를 어림 오차로(3배)
+          strip.fill(0);
+          addStrip(strip, sign * h, q, c);
+          for (let k = 0; k < FLUX; k++) kb[k]! += wk * strip[k]!;
+          g7 += wg * strip[0]!;
+          extra += 3 * Math.abs(wk * h) * tubeBound(q);
+        }
+        // 닫지 못한 틈: 곡선이 곡면에서 떨어진 거리 × |q| × 길이 — 부피 어림 오차(3배)
+        else if (q.dev > 0) extra += Math.abs(wk * h) * q.dev * Math.hypot(q.X[0] - c[0], q.X[1] - c[1], q.X[2] - c[2]) * Math.hypot(q.D[0], q.D[1], q.D[2]);
       }
     const err = Math.abs(kb[0]! - g7);
     if (err > Math.max(1e-12 * Math.abs(kb[0]!), tolAbs) && depth < KRONROD_DEPTH) {

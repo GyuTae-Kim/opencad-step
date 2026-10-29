@@ -344,18 +344,19 @@ const TUBE_K = Array.from({ length: 13 }, (_, i) => i - 3);
 const TUBE_V = [0, 0, 0, 0, 0.4, 1, 1, 1, 1];
 const TUBE_Z = [0, 0.1, 0.5, 0.6, 1];
 const wrap3 = (a: readonly number[]) => [...a, a[0]!, a[1]!, a[2]!];
-function splineTube(w: StepText, h: number): number {
+function splineTube(w: StepText, h: number, topScale = 1): number {
   const X = wrap3(TUBE_X);
   const Y = wrap3(TUBE_Y);
-  const ring = (z: number) => X.map((x, i) => [x, Y[i]!, z] as P3);
+  // topScale ≠ 1이면 위 닫힌 곡선만 원점에서 그만큼 키운다(위 평면 위 그대로, 옆 곡면에서는 바깥으로 조금 떨어진다)
+  const ring = (z: number, k = 1) => X.map((x, i) => [k * x, k * Y[i]!, z] as P3);
   const net = X.map((x, i) => TUBE_Z.map((z) => [x, Y[i]!, h * z] as P3));
   const surf = bsSurface(w, 3, 3, TUBE_K, TUBE_V, net);
   const x0 = deBoorP(3, TUBE_K, X, 0);
   const y0 = deBoorP(3, TUBE_K, Y, 0);
   const V0 = w.vertex([x0, y0, 0]);
-  const V1 = w.vertex([x0, y0, h]);
+  const V1 = w.vertex([topScale * x0, topScale * y0, h]);
   const C0 = w.edge(V0, V0, bsCurve(w, 3, TUBE_K, ring(0)));
-  const C1 = w.edge(V1, V1, bsCurve(w, 3, TUBE_K, ring(h)));
+  const C1 = w.edge(V1, V1, bsCurve(w, 3, TUBE_K, ring(h, topScale)));
   const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
   const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, h]));
   const side = w.face([w.bound(w.loop([w.oe(C0, true)])), w.bound(w.loop([w.oe(C1, false)]), false)], surf);
@@ -739,5 +740,99 @@ describe('B-스플라인 곡면·B-스플라인 곡선을 민 곡면 질량 속�
     expect(bound / want.V).toBeLessThan(1e-7);
     const e = relErr(got, want, 20);
     expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+  });
+});
+
+/**
+ * 반지름 rad·높이 h 원기둥의 위·아래 원과 이음선을 반지름 방향으로 dr, 위아래로 dz 바깥에 둔 입체(모서리 곡선이 원기둥 곡면·평면에서 떨어졌다).
+ * 원기둥 곡면·두 평면은 그대로라 곡면들이 둘러싼 부피는 π·rad²·h — 곡선이 곡면에서 떨어진 거리만큼은 모형의 허용 오차다
+ */
+function offCylinder(w: StepText, rad: number, h: number, dr: number, dz: number): number {
+  const R = rad + dr;
+  const V0 = w.vertex([R, 0, -dz]);
+  const V1 = w.vertex([R, 0, h + dz]);
+  const C0 = w.edge(V0, V0, w.circle([0, 0, -dz], R));
+  const C1 = w.edge(V1, V1, w.circle([0, 0, h + dz], R));
+  const L = w.edge(V0, V1, w.line([R, 0, -dz], [R, 0, h + dz]));
+  const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
+  const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, h]));
+  const surf = w.add('CYLINDRICAL_SURFACE', `'',#${w.ax2([0, 0, 0])},${r(rad)}`);
+  const side = w.face([w.bound(w.loop([w.oe(C0, true), w.oe(L, true), w.oe(C1, false), w.oe(L, false)]))], surf);
+  return w.solid([bottom, top, side], 'offcyl');
+}
+
+/** 반지름 R 구를 가운데에서 d 떨어진 기울어진 평면(법선 n)으로 자른 조각. 평면 위 원 모서리의 반지름만 dr 바꿔 구에서 떨어지게 한다 */
+function offCap(w: StepText, R: number, d: number, dr: number, n: P3): number {
+  const L = Math.hypot(...n);
+  const z: P3 = [n[0] / L, n[1] / L, n[2] / L];
+  const x0: P3 = Math.abs(z[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const dd = x0[0] * z[0] + x0[1] * z[1] + x0[2] * z[2];
+  const xr: P3 = [x0[0] - dd * z[0], x0[1] - dd * z[1], x0[2] - dd * z[2]];
+  const xl = Math.hypot(...xr);
+  const x: P3 = [xr[0] / xl, xr[1] / xl, xr[2] / xl];
+  const o: P3 = [z[0] * d, z[1] * d, z[2] * d];
+  const rc = Math.sqrt(R * R - d * d) + dr;
+  const V0 = w.vertex([o[0] + rc * x[0], o[1] + rc * x[1], o[2] + rc * x[2]]);
+  const C = w.edge(V0, V0, w.circle(o, rc, z, x));
+  // 평면 바깥 법선은 −n(조각은 n·p ≥ d 쪽)
+  const pl = w.face([w.bound(w.loop([w.oe(C, false)]))], w.plane(o, z, x), false);
+  const surf = w.add('SPHERICAL_SURFACE', `'',#${w.ax2([0, 0, 0], z, x)},${r(R)}`);
+  const cap = w.face([w.bound(w.loop([w.oe(C, true)]))], surf);
+  return w.solid([pl, cap], 'offcap');
+}
+
+describe('모서리 곡선이 곡면에서 조금 떨어진 입체: 두 면이 각자 되짚은 경계에서 곡선까지 띠로 이어 겉면을 닫는다', () => {
+  it('원기둥의 위·아래 원·이음선이 반지름 방향으로 1e-3 바깥: 두 띠가 평면 위에서 지워져 닫힌 식 그대로, 어림 오차는 관 단면(π·d²)이라 아주 작다', () => {
+    const { props } = open((w) => offCylinder(w, 5, 20, 1e-3, 0));
+    expect(props![14]).toBe(PROPS_BREP);
+    const want = revolved(() => 5, 0, 20);
+    const got = central(props!);
+    const e = relErr(got, want, 20);
+    expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+    const bound = props![13]!;
+    expect(Math.abs(got.V - want.V)).toBeLessThanOrEqual(bound);
+    // 1차 어림(떨어진 거리 × 거리 × 길이 / 3)이면 상대 1e-4 수준 — 관 단면은 d²라 그 천분의 일 밑
+    expect(bound / want.V).toBeLessThan(1e-6);
+  });
+
+  it('원이 반지름 방향(dr)과 위아래(dz)로 함께 떨어지면 모서리마다 dr × dz 사각형 둘레만큼(−2·2π·R·dr·dz) 다르고, 그것도 어림 오차 안', () => {
+    const R = 5;
+    for (const [dr, dz] of [
+      [1e-3, -2e-3],
+      [1e-4, 1e-4],
+    ] as const) {
+      const { props } = open((w) => offCylinder(w, R, 20, dr, dz));
+      expect(props![14]).toBe(PROPS_BREP);
+      const err = props![0]! - Math.PI * R * R * 20;
+      const corner = -2 * 2 * Math.PI * (R + dr / 2) * dr * dz;
+      expect(Math.abs(err - corner)).toBeLessThan(1e-3 * Math.abs(corner));
+      expect(Math.abs(err)).toBeLessThanOrEqual(props![13]!);
+    }
+  });
+
+  it('구 조각: 기울어진 평면 위 원의 반지름이 구에서 1e-4 어긋나도 참값이 어림 오차 안, 어림 오차 상대 1e-8 밑', () => {
+    const R = 7;
+    for (const [d, dr] of [
+      [2, 1e-4],
+      [-3, -1e-4],
+    ] as const) {
+      const { props } = open((w) => offCap(w, R, d, dr, [1, 2, 3]));
+      expect(props![14]).toBe(PROPS_BREP);
+      const h = R - d;
+      const V = (Math.PI * h * h * (3 * R - h)) / 3;
+      expect(Math.abs(props![0]! - V)).toBeLessThanOrEqual(props![13]!);
+      expect(props![13]! / V).toBeLessThan(1e-8);
+    }
+  });
+
+  it('B-스플라인 관: 위 닫힌 곡선이 옆 곡면에서 바깥으로 떨어져도(정의역 끝에 걸린 되짚기) 띠가 위 평면과 지워져 닫힌 식 그대로', () => {
+    const { props } = open((w) => splineTube(w, 9, 1 + 1e-4));
+    expect(props![14]).toBe(PROPS_BREP);
+    const want = tubeExpect(9);
+    const got = central(props!);
+    const e = relErr(got, want, 15);
+    expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+    expect(Math.abs(got.V - want.V)).toBeLessThanOrEqual(props![13]!);
+    expect(props![13]! / want.V).toBeLessThan(1e-6);
   });
 });
