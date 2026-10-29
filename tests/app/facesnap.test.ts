@@ -301,3 +301,133 @@ describe('잘린 면의 경계(insideFace)와 refineFaceHit', () => {
     close(refineFaceHit(input([80, 3, 4], [1, 0, 0], [90.5, 3, 4]), new Map([['cyl', moved]]), fx), [100 - Math.sqrt(91), 3, 4], 1e-11);
   });
 });
+
+/**
+ * 극점이 있는 돔(2차 × 2차 B-스플라인 — u = 0 조절점 줄이 꼭대기 (0, 0, 10) 한 점으로 모인다). 꼭대기 둘레에서는 코어 점을 곡면에 되짚으면
+ * 극점 (u, v) = (0, ·)로 가 v가 정해지지 않고 ∂v = 0이라 뉴턴이 멈춘다(23차 — 다시 풀기 paramHit retry)
+ */
+function dome(): BSplineSurface {
+  const K = new Float64Array([0, 0, 0, 1, 1, 1]);
+  const ctrl: V3[][] = [
+    [
+      [0, 0, 10],
+      [0, 0, 10],
+      [0, 0, 10],
+    ],
+    [
+      [6, 0, 10],
+      [0, 9, 10],
+      [-6, 0, 10],
+    ],
+    [
+      [10, 0, 0],
+      [0, 20, 0],
+      [-10, 0, 0],
+    ],
+  ];
+  return new BSplineSurface(new NurbsSurface(2, 2, K, K, ctrl, null), 1e-9);
+}
+const sub3 = (a: readonly number[], b: readonly number[]): V3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
+const dot3 = (a: readonly number[], b: readonly number[]): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+const cross3 = (a: readonly number[], b: readonly number[]): V3 => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
+const len3 = (a: readonly number[]): number => Math.hypot(a[0]!, a[1]!, a[2]!);
+/** 곡면 위 (u, v) 점 X를 지나는 직선: 법선에서 tilt만큼, 접평면 방위 az 쪽으로 기울인 방향 */
+function lineThrough(surf: BSplineSurface, u: number, v: number, tilt: number, az: number): { X: V3; D: V3; O: V3 } {
+  const [X, Su, Sv] = surf.derivs(u, v);
+  const n = unit(cross3(Su, Sv));
+  const t1 = unit(Su);
+  const t2 = cross3(n, t1);
+  const D = unit([0, 1, 2].map((k) => Math.cos(tilt) * n[k]! + Math.sin(tilt) * (Math.cos(az) * t1[k]! + Math.sin(az) * t2[k]!)));
+  return { X, D, O: [X[0] - 20 * D[0], X[1] - 20 * D[1], X[2] - 20 * D[2]] };
+}
+/** 직선과 평면(점 A, 법선 pn)의 교점 — 코어 점(삼각형 평면 위) */
+const onPlane = (O: V3, D: V3, A: V3, pn: V3): V3 => {
+  const s = dot3(sub3(A, O), pn) / dot3(D, pn);
+  return [O[0] + s * D[0], O[1] + s * D[1], O[2] + s * D[2]];
+};
+
+describe('극점 둘레 다시 풀기(paramHit retry — 삼각형 꼭짓점·매개변수 격자)', () => {
+  it('돔 꼭대기 둘레: 코어 점(극점 부채꼴 삼각형 위)의 되짚기가 극점으로 가 수렴하지 않던 자리를 다시 풀어 곡면 위(1e-9), 잘못된 근 없음', () => {
+    const surf = dome();
+    expect(surf.poles).toEqual([{ fixed: 0, value: 0 }]);
+    const fs = { surf, k: 1, origin: [0, 0, 0] as const };
+    const A = surf.point(0, 0);
+    let before = 0;
+    let n = 0;
+    for (const u of [0.002, 0.01, 0.03, 0.06])
+      for (const v of [0.1, 0.5, 0.9])
+        for (const tilt of [0, 0.6, 0.9])
+          for (const az of [0, 2, 3]) {
+            const { X, D, O } = lineThrough(surf, u, v, tilt, az);
+            // 부채꼴 삼각형(꼭대기, (0.08, v ∓ 0.15))
+            const B = surf.point(0.08, Math.max(0, v - 0.15));
+            const C = surf.point(0.08, Math.min(1, v + 0.15));
+            const P = onPlane(O, D, A, cross3(sub3(B, A), sub3(C, A)));
+            const plain = paramHit(fs, O, D, P);
+            if (!plain) before++;
+            else close(plain.X, X, 1e-9);
+            const reach = Math.max(len3(sub3(B, A)), len3(sub3(C, A)), len3(sub3(C, B)));
+            const h = paramHit(fs, O, D, P, { starts: [A, B, C], reach });
+            close(h?.X, X, 1e-9);
+            // 코어 점에서 수렴한 자리는 다시 풀기와 상관없이 같은 답
+            if (plain) expect(h).toEqual(plain);
+            n++;
+          }
+    expect(n).toBe(108);
+    // 다시 풀기 전에는 꼭대기 둘레 상당수가 수렴하지 않았다(코어 점 되짚기가 극점)
+    expect(before).toBeGreaterThan(30);
+  });
+
+  it('먼 근·비켜 가는 직선: 코어 점에서 reach 밖의 근은 받지 않고(코어 점 둘레 근을 격자에서 찾는다), 교점이 없으면 null', () => {
+    const surf = dome();
+    const fs = { surf, k: 1, origin: [0, 0, 0] as const };
+    // 돔 위 두 점 X1(꼭대기 둘레)·X2를 지나는 직선 — 곡면과 두 번 만난다. 코어 점은 X1 옆이고 되짚으면 극점이라 그대로는 풀리지 않는다
+    const X1 = surf.point(0.02, 0.5);
+    const X2 = surf.point(0.6, 0.5);
+    const D = unit(sub3(X2, X1));
+    const L = len3(sub3(X2, X1));
+    const O: V3 = [X1[0] - 3 * D[0], X1[1] - 3 * D[1], X1[2] - 3 * D[2]];
+    const P: V3 = [X1[0] + 0.004 * L * D[0], X1[1] + 0.004 * L * D[1], X1[2] + 0.004 * L * D[2]];
+    expect(surf.project(P)[0]).toBe(0);
+    expect(paramHit(fs, O, D, P)).toBeNull();
+    // 먼 근 쪽 시작점(X2)을 줘도 reach 안의 X1을 받는다. reach가 넉넉하면 그 시작점의 근(X2)이 먼저다 — 그래서 refineFaceHit은 그 삼각형의 가장 긴 변으로 자른다
+    close(paramHit(fs, O, D, P, { starts: [X2], reach: 0.3 * L })?.X, X1, 1e-9);
+    close(paramHit(fs, O, D, P, { starts: [X2], reach: 2 * L })?.X, X2, 1e-9);
+    expect(paramHit(fs, O, D, P, { starts: [X2], reach: 1e-6 })).toBeNull();
+    // 꼭대기 위로 비켜 가는 수평 직선: 교점이 없다
+    expect(paramHit(fs, [-20, 0.3, 10.5], [1, 0, 0], [0, 0.3, 10.5], { starts: [surf.point(0.05, 0.5), surf.point(0.1, 0.2)], reach: 2 })).toBeNull();
+  });
+
+  it('refineFaceHit: 꼭대기 둘레 부채꼴 삼각형 위 코어 점 — 그 삼각형 꼭짓점에서 다시 풀어 곡면 위(1e-9), 면 경계 안', () => {
+    const surf = dome();
+    // 그물: 꼭대기와 u = 0.08, 0.2 두 둘레(v = j/8)로 나눈 삼각형 — 부채꼴 8개, 사다리 16개
+    const pos: number[] = [...surf.point(0, 0)];
+    for (const u of [0.08, 0.2]) for (let j = 0; j <= 8; j++) pos.push(...surf.point(u, j / 8));
+    const idx: number[] = [];
+    for (let j = 0; j < 8; j++) idx.push(0, 1 + j, 2 + j);
+    for (let j = 0; j < 8; j++) idx.push(1 + j, 10 + j, 11 + j, 1 + j, 11 + j, 2 + j);
+    const mesh: Mesh3d = { id: 'dome', positions: Float32Array.from(pos), indices: Uint32Array.from(idx), color: [1, 1, 1, 1] } as Mesh3d;
+    const nt = idx.length / 3;
+    const table: StepFaceTable = { triStart: Uint32Array.from([0, nt]), stepIds: Uint32Array.from([9]), kinds: Uint8Array.from([FACE_KINDS.indexOf('bspline')]), params: new Float64Array(8) };
+    const fx: SnapFaceIndex = { kinds: FACE_KINDS, tables: [table], tableOf: new Map([['dome', 0]]) };
+    const meshes = new Map([['dome', mesh]]);
+    const look = () => ({ surf, k: 1, origin: [0, 0, 0] as const });
+    const vx = (i: number): V3 => [pos[i * 3]!, pos[i * 3 + 1]!, pos[i * 3 + 2]!];
+    let fixedNow = 0;
+    for (const [u, v, tilt, az] of [
+      [0.01, 0.55, 0.6, 3],
+      [0.03, 0.3, 0.9, 2],
+      [0.002, 0.8, 0.3, 0],
+      [0.05, 0.1, 0, 0],
+    ] as const) {
+      const { X, D, O } = lineThrough(surf, u, v, tilt, az);
+      const j = Math.min(7, Math.floor(v * 8));
+      const P = onPlane(O, D, vx(0), cross3(sub3(vx(1 + j), vx(0)), sub3(vx(2 + j), vx(0))));
+      const input: SnapRefineFaceInput = { kind: 'axisFace', point: P, face: { id: 'dome', index: j, normal: [0, 0, 1] }, line: { origin: O, dir: D }, first: O, ray: { origin: O, dir: D } };
+      const got = refineFaceHit(input, meshes, fx, look);
+      close(got, X, 1e-9);
+      if (!paramHit(look(), O, D, P)) fixedNow++;
+    }
+    expect(fixedNow).toBeGreaterThan(0);
+  });
+});
