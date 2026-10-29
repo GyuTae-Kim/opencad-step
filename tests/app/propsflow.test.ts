@@ -9,6 +9,11 @@ import { ParseClient, type PropsUpdate } from '../../src/app/client';
 import { applyDocProps, createDoc, propsPendingFor } from '../../src/app/doc';
 import type { ParseResponse, PropsProgress } from '../../src/app/protocol';
 import { cube, cylinder, sphere, StepText, torus } from '../stepText';
+import { stepToSceneDeferred } from '../../src/scene';
+import { reviveFaceSurfaces } from '../../src/facesurf';
+import { BSplineSurface } from '../../src/surfaces';
+import { paramHit } from '../../src/app/facesnap';
+import { hangingPlate, roofBlock } from './facescene';
 
 /** 워커 본문이 쓰는 self(메시지 받기·보내기) */
 const ctx: { onmessage: ((ev: { data: unknown }) => unknown) | null; postMessage: (m: unknown) => void } = { onmessage: null, postMessage: () => {} };
@@ -150,5 +155,80 @@ describe('질량 속성: 워커가 문서를 보인 뒤 따로 적분', () => {
     expect(doc.info.stats?.propsTimedOut).toBe(1);
     applyDocProps(doc, 'stopped');
     expect(doc.props.state).toBe('done');
+  });
+});
+
+describe('워커가 다음 해석까지 들고 있는 곡면 정의(23차 — 되짚기 캐시를 버린 꼴)', () => {
+  /** solid면 지붕 블록(닫힌 입체 — 위가 B-스플라인 곡면), 아니면 같은 면들을 열린 면 묶음으로(매단 판 하나를 더) */
+  const roofStep = (solid: boolean): Uint8Array => {
+    const w = new StepText();
+    const mm = w.context('mm');
+    if (solid) w.product('roof', [roofBlock(w, 12, 8)], mm);
+    else {
+      // 열린 면 묶음뿐(질량 속성 적분 거리가 없다): 지붕 블록을 면 묶음으로
+      const id = roofBlock(w, 12, 8);
+      w.product('roof-shell', [w.add('FACE_BASED_SURFACE_MODEL', `'',(#${w.add('CONNECTED_FACE_SET', `'',(${shellFaces(w, id)})`)})`), hangingPlate(w, [4.3, 3.1, 11])], mm, 'SHAPE_REPRESENTATION');
+    }
+    return w.bytes();
+  };
+  /** MANIFOLD_SOLID_BREP의 CLOSED_SHELL 면 목록(StepText 글에서 읽는다) */
+  const shellFaces = (w: StepText, solid: number): string => {
+    const text = w.toString();
+    const shell = new RegExp(`#${solid}=MANIFOLD_SOLID_BREP\\('[^']*',#(\\d+)\\)`).exec(text)![1]!;
+    return new RegExp(`#${shell}=CLOSED_SHELL\\('[^']*',\\(([^)]*)\\)\\)`).exec(text)![1]!;
+  };
+  const grids = (p: unknown): unknown[] => {
+    const look = reviveFaceSurfaces(p as never)!;
+    const out: unknown[] = [];
+    for (let f = 0; f < 6; f++) {
+      const s = look(0, f)?.surf;
+      if (s instanceof BSplineSurface) out.push((s as unknown as { grid: unknown }).grid);
+    }
+    return out;
+  };
+
+  it('닫힌 입체: 적분이 끝난 뒤 보내는 곡면 정의는 되짚기 격자가 없고(다시 쓰면 같은 격자를 만든다), 같은 직선의 교점이 비트까지 같다', async () => {
+    const bytes = roofStep(true);
+    const client = new ParseClient();
+    const res = await client.parse('roof.stp', bytes.slice().buffer);
+    expect(res.surfaces).toBe(1);
+    const doc = createDoc('roof.stp', bytes.length, res);
+    expect(client.integrateProps((u) => applyDocProps(doc, u))).toBe(true);
+    await until(() => doc.props.state === 'done', '적분 끝');
+    const payload = await client.faceSurfaces();
+    expect(payload).toBeTruthy();
+    const gs = grids(payload);
+    expect(gs).toHaveLength(1);
+    expect(gs[0]).toBeNull();
+    // 워커가 들고 있던 것과 같은 정의(격자를 지니고 있는 꼴)와 같은 답
+    const { surfaces } = stepToSceneDeferred(bytes);
+    const own = surfaces!.tables[0]!.surfs.find((x) => x instanceof BSplineSurface)!;
+    own.project([4.3, 3.1, 4]);
+    expect((own as unknown as { grid: unknown }).grid).toBeTruthy();
+    const look = reviveFaceSurfaces(payload)!;
+    let f = 0;
+    while (!(look(0, f)?.surf instanceof BSplineSurface)) f++;
+    const got = look(0, f)!;
+    for (const P of [
+      [4.3, 3.1, 4.4],
+      [9.1, 1.2, 4],
+      [0.6, 7.5, 4.1],
+    ] as [number, number, number][]) {
+      const a = paramHit(got, [P[0], P[1], 40], [0, 0, -1], P);
+      const b = paramHit({ surf: own, k: got.k, origin: got.origin }, [P[0], P[1], 40], [0, 0, -1], P);
+      expect(a).toEqual(b);
+      expect(a).toBeTruthy();
+    }
+  });
+
+  it('적분할 입체가 없으면(열린 면 묶음) 해석 뒤 바로 버린 꼴로 들고 있다', async () => {
+    const bytes = roofStep(false);
+    const client = new ParseClient();
+    const res = await client.parse('shell.stp', bytes.slice().buffer);
+    expect(res.props).toBeUndefined();
+    expect(res.surfaces).toBe(1);
+    const gs = grids(await client.faceSurfaces());
+    expect(gs).toHaveLength(1);
+    expect(gs[0]).toBeNull();
   });
 });

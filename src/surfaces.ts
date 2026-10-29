@@ -96,6 +96,9 @@ export abstract class Surface {
   /** 점에 가장 가까운 (u, v) */
   abstract project(p: V3, hint?: readonly [number, number] | null): [number, number];
 
+  /** 되짚기 등에 쓰려고 만든 캐시를 버린다(다시 쓰면 같은 값으로 다시 만든다 — 해석 워커가 곡면 정의를 다음 해석까지 들고 있을 때 facesurf.ts) */
+  dropCaches(): void {}
+
   /** 대략의 크기(꼭짓점이 없는 닫힌 면의 허용 오차용). 정의역이 무한하면 0 */
   size(): number {
     if (![this.u0, this.u1, this.v0, this.v1].every(Number.isFinite)) return 0;
@@ -699,6 +702,10 @@ export class BSplineSurface extends Surface {
     }
     return [u, v];
   }
+  /** 되짚기 첫 짐작 격자(최대 48 × 48 점 — 곡면 정의에서 가장 큰 몫)를 버린다. 다음 되짚기에 같은 격자를 다시 만든다 */
+  override dropCaches(): void {
+    this.grid = null;
+  }
   private buildGrid(): void {
     const ns = this.ns;
     this.gu = Math.min(48, Math.max(9, ns.nu * 2 + 1));
@@ -785,5 +792,8 @@ export class OffsetSurface extends Surface {
   project(p: V3, hint?: readonly [number, number] | null): [number, number] {
     this.base.projTol = this.projTol;
     return this.base.project(p, hint);
+  }
+  override dropCaches(): void {
+    this.base.dropCaches();
   }
 }

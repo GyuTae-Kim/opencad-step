@@ -66,6 +66,14 @@ function classOf(o: object, protos: ReadonlyMap<object, number>): number | null 
   return protos.get(p) ?? null;
 }
 
+/**
+ * 워커: 다음 해석까지 들고 있을 곡면 정의의 캐시를 버린다(B-스플라인 되짚기 첫 짐작 격자 — 들고 있는 몫의 절반 남짓, 23차 실제 파일 측정).
+ * 질량 속성 적분이 같은 곡면으로 되짚기를 하므로 적분이 끝난 뒤(적분 거리가 없으면 해석 뒤 바로) 부른다. 화면도 되살린 곡면에서 쓸 때 같은 격자를 다시 만든다
+ */
+export function dropFaceSurfaceCaches(set: FaceSurfaceSet | null | undefined): void {
+  for (const t of set?.tables ?? []) for (const s of t?.surfs ?? []) s?.dropCaches();
+}
+
 /** 워커: 장면의 곡면 정의 → 보낼 꼴(보낼 곡면이 없으면 null) */
 export function packFaceSurfaces(set: FaceSurfaceSet | null | undefined): FaceSurfacePayload | null {
   if (!set) return null;
