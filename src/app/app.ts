@@ -44,7 +44,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, type LockName, measureSnapOptions, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { ExplodeMode } from './explode';
 import type { ExplodeControls } from './explodebar';
@@ -1204,6 +1204,8 @@ export class StepApp {
     // (둘째 점의 첫 점 축 방향은 결과의 directionB로도 본다 — 첫 점 축 위 나란한 자리는 그 축 방향 그대로)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : false;
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : false;
+    // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face로
+    const meet = m?.lockedB ? lockMeet(pts[1]) : null;
     d.measure = m
       ? {
           ...m,
@@ -1212,6 +1214,7 @@ export class StepApp {
           ...(pts[1]?.refined ? { refinedB: true } : {}),
           ...(tA ? { trackA: tA } : {}),
           ...(tB ? { trackB: tB } : {}),
+          ...(meet ? { lockMeetB: meet } : {}),
         }
       : m;
     // 측정 기록(CSV 복사용, 이 문서 동안)

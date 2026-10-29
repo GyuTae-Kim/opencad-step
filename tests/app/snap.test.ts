@@ -12,6 +12,7 @@ import {
   edgeSnapPoints,
   hoverSnapLabel,
   lockHint,
+  lockMeet,
   lockName,
   type LockViewer,
   MEASURE_INFERENCE,
@@ -220,6 +221,40 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(translate('Y축 · 면 위', 'de')).toBe('Y-Achse · Auf Fläche');
   });
 
+  it('잠근 선이 모서리·면과 만나는 점(코어 0.19.0 lockEdges·lockFaces): "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위", 결과도 찍은 점의 segment·face로', () => {
+    // 가르는 법(코어 README): 잠근 점에 segment면 모서리와 만나는 점, face면 면을 뚫는 점. 끌어온 축 위 점·잠그지 않은 점은 아니다
+    expect(lockMeet({ locked: true, segment: {} })).toBe('edge');
+    expect(lockMeet({ locked: true, face: {} })).toBe('face');
+    expect(lockMeet({ locked: true })).toBe(null);
+    expect(lockMeet({ segment: {} })).toBe(null);
+    expect(lockMeet({ locked: true, trackFrom: [0, 0, 0], segment: {} })).toBe(null);
+    expect(lockMeet(null)).toBe(null);
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', direction: [1, 0, 0], locked: true, segment: { kind: 'edge' }, refined: true })).toBe('잠근 X축 · 모서리 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', direction: [0, 0, 1], locked: true, face: { id: 'm', index: 3, normal: [0, 0, 1] } })).toBe('잠근 Z축 · 면 위');
+    expect(hoverSnapLabel({ snap: 'parallel', direction: [0.6, 0.8, 0], locked: true, segment: { kind: 'edge' } })).toBe('잠근 방향 · 모서리 위');
+    expect(hoverSnapLabel({ snap: 'perpendicular', direction: [0, 1, 0], locked: true, face: {} })).toBe('잠근 방향 · 면 위');
+    // 앱이 건 곡선 접선 잠금(코어는 나란함)
+    expect(hoverSnapLabel({ snap: 'parallel', direction: [0, 1, 0], locked: true, segment: {} }, true)).toBe('잠근 접선 · 모서리 위');
+    // 잠근 선 위 그 밖의 점은 0.10.0 그대로
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', direction: [0, 1, 0], locked: true })).toBe('Y축 방향 · 잠금');
+    // 결과: 코어 결과에는 잠금만 실려 앱이 찍은 점의 lockMeet를 lockMeetB로 옮긴다
+    expect(snapPair({ snapA: 'endpoint', snapB: 'axis', axisB: 'x', lockedB: true, trackB: 'axisEdge', lockMeetB: 'edge', refinedB: true })).toEqual(['끝점', '잠근 X축 · 모서리 위']);
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'y', lockedB: true, lockMeetB: 'face' })).toEqual(['꼭짓점', '잠근 Y축 · 면 위']);
+    expect(snapPair({ snapA: 'vertex', snapB: 'parallel', lockedB: true, tangentB: true, lockMeetB: 'edge' })).toEqual(['꼭짓점', '잠근 접선 · 모서리 위']);
+    // 잠그지 않은 점에 lockMeetB가 잘못 실려도 무시한다
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'y', trackB: 'axisFace', lockMeetB: 'face' })).toEqual(['꼭짓점', 'Y축 · 면 위']);
+    const labels: string[] = [];
+    for (const a of ['x', 'y', 'z'] as const)
+      for (const face of [{}, undefined]) labels.push(hoverSnapLabel({ snap: 'axis', axis: a, locked: true, segment: face ? undefined : {}, face })!);
+    labels.push(hoverSnapLabel({ snap: 'parallel', locked: true, segment: {} })!, hoverSnapLabel({ snap: 'parallel', locked: true, face: {} }, true)!);
+    expect(new Set(labels).size).toBe(8);
+    for (const code of ['en', 'ja', 'zh-CN', 'de']) for (const l of labels) expect(translate(l, code), `${code}: ${l}`).not.toMatch(/[가-힣]/);
+    expect(translate('잠근 X축 · 모서리 위', 'en')).toBe('Locked X axis · On edge');
+    expect(translate('잠근 Z축 · 면 위', 'ja')).toBe('ロックした Z 軸 · 面上');
+    expect(translate('잠근 방향 · 모서리 위', 'zh-CN')).toBe('锁定的方向 · 在边上');
+    expect(translate('잠근 접선 · 면 위', 'de')).toBe('Gesperrte Tangente · Auf Fläche');
+  });
+
   it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
     expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
     expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
@@ -238,8 +273,19 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     const centers = circleCenters(s.meshes, ex);
     const o = measureSnapOptions(s.meshes, ex, centers);
     expect(o.edges).toBe(true);
-    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축, 0.18.0 첫 점 축과 모서리·축과 면
-    expect(o.inference).toEqual({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true, axisEdges: true, axisFaces: true });
+    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축, 0.18.0 첫 점 축과 모서리·축과 면, 0.19.0 잠근 선과 모서리·면
+    expect(o.inference).toEqual({
+      intersections: true,
+      perpendicular: true,
+      axes: true,
+      parallel: true,
+      lock: true,
+      track: true,
+      axisEdges: true,
+      axisFaces: true,
+      lockEdges: true,
+      lockFaces: true,
+    });
     expect(o.inference).toBe(MEASURE_INFERENCE);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);

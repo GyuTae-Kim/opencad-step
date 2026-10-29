@@ -114,9 +114,12 @@ export interface StepDoc {
    * 두 점 측정 결과(tangentB = 둘째 점을 곡선 모서리 끝의 접선 잠금으로 찍었다 — 이름만 "접선 방향",
    * refinedA·refinedB = 그 점을 곡선 위로 다듬어 찍었다 — 붙잡지 않은 점이면 "곡선 위 점",
    * trackA·trackB = 끌어온 축·첫 점 축 위 점으로 찍었다(snap.ts trackMark) — "끌어온 점에서 Z축", 모서리·면과 만나면 "… · 모서리 위"·"… · 면 위",
-   * 끌어온 축끼리의 교차면 "끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나면 "X축 · 모서리 위"·"X축 · 면 위")
+   * 끌어온 축끼리의 교차면 "끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나면 "X축 · 모서리 위"·"X축 · 면 위",
+   * lockMeetB = 잠근 선이 모서리와 만나는 점·면을 뚫는 점으로 찍었다(snap.ts lockMeet) — "잠근 X축 · 모서리 위")
    */
-  measure: (MeasureResult & { tangentB?: boolean; refinedA?: boolean; refinedB?: boolean; trackA?: TrackMark | boolean; trackB?: TrackMark | boolean }) | null;
+  measure:
+    | (MeasureResult & { tangentB?: boolean; refinedA?: boolean; refinedB?: boolean; trackA?: TrackMark | boolean; trackB?: TrackMark | boolean; lockMeetB?: 'edge' | 'face' })
+    | null;
   panelTab: PanelTab;
   /** 레이어(없으면 빈 배열) */
   readonly layers: DocLayer[];
