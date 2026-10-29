@@ -7,7 +7,7 @@
  * 적분은 삼각화하면서 하던 때와 같은 함수에 같은 점을 같은 차례로 넣으므로 값이 비트까지 같다.
  */
 import type { Curve } from './curves';
-import { addSliverFlux, faceFlux, FLUX, fluxToProps, integrableSurface, lineCurve, PROPS_BREP, PROPS_TIMEOUT, PROPS_TRIANGLES, scaleProps, type Seg, trianglesFlux } from './massprops';
+import { addSliverFlux, faceFlux, FLUX, fluxToProps, integrableSurface, lineCurve, PROPS_BREP, PROPS_TIMEOUT, PROPS_TRIANGLES, scaleProps, type Seg, splineSurface, trianglesFlux } from './massprops';
 import type { V3 } from './math';
 import type { Surface } from './surfaces';
 import type { FacePolygon, UV } from './tessellate';
@@ -189,11 +189,18 @@ export function faceProps(job: ItemPropsJob, fi: number, out: Float64Array | nul
   }
   let bound = 0;
   if (out) {
-    const b = integrableSurface(surf) && f.polys ? surfaceFaceFlux(f, surf, f.polys, job.c, job.diag, out) : NaN;
+    const triBound = () => (surf.planar ? 0 : f.uv ? facetDeviation(surf, job.P, job.I, t0 * 3, t1 * 3, job.vStart[fi]!, f.uv) : facet * job.chord);
+    let b = integrableSurface(surf) && f.polys ? surfaceFaceFlux(f, surf, f.polys, job.c, job.diag, out) : NaN;
+    // 조각 다항식 곡면은 곡선이 곡면에서 멀거나(되짚기 실패 포함) 유리 곡면 어림 오차가 크면 삼각형 쪽이 나을 수 있다 — 어림 오차가 작은 쪽
+    let tb = NaN;
+    if (Number.isFinite(b) && splineSurface(surf)) {
+      tb = triBound();
+      if (b > tb) b = NaN;
+    }
     if (Number.isFinite(b)) bound = b;
     else {
       triangleFaceFlux(f, job.P, job.I, t0, t1, job.c, out);
-      if (!surf.planar) bound = f.uv ? facetDeviation(surf, job.P, job.I, t0 * 3, t1 * 3, job.vStart[fi]!, f.uv) : facet * job.chord;
+      bound = Number.isNaN(tb) ? triBound() : tb;
     }
   }
   return { bound, facet, curved: !surf.planar };

@@ -4,12 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { stepToScene } from '../src/index';
-import { FLUX, PROPS_BREP, PROPS_LEN, PROPS_TIMEOUT, addSliverFlux, faceFlux, lineCurve, trianglesFlux } from '../src/massprops';
+import { FLUX, KRONROD15, PROPS_BREP, PROPS_LEN, PROPS_TIMEOUT, addSliverFlux, faceFlux, gaussRule, lineCurve, trianglesFlux } from '../src/massprops';
 import type { StepFaceTable } from '../src/scene';
 import { scaleProps } from '../src/scene';
 import { createDoc } from '../src/app/doc';
 import { accuracyText, localProps, physProps } from '../src/app/physics';
-import { cone, cube, cylinder, plateWithHole, sphere, StepText, torus, type P3 } from './stepText';
+import { cone, cube, cylinder, plateWithHole, r, sphere, StepText, torus, type P3 } from './stepText';
 
 type Sym = [number, number, number, number, number, number];
 interface Expect {
@@ -120,8 +120,11 @@ function frustum(w: StepText, r1: number, r2: number, h: number): number {
   return w.solid([bottom, top, side], 'frustum');
 }
 
-/** 옆면을 원 압출 곡면(SURFACE_OF_LINEAR_EXTRUSION — 적분하지 않는 곡면)으로 쓴 원기둥 */
-function extrudedCylinder(w: StepText, rad: number, h: number): number {
+/**
+ * 옆면을 다른 곡면으로 쓴 원기둥: extrusion이면 원을 z로 민 곡면(SURFACE_OF_LINEAR_EXTRUSION — 곡면 적분),
+ * offset이면 반지름 rad − 1 원기둥 곡면을 1 띄운 곡면(OFFSET_SURFACE — 적분하지 않는 곡면)
+ */
+function sideCylinder(w: StepText, rad: number, h: number, kind: 'extrusion' | 'offset'): number {
   const V0 = w.vertex([rad, 0, 0]);
   const V1 = w.vertex([rad, 0, h]);
   const C0 = w.edge(V0, V0, w.circle([0, 0, 0], rad));
@@ -129,10 +132,339 @@ function extrudedCylinder(w: StepText, rad: number, h: number): number {
   const L = w.edge(V0, V1, w.line([rad, 0, 0], [rad, 0, h]));
   const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
   const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, h]));
-  const vec = w.add('VECTOR', `'',#${w.dir([0, 0, 1])},1.`);
-  const surf = w.add('SURFACE_OF_LINEAR_EXTRUSION', `'',#${w.circle([0, 0, 0], rad)},#${vec}`);
+  let surf: number;
+  if (kind === 'extrusion') {
+    const vec = w.add('VECTOR', `'',#${w.dir([0, 0, 1])},1.`);
+    surf = w.add('SURFACE_OF_LINEAR_EXTRUSION', `'',#${w.circle([0, 0, 0], rad)},#${vec}`);
+  } else surf = w.add('OFFSET_SURFACE', `'',#${w.add('CYLINDRICAL_SURFACE', `'',#${w.ax2([0, 0, 0])},${rad - 1}`)},1.,.F.`);
   const side = w.face([w.bound(w.loop([w.oe(C0, true), w.oe(L, true), w.oe(C1, false), w.oe(L, false)]))], surf);
   return w.solid([bottom, top, side], 'xcyl');
+}
+
+/** 전체 매듭 벡터 → STEP (배수)·(값) */
+function knotSpec(U: readonly number[]): [string, string] {
+  const vals: number[] = [];
+  const mults: number[] = [];
+  for (const x of U) {
+    if (vals.length && vals[vals.length - 1] === x) mults[mults.length - 1]!++;
+    else {
+      vals.push(x);
+      mults.push(1);
+    }
+  }
+  return [`(${mults.join(',')})`, `(${vals.map(r).join(',')})`];
+}
+
+/** B-스플라인 곡선(가중치가 있으면 유리) */
+function bsCurve(w: StepText, p: number, U: readonly number[], pts: readonly P3[], wts?: readonly number[]): number {
+  const [m, k] = knotSpec(U);
+  const list = `(${pts.map((x) => `#${w.pt(x)}`).join(',')})`;
+  if (!wts) return w.add('B_SPLINE_CURVE_WITH_KNOTS', `'',${p},${list},.UNSPECIFIED.,.F.,.F.,${m},${k},.UNSPECIFIED.`);
+  return w.raw(
+    `(BOUNDED_CURVE() B_SPLINE_CURVE(${p},${list},.UNSPECIFIED.,.F.,.F.) B_SPLINE_CURVE_WITH_KNOTS(${m},${k},.UNSPECIFIED.) CURVE() GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_CURVE((${wts.map(r).join(',')})) REPRESENTATION_ITEM(''))`,
+  );
+}
+
+/** B-스플라인 곡면(조절점 net[i][j] — i가 u 방향, 가중치가 있으면 유리) */
+function bsSurface(w: StepText, p: number, q: number, U: readonly number[], V: readonly number[], net: readonly (readonly P3[])[], wts?: readonly (readonly number[])[]): number {
+  const [mu, ku] = knotSpec(U);
+  const [mv, kv] = knotSpec(V);
+  const list = `(${net.map((row) => `(${row.map((x) => `#${w.pt(x)}`).join(',')})`).join(',')})`;
+  if (!wts) return w.add('B_SPLINE_SURFACE_WITH_KNOTS', `'',${p},${q},${list},.UNSPECIFIED.,.F.,.F.,.F.,${mu},${mv},${ku},${kv},.UNSPECIFIED.`);
+  return w.raw(
+    `(BOUNDED_SURFACE() B_SPLINE_SURFACE(${p},${q},${list},.UNSPECIFIED.,.F.,.F.,.F.) B_SPLINE_SURFACE_WITH_KNOTS(${mu},${mv},${ku},${kv},.UNSPECIFIED.) GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_SURFACE((${wts
+      .map((row) => `(${row.map(r).join(',')})`)
+      .join(',')})) REPRESENTATION_ITEM('') SURFACE())`,
+  );
+}
+
+/** 3차 B-스플라인 기저 N_i(t)(드 부어 — 조절점 i만 1) */
+function basis3(U: readonly number[], n: number, i: number, t: number): number {
+  return deBoor3(U as number[], Array.from({ length: n }, (_, k) => (k === i ? 1 : 0)), t);
+}
+
+/** 매듭 벡터의 그레빌 점(3차) */
+const greville3 = (U: readonly number[], n: number) => Array.from({ length: n }, (_, i) => (U[i + 1]! + U[i + 2]! + U[i + 3]!) / 3);
+
+/** 매듭 구간마다 가우스(20점)로 [U[3], U[n]] 적분 — 조각 다항식이면 정확 */
+function spanGauss(U: readonly number[], f: (t: number) => number): number {
+  const ks = [...new Set(U)];
+  return ks.slice(1).reduce((s, b, i) => s + gauss(f, ks[i]!, b), 0);
+}
+
+/**
+ * 평면 여섯 면을 모두 비선형 매개변수의 3차 B-스플라인 곡면(평면 위 조절점 — u에 매듭 둘, v에 매듭 하나, 간격이 고르지 않음)으로 쓰고
+ * 모서리는 곧은 선인 a×b×c 상자: 안쪽 적분은 u 매듭에서, 곧은 모서리는 v 매듭을 지나는 곳에서 나눠야 맞는다
+ */
+const BOX_U = [0, 0, 0, 0, 0.3, 0.55, 1, 1, 1, 1];
+const BOX_X = [0, 0.05, 0.4, 0.5, 0.8, 1];
+const BOX_V = [0, 0, 0, 0, 0.6, 1, 1, 1, 1];
+const BOX_Y = [0, 0.35, 0.45, 0.9, 1];
+function splineBox(w: StepText, a: number, b: number, c: number, o: P3): number {
+  const P = (i: number): P3 => [o[0] + (i & 1 ? a : 0), o[1] + (i & 2 ? b : 0), o[2] + (i & 4 ? c : 0)];
+  const V = Array.from({ length: 8 }, (_, i) => w.vertex(P(i)));
+  const edges = new Map<string, number>();
+  const oe = (i: number, j: number) => {
+    const k = i < j ? `${i}-${j}` : `${j}-${i}`;
+    let e = edges.get(k);
+    if (e === undefined) {
+      const [s, t] = i < j ? [i, j] : [j, i];
+      e = w.edge(V[s]!, V[t]!, w.line(P(s), P(t)));
+      edges.set(k, e);
+    }
+    return w.oe(e, i < j);
+  };
+  // 바깥에서 볼 때 반시계: (B − A) × (D − A)가 바깥 법선 — u는 A→B, v는 A→D
+  const quads = [
+    [0, 2, 3, 1],
+    [4, 5, 7, 6],
+    [0, 1, 5, 4],
+    [2, 6, 7, 3],
+    [0, 4, 6, 2],
+    [1, 3, 7, 5],
+  ];
+  const faces = quads.map((q) => {
+    const A = P(q[0]!);
+    const E1 = P(q[1]!).map((x, k) => x - A[k]!);
+    const E2 = P(q[3]!).map((x, k) => x - A[k]!);
+    // 안쪽 조절점을 조금 비틀어 x가 v에도, y가 u에도 기대게(평면 그대로, 끝 줄은 곧은 모서리) — 모서리 위 적분 값이 v 매듭에서 꺾인다
+    const net = BOX_X.map((x0, i) =>
+      BOX_Y.map((y0, j) => {
+        const x = i > 0 && i < BOX_X.length - 1 ? x0 + 0.02 * (j - 2) * (i % 2 ? 1 : -1) : x0;
+        const y = j > 0 && j < BOX_Y.length - 1 ? y0 + 0.015 * (i - 2.5) * (j % 2 ? 1 : -1) : y0;
+        return [0, 1, 2].map((k) => A[k]! + x * E1[k]! + y * E2[k]!) as P3;
+      }),
+    );
+    const lp = w.loop(q.map((i, k) => oe(i, q[(k + 1) % 4]!)));
+    return w.face([w.bound(lp)], bsSurface(w, 3, 3, BOX_U, BOX_V, net));
+  });
+  return w.solid(faces, 'bbox');
+}
+
+/**
+ * 위가 B-스플라인 곡면 z(x, y)(3차 × 3차, u 매듭 둘·v 매듭 하나, 그레빌 점에 둔 조절점이라 x = a·u, y = b·v)인 a×b 블록.
+ * 옆 네 평면의 윗변은 그 곡면의 끝 줄 조절점으로 쓴 B-스플라인 곡선
+ */
+const ROOF_U = [0, 0, 0, 0, 0.25, 0.7, 1, 1, 1, 1];
+const ROOF_V = [0, 0, 0, 0, 0.4, 1, 1, 1, 1];
+const ROOF_Z = [
+  [3, 4, 5, 3.5, 4],
+  [4, 6, 2, 5, 3],
+  [5, 3, 7, 4, 4.5],
+  [3.5, 5, 4, 6, 3],
+  [4, 2.5, 5, 3, 5],
+  [3, 4, 3.5, 4.5, 4],
+];
+function roofZ(u: number, v: number): number {
+  let s = 0;
+  for (let i = 0; i < 6; i++) {
+    const bu = basis3(ROOF_U, 6, i, u);
+    if (bu) for (let j = 0; j < 5; j++) s += bu * basis3(ROOF_V, 5, j, v) * ROOF_Z[i]![j]!;
+  }
+  return s;
+}
+function roofBlock(w: StepText, a: number, b: number): number {
+  const gu = greville3(ROOF_U, 6);
+  const gv = greville3(ROOF_V, 5);
+  const net = gu.map((x, i) => gv.map((y, j) => [a * x, b * y, ROOF_Z[i]![j]!] as P3));
+  const zc = (i: number, j: number) => ROOF_Z[i]![j]!;
+  const B = [w.vertex([0, 0, 0]), w.vertex([a, 0, 0]), w.vertex([a, b, 0]), w.vertex([0, b, 0])];
+  const Tp: P3[] = [
+    [0, 0, zc(0, 0)],
+    [a, 0, zc(5, 0)],
+    [a, b, zc(5, 4)],
+    [0, b, zc(0, 4)],
+  ];
+  const T = Tp.map((x) => w.vertex(x));
+  const Bp: P3[] = [
+    [0, 0, 0],
+    [a, 0, 0],
+    [a, b, 0],
+    [0, b, 0],
+  ];
+  const bottomE = [0, 1, 2, 3].map((k) => w.edge(B[k]!, B[(k + 1) % 4]!, w.line(Bp[k]!, Bp[(k + 1) % 4]!)));
+  const vert = [0, 1, 2, 3].map((k) => w.edge(B[k]!, T[k]!, w.line(Bp[k]!, Tp[k]!)));
+  // 윗변: y=0(u), x=a(v), y=b(u), x=0(v) — 모두 매개변수가 느는 방향
+  const cY0 = w.edge(T[0]!, T[1]!, bsCurve(w, 3, ROOF_U, net.map((row) => row[0]!)));
+  const cXa = w.edge(T[1]!, T[2]!, bsCurve(w, 3, ROOF_V, net[5]!));
+  const cYb = w.edge(T[3]!, T[2]!, bsCurve(w, 3, ROOF_U, net.map((row) => row[4]!)));
+  const cX0 = w.edge(T[0]!, T[3]!, bsCurve(w, 3, ROOF_V, net[0]!));
+  const top = w.face([w.bound(w.loop([w.oe(cY0, true), w.oe(cXa, true), w.oe(cYb, false), w.oe(cX0, false)]))], bsSurface(w, 3, 3, ROOF_U, ROOF_V, net));
+  const bottom = w.face([w.bound(w.loop([w.oe(bottomE[3]!, false), w.oe(bottomE[2]!, false), w.oe(bottomE[1]!, false), w.oe(bottomE[0]!, false)]))], w.plane([0, 0, 0], [0, 0, -1]));
+  const sY0 = w.face([w.bound(w.loop([w.oe(bottomE[0]!, true), w.oe(vert[1]!, true), w.oe(cY0, false), w.oe(vert[0]!, false)]))], w.plane([0, 0, 0], [0, -1, 0]));
+  const sXa = w.face([w.bound(w.loop([w.oe(bottomE[1]!, true), w.oe(vert[2]!, true), w.oe(cXa, false), w.oe(vert[1]!, false)]))], w.plane([a, 0, 0], [1, 0, 0], [0, 1, 0]));
+  const sYb = w.face([w.bound(w.loop([w.oe(bottomE[2]!, true), w.oe(vert[3]!, true), w.oe(cYb, true), w.oe(vert[2]!, false)]))], w.plane([0, b, 0], [0, 1, 0]));
+  const sX0 = w.face([w.bound(w.loop([w.oe(bottomE[3]!, true), w.oe(vert[0]!, true), w.oe(cX0, true), w.oe(vert[3]!, false)]))], w.plane([0, 0, 0], [-1, 0, 0], [0, 1, 0]));
+  return w.solid([top, bottom, sY0, sXa, sYb, sX0], 'roof');
+}
+
+/** 블록 기대값: 0 ≤ z ≤ Z(x, y) 위에서 ∫ 다항식(매듭 구간마다 가우스 — 정확) */
+function roofExpect(a: number, b: number): Expect {
+  const I = (f: (x: number, y: number, z: number) => number) => a * b * spanGauss(ROOF_U, (u) => spanGauss(ROOF_V, (v) => f(a * u, b * v, roofZ(u, v))));
+  return momentsExpect(I);
+}
+
+/** 기대값 묶음: I(f)는 입체 위로 이미 z 적분한 몫 — f(x, y, Z)에서 [∫1, ∫x, ∫y, ∫z, ∫x², ∫y², ∫z², ∫xy, ∫yz, ∫zx] dz를 고른다 */
+function momentsExpect(I: (f: (x: number, y: number, z: number) => number) => number): Expect {
+  const V = I((_x, _y, z) => z);
+  const c: P3 = [I((x, _y, z) => x * z) / V, I((_x, y, z) => y * z) / V, I((_x, _y, z) => (z * z) / 2) / V];
+  const S: Sym = [
+    I((x, _y, z) => (x - c[0]) ** 2 * z),
+    I((_x, y, z) => (y - c[1]) ** 2 * z),
+    I((_x, _y, z) => ((z - c[2]) ** 3 + c[2] ** 3) / 3),
+    I((x, y, z) => (x - c[0]) * (y - c[1]) * z),
+    I((_x, y, z) => ((y - c[1]) * ((z - c[2]) ** 2 - c[2] ** 2)) / 2),
+    I((x, _y, z) => ((x - c[0]) * ((z - c[2]) ** 2 - c[2] ** 2)) / 2),
+  ];
+  return { V, c, S };
+}
+
+/** 차수 p B-스플라인 값(드 부어 — 아무 매듭) */
+function deBoorP(p: number, knots: readonly number[], ctrl: readonly number[], t: number): number {
+  let k = p;
+  while (k < ctrl.length - 1 && t >= knots[k + 1]!) k++;
+  const d = Array.from({ length: p + 1 }, (_, j) => ctrl[j + k - p]!);
+  for (let rr = 1; rr <= p; rr++)
+    for (let j = p; j >= rr; j--) {
+      const i = j + k - p;
+      const a = (t - knots[i]!) / (knots[i + p - rr + 1]! - knots[i]!);
+      d[j] = (1 - a) * d[j - 1]! + a * d[j]!;
+    }
+  return d[p]!;
+}
+
+/**
+ * 주기 B-스플라인 관: 단면이 닫힌 3차 B-스플라인(균일 주기 매듭, 조절점 여섯을 셋 겹쳐 씀)이고 높이 z(v)가 v 매듭 하나인 비선형 3차라
+ * 옆면 S(u,v) = (x(u), y(u), z(v))는 u로 닫힌 B-스플라인 곡면. 옆면 경계는 위·아래 닫힌 곡선 둘뿐(이음선 모서리 없음 — 삼각화가
+ * 매개변수 공간 이음선으로 잇는다. 그 직선 토막이 v 매듭을 지난다), 위·아래는 평면
+ */
+const TUBE_X = [6, 3, -4, -6, -2, 4];
+const TUBE_Y = [0, 5, 4, -1, -5, -4];
+const TUBE_K = Array.from({ length: 13 }, (_, i) => i - 3);
+const TUBE_V = [0, 0, 0, 0, 0.4, 1, 1, 1, 1];
+const TUBE_Z = [0, 0.1, 0.5, 0.6, 1];
+const wrap3 = (a: readonly number[]) => [...a, a[0]!, a[1]!, a[2]!];
+function splineTube(w: StepText, h: number): number {
+  const X = wrap3(TUBE_X);
+  const Y = wrap3(TUBE_Y);
+  const ring = (z: number) => X.map((x, i) => [x, Y[i]!, z] as P3);
+  const net = X.map((x, i) => TUBE_Z.map((z) => [x, Y[i]!, h * z] as P3));
+  const surf = bsSurface(w, 3, 3, TUBE_K, TUBE_V, net);
+  const x0 = deBoorP(3, TUBE_K, X, 0);
+  const y0 = deBoorP(3, TUBE_K, Y, 0);
+  const V0 = w.vertex([x0, y0, 0]);
+  const V1 = w.vertex([x0, y0, h]);
+  const C0 = w.edge(V0, V0, bsCurve(w, 3, TUBE_K, ring(0)));
+  const C1 = w.edge(V1, V1, bsCurve(w, 3, TUBE_K, ring(h)));
+  const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
+  const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, h]));
+  const side = w.face([w.bound(w.loop([w.oe(C0, true)])), w.bound(w.loop([w.oe(C1, false)]), false)], surf);
+  return w.solid([bottom, top, side], 'tube');
+}
+
+/** 관 기대값: 단면 넓이·1·2차 모멘트를 그린 정리로(∮ x dy 등 — 매듭 구간마다 가우스, 정확), 높이 방향은 닫힌 식 */
+function tubeExpect(h: number): Expect {
+  const X = wrap3(TUBE_X);
+  const Y = wrap3(TUBE_Y);
+  const dK = TUBE_K.slice(1, -1);
+  const dX = X.slice(1).map((x, i) => x - X[i]!);
+  const dY = Y.slice(1).map((y, i) => y - Y[i]!);
+  const I = (f: (x: number, y: number, dx: number, dy: number) => number) =>
+    spanGauss([0, 1, 2, 3, 4, 5, 6], (u) => f(deBoorP(3, TUBE_K, X, u), deBoorP(3, TUBE_K, Y, u), deBoorP(2, dK, dX, u), deBoorP(2, dK, dY, u)));
+  const A = I((x, _y, _dx, dy) => x * dy);
+  const cx = I((x, _y, _dx, dy) => (x * x * dy) / 2) / A;
+  const cy = -I((_x, y, dx) => (y * y * dx) / 2) / A;
+  const Ixx = I((x, _y, _dx, dy) => (x ** 3 * dy) / 3);
+  const Iyy = -I((_x, y, dx) => (y ** 3 * dx) / 3);
+  const Ixy = I((x, y, _dx, dy) => (x * x * y * dy) / 2);
+  const V = A * h;
+  return { V, c: [cx, cy, h / 2], S: [h * (Ixx - A * cx * cx), h * (Iyy - A * cy * cy), (V * h * h) / 12, h * (Ixy - A * cx * cy), 0, 0] };
+}
+
+/**
+ * NURBS 원기둥: 옆면이 유리 2차(u, 90° 호 넷 — 가중치 √2/2) × 1차(v) B-스플라인 곡면, 이음선 모서리 하나, 위·아래 원판
+ */
+function nurbsCylinder(w: StepText, rad: number, h: number): number {
+  const s = Math.SQRT1_2;
+  const ring: [number, number, number][] = [
+    [1, 0, 1],
+    [1, 1, s],
+    [0, 1, 1],
+    [-1, 1, s],
+    [-1, 0, 1],
+    [-1, -1, s],
+    [0, -1, 1],
+    [1, -1, s],
+    [1, 0, 1],
+  ];
+  const net = ring.map(([x, y]) => [0, h].map((z) => [rad * x, rad * y, z] as P3));
+  const wts = ring.map(([, , wt]) => [wt, wt]);
+  const surf = bsSurface(w, 2, 1, [0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4], [0, 0, 1, 1], net, wts);
+  const V0 = w.vertex([rad, 0, 0]);
+  const V1 = w.vertex([rad, 0, h]);
+  const C0 = w.edge(V0, V0, w.circle([0, 0, 0], rad));
+  const C1 = w.edge(V1, V1, w.circle([0, 0, h], rad));
+  const L = w.edge(V0, V1, w.line([rad, 0, 0], [rad, 0, h]));
+  const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
+  const top = w.face([w.bound(w.loop([w.oe(C1, true)]))], w.plane([0, 0, h]));
+  const side = w.face([w.bound(w.loop([w.oe(C0, true), w.oe(L, true), w.oe(C1, false), w.oe(L, false)]))], surf);
+  return w.solid([bottom, top, side], 'ncyl');
+}
+
+/**
+ * B-스플라인 곡선 y = f(x)(3차, 매듭 둘, 그레빌 점 조절점이라 x = a·t)를 z로 민 곡면(SURFACE_OF_LINEAR_EXTRUSION)이 옆면인
+ * 0 ≤ y ≤ f(x), 0 ≤ x ≤ a, 0 ≤ z ≤ h 기둥
+ */
+const PRISM_U = [0, 0, 0, 0, 0.35, 0.6, 1, 1, 1, 1];
+const PRISM_F = [4, 7, 2, 6, 3, 5];
+const prismF = (t: number) => deBoor3(PRISM_U, PRISM_F, t);
+function splinePrism(w: StepText, a: number, h: number): number {
+  const gx = greville3(PRISM_U, 6);
+  const prof = (z: number) => gx.map((t, i) => [a * t, PRISM_F[i]!, z] as P3);
+  const f0 = PRISM_F[0]!;
+  const fa = PRISM_F[5]!;
+  const pts: P3[] = [
+    [0, 0, 0],
+    [a, 0, 0],
+    [a, fa, 0],
+    [0, f0, 0],
+  ];
+  const lo = pts.map((x) => w.vertex(x));
+  const hi = pts.map((x) => w.vertex([x[0], x[1], h]));
+  const line = (A: number, B: number, pa: P3, pb: P3) => w.edge(A, B, w.line(pa, pb));
+  const up = pts.map((x, k) => line(lo[k]!, hi[k]!, x, [x[0], x[1], h]));
+  const bot = [line(lo[0]!, lo[1]!, pts[0]!, pts[1]!), line(lo[1]!, lo[2]!, pts[1]!, pts[2]!), line(lo[3]!, lo[0]!, pts[3]!, pts[0]!)];
+  const ph = pts.map((x) => [x[0], x[1], h] as P3);
+  const tops = [line(hi[0]!, hi[1]!, ph[0]!, ph[1]!), line(hi[1]!, hi[2]!, ph[1]!, ph[2]!), line(hi[3]!, hi[0]!, ph[3]!, ph[0]!)];
+  // 윤곽 곡선: x = 0(점 3) → x = a(점 2)
+  const cb = w.edge(lo[3]!, lo[2]!, bsCurve(w, 3, PRISM_U, prof(0)));
+  const ct = w.edge(hi[3]!, hi[2]!, bsCurve(w, 3, PRISM_U, prof(h)));
+  const bottom = w.face([w.bound(w.loop([w.oe(bot[0]!, true), w.oe(bot[1]!, true), w.oe(cb, false), w.oe(bot[2]!, true)]))], w.plane([0, 0, 0]), false);
+  const top = w.face([w.bound(w.loop([w.oe(tops[0]!, true), w.oe(tops[1]!, true), w.oe(ct, false), w.oe(tops[2]!, true)]))], w.plane([0, 0, h]));
+  const sY0 = w.face([w.bound(w.loop([w.oe(bot[0]!, true), w.oe(up[1]!, true), w.oe(tops[0]!, false), w.oe(up[0]!, false)]))], w.plane([0, 0, 0], [0, -1, 0]));
+  const sXa = w.face([w.bound(w.loop([w.oe(bot[1]!, true), w.oe(up[2]!, true), w.oe(tops[1]!, false), w.oe(up[1]!, false)]))], w.plane([a, 0, 0], [1, 0, 0], [0, 1, 0]));
+  const sX0 = w.face([w.bound(w.loop([w.oe(bot[2]!, false), w.oe(up[3]!, true), w.oe(tops[2]!, true), w.oe(up[0]!, false)]))], w.plane([0, 0, 0], [-1, 0, 0], [0, 1, 0]));
+  const vec = w.add('VECTOR', `'',#${w.dir([0, 0, 1])},1.`);
+  const surf = w.add('SURFACE_OF_LINEAR_EXTRUSION', `'',#${bsCurve(w, 3, PRISM_U, prof(0))},#${vec}`);
+  // 곡면 법선 C′ × z는 −y 쪽(안쪽)이라 same_sense .F.
+  const side = w.face([w.bound(w.loop([w.oe(up[3]!, true), w.oe(ct, true), w.oe(up[2]!, false), w.oe(cb, false)]))], surf, false);
+  return w.solid([bottom, top, sY0, sXa, sX0, side], 'xprism');
+}
+
+function prismExpect(a: number, h: number): Expect {
+  // X(g) = ∫ g(x, f(x)) dx(매듭 구간마다 가우스) — y 적분은 닫힌 식으로 g 안에
+  const X = (fn: (x: number, f: number) => number) => a * spanGauss(PRISM_U, (t) => fn(a * t, prismF(t)));
+  const V = h * X((_x, f) => f);
+  const c: P3 = [(h * X((x, f) => x * f)) / V, (h * X((_x, f) => (f * f) / 2)) / V, h / 2];
+  const S: Sym = [
+    h * X((x, f) => (x - c[0]) ** 2 * f),
+    h * X((_x, f) => ((f - c[1]) ** 3 + c[1] ** 3) / 3),
+    (V * h * h) / 12,
+    h * X((x, f) => ((x - c[0]) * ((f - c[1]) ** 2 - c[1] ** 2)) / 2),
+    0,
+    0,
+  ];
+  return { V, c, S };
 }
 
 /** z축 회전 곡면(SURFACE_OF_REVOLUTION) */
@@ -269,8 +601,16 @@ describe('B-rep 질량 속성(곡면 적분)', () => {
     expect([q[0], q[1], q[4], q[10], q[13], q[14]]).toEqual([8, 16, 32, 2, 8, 1]);
   });
 
-  it('적분하지 않는 곡면(원 압출 옆면)이 섞이면 그 면만 삼각형 + 띠로, 어림 오차 안에 참값이 든다', () => {
-    const { props } = open((w) => extrudedCylinder(w, 5, 20));
+  it('원을 민 곡면(SURFACE_OF_LINEAR_EXTRUSION) 옆면도 곡면 적분 — 원기둥과 상대 1e-9 안, 어림 오차 0 수준', () => {
+    const { props } = open((w) => sideCylinder(w, 5, 20, 'extrusion'));
+    expect(props![14]).toBe(PROPS_BREP);
+    const e = relErr(central(props!), revolved(() => 5, 0, 20), 20);
+    expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
+    expect(props![13]! / (Math.PI * 25 * 20)).toBeLessThan(1e-9);
+  });
+
+  it('적분하지 않는 곡면(원기둥을 띄운 OFFSET_SURFACE 옆면)이 섞이면 그 면만 삼각형 + 띠로, 어림 오차 안에 참값이 든다', () => {
+    const { props } = open((w) => sideCylinder(w, 5, 20, 'offset'));
     const want = revolved(() => 5, 0, 20);
     expect(props![14]).toBe(PROPS_BREP);
     const got = central(props!);
@@ -349,5 +689,55 @@ describe('B-rep 질량 속성(곡면 적분)', () => {
     const sl = new Float64Array(FLUX);
     addSliverFlux(sl, [0, 0, 0], [1, 0, 0], lineCurve([0, 0, 0], [1, 0, 0]), 0, 1, [0, 0, 0]);
     expect(sl.every((x) => Math.abs(x) < 1e-15)).toBe(true);
+  });
+});
+
+describe('B-스플라인 곡면·B-스플라인 곡선을 민 곡면 질량 속성(곡면 적분)', () => {
+  const SPLINE: { name: string; build: (w: StepText) => number; want: Expect; size: number; curved: boolean }[] = [
+    { name: '여섯 면이 비선형 매개변수 B-스플라인 평면인 상자(자리 옮김)', build: (w) => splineBox(w, 10, 6, 4, [3, -2, 5]), want: boxExpect(10, 6, 4, [3, -2, 5]), size: 13, curved: false },
+    { name: '위가 B-스플라인 곡면, 옆 윗변이 B-스플라인 곡선인 블록', build: (w) => roofBlock(w, 12, 8), want: roofExpect(12, 8), size: 16, curved: true },
+    { name: 'B-스플라인 곡선을 민 곡면이 옆면인 기둥', build: (w) => splinePrism(w, 10, 5), want: prismExpect(10, 5), size: 13, curved: true },
+    { name: 'u로 닫힌 B-스플라인 관(이음선 모서리 없이 위·아래 닫힌 곡선만, 높이는 v의 비선형 3차)', build: (w) => splineTube(w, 9), want: tubeExpect(9), size: 15, curved: true },
+  ];
+  for (const c of SPLINE)
+    it(`${c.name}: 부피·무게중심·2차 모멘트가 닫힌 식과 상대 1e-9 안, 곡면 적분(PROPS_BREP)·어림 오차 0 수준`, () => {
+      const { scene, props } = open(c.build);
+      expect(scene.meshes[0]!.closed).toBe(true);
+      expect(props![14]).toBe(PROPS_BREP);
+      const e = relErr(central(props!), c.want, c.size);
+      expect(e.V).toBeLessThan(1e-9);
+      expect(e.c).toBeLessThan(1e-9);
+      expect(e.S).toBeLessThan(1e-9);
+      expect(props![13]! / c.want.V).toBeLessThan(1e-9);
+      const tri = localProps(scene.meshes[0]!);
+      if (c.curved) expect(Math.abs(tri.volume - c.want.V) / c.want.V).toBeGreaterThan(1e-6);
+    });
+
+  it('적분 규칙: n점 가우스는 2n−1차, 15점 크론로드는 22차, 그 안의 7점 가우스는 13차 다항식까지 정확', () => {
+    const exact = (k: number) => (k % 2 ? 0 : 2 / (k + 1));
+    for (const n of [1, 3, 8, 15, 23]) {
+      const g = gaussRule(n);
+      for (let k = 0; k <= 2 * n - 1; k++) {
+        let s = 0;
+        for (let i = 0; i < g.length; i += 2) s += g[i + 1]! * g[i]! ** k;
+        expect(Math.abs(s - exact(k))).toBeLessThan(1e-14);
+      }
+    }
+    const sum = (k: number, col: 1 | 2) => KRONROD15.reduce((s, row) => s + row[col] * (row[0] ? row[0] ** k + (-row[0]) ** k : k === 0 ? 1 : 0), 0);
+    for (let k = 0; k <= 22; k++) expect(Math.abs(sum(k, 1) - exact(k))).toBeLessThan(1e-14);
+    for (let k = 0; k <= 13; k++) expect(Math.abs(sum(k, 2) - exact(k))).toBeLessThan(1e-14);
+    expect(Math.abs(sum(24, 1) - exact(24))).toBeGreaterThan(1e-12);
+  });
+
+  it('유리 B-스플라인(NURBS) 원기둥 옆면: 근삿값이지만 어림 오차 안에 참값이 들고 어림 오차가 아주 작다', () => {
+    const { props } = open((w) => nurbsCylinder(w, 5, 20));
+    expect(props![14]).toBe(PROPS_BREP);
+    const want = revolved(() => 5, 0, 20);
+    const got = central(props!);
+    const bound = props![13]!;
+    expect(Math.abs(got.V - want.V)).toBeLessThanOrEqual(bound + 1e-12 * want.V);
+    expect(bound / want.V).toBeLessThan(1e-7);
+    const e = relErr(got, want, 20);
+    expect(Math.max(e.V, e.c, e.S)).toBeLessThan(1e-9);
   });
 });

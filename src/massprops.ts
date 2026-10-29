@@ -10,14 +10,24 @@
  * - 안쪽 적분 G: 평면은 F가 u의 3차 다항식이라 3점 가우스로 정확하다. 원기둥·원뿔·구·원환은 S가 (cos u, sin u)의 일차식이고
  *   N도 일차식이라 F가 u의 4차 이하 삼각 다항식이다 — 등간격 9점 값으로 푸리에 계수를 구해 닫힌 식으로 적분한다(정확).
  *   회전 곡면(직선·원·타원·B-스플라인 윤곽)도 S − c와 N이 (cos u, sin u)의 일차식이라 같은 식으로 정확하다(revInner).
+ *   원·타원을 민 곡면도 같다(extrInner).
  * - 바깥 적분: 경계 토막이 모서리 곡선이면 곡선 매개변수 t의 8점 가우스로(곡선 위 점을 곡면에 되짚어 (u,v)·dv/dt),
  *   이음선·극선·정의역 끝처럼 매개변수 공간에서 곧은 토막은 (u,v) 직선 위 가우스로. 둘 다 각 π/8 넘는 토막은 나눈다.
  * 경계가 직선·원·타원이고 곡면 위에 있으면 반올림 오차 수준(1e-12 안팎)으로 맞는다. 곡선이 곡면에서 떨어져 있으면(B-스플라인 교선,
  * 꼭짓점이 곡선에서 먼 모서리의 꺾인 선) 떨어진 거리로 부피 어림 오차(bound)를 더한다.
+ *
+ * B-스플라인 곡면과 B-스플라인 곡선을 민 곡면(splineFlux)은 매듭 구간마다 (u,v)의 다항식이다(비유리).
+ * - 안쪽 적분 G: u 매듭에서 나눈 가우스(F가 u의 5p−1차 → ⌈5p/2⌉점, 정확). u 구간이 많으면 다 덮는 구간 적분의 누적 합을
+ *   v 매듭 구간마다 v의 다항식(5q−1차)으로 체비쇼프 마디에 미리 구해 두고 무게중심 보간으로 쓴다(반올림 빼고 정확)
+ * - 매개변수 공간 직선 토막: u·v 매듭을 지나는 곳에서 나눈 ⌈(5p+5q)/2⌉점 가우스(정확)
+ * - 모서리 곡선 토막: 곡선 매듭(과 곡면 매듭을 둘까지 지나면 그 자리 — 할선법)에서 나눠 7–15점 가우스–크론로드, 둘이 어긋나면 반으로
+ *   (곡선 t와 곡면 (u,v)의 대응이 거의 특이해도 맞게). 남은 차이와 곡선이 곡면에서 떨어진 거리를 어림 오차에 더한다
+ * - 유리(가중치) 곡면은 F가 유리 함수라 점을 더 쓰고, 점이 적은 규칙과의 차이를 어림 오차에 더한다
  */
-import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve } from './curves';
+import { BSplineCurve, CircleCurve, CompositeCurve, EllipseCurve, LineCurve, SurfaceMappedCurve, TrimmedCurve } from './curves';
 import type { V3 } from './math';
-import { ConeSurface, CylinderSurface, PlaneSurface, RevolutionSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
+import { Basis } from './nurbs';
+import { BSplineSurface, ConeSurface, CylinderSurface, ExtrusionSurface, PlaneSurface, RevolutionSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
 import type { Polygon, UV } from './tessellate';
 
 /** 흐름 값 개수: [3V, 4Mx, 4My, 4Mz, 5Sxx, 5Syy, 5Szz, 5Sxy, 5Syz, 5Szx, ∮Nx, ∮Ny, ∮Nz] */
@@ -134,13 +144,23 @@ export function lineCurve(a: V3, b: V3): BoundaryCurve {
   return { point: (t) => [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t], d1: () => d };
 }
 
-/** 정확히 적분할 수 있는 곡면(평면·원기둥·원뿔·구·원환, 직선·원·타원·B-스플라인 윤곽의 회전 곡면) */
+/**
+ * 곡면 적분하는 곡면: 평면·원기둥·원뿔·구·원환, 직선·원·타원·B-스플라인 윤곽의 회전 곡면, B-스플라인 곡면,
+ * 원·타원·B-스플라인 곡선을 민 곡면(곧은 선을 민 평면은 삼각형 그대로가 정확해 뺀다)
+ */
 export function integrableSurface(s: Surface): boolean {
   if (s instanceof RevolutionSurface) {
     const c = s.c;
     return c instanceof LineCurve || c instanceof CircleCurve || c instanceof EllipseCurve || c instanceof BSplineCurve;
   }
+  if (s instanceof BSplineSurface) return s.ns.nu > s.ns.bu.p && s.ns.nv > s.ns.bv.p;
+  if (s instanceof ExtrusionSurface) return !s.planar && (s.c instanceof CircleCurve || s.c instanceof EllipseCurve || (s.c instanceof BSplineCurve && s.c.nc.basis.n >= s.c.nc.basis.p));
   return s instanceof PlaneSurface || s instanceof CylinderSurface || s instanceof ConeSurface || s instanceof SphereSurface || s instanceof TorusSurface;
+}
+
+/** 매듭으로 나눈 조각 다항식 곡면(B-스플라인 곡면, B-스플라인 곡선을 민 곡면) — 경계 토막을 매듭에서 나눠 적분한다 */
+export function splineSurface(s: Surface): boolean {
+  return s instanceof BSplineSurface || (s instanceof ExtrusionSurface && s.c instanceof BSplineCurve);
 }
 
 /** 곡면 계산기: 안쪽 적분 G(u,v)를 out에 w배로 더한다 */
@@ -271,6 +291,36 @@ function revInner(s: RevolutionSurface, c: V3, uref: number): Inner {
   };
 }
 
+/**
+ * 원·타원을 민 곡면 S = o + a cos u X + b sin u Y + v d: S − c와 N = S_u × d가 (cos u, sin u)의 일차식이라
+ * F는 u의 4차 이하 삼각 다항식 — rotInner와 같은 9점 몫으로 정확(민 방향이 곡선 평면에 비스듬해도 된다)
+ */
+function extrInner(s: ExtrusionSurface, c: V3, uref: number): Inner {
+  const cv = s.c as CircleCurve | EllipseCurve;
+  const { o, x: X, y: Y } = cv.f;
+  const a = cv instanceof CircleCurve ? cv.r : cv.a;
+  const b = cv instanceof CircleCurve ? cv.r : cv.b;
+  const d = s.d;
+  const ox = o[0] - c[0], oy = o[1] - c[1], oz = o[2] - c[2];
+  const W = new Float64Array(NF);
+  const REF = fourierRef(uref);
+  return {
+    plane: false,
+    angularV: false,
+    vBreaks: [],
+    add(out, w, u, v) {
+      fourierWeights(W, u, uref, REF);
+      const px = ox + v * d[0], py = oy + v * d[1], pz = oz + v * d[2];
+      for (let j = 0; j < NF; j++) {
+        const cs = CJ[j]!;
+        const sn = SNJ[j]!;
+        const ux = b * cs * Y[0] - a * sn * X[0], uy = b * cs * Y[1] - a * sn * X[1], uz = b * cs * Y[2] - a * sn * X[2];
+        addFlux(out, w * W[j]!, px + a * cs * X[0] + b * sn * Y[0], py + a * cs * X[1] + b * sn * Y[1], pz + a * cs * X[2] + b * sn * Y[2], uy * d[2] - uz * d[1], uz * d[0] - ux * d[2], ux * d[1] - uy * d[0]);
+      }
+    },
+  };
+}
+
 /** u_ref 쪽 몫 Σ_m sin m(u_ref − s_j)/m(면마다 한 번) */
 function fourierRef(uref: number): Float64Array {
   const REF = new Float64Array(NF);
@@ -320,7 +370,9 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
     }
   if (!n) return NaN;
   uref /= n;
-  const inner = s instanceof PlaneSurface ? planeInner(s, c, uref) : s instanceof RevolutionSurface ? revInner(s, c, uref) : rotInner(s as CylinderSurface, c, uref);
+  if (splineSurface(s)) return splineFlux(s, polys, c, seg, out, size, uref);
+  const inner =
+    s instanceof PlaneSurface ? planeInner(s, c, uref) : s instanceof RevolutionSurface ? revInner(s, c, uref) : s instanceof ExtrusionSurface ? extrInner(s, c, uref) : rotInner(s as CylinderSurface, c, uref);
   const Pu = s.periodU;
   const Pv = s.periodV;
   /** 이보다 작은 v 변화는 0으로 본다(v가 일정한 곡선 — 원기둥 둘레 원 등 — 의 반올림 값) */
@@ -429,6 +481,709 @@ function signedArea(pts: readonly UV[]): number {
   let a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j]!.u - pts[i]!.u) * (pts[j]!.v + pts[i]!.v);
   return a / 2;
+}
+
+const RULES = new Map<number, Float64Array>();
+
+/** n점 가우스–르장드르 [마디, 무게, …](구간 −1..1 — 르장드르 다항식 근을 뉴턴법으로, 2n−1차 다항식까지 정확) */
+export function gaussRule(n: number): Float64Array {
+  let r = RULES.get(n);
+  if (r) return r;
+  r = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) {
+    let x = Math.cos((Math.PI * (i + 0.75)) / (n + 0.5));
+    let dp = 1;
+    for (let it = 0; it < 100; it++) {
+      let p0 = 1;
+      let p1 = x;
+      for (let k = 2; k <= n; k++) {
+        const p2 = ((2 * k - 1) * x * p1 - (k - 1) * p0) / k;
+        p0 = p1;
+        p1 = p2;
+      }
+      dp = n === 1 ? 1 : (n * (x * p1 - p0)) / (x * x - 1);
+      const dx = p1 / dp;
+      x -= dx;
+      if (Math.abs(dx) <= 1e-16) break;
+    }
+    r[2 * i] = x;
+    r[2 * i + 1] = 2 / ((1 - x * x) * dp * dp);
+  }
+  RULES.set(n, r);
+  return r;
+}
+
+/** 유리(가중치) 곡면의 안쪽 적분: 다항식이면 정확할 점 수보다 이만큼 더(값), 덜(어림 오차 비교) */
+const RATIONAL_MORE = 8;
+const RATIONAL_LESS = 4;
+
+/**
+ * u 방향 조각 다항식 곡면 계산기: S(u,v)를 u 기저 N_i(u)와 v마다 정해지는 동차 조절점 줄 Q_i(v)(와 ∂/∂v인 R_i(v))로 쓴다 —
+ * B-스플라인 곡면은 Q_i = Σ_j N_j(v) P_ij, B-스플라인 곡선 C를 d로 민 곡면은 Q_i = C_i + v·d.
+ * 비유리면 매듭 구간 안에서 F가 u의 다항식이라 안쪽 적분 G를 u 매듭에서 나눈 가우스로 정확히 구한다(u_ref도 매듭 — 다 덮는 구간은
+ * 마디의 기저 값을 미리 구해 둔다). 유리면 F가 유리 함수라 점을 더 쓰고, 점이 적은 규칙과의 차이를 3V 성분 어림 오차로 돌려준다
+ */
+interface SplineInner {
+  /** 직선 토막을 나눌 u·v 값(매듭)과 주기 */
+  readonly uBreaks: readonly number[];
+  readonly periodU: number;
+  readonly vBreaks: readonly number[];
+  readonly periodV: number;
+  /** 매개변수 공간 직선 토막 가우스 점 수(비유리면 G가 그 위에서 이 점 수로 정확한 차수) */
+  readonly nLine: number;
+  readonly rational: boolean;
+  /** v 크기(v가 일정한 곡선을 알아볼 기준) */
+  readonly vScale: number;
+  /** out += w·G(u,v). 돌려주는 값은 G 3V 성분의 어림 오차(w를 곱하기 전, 비유리면 0) */
+  add(out: Float64Array, w: number, u: number, v: number): number;
+}
+
+/** v마다 조절점 줄 Q_i·R_i(i0..i1만)를 채운다 */
+type Rows = (v: number, Q: Float64Array, R: Float64Array, i0: number, i1: number) => void;
+
+/**
+ * 비유리 곡면에서 다 덮는 u 구간 적분을 v 쪽으로 미리 구해 둘 때: v 매듭(정의역 안 서로 다른 값), v를 정의역 안으로(주기면 감고 아니면 자른다),
+ * F의 v 차수(다 덮는 구간 적분은 v 매듭 구간마다 이 차수 이하의 다항식)
+ */
+interface VCache {
+  vb: readonly number[];
+  norm(v: number): number;
+  deg: number;
+}
+
+/** u 구간이 이보다 많으면(비유리) 다 덮는 구간 적분의 누적 합을 v의 다항식으로 미리 구한다 */
+const CACHE_SPANS = 3;
+
+function splineInner(
+  bu0: Basis,
+  nu: number,
+  rows: Rows,
+  rational: boolean,
+  periodU: number,
+  c: V3,
+  uHint: number,
+  nIn: number,
+  rest: Pick<SplineInner, 'vBreaks' | 'periodV' | 'nLine' | 'vScale'>,
+  vc: VCache | null = null,
+): SplineInner | null {
+  // 기저 계산기는 곡면 계산(되짚기)과 버퍼를 나누지 않게 따로
+  const bu = new Basis(bu0.p, bu0.U);
+  const p = bu.p;
+  const p1 = p + 1;
+  const bp: number[] = [];
+  for (let i = p; i <= bu.n + 1; i++) {
+    const x = bu.U[i]!;
+    if (!bp.length || x > bp[bp.length - 1]!) bp.push(x);
+  }
+  const K = bp.length - 1;
+  if (K < 1 || !bp.every(Number.isFinite)) return null;
+  const spanOf = new Int32Array(K);
+  for (let k = 0; k < K; k++) spanOf[k] = bu.span((bp[k]! + bp[k + 1]!) / 2);
+  const P = periodU > 0 ? periodU : 0;
+  /** 늘인 매듭 j(주기면 주기만큼 옮긴 것, 아니면 0..K) */
+  const brk = (j: number): number => (P > 0 ? bp[((j % K) + K) % K]! + Math.floor(j / K) * P : bp[j]!);
+  const has = (j: number): boolean => P > 0 || (j >= 0 && j <= K);
+  // u_ref: 면 u 평균에 가장 가까운 매듭
+  let jref = 0;
+  {
+    let base = 0;
+    let h = uHint;
+    if (P > 0) {
+      const m = Math.floor((uHint - bp[0]!) / P);
+      base = m * K;
+      h = uHint - m * P;
+    }
+    let best = Infinity;
+    for (let k = 0; k <= K; k++) {
+      const dd = Math.abs(bp[k]! - h);
+      if (dd < best) {
+        best = dd;
+        jref = base + k;
+      }
+    }
+  }
+  const ruleA = gaussRule(rational ? nIn + RATIONAL_MORE : nIn);
+  const ruleB = rational ? gaussRule(nIn + RATIONAL_LESS) : null;
+  /** 다 덮는 구간 k의 마디마다 [N_0..N_p, N'_0..N'_p] */
+  const pre = (rule: Float64Array): Float64Array => {
+    const ng = rule.length / 2;
+    const arr = new Float64Array(K * ng * 2 * p1);
+    for (let k = 0; k < K; k++) {
+      const m = (bp[k]! + bp[k + 1]!) / 2;
+      const h = (bp[k + 1]! - bp[k]!) / 2;
+      for (let g = 0; g < ng; g++) {
+        bu.eval(spanOf[k]!, m + h * rule[2 * g]!, 1);
+        arr.set(bu.ders.subarray(0, 2 * p1), (k * ng + g) * 2 * p1);
+      }
+    }
+    return arr;
+  };
+  const preA = pre(ruleA);
+  const preB = ruleB ? pre(ruleB) : null;
+  const Q = new Float64Array(nu * 4);
+  const R = new Float64Array(nu * 4);
+  const cx = c[0], cy = c[1], cz = c[2];
+  /** 마디 하나: out에 wt·F를 더하고 q·N을 돌려준다(B[off..]는 기저 값과 도함수) */
+  const node = (out: Float64Array | null, wt: number, su: number, B: Float64Array, off: number): number => {
+    let ax = 0, ay = 0, az = 0, aw = 0, bx = 0, by = 0, bz = 0, bw = 0, ex = 0, ey = 0, ez = 0, ew = 0;
+    for (let k = 0; k <= p; k++) {
+      const i = (su - p + k) * 4;
+      const n0 = B[off + k]!;
+      const n1 = B[off + p1 + k]!;
+      const qx = Q[i]!, qy = Q[i + 1]!, qz = Q[i + 2]!, qw = Q[i + 3]!;
+      ax += n0 * qx;
+      ay += n0 * qy;
+      az += n0 * qz;
+      aw += n0 * qw;
+      bx += n1 * qx;
+      by += n1 * qy;
+      bz += n1 * qz;
+      bw += n1 * qw;
+      ex += n0 * R[i]!;
+      ey += n0 * R[i + 1]!;
+      ez += n0 * R[i + 2]!;
+      ew += n0 * R[i + 3]!;
+    }
+    if (rational) {
+      // S = A/w, S_u = (A_u − w_u S)/w, S_v = (A_v − w_v S)/w
+      const iw = 1 / aw;
+      ax *= iw;
+      ay *= iw;
+      az *= iw;
+      bx = (bx - bw * ax) * iw;
+      by = (by - bw * ay) * iw;
+      bz = (bz - bw * az) * iw;
+      ex = (ex - ew * ax) * iw;
+      ey = (ey - ew * ay) * iw;
+      ez = (ez - ew * az) * iw;
+    }
+    const qx = ax - cx, qy = ay - cy, qz = az - cz;
+    const nx = by * ez - bz * ey, ny = bz * ex - bx * ez, nz = bx * ey - by * ex;
+    if (out) addFlux(out, wt, qx, qy, qz, nx, ny, nz);
+    return qx * nx + qy * ny + qz * nz;
+  };
+  const tmpB = new Float64Array(2 * p1);
+  /** 구간 k(늘인 번호)의 다항식으로 [a, b]를 w배 적분해 out에, 어림 오차(3V 성분)를 돌려준다 */
+  const piece = (out: Float64Array, w: number, k: number, a: number, b: number, full: boolean): number => {
+    const kk = P > 0 ? ((k % K) + K) % K : Math.min(K - 1, Math.max(0, k));
+    const shift = P > 0 ? Math.floor(k / K) * P : 0;
+    const su = spanOf[kk]!;
+    const h = (b - a) / 2;
+    const m = (a + b) / 2 - shift;
+    const run = (rule: Float64Array, table: Float64Array | null, o: Float64Array | null): number => {
+      const ng = rule.length / 2;
+      let s = 0;
+      for (let g = 0; g < ng; g++) {
+        const gw = rule[2 * g + 1]!;
+        let B: Float64Array;
+        let off: number;
+        if (full && table) {
+          B = table;
+          off = (kk * ng + g) * 2 * p1;
+        } else {
+          bu.eval(su, m + h * rule[2 * g]!, 1);
+          tmpB.set(bu.ders.subarray(0, 2 * p1));
+          B = tmpB;
+          off = 0;
+        }
+        s += gw * node(o, w * gw * h, su, B, off);
+      }
+      return s * h;
+    };
+    const sa = run(ruleA, preA, out);
+    if (!ruleB) return 0;
+    return Math.abs(sa - run(ruleB, preB, null));
+  };
+  const uref = brk(jref);
+  /** u 이하인 가장 큰 늘인 매듭 번호(주기가 아니고 정의역 앞이면 −1) */
+  const locate = (u: number): number => {
+    let m = 0;
+    let r = u;
+    if (P > 0) {
+      m = Math.floor((u - bp[0]!) / P);
+      r = u - m * P;
+    } else if (u < bp[0]!) return -1;
+    let lo = 0;
+    let hi = P > 0 ? K - 1 : K;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (bp[mid]! <= r) lo = mid;
+      else hi = mid - 1;
+    }
+    return m * K + lo;
+  };
+  // 누적 합 표: v 매듭 구간 l마다 체비쇼프 마디 s(deg+1개)에서 C_j(v_s) = Σ_{k<j} ∫_{구간 k} F(·, v_s) du(13성분, j = 0..K) —
+  // C_j는 그 v 구간에서 deg차 이하 다항식이라 무게중심 보간이 (반올림 빼고) 정확하다
+  const ns = vc ? vc.deg + 1 : 0;
+  const XS = Float64Array.from({ length: ns }, (_, s) => Math.cos(((2 * s + 1) * Math.PI) / (2 * ns)));
+  const WS = Float64Array.from({ length: ns }, (_, s) => (s % 2 ? -1 : 1) * Math.sin(((2 * s + 1) * Math.PI) / (2 * ns)));
+  const tables = new Map<number, Float64Array>();
+  const acc = new Float64Array(FLUX);
+  const cumOf = (l: number): Float64Array => {
+    let arr = tables.get(l);
+    if (arr) return arr;
+    arr = new Float64Array(ns * (K + 1) * FLUX);
+    const va = vc!.vb[l]!;
+    const vz = vc!.vb[l + 1]!;
+    for (let s = 0; s < ns; s++) {
+      rows((va + vz) / 2 + ((vz - va) / 2) * XS[s]!, Q, R, 0, nu - 1);
+      acc.fill(0);
+      for (let k = 0; k < K; k++) {
+        piece(acc, 1, k, bp[k]!, bp[k + 1]!, true);
+        arr.set(acc, (s * (K + 1) + k + 1) * FLUX);
+      }
+    }
+    tables.set(l, arr);
+    return arr;
+  };
+  const coef = new Float64Array(ns);
+  /** out += w·(C_ja(v) − C_jb(v)) — 늘인 번호(주기면 C_{j+mK} = C_j + m·C_K) */
+  const cumDiff = (out: Float64Array, w: number, v: number, ja: number, jb: number): void => {
+    const vv = vc!.norm(v);
+    const vb = vc!.vb;
+    let l = 0;
+    let hi = vb.length - 2;
+    while (l < hi) {
+      const mid = (l + hi + 1) >> 1;
+      if (vb[mid]! <= vv) l = mid;
+      else hi = mid - 1;
+    }
+    const arr = cumOf(l);
+    const x = (2 * vv - vb[l]! - vb[l + 1]!) / (vb[l + 1]! - vb[l]!);
+    let sum = 0;
+    let exact = -1;
+    for (let s = 0; s < ns; s++) {
+      const d = x - XS[s]!;
+      if (d === 0) {
+        exact = s;
+        break;
+      }
+      coef[s] = WS[s]! / d;
+      sum += coef[s]!;
+    }
+    if (exact >= 0) {
+      coef.fill(0);
+      coef[exact] = 1;
+      sum = 1;
+    }
+    const idx = (j: number): [number, number] => (P > 0 ? [((j % K) + K) % K, Math.floor(j / K)] : [Math.min(K, Math.max(0, j)), 0]);
+    const [ia, ma] = idx(ja);
+    const [ib, mb] = idx(jb);
+    for (let s = 0; s < ns; s++) {
+      const cs = (w * coef[s]!) / sum;
+      if (!cs) continue;
+      const oa = (s * (K + 1) + ia) * FLUX;
+      const ob = (s * (K + 1) + ib) * FLUX;
+      const oK = (s * (K + 1) + K) * FLUX;
+      for (let k = 0; k < FLUX; k++) out[k]! += cs * (arr[oa + k]! - arr[ob + k]! + (ma - mb) * arr[oK + k]!);
+    }
+  };
+  return {
+    ...rest,
+    uBreaks: bp,
+    periodU: P,
+    rational,
+    add(out, w, u, v) {
+      if (vc && !rational && K >= CACHE_SPANS) {
+        // 다 덮는 구간은 누적 합 표에서, 마지막 조각만 그 구간 조절점 줄로 바로
+        const lo = locate(u);
+        if (u === uref) return 0;
+        const jEnd = u > uref ? lo : P <= 0 && lo < 0 ? 0 : brk(lo) === u ? lo : lo + 1;
+        if (jEnd !== jref) cumDiff(out, w, v, jEnd, jref);
+        const k = u > uref ? jEnd : jEnd - 1;
+        const kk = P > 0 ? ((k % K) + K) % K : Math.min(K - 1, Math.max(0, k));
+        const su = spanOf[kk]!;
+        rows(v, Q, R, su - p, su);
+        if (u > uref) {
+          if (u > brk(jEnd)) piece(out, w, jEnd, brk(jEnd), u, false);
+        } else if (u < brk(jEnd)) piece(out, -w, jEnd - 1, u, brk(jEnd), false);
+        return 0;
+      }
+      rows(v, Q, R, 0, nu - 1);
+      let err = 0;
+      let j = jref;
+      if (u > uref) {
+        while (has(j + 1) && brk(j + 1) <= u) {
+          err += piece(out, w, j, brk(j), brk(j + 1), true);
+          j++;
+        }
+        if (u > brk(j)) err += piece(out, w, j, brk(j), u, false);
+      } else if (u < uref) {
+        while (has(j - 1) && brk(j - 1) >= u) {
+          err += piece(out, -w, j - 1, brk(j - 1), brk(j), true);
+          j--;
+        }
+        if (u < brk(j)) err += piece(out, -w, j - 1, u, brk(j), false);
+      }
+      return err;
+    },
+  };
+}
+
+/** B-스플라인 곡면: Q_i(v) = Σ_j N_j(v) P_ij(동차), R_i = Σ_j N_j′(v) P_ij */
+function bsplineSurfaceInner(s: BSplineSurface, c: V3, uHint: number): SplineInner | null {
+  const ns = s.ns;
+  const bv = new Basis(ns.bv.p, ns.bv.U);
+  const q = bv.p;
+  const q1 = q + 1;
+  const { cw, nu, nv } = ns;
+  const vb: number[] = [];
+  for (let i = q; i <= bv.n + 1; i++) {
+    const x = bv.U[i]!;
+    if (!vb.length || x > vb[vb.length - 1]!) vb.push(x);
+  }
+  const Pv = s.periodV;
+  const norm = (v: number): number => {
+    if (Pv > 0 && (v < ns.v0 || v > ns.v1)) {
+      const r = (v - ns.v0) % Pv;
+      v = ns.v0 + (r < 0 ? r + Pv : r);
+    }
+    return Math.min(Math.max(v, ns.v0), ns.v1);
+  };
+  const rows: Rows = (v, Q, R, i0, i1) => {
+    v = norm(v);
+    const sv = bv.span(v);
+    bv.eval(sv, v, 1);
+    const D = bv.ders;
+    Q.fill(0, i0 * 4, (i1 + 1) * 4);
+    R.fill(0, i0 * 4, (i1 + 1) * 4);
+    for (let i = i0; i <= i1; i++) {
+      const o = i * 4;
+      for (let b = 0; b <= q; b++) {
+        const n0 = D[b]!;
+        const n1 = D[q1 + b]!;
+        const idx = (i * nv + sv - q + b) * 4;
+        for (let k = 0; k < 4; k++) {
+          const x = cw[idx + k]!;
+          Q[o + k]! += n0 * x;
+          R[o + k]! += n1 * x;
+        }
+      }
+    }
+  };
+  const p = ns.bu.p;
+  // F는 u의 5p−1차·v의 5q−1차 → 안쪽 ⌈5p/2⌉점, 직선 위 G는 5p+5q−1차 이하 → ⌈(5p+5q)/2⌉점
+  return splineInner(
+    ns.bu,
+    nu,
+    rows,
+    ns.rational,
+    s.periodU,
+    c,
+    uHint,
+    Math.ceil((5 * p) / 2),
+    {
+      vBreaks: vb,
+      periodV: Pv,
+      nLine: Math.ceil((5 * p + 5 * q) / 2),
+      vScale: Math.max(Math.abs(ns.v1 - ns.v0), 1e-300),
+    },
+    vb.length > 1 ? { vb, norm, deg: 5 * q - 1 } : null,
+  );
+}
+
+/** B-스플라인 곡선을 민 곡면: Q_i(v) = C_i + v·d(동차 w_i(P_i + v d), w_i), R_i = (w_i d, 0) */
+function extrusionSplineInner(s: ExtrusionSurface, c: V3, uHint: number, size: number): SplineInner | null {
+  const nc = (s.c as BSplineCurve).nc;
+  const nu = nc.cw.length / 4;
+  const d = s.d;
+  const R0 = new Float64Array(nu * 4);
+  for (let i = 0; i < nu; i++) {
+    const w = nc.cw[i * 4 + 3]!;
+    R0[i * 4] = w * d[0];
+    R0[i * 4 + 1] = w * d[1];
+    R0[i * 4 + 2] = w * d[2];
+  }
+  const rows: Rows = (v, Q, R, i0, i1) => {
+    for (let i = i0 * 4; i < (i1 + 1) * 4; i++) {
+      Q[i] = nc.cw[i]! + v * R0[i]!;
+      R[i] = R0[i]!;
+    }
+  };
+  const p = nc.basis.p;
+  // F는 u의 4p−1차·v의 3차 → 안쪽 2p점, 직선 위 G는 4p+3차 이하 → 2p+2점
+  return splineInner(nc.basis, nu, rows, nc.rational, s.c.period, c, uHint, 2 * p, {
+    vBreaks: [],
+    periodV: 0,
+    nLine: 2 * p + 2,
+    vScale: Math.max(size / Math.max(Math.hypot(d[0], d[1], d[2]), 1e-300), 1e-300),
+  });
+}
+
+/** 곡선 c의 t0와 t1 사이(끝 빼고)의 매듭 — 그 사이에서는 곡선이 매끄럽다(B-스플라인, 잘린·복합·곡면 위 곡선의 바탕) */
+function curveKnots(c: BoundaryCurve, t0: number, t1: number, out: number[]): void {
+  const lo = Math.min(t0, t1);
+  const hi = Math.max(t0, t1);
+  const margin = 1e-12 * (hi - lo);
+  if (!(hi - lo > 0)) return;
+  if (c instanceof TrimmedCurve) {
+    const k = c.tb - c.ta;
+    if (!k) return;
+    const tmp: number[] = [];
+    curveKnots(c.basis, c.ta + k * lo, c.ta + k * hi, tmp);
+    for (const x of tmp) out.push((x - c.ta) / k);
+  } else if (c instanceof SurfaceMappedCurve) curveKnots(c.c2, lo, hi, out);
+  else if (c instanceof CompositeCurve) {
+    const n = c.segs.length;
+    for (let k = Math.floor(lo); k <= Math.ceil(hi); k++) {
+      if (k > lo + margin && k < hi - margin) out.push(k);
+      const sg = c.segs[((k % n) + n) % n];
+      if (!sg) continue;
+      const tmp: number[] = [];
+      curveKnots(sg, Math.max(lo, k) - k, Math.min(hi, k + 1) - k, tmp);
+      for (const x of tmp) out.push(k + x);
+    }
+  } else if (c instanceof BSplineCurve) {
+    const P = c.period;
+    for (const x0 of c.bp) {
+      const n0 = P > 0 ? Math.ceil((lo - x0) / P) : 0;
+      const n1 = P > 0 ? Math.floor((hi - x0) / P) : 0;
+      for (let m = n0; m <= n1; m++) {
+        const x = x0 + m * P;
+        if (x > lo + margin && x < hi - margin) out.push(x);
+      }
+    }
+  }
+}
+
+/** lo < x < hi인 매듭 x(주기면 주기만큼 옮긴 것도) */
+function crossings(a: number, b: number, breaks: readonly number[], P: number, out: number[]): void {
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  for (const x0 of breaks) {
+    const n0 = P > 0 ? Math.ceil((lo - x0) / P) : 0;
+    const n1 = P > 0 ? Math.floor((hi - x0) / P) : 0;
+    for (let m = n0; m <= n1; m++) {
+      const x = x0 + m * P;
+      if (x > lo && x < hi) out.push(x);
+    }
+  }
+}
+
+/**
+ * 7점 가우스–15점 크론로드 마디(0과 양수 쪽, 큰 것부터)·무게(QUADPACK qk15): 15점은 22차, 그 가운데 홀수 번째 7점은 13차 다항식까지 정확.
+ * 둘의 차이로 토막의 적분 오차를 어림한다
+ */
+export const KRONROD15: readonly (readonly [number, number, number])[] = [
+  // [마디, 크론로드 무게, 가우스 무게(가우스 마디가 아니면 0)]
+  [0.991455371120812639206854697526329, 0.02293532201052922496373200805897, 0],
+  [0.949107912342758524526189684047851, 0.063092092629978553290700663189204, 0.129484966168869693270611432679082],
+  [0.864864423359769072789712788640926, 0.104790010322250183839876322541518, 0],
+  [0.741531185599394439863864773280788, 0.140653259715525918745189590510238, 0.27970539148927666790146777142378],
+  [0.586087235467691130294144845693013, 0.16900472663926790282658342659855, 0],
+  [0.405845151377397166906606412076961, 0.190350578064785409913256402421014, 0.381830050505118944950369775488975],
+  [0.207784955007898467600689403773245, 0.204432940075298892414161999234649, 0],
+  [0, 0.209482141084727828012999174891714, 0.417959183673469387755102040816327],
+];
+/** 곡선 토막을 반으로 나누는 깊이 한도 */
+const KRONROD_DEPTH = 8;
+
+/** 곡선 위 점 t와 그 (u,v) */
+interface CurvePt {
+  t: number;
+  u: number;
+  v: number;
+}
+
+/**
+ * 조각 다항식 곡면(B-스플라인 곡면, B-스플라인 곡선을 민 곡면)의 faceFlux. 매개변수 공간 직선 토막은 u·v 매듭을 지나는 곳에서 나눠
+ * nLine점 가우스(비유리면 정확), 모서리 곡선 토막은 곡선 매듭과 (u,v)가 곡면 매듭을 지나는 곳(곡선 위 되짚은 좌표가 매듭 값이 되는 t —
+ * 할선법)에서 나눠 가우스로 적분한다. 나눈 토막 안에서는 피적분 함수가 매끄럽다. 유리 곡면은 안쪽 적분·직선 토막의 어림 오차를 더한다
+ */
+function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b: UV) => Seg | null, out: Float64Array, size: number, uHint: number): number {
+  const inner = s instanceof BSplineSurface ? bsplineSurfaceInner(s, c, uHint) : extrusionSplineInner(s as ExtrusionSurface, c, uHint, size);
+  if (!inner) return NaN;
+  const Pu = inner.periodU;
+  const Pv = inner.periodV;
+  const tinyV = 1e-13 * inner.vScale;
+  const tinyDev = 1e-12 * size;
+  const ruleL = gaussRule(inner.rational ? inner.nLine + RATIONAL_MORE : inner.nLine);
+  const ruleE = inner.rational ? gaussRule(inner.nLine + RATIONAL_LESS) : null;
+  /** 곡선 토막 7–15점 차이의 받아들일 한도(3V 몫): 토막 값의 1e-12, 아주 작은 토막은 항목 크기³의 1e-15 */
+  const tolAbs = 1e-15 * size * size * size;
+  const uSpan = inner.uBreaks[inner.uBreaks.length - 1]! - inner.uBreaks[0]!;
+  const tmp = new Float64Array(FLUX);
+  let bound = 0;
+  const at = (sg: Seg, t: number, uNear: number, vNear: number) => {
+    const X = sg.c.point(t);
+    const D = sg.c.d1(t);
+    let [u, v] = s.project(X, [uNear, vNear]);
+    u = wrapNear(u, uNear, Pu);
+    v = wrapNear(v, vNear, Pv);
+    const [S, Su, Sv] = s.derivs(u, v);
+    const A = Su[0] * Su[0] + Su[1] * Su[1] + Su[2] * Su[2];
+    const B = Su[0] * Sv[0] + Su[1] * Sv[1] + Su[2] * Sv[2];
+    const C = Sv[0] * Sv[0] + Sv[1] * Sv[1] + Sv[2] * Sv[2];
+    const ru = Su[0] * D[0] + Su[1] * D[1] + Su[2] * D[2];
+    const rv = Sv[0] * D[0] + Sv[1] * D[1] + Sv[2] * D[2];
+    const det = A * C - B * B;
+    const dvdt = det > 1e-12 * A * C && det > 0 ? (A * rv - B * ru) / det : C > 0 ? rv / C : 0;
+    return { X, D, u, v, dvdt, dev: Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]) };
+  };
+  /** G 3V 성분만 따로 구할 때(유리 곡면 직선 토막의 어림 오차) */
+  const g0 = (u: number, v: number): number => {
+    tmp.fill(0);
+    inner.add(tmp, 1, u, v);
+    return tmp[0]!;
+  };
+  /** 곡선 토막 A→B 안에서 되짚은 좌표(k: 0 u, 1 v)가 x인 점(일리노이 할선법) */
+  const solve = (sg: Seg, A: CurvePt, B: CurvePt, x: number, k: number): CurvePt | null => {
+    let ta = A.t;
+    let tb = B.t;
+    let fa = (k ? A.v : A.u) - x;
+    let fb = (k ? B.v : B.u) - x;
+    if (!(fa * fb < 0)) return null;
+    const tol = 1e-13 * (k ? inner.vScale : uSpan || 1);
+    let best: CurvePt | null = null;
+    let side = 0;
+    for (let it = 0; it < 30; it++) {
+      const t = (ta * fb - tb * fa) / (fb - fa);
+      const frac = (t - A.t) / (B.t - A.t);
+      const q = at(sg, t, A.u + (B.u - A.u) * frac, A.v + (B.v - A.v) * frac);
+      const f = (k ? q.v : q.u) - x;
+      best = { t, u: q.u, v: q.v };
+      if (Math.abs(f) <= tol || Math.abs(tb - ta) <= 1e-15 * Math.abs(B.t - A.t)) break;
+      if (f < 0 === fa < 0) {
+        ta = t;
+        fa = f;
+        if (side === -1) fb /= 2;
+        side = -1;
+      } else {
+        tb = t;
+        fb = f;
+        if (side === 1) fa /= 2;
+        side = 1;
+      }
+    }
+    return best;
+  };
+  const ring = (pts: readonly UV[], sign: number) => {
+    const m = pts.length;
+    for (let i = 0; i < m; i++) {
+      const a = pts[i]!;
+      const b = pts[(i + 1) % m]!;
+      const sg = a.p === b.p ? null : seg(a, b);
+      const du = b.u - a.u;
+      const dv = b.v - a.v;
+      if (!sg) {
+        // 매개변수 공간 직선(이음선·극선·정의역 끝): u·v 매듭에서 나눈다
+        if (dv === 0) continue;
+        const xs: number[] = [];
+        const cuts = [0, 1];
+        crossings(a.u, b.u, inner.uBreaks, Pu, xs);
+        for (const x of xs) cuts.push((x - a.u) / du);
+        xs.length = 0;
+        crossings(a.v, b.v, inner.vBreaks, Pv, xs);
+        for (const x of xs) cuts.push((x - a.v) / dv);
+        cuts.sort((x, y) => x - y);
+        for (let p = 0; p + 1 < cuts.length; p++) {
+          const f0 = cuts[p]!;
+          const h = (cuts[p + 1]! - f0) / 2;
+          if (!(h > 0)) continue;
+          let sa = 0;
+          for (let g = 0; g < ruleL.length; g += 2) {
+            const f = f0 + h * (1 + ruleL[g]!);
+            const wt = sign * ruleL[g + 1]! * h * dv;
+            if (ruleE) {
+              // 유리: G를 한 번 구해 out에 옮기고 3V 성분을 모은다
+              tmp.fill(0);
+              const e = inner.add(tmp, 1, a.u + du * f, a.v + dv * f);
+              for (let k = 0; k < FLUX; k++) out[k]! += wt * tmp[k]!;
+              sa += ruleL[g + 1]! * tmp[0]!;
+              bound += (Math.abs(wt) * e) / 3;
+            } else inner.add(out, wt, a.u + du * f, a.v + dv * f);
+          }
+          if (ruleE) {
+            let sb = 0;
+            for (let g = 0; g < ruleE.length; g += 2) sb += ruleE[g + 1]! * g0(a.u + du * (f0 + h * (1 + ruleE[g]!)), a.v + dv * (f0 + h * (1 + ruleE[g]!)));
+            bound += (Math.abs(h * dv) * Math.abs(sa - sb)) / 3;
+          }
+        }
+        continue;
+      }
+      // 모서리 곡선: 곡선 매듭과 곡면 매듭을 지나는 곳에서 나눠 t의 가우스(곡선 위 점을 곡면에 되짚어 (u,v)·dv/dt)
+      const T = sg.t1 - sg.t0;
+      if (!(Math.abs(T) > 0)) continue;
+      if (Math.abs(dv) <= tinyV) {
+        const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v);
+        if (Math.abs(mid.v - a.v) <= tinyV && Math.abs(mid.dvdt * T) <= tinyV && mid.dev <= tinyDev) continue;
+      }
+      const knots: number[] = [];
+      curveKnots(sg.c, sg.t0, sg.t1, knots);
+      knots.sort((x, y) => (T > 0 ? x - y : y - x));
+      const cps: CurvePt[] = [{ t: sg.t0, u: a.u, v: a.v }];
+      for (const t of knots) {
+        const frac = (t - sg.t0) / T;
+        const q = at(sg, t, a.u + du * frac, a.v + dv * frac);
+        cps.push({ t, u: q.u, v: q.v });
+      }
+      cps.push({ t: sg.t1, u: b.u, v: b.v });
+      const all: CurvePt[] = [cps[0]!];
+      for (let k = 0; k + 1 < cps.length; k++) {
+        const A = cps[k]!;
+        const B = cps[k + 1]!;
+        const found: CurvePt[] = [];
+        const xs: number[][] = [0, 1].map((dim) => {
+          const o: number[] = [];
+          crossings(dim ? A.v : A.u, dim ? B.v : B.u, dim ? inner.vBreaks : inner.uBreaks, dim ? Pv : Pu, o);
+          return o;
+        });
+        // 곡면 매듭을 지나는 곳이 둘까지면 할선법으로 찾아 나눈다(많으면 매듭이 토막보다 촘촘하다 — 크론로드 어림이 꺾임을 잡아 나눈다)
+        if (xs[0]!.length + xs[1]!.length <= 2)
+          for (const dim of [0, 1])
+            for (const x of xs[dim]!) {
+              const q = solve(sg, A, B, x, dim);
+              if (q && (q.t - A.t) * (B.t - q.t) > 0) found.push(q);
+            }
+        found.sort((x, y) => (T > 0 ? x.t - y.t : y.t - x.t));
+        all.push(...found, B);
+      }
+      for (let k = 0; k + 1 < all.length; k++) curvePiece(sg, sign, T, all[k]!, all[k + 1]!, 0);
+    }
+  };
+  const bufs = Array.from({ length: KRONROD_DEPTH + 1 }, () => new Float64Array(FLUX));
+  /**
+   * 곡선 토막 A→B(곡면 매듭·곡선 매듭 사이라 피적분 함수가 매끄럽다)를 7–15점 가우스–크론로드로. 곡선 t와 곡면 (u,v) 사이 대응이 거의
+   * 특이하면(곡면 매개변수가 한쪽으로 몰림) 고정 점 수로는 덜 맞으므로, 둘이 어긋나면 반으로 나눠 다시 하고 깊이 한도에서는 차이를 어림 오차에 더한다
+   */
+  const curvePiece = (sg: Seg, sign: number, T: number, A: CurvePt, B: CurvePt, depth: number): void => {
+    const h = (B.t - A.t) / 2;
+    if (h === 0) return;
+    const kb = bufs[depth]!.fill(0);
+    let g7 = 0;
+    let extra = 0;
+    let mid: CurvePt = { t: A.t + h, u: (A.u + B.u) / 2, v: (A.v + B.v) / 2 };
+    for (const [x0, wk, wg] of KRONROD15)
+      for (const x of x0 ? [-x0, x0] : [0]) {
+        const t = A.t + h * (1 + x);
+        const frac = (1 + x) / 2;
+        const q = at(sg, t, A.u + (B.u - A.u) * frac, A.v + (B.v - A.v) * frac);
+        if (!x) mid = { t, u: q.u, v: q.v };
+        if (Math.abs(q.dvdt * T) > tinyV) {
+          tmp.fill(0);
+          const e = inner.add(tmp, 1, q.u, q.v);
+          const wt = sign * h * q.dvdt;
+          for (let k = 0; k < FLUX; k++) kb[k]! += wk * wt * tmp[k]!;
+          g7 += wg * wt * tmp[0]!;
+          if (e) extra += Math.abs(wk * wt) * e;
+        }
+        // 곡선이 곡면에서 떨어진 거리 × |q| × 길이 — 부피 어림 오차(3배)
+        if (q.dev > 0) extra += Math.abs(wk * h) * q.dev * Math.hypot(q.X[0] - c[0], q.X[1] - c[1], q.X[2] - c[2]) * Math.hypot(q.D[0], q.D[1], q.D[2]);
+      }
+    const err = Math.abs(kb[0]! - g7);
+    if (err > Math.max(1e-12 * Math.abs(kb[0]!), tolAbs) && depth < KRONROD_DEPTH) {
+      curvePiece(sg, sign, T, A, mid, depth + 1);
+      curvePiece(sg, sign, T, mid, B, depth + 1);
+      return;
+    }
+    for (let k = 0; k < FLUX; k++) out[k]! += kb[k]!;
+    bound += (err + extra) / 3;
+  };
+  for (const pg of polys) {
+    ring(pg.outer, signedArea(pg.outer) >= 0 ? 1 : -1);
+    for (const hole of pg.holes) ring(hole, signedArea(hole) <= 0 ? 1 : -1);
+  }
+  return bound;
 }
 
 /**
