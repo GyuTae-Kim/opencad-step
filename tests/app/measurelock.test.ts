@@ -302,3 +302,45 @@ describe('nextFrame: 커서 아래 점 읽기를 코어 그리기 뒤로', () =>
     }
   });
 });
+
+describe('끌어온 축(코어 0.16.0 inference.track): 실제 코어 + 앱 붙잡기 선택', () => {
+  it('꼭짓점 위에 0.5초 머문 뒤 그 위 허공을 가리키면 그 점을 지나는 Z축에 붙고 이름은 "끌어온 점에서 Z축", 찍으면 결과 이름도', () => {
+    const w = view();
+    const { v } = w;
+    hoverAt(w, A1);
+    expect(['endpoint', 'vertex']).toContain(v.measureHoverSnap!.snap);
+    expect(v.measureTrackPoints).toHaveLength(0);
+    // 머무르기(코어가 setTimeout으로 잰다 — 시간으로 기다린다)
+    vi.advanceTimersByTime(600);
+    v.renderNow();
+    expect(v.measureTrackPoints).toHaveLength(1);
+    expect(dist(v.measureTrackPoints[0]!, A1)).toBeLessThan(1e-4);
+    // A1 바로 위(세계 Z) 허공: 첫 점 전에도 끌어온 축
+    const up: V3 = [A1[0], A1[1], A1[2] + 6];
+    hoverAt(w, up);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('axis');
+    expect(h.axis).toBe('z');
+    expect(h.direction).toBeUndefined();
+    expect(dist(h.trackFrom!, A1)).toBeLessThan(1e-4);
+    expect(hoverSnapLabel(h)).toBe('끌어온 점에서 Z축');
+    // 찍으면 첫 점이 끌어온 축 위 — 결과에는 축만, 찍은 점에 끌어온 점
+    clickAt(w, up);
+    expect(v.measurePointCount).toBe(1);
+    expect(v.measurePoints[0]!.trackFrom).toBeTruthy();
+    expect(dist(v.measurePoints[0]!.point, up)).toBeLessThan(0.5);
+  });
+
+  it('머물지 않고 지나가면(0.5초 전에 떠남) 기억하지 않는다', () => {
+    const w = view();
+    const { v } = w;
+    hoverAt(w, A1);
+    vi.advanceTimersByTime(200);
+    // 윗면 안쪽(점 붙잡기 없음)으로 옮겨 머문다
+    hoverAt(w, lerp(A, A3, 0.4));
+    expect(v.measureHoverSnap!.snap).toBeNull();
+    vi.advanceTimersByTime(600);
+    v.renderNow();
+    expect(v.measureTrackPoints).toHaveLength(0);
+  });
+});
