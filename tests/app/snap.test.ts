@@ -170,7 +170,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(trackMark({ trackFrom: [0, 0, 0], trackOther: { axis: 'z' }, direction: [1, 0, 0] })).toBe('z');
     expect(trackMark({ trackFrom: [0, 0, 0], segment: {}, direction: [1, 0, 0] })).toBe('edge');
     expect(trackMark({ trackFrom: [0, 0, 0], direction: [1, 0, 0] })).toBe(false);
-    expect(trackMark({ segment: {} })).toBe(false);
+    // 끌어온 점 없이 선분이 실린 축 위 점은 0.18.0부터 첫 점 축과 모서리의 교차(아래 시험)
+    expect(trackMark({ direction: [1, 0, 0] })).toBe(false);
     expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], trackOther: { axis: 'x' } })).toBe('끌어온 Y축과 X축의 교차');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], segment: { kind: 'line' } })).toBe('끌어온 점에서 X축 · 모서리 위');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3], segment: {}, direction: [0, 0, 1], locked: true })).toBe('끌어온 점에서 Z축 · 모서리 위 · 잠금');
@@ -191,6 +192,34 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(translate('끌어온 점에서 X축 · 모서리 위 · 잠금', 'de')).toBe('X-Achse vom verfolgten Punkt · Auf Kante · Gesperrt');
   });
 
+  it('첫 점 축과 모서리·축과 면(코어 0.18.0): trackFrom 없이 segment면 "X축 · 모서리 위", face면 "X축 · 면 위", 끌어온 축의 면은 "끌어온 점에서 X축 · 면 위"', () => {
+    // 가르는 차례(코어 README): trackOther → face → segment → 끌어온 점 그대로 → 첫 점 축 방향
+    expect(trackMark({ segment: {} })).toBe('axisEdge');
+    expect(trackMark({ segment: {}, direction: [1, 0, 0] })).toBe('axisEdge');
+    expect(trackMark({ face: {}, direction: [0, 1, 0] })).toBe('axisFace');
+    expect(trackMark({ trackFrom: [0, 0, 0], face: {} })).toBe('face');
+    expect(trackMark({ trackFrom: [0, 0, 0], face: {}, direction: [0, 0, 1] })).toBe('face');
+    expect(trackMark({ trackFrom: [0, 0, 0], trackOther: { axis: 'y' }, face: {} })).toBe('y');
+    expect(trackMark(null)).toBe(false);
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', direction: [1, 0, 0], segment: { kind: 'edge' } })).toBe('X축 · 모서리 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', direction: [0, 1, 0], segment: { kind: 'edge' }, refined: true })).toBe('Y축 · 모서리 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', direction: [0, 0, 1], face: { id: 'm', index: 0, normal: [0, 0, 1] } })).toBe('Z축 · 면 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], face: { id: 'm', index: 0, normal: [1, 0, 0] } })).toBe('끌어온 점에서 X축 · 면 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', direction: [1, 0, 0] })).toBe('X축 방향');
+    // 찍은 결과(코어 결과에는 선분·면이 없어 찍은 점 measurePoints에서 가른다)
+    expect(snapPair({ snapA: 'endpoint', snapB: 'axis', axisB: 'y', trackB: 'axisEdge' })).toEqual(['끝점', 'Y축 · 모서리 위']);
+    expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'z', trackB: 'axisFace', lockedB: true })).toEqual(['꼭짓점', 'Z축 · 면 위 · 잠금']);
+    const labels: string[] = [];
+    for (const a of ['x', 'y', 'z'] as const) for (const t of ['axisEdge', 'axisFace', 'face'] as const) labels.push(snapLabel('axis', a, false, t));
+    expect(new Set(labels).size).toBe(9);
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const l of [...labels, 'X축 · 모서리 위 · 잠금', '끌어온 점에서 Y축 · 면 위 · 잠금']) expect(translate(l, code), `${code}: ${l}`).not.toMatch(/[가-힣]/);
+    expect(translate('X축 · 모서리 위', 'en')).toBe('X axis · On edge');
+    expect(translate('Z축 · 면 위 · 잠금', 'ja')).toBe('Z 軸 · 面上 · ロック');
+    expect(translate('끌어온 점에서 Y축 · 면 위', 'zh-CN')).toBe('追踪点的 Y 轴 · 在面上');
+    expect(translate('Y축 · 면 위', 'de')).toBe('Y-Achse · Auf Fläche');
+  });
+
   it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
     expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
     expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
@@ -209,8 +238,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     const centers = circleCenters(s.meshes, ex);
     const o = measureSnapOptions(s.meshes, ex, centers);
     expect(o.edges).toBe(true);
-    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축
-    expect(o.inference).toEqual({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true });
+    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축, 0.18.0 첫 점 축과 모서리·축과 면
+    expect(o.inference).toEqual({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true, axisEdges: true, axisFaces: true });
     expect(o.inference).toBe(MEASURE_INFERENCE);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);

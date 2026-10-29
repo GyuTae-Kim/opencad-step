@@ -1199,7 +1199,8 @@ export class StepApp {
     // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점"
     // (코어 0.14.0 — 결과에는 싣지 않고 찍은 점 measurePoints에만 있다)
     const pts = m ? (this.viewer?.measurePoints ?? []) : [];
-    // 끌어온 축(코어 0.16.0)·모서리 위·축끼리의 교차(0.17.0)로 찍은 점: 결과에는 축만 실리므로 찍은 점의 trackFrom·trackOther·segment로 가른다
+    // 끌어온 축(코어 0.16.0)·모서리 위·축끼리의 교차(0.17.0)·첫 점 축과 모서리·축과 면(0.18.0)으로 찍은 점: 결과에는 축만 실리므로
+    // 찍은 점의 trackFrom·trackOther·segment·face로 가른다
     // (둘째 점의 첫 점 축 방향은 결과의 directionB로도 본다 — 첫 점 축 위 나란한 자리는 그 축 방향 그대로)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : false;
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : false;
