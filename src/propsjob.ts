@@ -134,7 +134,9 @@ function surfaceFaceFlux(f: FaceFluxJob, surf: Surface, polys: FacePolygon[], c:
       for (const ib of [ia + 1, ia - 1]) {
         if (e.poly[ib] !== b.p) continue;
         const ep = f.edgeParams.get(e.eid);
-        if (ep) return { c: ep.c, t0: ep.t[ia]!, t1: ep.t[ib]!, linear: ep.c.linear };
+        // 다각선 첫·끝 점은 꼭짓점이다(곡선 매개변수는 곡선에서 그 점에 가장 가까운 자리 — 곡선이 꼭짓점을 비껴 지날 수 있다)
+        const last = e.poly.length - 1;
+        if (ep) return { c: ep.c, t0: ep.t[ia]!, t1: ep.t[ib]!, linear: ep.c.linear, v0: ia === 0 || ia === last, v1: ib === 0 || ib === last };
         return { c: lineCurve(a.p, b.p), t0: 0, t1: 1, linear: true };
       }
     }

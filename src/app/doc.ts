@@ -11,6 +11,7 @@ import type { InterferenceResult } from './interference';
 import type { EdgePick } from './edges';
 import type { Picked, PickedMeasure } from './entpick';
 import type { FacePick } from './faces';
+import type { TrackMark } from './snap';
 import { formatBytes, formatMs, fmtCount } from './format';
 import type { ParseResult, ParseSource, PropsProgress } from './protocol';
 import { Visibility } from './visibility';
@@ -112,9 +113,10 @@ export interface StepDoc {
   /**
    * 두 점 측정 결과(tangentB = 둘째 점을 곡선 모서리 끝의 접선 잠금으로 찍었다 — 이름만 "접선 방향",
    * refinedA·refinedB = 그 점을 곡선 위로 다듬어 찍었다 — 붙잡지 않은 점이면 "곡선 위 점",
-   * trackA·trackB = 끌어온 축 위 점으로 찍었다 — "끌어온 점에서 Z축")
+   * trackA·trackB = 끌어온 축 위 점으로 찍었다(snap.ts trackMark) — "끌어온 점에서 Z축", 모서리와 만나면 "… · 모서리 위",
+   * 끌어온 축끼리의 교차면 "끌어온 X축과 Y축의 교차")
    */
-  measure: (MeasureResult & { tangentB?: boolean; refinedA?: boolean; refinedB?: boolean; trackA?: boolean; trackB?: boolean }) | null;
+  measure: (MeasureResult & { tangentB?: boolean; refinedA?: boolean; refinedB?: boolean; trackA?: TrackMark | boolean; trackB?: TrackMark | boolean }) | null;
   panelTab: PanelTab;
   /** 레이어(없으면 빈 배열) */
   readonly layers: DocLayer[];

@@ -361,6 +361,68 @@ export class NurbsSurface {
     ];
   }
 
+  /** 점과 1·2차 편도함수: [S, Su, Sv, Suu, Suv, Svv](유리면 몫의 미분) */
+  eval2(u: number, v: number): V3[] {
+    u = Math.min(Math.max(u, this.u0), this.u1);
+    v = Math.min(Math.max(v, this.v0), this.v1);
+    const bu = this.bu;
+    const bv = this.bv;
+    const p = bu.p;
+    const q = bv.p;
+    const p1 = p + 1;
+    const q1 = q + 1;
+    const su = bu.span(u);
+    const sv = bv.span(v);
+    bu.eval(su, u, 2);
+    bv.eval(sv, v, 2);
+    const Nu = bu.ders;
+    const Nv = bv.ders;
+    const cw = this.cw;
+    const nv = this.nv;
+    // 동차 합 A, A_u, A_v, A_uu, A_uv, A_vv(4개씩) — 1차 기저의 2차 도함수는 0
+    const t = new Float64Array(24);
+    for (let a = 0; a <= p; a++) {
+      const iu = su - p + a;
+      const n0 = Nu[a]!;
+      const n1 = Nu[p1 + a]!;
+      const n2 = p >= 2 ? Nu[2 * p1 + a]! : 0;
+      for (let b = 0; b <= q; b++) {
+        const m0 = Nv[b]!;
+        const m1 = Nv[q1 + b]!;
+        const m2 = q >= 2 ? Nv[2 * q1 + b]! : 0;
+        const idx = (iu * nv + sv - q + b) * 4;
+        const f0 = n0 * m0, fu = n1 * m0, fv = n0 * m1, fuu = n2 * m0, fuv = n1 * m1, fvv = n0 * m2;
+        for (let k = 0; k < 4; k++) {
+          const x = cw[idx + k]!;
+          t[k]! += f0 * x;
+          t[4 + k]! += fu * x;
+          t[8 + k]! += fv * x;
+          t[12 + k]! += fuu * x;
+          t[16 + k]! += fuv * x;
+          t[20 + k]! += fvv * x;
+        }
+      }
+    }
+    const w = t[3]! || 1;
+    const wu = t[7]!, wv = t[11]!, wuu = t[15]!, wuv = t[19]!, wvv = t[23]!;
+    const S: V3 = [t[0]! / w, t[1]! / w, t[2]! / w];
+    const Su: V3 = [0, 0, 0];
+    const Sv: V3 = [0, 0, 0];
+    const Suu: V3 = [0, 0, 0];
+    const Suv: V3 = [0, 0, 0];
+    const Svv: V3 = [0, 0, 0];
+    for (let k = 0; k < 3; k++) {
+      Su[k] = (t[4 + k]! - wu * S[k]!) / w;
+      Sv[k] = (t[8 + k]! - wv * S[k]!) / w;
+    }
+    for (let k = 0; k < 3; k++) {
+      Suu[k] = (t[12 + k]! - 2 * wu * Su[k]! - wuu * S[k]!) / w;
+      Suv[k] = (t[16 + k]! - wu * Sv[k]! - wv * Su[k]! - wuv * S[k]!) / w;
+      Svv[k] = (t[20 + k]! - 2 * wv * Sv[k]! - wvv * S[k]!) / w;
+    }
+    return [S, Su, Sv, Suu, Suv, Svv];
+  }
+
   /** 조절점(직교 좌표) */
   ctrl(i: number, j: number): V3 {
     const q = (i * this.nv + j) * 4;
