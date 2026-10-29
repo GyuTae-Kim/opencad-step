@@ -20,6 +20,7 @@ import {
   snapPair,
   TANGENT_LABEL,
   type TangentHint,
+  trackMark,
   viewerLockHint,
   viewerLockName,
 } from '../../src/app/snap';
@@ -159,6 +160,35 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     // 결과(코어 결과에는 끌어온 점이 없어 앱이 찍은 점 measurePoints의 trackFrom으로 trackA·trackB를 담는다)
     expect(snapPair({ snapA: 'axis', axisA: 'y', snapB: 'axis', axisB: 'z', trackA: true, trackB: true })).toEqual(['끌어온 점에서 Y축', '끌어온 점에서 Z축']);
     expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'x' })).toEqual(['꼭짓점', 'X축 방향']);
+  });
+
+  it('끌어온 축끼리의 교차·모서리 위(코어 0.17.0): 가르는 차례 trackOther → segment → direction, 이름 9개가 네 언어 사전에 있다', () => {
+    expect(trackMark({ trackFrom: [0, 0, 0] })).toBe(true);
+    expect(trackMark({ trackFrom: [0, 0, 0], trackOther: { axis: 'x' } })).toBe('x');
+    expect(trackMark({ trackFrom: [0, 0, 0], segment: { kind: 'line' } })).toBe('edge');
+    // 축끼리의 교차·모서리 위는 첫 점 축 위이기도 해(direction) 그 이름이 먼저, 첫 점 축 위 나란한 자리는 끌어온 축이 아니다
+    expect(trackMark({ trackFrom: [0, 0, 0], trackOther: { axis: 'z' }, direction: [1, 0, 0] })).toBe('z');
+    expect(trackMark({ trackFrom: [0, 0, 0], segment: {}, direction: [1, 0, 0] })).toBe('edge');
+    expect(trackMark({ trackFrom: [0, 0, 0], direction: [1, 0, 0] })).toBe(false);
+    expect(trackMark({ segment: {} })).toBe(false);
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], trackOther: { axis: 'x' } })).toBe('끌어온 Y축과 X축의 교차');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], segment: { kind: 'line' } })).toBe('끌어온 점에서 X축 · 모서리 위');
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3], segment: {}, direction: [0, 0, 1], locked: true })).toBe('끌어온 점에서 Z축 · 모서리 위 · 잠금');
+    // 끝점 같은 다른 종류에 실린 선분 식별자(0.16.0)는 끌어온 축 이름이 아니다
+    expect(hoverSnapLabel({ snap: 'endpoint', trackFrom: [1, 2, 3], segment: {} })).toBe('끝점');
+    expect(snapPair({ snapA: 'axis', axisA: 'y', trackA: 'x', snapB: 'axis', axisB: 'x', trackB: 'edge' })).toEqual(['끌어온 Y축과 X축의 교차', '끌어온 점에서 X축 · 모서리 위']);
+    const labels: string[] = [];
+    for (const a of ['x', 'y', 'z'] as const) {
+      labels.push(snapLabel('axis', a, false, 'edge'));
+      for (const b of ['x', 'y', 'z'] as const) if (a !== b) labels.push(snapLabel('axis', a, false, b));
+    }
+    expect(new Set(labels).size).toBe(9);
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const l of [...labels, '끌어온 점에서 X축 · 모서리 위 · 잠금', '끌어온 Z축과 Y축의 교차 · 잠금']) {
+        expect(translate(l, code), `${code}: ${l}`).not.toMatch(/[가-힣]/);
+      }
+    expect(translate('끌어온 Y축과 X축의 교차', 'en')).toBe('Intersection of tracked Y and X axes');
+    expect(translate('끌어온 점에서 X축 · 모서리 위 · 잠금', 'de')).toBe('X-Achse vom verfolgten Punkt · Auf Kante · Gesperrt');
   });
 
   it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {

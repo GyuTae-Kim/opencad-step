@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Viewer3d } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
-import { arrowLock, circleCenters, hoverSnapLabel, lockName, measureSnapOptions, viewerLockHint } from '../../src/app/snap';
+import { arrowLock, circleCenters, hoverSnapLabel, lockName, measureSnapOptions, snapPair, trackMark, viewerLockHint } from '../../src/app/snap';
 import { nextFrame } from '../../src/app/dom';
 import { AIM_OFFSET_PX, AIM_RETICLE_RADIUS, aimLabelAvoid } from '../../src/app/aim';
 import { cube, StepText } from '../stepText';
@@ -342,5 +342,78 @@ describe('끌어온 축(코어 0.16.0 inference.track): 실제 코어 + 앱 붙�
     vi.advanceTimersByTime(600);
     v.renderNow();
     expect(v.measureTrackPoints).toHaveLength(0);
+  });
+});
+
+/** 꼭짓점 p 위에 머물러(0.5초 넘게 — 시간으로 기다린다) 끌어올 점으로 기억시킨다 */
+function dwell(w: View, p: V3): void {
+  hoverAt(w, p);
+  vi.advanceTimersByTime(600);
+  w.v.renderNow();
+}
+
+/** 앱(app.ts onMeasure)처럼 결과에 찍은 점의 끌어온 축 종류를 붙인다 */
+function trackResult(v: Viewer3d) {
+  const m = v.measurement()!;
+  const pts = v.measurePoints;
+  return {
+    ...m,
+    ...(m.snapA === 'axis' && trackMark(pts[0]) ? { trackA: trackMark(pts[0]) } : {}),
+    ...(m.snapB === 'axis' && trackMark({ ...pts[1]!, direction: pts[1]!.direction ?? m.directionB }) ? { trackB: trackMark({ ...pts[1]!, direction: pts[1]!.direction ?? m.directionB }) } : {}),
+  };
+}
+
+describe('끌어온 축끼리의 교차·끌어온 축과 모서리의 교차(코어 0.17.0): 실제 코어 + 앱 붙잡기 선택', () => {
+  it('두 꼭짓점(A1, 다음 A3)에 머문 뒤 A3의 Y축과 A1의 X축이 만나는 윗면 안쪽 자리: 첫 점 전에도 붙고 "끌어온 Y축과 X축의 교차", 찍은 결과 이름도', () => {
+    const w = view();
+    const { v } = w;
+    dwell(w, A1);
+    dwell(w, A3);
+    expect(v.measureTrackPoints).toHaveLength(2);
+    // A3의 Y축(x = A3x)과 A1의 X축(y = A1y)은 윗면 높이에서 (A3x, A1y, 10)에서 만난다 — 그 둘레 0.1 mm 안쪽을 가리킨다
+    const X: V3 = [A3[0], A1[1], 10];
+    hoverAt(w, [X[0] + 0.08, X[1] - 0.06, 10]);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('axis');
+    expect(h.axis).toBe('y');
+    expect(dist(h.trackFrom!, A3)).toBeLessThan(1e-4);
+    expect(h.trackOther?.axis).toBe('x');
+    expect(dist(h.trackOther!.from, A1)).toBeLessThan(1e-4);
+    expect(dist(h.point, X)).toBeLessThan(1e-6);
+    expect(trackMark(h)).toBe('x');
+    expect(hoverSnapLabel(h)).toBe('끌어온 Y축과 X축의 교차');
+    clickAt(w, [X[0] + 0.08, X[1] - 0.06, 10]);
+    expect(v.measurePoints[0]!.trackOther?.axis).toBe('x');
+    clickAt(w, B1);
+    const m = trackResult(v);
+    expect(m.snapA).toBe('axis');
+    expect(m.trackA).toBe('x');
+    expect(m.distance).toBeCloseTo(dist(X, B1), 6);
+    expect(snapPair(m)![0]).toBe('끌어온 Y축과 X축의 교차');
+  });
+
+  it('A1에 머문 뒤 A1의 X축이 윗면 모서리 A–A2와 만나는 자리: "끌어온 점에서 X축 · 모서리 위"(그 선분 식별자), 찍은 결과 이름도', () => {
+    const w = view();
+    const { v } = w;
+    dwell(w, A1);
+    // A1의 X축(y = A1y, z = 10)이 모서리 A → A2와 만나는 점 — 모서리에서 윗면 안쪽으로 조금 비켜 가리킨다
+    const t = A1[1] / A2[1];
+    const X = lerp(A, A2, t);
+    hoverAt(w, [X[0] + 0.1 * c, X[1] + 0.1 * s - 0.04, 10]);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('axis');
+    expect(h.axis).toBe('x');
+    expect(dist(h.trackFrom!, A1)).toBeLessThan(1e-4);
+    expect(h.trackOther).toBeUndefined();
+    expect(h.segment).toBeTruthy();
+    expect(dist(h.point, X)).toBeLessThan(1e-4);
+    expect(trackMark(h)).toBe('edge');
+    expect(hoverSnapLabel(h)).toBe('끌어온 점에서 X축 · 모서리 위');
+    clickAt(w, [X[0] + 0.1 * c, X[1] + 0.1 * s - 0.04, 10]);
+    expect(v.measurePoints[0]!.segment).toBeTruthy();
+    clickAt(w, B1);
+    const m = trackResult(v);
+    expect(m.trackA).toBe('edge');
+    expect(snapPair(m)![0]).toBe('끌어온 점에서 X축 · 모서리 위');
   });
 });
