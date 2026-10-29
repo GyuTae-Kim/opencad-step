@@ -344,17 +344,18 @@ const TUBE_K = Array.from({ length: 13 }, (_, i) => i - 3);
 const TUBE_V = [0, 0, 0, 0, 0.4, 1, 1, 1, 1];
 const TUBE_Z = [0, 0.1, 0.5, 0.6, 1];
 const wrap3 = (a: readonly number[]) => [...a, a[0]!, a[1]!, a[2]!];
-function splineTube(w: StepText, h: number, topScale = 1): number {
+function splineTube(w: StepText, h: number, topScale = 1, vertexOff = 0): number {
   const X = wrap3(TUBE_X);
   const Y = wrap3(TUBE_Y);
-  // topScale ≠ 1이면 위 닫힌 곡선만 원점에서 그만큼 키운다(위 평면 위 그대로, 옆 곡면에서는 바깥으로 조금 떨어진다)
+  // topScale ≠ 1이면 위 닫힌 곡선만 원점에서 그만큼 키운다(위 평면 위 그대로, 옆 곡면에서는 바깥으로 조금 떨어진다).
+  // vertexOff ≠ 0이면 두 꼭짓점만 x로 그만큼 옮긴다(닫힌 곡선이 꼭짓점을 비껴 지난다)
   const ring = (z: number, k = 1) => X.map((x, i) => [k * x, k * Y[i]!, z] as P3);
   const net = X.map((x, i) => TUBE_Z.map((z) => [x, Y[i]!, h * z] as P3));
   const surf = bsSurface(w, 3, 3, TUBE_K, TUBE_V, net);
   const x0 = deBoorP(3, TUBE_K, X, 0);
   const y0 = deBoorP(3, TUBE_K, Y, 0);
-  const V0 = w.vertex([x0, y0, 0]);
-  const V1 = w.vertex([topScale * x0, topScale * y0, h]);
+  const V0 = w.vertex([x0 + vertexOff, y0, 0]);
+  const V1 = w.vertex([topScale * x0 + vertexOff, topScale * y0, h]);
   const C0 = w.edge(V0, V0, bsCurve(w, 3, TUBE_K, ring(0)));
   const C1 = w.edge(V1, V1, bsCurve(w, 3, TUBE_K, ring(h, topScale)));
   const bottom = w.face([w.bound(w.loop([w.oe(C0, false)]))], w.plane([0, 0, 0]), false);
@@ -835,4 +836,51 @@ describe('모서리 곡선이 곡면에서 조금 떨어진 입체: 두 면이 �
     expect(Math.abs(got.V - want.V)).toBeLessThanOrEqual(props![13]!);
     expect(props![13]! / want.V).toBeLessThan(1e-6);
   });
+
+  it('모서리 곡선이 꼭짓점을 비껴 지나면(반원 기둥의 네 꼭짓점만 바깥으로 1e-4) 면 경계의 끊김을 꼭짓점 둘레에서 메워 닫힌 식 그대로', () => {
+    const R = 5;
+    const h = 12;
+    const want = (Math.PI * R * R * h) / 2;
+    for (const g of [0, 1e-4]) {
+      const { props } = open((w) => halfCylinder(w, R, h, g));
+      expect(props![14]).toBe(PROPS_BREP);
+      const err = Math.abs(props![0]! - want);
+      expect(err / want, `g=${g}`).toBeLessThan(1e-9);
+      expect(err, `g=${g}`).toBeLessThanOrEqual(props![13]! + 1e-12 * want);
+      // 어림 오차는 꼭짓점을 잇는 세로 모서리 둘이 원기둥에서 g 떨어진 관(π·g²·h)만큼
+      expect(props![13]!, `g=${g}`).toBeLessThan(2 * Math.PI * g * g * h * 1.01 + 1e-12 * want);
+    }
+  });
 });
+
+/**
+ * 반지름 R·높이 h 반원 기둥(y ≥ 0). 네 꼭짓점만 x로 g 바깥에 두어 반원 호가 꼭짓점을 g만큼 비껴 지나게 한다(곧은 모서리는 꼭짓점을 잇는다).
+ * 위·아래 평면은 축을 45° 돌린 좌표(꼭짓점 둘레 끊김이 u·v 둘 다에 걸치게), 아래는 B-스플라인 평면(1×1차 — 조각 다항식 곡면 길),
+ * 위는 해석 평면이다. 곡면들이 둘러싼 부피는 π·R²·h / 2
+ */
+function halfCylinder(w: StepText, R: number, h: number, g: number): number {
+  const A0 = w.vertex([R + g, 0, 0]);
+  const B0 = w.vertex([-R - g, 0, 0]);
+  const A1 = w.vertex([R + g, 0, h]);
+  const B1 = w.vertex([-R - g, 0, h]);
+  const arc0 = w.edge(A0, B0, w.circle([0, 0, 0], R));
+  const arc1 = w.edge(A1, B1, w.circle([0, 0, h], R));
+  const lb = w.edge(B0, A0, w.line([-R - g, 0, 0], [R + g, 0, 0]));
+  const lt = w.edge(B1, A1, w.line([-R - g, 0, h], [R + g, 0, h]));
+  const la = w.edge(A0, A1, w.line([R + g, 0, 0], [R + g, 0, h]));
+  const lbv = w.edge(B0, B1, w.line([-R - g, 0, 0], [-R - g, 0, h]));
+  const s = Math.SQRT1_2;
+  // 아래: (0, R/2) 둘레 한 변 4R 정사각형을 45° 돌린 B-스플라인 평면(법선 +z라 same_sense .F.)
+  const L = 4 * R;
+  const U: P3 = [L * s, L * s, 0];
+  const Vv: P3 = [-L * s, L * s, 0];
+  const o: P3 = [-(U[0] + Vv[0]) / 2, R / 2 - (U[1] + Vv[1]) / 2, 0];
+  const net = [0, 1].map((i) => [0, 1].map((j) => [o[0] + i * U[0] + j * Vv[0], o[1] + i * U[1] + j * Vv[1], 0] as P3));
+  const bottom = w.face([w.bound(w.loop([w.oe(arc0, false), w.oe(lb, false)]))], bsSurface(w, 1, 1, [0, 0, 1, 1], [0, 0, 1, 1], net), false);
+  const top = w.face([w.bound(w.loop([w.oe(arc1, true), w.oe(lt, true)]))], w.plane([0, 0, h], [0, 0, 1], [s, s, 0]));
+  // y = 0 평면(바깥 법선 −y)
+  const flat = w.face([w.bound(w.loop([w.oe(lb, true), w.oe(la, true), w.oe(lt, false), w.oe(lbv, false)]))], w.plane([0, 0, 0], [0, -1, 0], [1, 0, 0]));
+  const surf = w.add('CYLINDRICAL_SURFACE', `'',#${w.ax2([0, 0, 0])},${r(R)}`);
+  const side = w.face([w.bound(w.loop([w.oe(arc0, true), w.oe(lbv, true), w.oe(arc1, false), w.oe(la, false)]))], surf);
+  return w.solid([bottom, top, flat, side], 'halfcyl');
+}

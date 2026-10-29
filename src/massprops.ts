@@ -136,6 +136,9 @@ export interface Seg {
   t0: number;
   t1: number;
   linear: boolean;
+  /** 토막의 시작·끝 다각형 점이 모서리 끝(꼭짓점)이다 — 곡선이 꼭짓점을 비껴 지나면 그 사이를 메운다(addCorner) */
+  v0?: boolean;
+  v1?: boolean;
 }
 
 /** 두 점 사이 직선(t 0 → 1) */
@@ -517,6 +520,33 @@ function tubeBound(f: Foot): number {
 }
 
 /**
+ * 꼭짓점 둘레 메우기(곡선 토막의 시작 start 또는 끝): 다각형 점 pt(꼭짓점 p, 그 (u,v)의 곡면 점 S_V)와 그 끝의 곡선 점 X·되짚은 곡면 점 F가
+ * 다르면(모서리 곡선이 꼭짓점을 조금 비껴 지나거나 곡선이 곡면에서 떨어졌다) 곡면 위 S_V ↔ F는 매개변수 공간 직선(line — ∮G dv)으로 잇고,
+ * 네 점 조각(시작 S_V → p → X → F, 끝 X → p → S_V → F — 면 경계 방향)을 평평한 삼각형 둘로 더한다. 이웃 면(삼각형으로 구하는 면의 띠도)은
+ * 같은 곡선 끝 X와 p 사이를 거꾸로 지나므로 그 토막이 지워져 겉면이 닫힌다. 돌려주는 값은 부피 어림 오차(조각 넓이 × 틈 —
+ * 꼭짓점 둘레 허용 오차 안의 모양은 모른다), 메울 것이 없으면 −1
+ */
+function addCorner(out: Float64Array, s: Surface, pt: UV, f: Foot, start: boolean, sign: number, c: V3, tinyDev: number, line: (u0: number, v0: number, u1: number, v1: number) => void): number {
+  const P = pt.p;
+  const X = f.X;
+  const F = f.S;
+  const gap = Math.hypot(X[0] - P[0], X[1] - P[1], X[2] - P[2]);
+  const SV = s.point(pt.u, pt.v);
+  const fs = Math.hypot(F[0] - SV[0], F[1] - SV[1], F[2] - SV[2]);
+  if (!(gap > tinyDev) && !(fs > tinyDev)) return -1;
+  if (start) line(pt.u, pt.v, f.u, f.v);
+  else line(f.u, f.v, pt.u, pt.v);
+  const tri = (a: V3, b: V3, d: V3): number => {
+    addTriangleFlux(out, a[0] - c[0], a[1] - c[1], a[2] - c[2], b[0] - c[0], b[1] - c[1], b[2] - c[2], d[0] - c[0], d[1] - c[1], d[2] - c[2], sign);
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const wx = d[0] - a[0], wy = d[1] - a[1], wz = d[2] - a[2];
+    return Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
+  };
+  const A = start ? tri(SV, P, X) + tri(SV, X, F) : tri(X, P, SV) + tri(X, SV, F);
+  return A * Math.max(gap, fs);
+}
+
+/**
  * 면 하나의 ∬_D F du dv(S_u×S_v 방향, 흐름 값 FLUX개)를 out에 더한다. polys는 tessellate.ts faceDomain의 다각형
  * (바깥 + 구멍, 점의 p는 경계 3D 점), seg(a, b)는 고리 토막 a → b의 경계 곡선(없으면 매개변수 공간 직선 — 이음선·극선·정의역 끝).
  * 고리 방향은 넓이 부호로 맞춘다(바깥 반시계, 구멍 시계). 돌려주는 값은 부피 어림 오차(곡선이 곡면에서 떨어진 만큼), 못 하면 NaN
@@ -558,6 +588,40 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
     const S = s.point(u, v);
     return Math.hypot(X[0] - S[0], X[1] - S[1], X[2] - S[2]);
   };
+  /** 매개변수 공간 직선 (au, av) → (bu, bv)의 ∮G dv: 토막 안의 v 매듭(주기면 주기만큼 옮긴 것도)에서 나눠 rule 가우스로 nsub 토막씩 */
+  const paramLine = (au: number, av: number, bu: number, bv: number, sign: number, rule: readonly (readonly [number, number])[], nsub: number): void => {
+    const du = bu - au;
+    const dv = bv - av;
+    if (dv === 0) return;
+    // 비율 0 < f < 1
+    const cuts = [0];
+    if (inner.vBreaks.length) {
+      const lo = Math.min(av, bv);
+      const hi = Math.max(av, bv);
+      for (const x0 of inner.vBreaks) {
+        const n0 = Pv > 0 ? Math.ceil((lo - x0) / Pv) : 0;
+        const n1 = Pv > 0 ? Math.floor((hi - x0) / Pv) : 0;
+        for (let n = n0; n <= n1; n++) {
+          const x = x0 + n * Pv;
+          if (x > lo && x < hi) cuts.push((x - av) / dv);
+        }
+      }
+      cuts.sort((x, y) => x - y);
+    }
+    cuts.push(1);
+    for (let p = 0; p + 1 < cuts.length; p++) {
+      const fa = cuts[p]!;
+      const span = cuts[p + 1]! - fa;
+      for (let k = 0; k < nsub; k++) {
+        const f0 = fa + (span * k) / nsub;
+        const h = span / nsub / 2;
+        for (const [x, gw] of rule) {
+          const f = f0 + h * (1 + x);
+          inner.add(out, sign * gw * h * dv, au + du * f, av + dv * f);
+        }
+      }
+    }
+  };
   const ring = (pts: readonly UV[], sign: number) => {
     const m = pts.length;
     for (let i = 0; i < m; i++) {
@@ -580,39 +644,15 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
         // 매개변수 공간 직선(평면 위 직선 모서리·원기둥과 원뿔의 모선 포함)
         if (dv === 0) continue;
         if (ruling) nsub = 1;
-        const rule = inner.plane || ruling ? G3 : G8;
-        // 토막 안의 v 매듭(주기면 주기만큼 옮긴 것도)에서 나눈다 — 비율 0 < f < 1
-        const cuts = [0];
-        if (inner.vBreaks.length) {
-          const lo = Math.min(a.v, b.v);
-          const hi = Math.max(a.v, b.v);
-          for (const x0 of inner.vBreaks) {
-            const n0 = Pv > 0 ? Math.ceil((lo - x0) / Pv) : 0;
-            const n1 = Pv > 0 ? Math.floor((hi - x0) / Pv) : 0;
-            for (let n = n0; n <= n1; n++) {
-              const x = x0 + n * Pv;
-              if (x > lo && x < hi) cuts.push((x - a.v) / dv);
-            }
-          }
-          cuts.sort((x, y) => x - y);
-        }
-        cuts.push(1);
-        for (let p = 0; p + 1 < cuts.length; p++) {
-          const fa = cuts[p]!;
-          const span = cuts[p + 1]! - fa;
-          for (let k = 0; k < nsub; k++) {
-            const f0 = fa + (span * k) / nsub;
-            const h = span / nsub / 2;
-            for (const [x, gw] of rule) {
-              const f = f0 + h * (1 + x);
-              inner.add(out, sign * gw * h * dv, a.u + du * f, a.v + dv * f);
-            }
-          }
-        }
+        paramLine(a.u, a.v, b.u, b.v, sign, inner.plane || ruling ? G3 : G8, nsub);
         continue;
       }
       // 곡선: t의 가우스, 점을 곡면에 되짚어 (u,v)와 dv/dt
       const T = sg.t1 - sg.t0;
+      // 모서리 끝(꼭짓점)을 곡선이 비껴 지나면 그 사이를 메운다(꼭짓점 둘레 조각은 짧아 3점 가우스로 넉넉하다)
+      const corner = (u0: number, v0: number, u1: number, v1: number) => paramLine(u0, v0, u1, v1, sign, G3, 1);
+      if (sg.v0) bound += Math.max(0, addCorner(out, s, a, at(sg, sg.t0, a.u, a.v, POS), true, sign, c, tinyDev, corner));
+      if (sg.v1) bound += Math.max(0, addCorner(out, s, b, at(sg, sg.t1, b.u, b.v, POS), false, sign, c, tinyDev, corner));
       if (Math.abs(dv) <= tinyV) {
         // v가 일정한 곡선(원기둥·원뿔 둘레 원, 구·원환의 위도 원)은 ∮G dv 몫이 없다 — 가운데 점에서 v·dv/dt·곡면과의 거리를 보고 건너뛴다
         const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v, RAW);
@@ -1219,6 +1259,43 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
     }
     return best;
   };
+  /** 매개변수 공간 직선 (au, av) → (bu, bv)의 ∮G dv: u·v 매듭에서 나눠 nLine점 가우스(유리면은 점을 더 쓰고 적은 규칙과의 차이를 어림 오차에) */
+  const paramLine = (au: number, av: number, bu: number, bv: number, sign: number): void => {
+    const du = bu - au;
+    const dv = bv - av;
+    if (dv === 0) return;
+    const xs: number[] = [];
+    const cuts = [0, 1];
+    crossings(au, bu, inner.uBreaks, Pu, xs);
+    for (const x of xs) cuts.push((x - au) / du);
+    xs.length = 0;
+    crossings(av, bv, inner.vBreaks, Pv, xs);
+    for (const x of xs) cuts.push((x - av) / dv);
+    cuts.sort((x, y) => x - y);
+    for (let p = 0; p + 1 < cuts.length; p++) {
+      const f0 = cuts[p]!;
+      const h = (cuts[p + 1]! - f0) / 2;
+      if (!(h > 0)) continue;
+      let sa = 0;
+      for (let g = 0; g < ruleL.length; g += 2) {
+        const f = f0 + h * (1 + ruleL[g]!);
+        const wt = sign * ruleL[g + 1]! * h * dv;
+        if (ruleE) {
+          // 유리: G를 한 번 구해 out에 옮기고 3V 성분을 모은다
+          tmp.fill(0);
+          const e = inner.add(tmp, 1, au + du * f, av + dv * f);
+          for (let k = 0; k < FLUX; k++) out[k]! += wt * tmp[k]!;
+          sa += ruleL[g + 1]! * tmp[0]!;
+          bound += (Math.abs(wt) * e) / 3;
+        } else inner.add(out, wt, au + du * f, av + dv * f);
+      }
+      if (ruleE) {
+        let sb = 0;
+        for (let g = 0; g < ruleE.length; g += 2) sb += ruleE[g + 1]! * g0(au + du * (f0 + h * (1 + ruleE[g]!)), av + dv * (f0 + h * (1 + ruleE[g]!)));
+        bound += (Math.abs(h * dv) * Math.abs(sa - sb)) / 3;
+      }
+    }
+  };
   const ring = (pts: readonly UV[], sign: number) => {
     const m = pts.length;
     for (let i = 0; i < m; i++) {
@@ -1229,43 +1306,31 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
       const dv = b.v - a.v;
       if (!sg) {
         // 매개변수 공간 직선(이음선·극선·정의역 끝): u·v 매듭에서 나눈다
-        if (dv === 0) continue;
-        const xs: number[] = [];
-        const cuts = [0, 1];
-        crossings(a.u, b.u, inner.uBreaks, Pu, xs);
-        for (const x of xs) cuts.push((x - a.u) / du);
-        xs.length = 0;
-        crossings(a.v, b.v, inner.vBreaks, Pv, xs);
-        for (const x of xs) cuts.push((x - a.v) / dv);
-        cuts.sort((x, y) => x - y);
-        for (let p = 0; p + 1 < cuts.length; p++) {
-          const f0 = cuts[p]!;
-          const h = (cuts[p + 1]! - f0) / 2;
-          if (!(h > 0)) continue;
-          let sa = 0;
-          for (let g = 0; g < ruleL.length; g += 2) {
-            const f = f0 + h * (1 + ruleL[g]!);
-            const wt = sign * ruleL[g + 1]! * h * dv;
-            if (ruleE) {
-              // 유리: G를 한 번 구해 out에 옮기고 3V 성분을 모은다
-              tmp.fill(0);
-              const e = inner.add(tmp, 1, a.u + du * f, a.v + dv * f);
-              for (let k = 0; k < FLUX; k++) out[k]! += wt * tmp[k]!;
-              sa += ruleL[g + 1]! * tmp[0]!;
-              bound += (Math.abs(wt) * e) / 3;
-            } else inner.add(out, wt, a.u + du * f, a.v + dv * f);
-          }
-          if (ruleE) {
-            let sb = 0;
-            for (let g = 0; g < ruleE.length; g += 2) sb += ruleE[g + 1]! * g0(a.u + du * (f0 + h * (1 + ruleE[g]!)), a.v + dv * (f0 + h * (1 + ruleE[g]!)));
-            bound += (Math.abs(h * dv) * Math.abs(sa - sb)) / 3;
-          }
-        }
+        paramLine(a.u, a.v, b.u, b.v, sign);
         continue;
       }
       // 모서리 곡선: 곡선 매듭과 곡면 매듭을 지나는 곳에서 나눠 t의 가우스(곡선 위 점을 곡면에 되짚어 (u,v)·dv/dt)
       const T = sg.t1 - sg.t0;
       if (!(Math.abs(T) > 0)) continue;
+      // 모서리 끝(꼭짓점)을 곡선이 비껴 지나면 그 사이를 메우고, 곡선 토막은 되짚은 끝점부터 잰다(매듭 찾기)
+      let A0: CurvePt = { t: sg.t0, u: a.u, v: a.v };
+      let B0: CurvePt = { t: sg.t1, u: b.u, v: b.v };
+      if (sg.v0) {
+        const f = at(sg, sg.t0, a.u, a.v, POS);
+        const e = addCorner(out, s, a, f, true, sign, c, tinyDev, (u0, v0, u1, v1) => paramLine(u0, v0, u1, v1, sign));
+        if (e >= 0) {
+          bound += e;
+          A0 = { t: sg.t0, u: f.u, v: f.v };
+        }
+      }
+      if (sg.v1) {
+        const f = at(sg, sg.t1, b.u, b.v, POS);
+        const e = addCorner(out, s, b, f, false, sign, c, tinyDev, (u0, v0, u1, v1) => paramLine(u0, v0, u1, v1, sign));
+        if (e >= 0) {
+          bound += e;
+          B0 = { t: sg.t1, u: f.u, v: f.v };
+        }
+      }
       if (Math.abs(dv) <= tinyV) {
         const mid = at(sg, sg.t0 + T / 2, a.u + du / 2, a.v, RAW);
         if (Math.abs(mid.v - a.v) <= tinyV && Math.abs(mid.dvdt * T) <= tinyV && mid.dev <= tinyDev) continue;
@@ -1273,13 +1338,13 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
       const knots: number[] = [];
       curveKnots(sg.c, sg.t0, sg.t1, knots);
       knots.sort((x, y) => (T > 0 ? x - y : y - x));
-      const cps: CurvePt[] = [{ t: sg.t0, u: a.u, v: a.v }];
+      const cps: CurvePt[] = [A0];
       for (const t of knots) {
         const frac = (t - sg.t0) / T;
         const q = at(sg, t, a.u + du * frac, a.v + dv * frac, POS);
         cps.push({ t, u: q.u, v: q.v });
       }
-      cps.push({ t: sg.t1, u: b.u, v: b.v });
+      cps.push(B0);
       const all: CurvePt[] = [cps[0]!];
       for (let k = 0; k + 1 < cps.length; k++) {
         const A = cps[k]!;
