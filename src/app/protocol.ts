@@ -6,6 +6,7 @@
  * 이전 목록에는 버퍼마다 한 번만 넣는다(같은 버퍼를 두 번 넣으면 postMessage가 실패한다).
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
+import type { FaceSurfacePayload } from '../facesurf';
 import { TRUNCATED_WARNING } from '../messages';
 
 export interface ParseRequest {
@@ -26,6 +27,15 @@ export interface ParseRequest {
 export interface PropsRequest {
   id: number;
   type: 'props';
+}
+
+/**
+ * 곡면 정의 요청: 해석(id)의 면 표에 식이 없는 곡면(B-스플라인 등 — 측정에서 축이 곡면을 뚫는 점을 그 곡면 위로 옮긴다)을 'surfaces' 응답으로 받는다.
+ * 그 해석의 것이 워커에 없으면(새 해석을 받았다) data는 null
+ */
+export interface SurfacesRequest {
+  id: number;
+  type: 'surfaces';
 }
 
 /** 구한 질량 속성 하나: 면 표 번호(meta.faceTables) → 값(massprops.ts PROPS_LEN칸, 장면 단위) */
@@ -54,7 +64,8 @@ export type ParseResponse =
   | { id: number; type: 'progress'; fraction: number; stage: string }
   | { id: number; type: 'done'; result: ParseResult }
   | { id: number; type: 'error'; message: string }
-  | ({ id: number; type: 'props' } & PropsProgress);
+  | ({ id: number; type: 'props' } & PropsProgress)
+  | { id: number; type: 'surfaces'; data: FaceSurfacePayload | null };
 
 export interface ParseResult {
   scene: Scene3d;
@@ -67,6 +78,8 @@ export interface ParseResult {
    * 없으면 장면에 이미 들었거나 구할 것이 없다
    */
   props?: { tables: number[]; solids: number };
+  /** 면 표에 식이 없는 곡면을 워커가 남겼으면 그 면 수(SurfacesRequest로 받는다) */
+  surfaces?: number;
 }
 
 /** 압축 STEP을 풀어 연 내력 */

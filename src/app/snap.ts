@@ -15,7 +15,7 @@
  *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
-import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineFaceInput, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt, edgeDetails, isFullCircle } from './edges';
 
@@ -37,6 +37,8 @@ export interface CurveSnap {
   refine(c: SnapRefineInput): readonly number[] | null;
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
   mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
+  /** 코어 0.19.0 refineFace: 축이 면을 뚫는 점 → 축 직선과 그 B-rep 곡면의 교점(facesnap.ts — 면 표가 있을 때만, 평면·모르면 null) */
+  refineFace?(c: SnapRefineFaceInput): readonly number[] | null;
 }
 
 /** 표 하나의 원·타원 중심(형상 좌표, origin 빼기 전 값 그대로 — 표 매개변수), 같은 자리는 하나로 */
@@ -121,7 +123,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
  * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로, 교차점을 두 곡선의 교차점으로 다듬고(코어 0.14.0·0.15.0 refine),
- * 곡선 가운데 점도 곡선 위 점으로 준다
+ * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점도 그 곡면 위로(0.19.0 refineFace)
  */
 export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
@@ -141,6 +143,7 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
       return last;
     },
     ...(curve ? { refine: (c: SnapRefineInput) => curve.refine(c) } : {}),
+    ...(curve?.refineFace ? { refineFace: (c: SnapRefineFaceInput) => curve.refineFace!(c) } : {}),
   };
 }
 
@@ -148,9 +151,36 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
  * 두 점 측정의 추론 붙잡기: 교차점·수직 발·축 방향과 모서리와 나란히, Shift 잠금, 끌어온 축(코어 0.16.0 track — 마우스·펜 커서가
  * 점 붙잡기 위에 0.5초 머물면 그 점을 기억하고 그 점을 지나는 X·Y·Z 축에 붙는다). 터치는 머무르지 않는다: 손가락 길게 누르기는
  * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다.
- * 코어 0.18.0: 첫 점 축이 모서리(윤곽선)와 만나는 점(axisEdges), 첫 점 축·끌어온 축이 면을 뚫는 점(axisFaces)
+ * 코어 0.18.0: 첫 점 축이 모서리(윤곽선)와 만나는 점(axisEdges), 첫 점 축·끌어온 축이 면을 뚫는 점(axisFaces).
+ * 0.19.0: 잠근 동안 잠근 선이 모서리와 만나는 점(lockEdges)·면을 뚫는 점(lockFaces)
  */
-export const MEASURE_INFERENCE = Object.freeze({ intersections: true, perpendicular: true, axes: true, parallel: true, lock: true, track: true, axisEdges: true, axisFaces: true });
+export const MEASURE_INFERENCE = Object.freeze({
+  intersections: true,
+  perpendicular: true,
+  axes: true,
+  parallel: true,
+  lock: true,
+  track: true,
+  axisEdges: true,
+  axisFaces: true,
+  lockEdges: true,
+  lockFaces: true,
+});
+
+/**
+ * 잠근 선 위 점이 모서리와 만나는 점('edge')·면을 뚫는 점('face')인지(코어 0.19.0 README의 가르는 법 — 잠근 점에 segment·face가 실린다).
+ * 끌어온 축 위 점(trackFrom)은 아니다. 그 밖은 null
+ */
+export function lockMeet(p: { locked?: boolean; trackFrom?: unknown; segment?: unknown; face?: unknown } | null | undefined): 'edge' | 'face' | null {
+  if (!p?.locked || p.trackFrom) return null;
+  return p.segment ? 'edge' : p.face ? 'face' : null;
+}
+
+/** 잠근 선이 모서리·면과 만나는 점의 이름: "잠근 X축 · 모서리 위", 축이 아니면 "잠근 방향 · 면 위", 곡선 접선 잠금이면 "잠근 접선 · 모서리 위" */
+function lockMeetLabel(axis: SnapAxis | null | undefined, meet: 'edge' | 'face', tangent: boolean): string {
+  const what = axis ? `${axis.toUpperCase()}축` : tangent ? '접선' : '방향';
+  return `잠근 ${what} · ${meet === 'edge' ? '모서리 위' : '면 위'}`;
+}
 
 /** 축 붙잡기의 축 이름(번역층이 옮긴다) */
 const AXIS_LABEL: Record<SnapAxis, string> = { x: 'X축 방향', y: 'Y축 방향', z: 'Z축 방향' };
@@ -236,7 +266,8 @@ export const TANGENT_LABEL = '접선 방향';
 /**
  * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 붙잡지 않고 다듬지도 않은 점이면 null).
  * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향".
- * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점"
+ * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점".
+ * 잠근 선이 모서리와 만나는 점·면을 뚫는 점으로 찍었으면(lockMeetB — 찍은 점의 lockMeet, 코어 0.19.0) "잠근 X축 · 모서리 위"
  */
 export function snapPair(m: {
   snapA?: SnapKind | null;
@@ -249,16 +280,20 @@ export function snapPair(m: {
   refinedB?: boolean;
   trackA?: TrackMark | boolean;
   trackB?: TrackMark | boolean;
+  lockMeetB?: 'edge' | 'face';
 }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB && !m.refinedA && !m.refinedB) return null;
+  const a = snapLabel(m.snapA, m.axisA, !!m.refinedA, m.trackA ?? false);
+  if (m.lockedB && m.lockMeetB) return [a, lockMeetLabel(m.snapB === 'axis' ? m.axisB : null, m.lockMeetB, !!m.tangentB)];
   const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, !!m.refinedB, m.trackB ?? false);
-  return [snapLabel(m.snapA, m.axisA, !!m.refinedA, m.trackA ?? false), m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
+  return [a, m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
 /**
  * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
- * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점'). 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금"
+ * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점'). 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금".
+ * 잠근 선이 모서리와 만나는 점·면을 뚫는 점(코어 0.19.0 lockEdges·lockFaces — lockMeet)이면 "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위"
  */
 export function hoverSnapLabel(
   h:
@@ -278,6 +313,8 @@ export function hoverSnapLabel(
   tangent = false,
 ): string | null {
   if (!h) return null;
+  const meet = lockMeet(h);
+  if (meet) return lockMeetLabel(h.snap === 'axis' ? h.axis : null, meet, tangent);
   // 축 위 점(trackMark): 끌어온 축·모서리 위·면 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로)
   const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined, h.snap === 'axis' ? trackMark(h) : false);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;

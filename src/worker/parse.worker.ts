@@ -4,11 +4,13 @@
  *
  * 닫힌 입체의 질량 속성(곡면 적분)은 해석 결과에 넣지 않고 적분 거리만 남긴다. 화면이 문서를 보인 뒤 'props'를 보내면
  * 면 단위로 나눠(PROPS_SLICE_MS마다 쉬며) 적분해 끝낸 입체의 값을 'props'로 보낸다. 새 해석 요청이 오면 앞 문서의 적분은 그만둔다.
+ * 면 표에 식이 없는 곡면(B-스플라인 등)은 다음 해석까지 들고 있다가 화면이 측정을 켜며 'surfaces'를 보내면 복사해 보낸다(facesurf.ts).
  */
 /// <reference lib="webworker" />
 import { parseStepFile } from '../app/job';
-import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest } from '../app/protocol';
-import type { MassPropsJob } from '../scene';
+import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest, type SurfacesRequest } from '../app/protocol';
+import { type FaceSurfacePayload, packFaceSurfaces } from '../facesurf';
+import type { FaceSurfaceSet, MassPropsJob } from '../scene';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -17,6 +19,9 @@ const PROPS_SLICE_MS = 40;
 
 /** 마지막으로 해석한 문서의 질량 속성 적분 거리(새 해석 요청이 오면 버린다) */
 let props: { id: number; job: MassPropsJob; running: boolean } | null = null;
+
+/** 마지막으로 해석한 문서의 면 표에 식이 없는 곡면(측정 refineFace — 화면이 'surfaces'로 받는다, 새 해석 요청이 오면 버린다) */
+let surfaces: { id: number; set: FaceSurfaceSet } | null = null;
 
 function post(msg: ParseResponse, transfer: Transferable[] = []): void {
   ctx.postMessage(msg, transfer);
@@ -34,9 +39,18 @@ function parse(req: ParseRequest): Promise<ParseResult> {
     lastStage = stage;
     post({ id, type: 'progress', fraction: Math.max(0, Math.min(1, fraction)), stage });
   };
-  return parseStepFile(req.name, req.bytes, progress, req.options, (job) => {
-    props = { id, job, running: false };
-  });
+  return parseStepFile(
+    req.name,
+    req.bytes,
+    progress,
+    req.options,
+    (job) => {
+      props = { id, job, running: false };
+    },
+    (set) => {
+      surfaces = { id, set };
+    },
+  );
 }
 
 const pause = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -65,16 +79,28 @@ async function integrate(entry: NonNullable<typeof props>): Promise<void> {
   }
 }
 
-ctx.onmessage = async (ev: MessageEvent<ParseRequest | PropsRequest>) => {
+ctx.onmessage = async (ev: MessageEvent<ParseRequest | PropsRequest | SurfacesRequest>) => {
   const req = ev.data;
   if (!req) return;
   if (req.type === 'props') {
     if (props && props.id === req.id) void integrate(props);
     return;
   }
+  if (req.type === 'surfaces') {
+    // 곡면 정의는 옮기지 않고 복사로 보낸다(같은 곡면으로 질량 속성을 적분하는 중일 수 있다 — facesurf.ts)
+    let data: FaceSurfacePayload | null = null;
+    try {
+      data = surfaces && surfaces.id === req.id ? packFaceSurfaces(surfaces.set) : null;
+      post({ id: req.id, type: 'surfaces', data });
+    } catch {
+      post({ id: req.id, type: 'surfaces', data: null });
+    }
+    return;
+  }
   if (req.type !== 'parse') return;
   // 앞 문서의 질량 속성 적분은 그만둔다(새 문서를 여는 동안 CPU·메모리를 쓰지 않게)
   props = null;
+  surfaces = null;
   let result: ParseResult;
   try {
     result = await parse(req);

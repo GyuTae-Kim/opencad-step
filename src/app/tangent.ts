@@ -31,6 +31,8 @@
  * 곡선 위 점은 꺾은선(현)에서 화살 높이만큼 비켜 있으므로, 꺾은선까지가 허용치 밖이어도 화살 높이 안(토막 길이의 반)이면 곡선 정의로
  * 그 곡선까지의 거리를 재서 허용치 안이면 그 모서리 위로 본다(곡선 정의가 없는 모서리는 꺾은선 거리만).
  * 다듬기는 이 조각의 curveSnap(curvesnap.ts)이 코어에 준다 — 이 조각과 함께 문서를 열 때 받는다.
+ * 축이 곡면을 뚫는 점(코어 0.19.0 refineFace — facesnap.ts)도 이 조각이다. 면 표에 식이 없는 곡면의 정의는 해석 워커에서 받아
+ * 따로 받는 곡면 조각(facesurf.ts — 곡면 계산 surfaces.ts·nurbs.ts·curves.ts와 함께, 그런 면이 있는 문서에서 두 점 측정을 켤 때)이 되살린다.
  */
 import type { MeasureInferenceLock, MeasureResult, SnapSegment, Viewer3d } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
@@ -41,6 +43,9 @@ import { edgeAt } from './edges';
 import type { SnapEdgeIndex } from './snap';
 
 export { curveSnap } from './curvesnap';
+
+/** 곡면 조각(facesurf.ts — 면 표에 식이 없는 곡면 정의 되살리기와 곡면 계산)을 받는다(import()를 첫 화면 밖 이 조각에 둔다) */
+export const loadFaceSurfaces = (): Promise<typeof import('../facesurf')> => import('../facesurf');
 
 type V3 = [number, number, number];
 

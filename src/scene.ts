@@ -22,6 +22,7 @@ import { scaleProps } from './massprops';
 import { DEFAULT_PROPS_BUDGET, MassPropsJob, type PropsBudget, type PropsResult, type PropsTarget } from './propsjob';
 import { findAnnotations, productDefinitionOf, semanticPmi, type StepPmiSemantic } from './pmi';
 import { styleTextHeight, textLiterals, textSegments } from './pmitext';
+import type { Surface } from './surfaces';
 import type { GlyphSource } from './strokefont';
 import { readProductProps, type StepProductProps } from './props';
 import { readSavedViews } from './savedviews';
@@ -214,6 +215,23 @@ export function stepToScene(bytes: Uint8Array, opts: StepOptions = {}): Scene3d 
 export interface DeferredScene {
   scene: Scene3d;
   props: MassPropsJob | null;
+  /** 면 표에 식이 없는 곡면(회전·밀기·B-스플라인·띄운 곡면)이 있으면 면 표마다 그 곡면들(앱 워커가 측정에 보낸다 — src/facesurf.ts) */
+  surfaces?: FaceSurfaceSet | null;
+}
+
+/**
+ * 면 표 하나의 곡면 정의: 면마다 곡면(형상 항목 좌표, 식이 있는 면·평면은 null)과 그물 좌표로 옮기는 장면 단위 배율 k·항목 묶음 원점 origin
+ * (그물 좌표 = (항목 좌표 − origin)·k)
+ */
+export interface FaceSurfaceTable {
+  surfs: readonly (Surface | null)[];
+  k: number;
+  origin: readonly [number, number, number];
+}
+
+/** 장면의 면 표(meta.faceTables) 차례로 곡면 정의(없는 표는 null) */
+export interface FaceSurfaceSet {
+  tables: (FaceSurfaceTable | null)[];
 }
 
 /**
@@ -543,7 +561,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     if ((facesDone & 63) === 0 && totalFaceEstimate > 0) progress(0.1 + 0.85 * Math.min(1, facesDone / totalFaceEstimate), '삼각화');
   };
   const scaledMeshes = new Map<string, ItemMesh>();
-  /** 면 표 → 그 질량 속성을 구할 항목 그물과 장면 단위 배율 */
+  /** 면 표 → 그 질량 속성을 구할(곡면 정의를 보낼) 항목 그물과 장면 단위 배율 */
   const tableSource = new Map<FaceTableData, { m: ItemMesh; k: number }>();
   const getMesh = (item: number, units: ContextUnits): ItemMesh | null => {
     let m = meshCache.get(item);
@@ -563,7 +581,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     if (!m) return null;
     const k = units.lengthMm / sceneMm;
     if (k === 1) {
-      if (m.propsJob && m.faceTable) tableSource.set(m.faceTable, { m, k: 1 });
+      if ((m.propsJob || m.faceSurfaces) && m.faceTable) tableSource.set(m.faceTable, { m, k: 1 });
       return m;
     }
     const key = `${item}@${k}`;
@@ -573,7 +591,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
       const edges = m.edges.map((x) => x * k);
       sm = { ...m, positions: pos, edges, bbox: m.bbox ? [scaleV(m.bbox[0], k), scaleV(m.bbox[1], k)] : null };
       if (m.faceTable) sm.faceTable = scaleFaceTable(m.faceTable, k);
-      if (m.propsJob && sm.faceTable) tableSource.set(sm.faceTable, { m, k });
+      if ((m.propsJob || m.faceSurfaces) && sm.faceTable) tableSource.set(sm.faceTable, { m, k });
       if (m.edgeTable) sm.edgeTable = scaleEdgeTable(m.edgeTable, k);
       if (m.origin) sm.origin = scaleV(m.origin, k);
       scaledMeshes.set(key, sm);
@@ -1119,7 +1137,17 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     });
     if (targets.size) props = new MassPropsJob([...targets.values()], tMesh - tMesher, opts.propsBudget ?? DEFAULT_PROPS_BUDGET);
   }
-  return { scene, props };
+  // 면 표에 식이 없는 곡면(측정 refineFace — 앱 워커가 남겨 두었다가 화면이 달라면 보낸다)
+  let surfaces: FaceSurfaceSet | null = null;
+  if (wantFaces) {
+    const tables = faceTables.map((t): FaceSurfaceTable | null => {
+      const src = tableSource.get(t);
+      const s = src?.m.faceSurfaces;
+      return src && s ? { surfs: s, k: src.k, origin: src.m.origin ?? [0, 0, 0] } : null;
+    });
+    if (tables.some((t) => t)) surfaces = { tables };
+  }
+  return { scene, props, surfaces };
 }
 
 function baseName(path: string): string {

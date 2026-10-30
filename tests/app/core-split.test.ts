@@ -85,6 +85,10 @@ describe('코어 나눠 받기', () => {
     // 측정 곡선 접선 잠금(tangent.ts)도 첫 화면 밖: core.ts의 import()로만(뷰어를 만들 때 받는다)
     expect(files.has(join(ROOT, 'src/app/tangent.ts'))).toBe(false);
     expect(dynamic.filter((d) => d.spec === './tangent').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
+    // 축이 곡면을 뚫는 점(facesnap.ts — 접선 조각)과 곡면 정의 되살리기·곡면 계산(facesurf.ts·surfaces.ts — 접선 조각이 import()로 받는 곡면 조각)도 첫 화면 밖
+    for (const m of ['src/app/facesnap.ts', 'src/facesurf.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
+    expect(dynamic.some((d) => d.spec.endsWith('facesurf'))).toBe(false);
+    expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/=> import\('\.\.\/facesurf'\)/);
   });
 
   it('앱의 숫자 키 표는 코어 VIEW_KEYS 그 객체(작은 camera 모듈 — 코어 0.10.0)', () => {
