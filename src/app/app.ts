@@ -23,7 +23,7 @@ import { loadCurveTangents, loadViewerCore } from './core';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
-import { TouchAim } from './aim';
+import type { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
@@ -162,7 +162,7 @@ export class StepApp {
   private readonly narrow: MediaQueryList | null;
   private readonly phone: MediaQueryList | null;
   private readonly coarse: MediaQueryList | null;
-  /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다) */
+  /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다 — 코어와 함께 받는 viewerkit.ts 조각) */
   private aim: TouchAim | null = null;
   /** 표시 설정(길이 단위·소수 자리) — 이 브라우저에 기억한다 */
   private display: DisplaySettings = { ...DEFAULT_DISPLAY };
@@ -920,7 +920,7 @@ export class StepApp {
     v.onCameraChange(() => this.sectionBar.place());
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
-    this.aim = new TouchAim(v.canvas, {
+    this.aim = new core.TouchAim(v.canvas, {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
