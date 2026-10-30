@@ -157,7 +157,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapLabel('axis', 'z', false, true)).toBe('끌어온 점에서 Z축');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3] })).toBe('끌어온 점에서 Z축');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], direction: [1, 0, 0] })).toBe('X축 방향');
-    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], locked: true, direction: [0, 1, 0] })).toBe('Y축 방향 · 잠금');
+    // 잠근 점의 trackFrom은 코어 0.21.0부터 잠근 축 위 끌어온 점과 나란한 자리(lockTracks — 그 전에는 잠근 동안 끌어온 축을 쓰지 않았다)
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], locked: true, direction: [0, 1, 0] })).toBe('잠근 Y축 · 끌어온 점과 나란히');
     // 결과(코어 결과에는 끌어온 점이 없어 앱이 찍은 점 measurePoints의 trackFrom으로 trackA·trackB를 담는다)
     expect(snapPair({ snapA: 'axis', axisA: 'y', snapB: 'axis', axisB: 'z', trackA: true, trackB: true })).toEqual(['끌어온 점에서 Y축', '끌어온 점에서 Z축']);
     expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'x' })).toEqual(['꼭짓점', 'X축 방향']);
@@ -175,7 +176,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(trackMark({ direction: [1, 0, 0] })).toBe(false);
     expect(hoverSnapLabel({ snap: 'axis', axis: 'y', trackFrom: [1, 2, 3], trackOther: { axis: 'x' } })).toBe('끌어온 Y축과 X축의 교차');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'x', trackFrom: [1, 2, 3], segment: { kind: 'line' } })).toBe('끌어온 점에서 X축 · 모서리 위');
-    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3], segment: {}, direction: [0, 0, 1], locked: true })).toBe('끌어온 점에서 Z축 · 모서리 위 · 잠금');
+    // 잠근 점의 trackFrom은 0.21.0부터 잠근 축 위 끌어온 점과 나란한 자리(lockTracks — 코어는 그 점에 segment를 함께 싣지 않는다)
+    expect(hoverSnapLabel({ snap: 'axis', axis: 'z', trackFrom: [1, 2, 3], segment: {}, direction: [0, 0, 1], locked: true })).toBe('잠근 Z축 · 끌어온 점과 나란히');
     // 끝점 같은 다른 종류에 실린 선분 식별자(0.16.0)는 끌어온 축 이름이 아니다
     expect(hoverSnapLabel({ snap: 'endpoint', trackFrom: [1, 2, 3], segment: {} })).toBe('끝점');
     expect(snapPair({ snapA: 'axis', axisA: 'y', trackA: 'x', snapB: 'axis', axisB: 'x', trackB: 'edge' })).toEqual(['끌어온 Y축과 X축의 교차', '끌어온 점에서 X축 · 모서리 위']);
@@ -227,7 +229,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(lockMeet({ locked: true, face: {} })).toBe('face');
     expect(lockMeet({ locked: true })).toBe(null);
     expect(lockMeet({ segment: {} })).toBe(null);
-    expect(lockMeet({ locked: true, trackFrom: [0, 0, 0], segment: {} })).toBe(null);
+    // 0.21.0부터 잠근 점의 trackFrom은 잠근 축 위 끌어온 점과 나란한 자리(lockTracks — segment와 함께 오지 않는다)
+    expect(lockMeet({ locked: true, trackFrom: [0, 0, 0] })).toBe('track');
     expect(lockMeet(null)).toBe(null);
     expect(hoverSnapLabel({ snap: 'axis', axis: 'x', direction: [1, 0, 0], locked: true, segment: { kind: 'edge' }, refined: true })).toBe('잠근 X축 · 모서리 위');
     expect(hoverSnapLabel({ snap: 'axis', axis: 'z', direction: [0, 0, 1], locked: true, face: { id: 'm', index: 3, normal: [0, 0, 1] } })).toBe('잠근 Z축 · 면 위');
@@ -258,7 +261,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
   it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
     expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
     expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
-    expect(hoverSnapLabel({ snap: null, refined: true })).toBe('곡선 위 점');
+    // 코어는 선분 위 점을 다듬은 점에 그 선분 식별자(segment — 0.16.0)를 싣는다
+    expect(hoverSnapLabel({ snap: null, refined: true, segment: { kind: 'edge' } })).toBe('곡선 위 점');
     expect(hoverSnapLabel({ snap: 'perpendicular', refined: true })).toBe('수직 발');
     // 결과(코어 결과에는 refined가 없어 앱이 찍은 점 measurePoints에서 옮겨 담는다)
     expect(snapPair({ snapA: null, snapB: null, refinedA: true })).toEqual(['곡선 위 점', '면 위 점']);
@@ -273,7 +277,8 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     const centers = circleCenters(s.meshes, ex);
     const o = measureSnapOptions(s.meshes, ex, centers);
     expect(o.edges).toBe(true);
-    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축, 0.18.0 첫 점 축과 모서리·축과 면, 0.19.0 잠근 선과 모서리·면
+    // 0.9.0 셋에 0.10.0 모서리와 나란히·Shift 잠금, 0.16.0 끌어온 축, 0.18.0 첫 점 축과 모서리·축과 면, 0.19.0 잠근 선과 모서리·면,
+    // 0.21.0 잠근 선과 끌어온 축
     expect(o.inference).toEqual({
       intersections: true,
       perpendicular: true,
@@ -285,7 +290,11 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
       axisFaces: true,
       lockEdges: true,
       lockFaces: true,
+      lockTracks: true,
     });
+    // 반투명 보기가 아니면 반투명 그물 너머를 고르지 않는다(코어 0.23.0 throughTranslucent — 주지 않는다)
+    expect(o).not.toHaveProperty('throughTranslucent');
+    expect(measureSnapOptions(s.meshes, ex, centers, null, true).throughTranslucent).toBe(true);
     expect(o.inference).toBe(MEASURE_INFERENCE);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);

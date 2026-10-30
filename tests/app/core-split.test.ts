@@ -1,6 +1,7 @@
 /**
  * 3D 뷰어 코어를 문서를 열 때 나눠 받기(app/core.ts): 앱 입구(src/app/main.ts)에서 정적 가져오기로 닿는 모듈은
- * 코어 입구(opencad-viewer3d)와 무거운 모듈(viewer·renderer 등)을 값으로 가져오지 않는다. 값은 작은 코어 모듈만, 입구는 core.ts의 import()로만.
+ * 코어 입구(opencad-viewer3d)와 무거운 모듈(viewer·renderer 등)을 값으로 가져오지 않는다. 값은 작은 코어 모듈만, 입구는 core.ts가 import()로 받는
+ * viewerkit.ts 조각(코어 입구와 뷰어를 만든 뒤에만 쓰는 정밀 조준 aim.ts를 묶는다)으로만.
  * 이 규칙이 깨지면 번들러가 코어 전체를 첫 화면 JS에 다시 넣는다.
  *
  * 앱 입구에서 닿는 그래프만 훑는다 — 해석기 입구(src/index.ts)와 워커는 다른 묶음이라 코어 모듈을 값으로 가져와도 된다.
@@ -66,15 +67,22 @@ describe('코어 나눠 받기', () => {
     expect(r.dynamic).toEqual(['./w']);
   });
 
-  it('앱 입구에서 닿는 코어 모듈은 작은 것만, 코어 입구는 core.ts의 import() 하나로만', () => {
+  it('앱 입구에서 닿는 코어 모듈은 작은 것만, 코어 입구는 core.ts의 import() 하나(viewerkit.ts 조각)로만', () => {
     const { files, dynamic } = staticGraph(ENTRY);
     const core = [...files].filter((f) => f.startsWith(CORE_SRC)).map((f) => relative(CORE_SRC, f).replace(/\.ts$/, ''));
     expect(core.filter((m) => !SMALL.has(m))).toEqual([]);
     // 시험이 헛돌지 않게: 앱 화면 모듈과 작은 코어 모듈에 실제로 닿았다
     expect(files.has(join(ROOT, 'src/app/app.ts'))).toBe(true);
     expect(core).toContain('camera');
+    // 코어 입구는 viewerkit.ts가 값으로 다시 내보내고, 그 조각은 core.ts의 import()로만 받는다(앱 입구에서 정적으로 닿지 않는다)
     const coreDyn = dynamic.filter((d) => d.spec === 'opencad-viewer3d' || d.spec.startsWith('opencad-viewer3d/'));
-    expect(coreDyn.map((d) => `${relative(ROOT, d.file)}: ${d.spec}`)).toEqual(['src/app/core.ts: opencad-viewer3d']);
+    expect(coreDyn).toEqual([]);
+    expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
+    const kit = join(ROOT, 'src/app/viewerkit.ts');
+    expect(files.has(kit)).toBe(false);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', 'opencad-viewer3d']);
+    // 정밀 조준(aim.ts — 뷰어를 만들 때 단다)도 그 조각에만(첫 화면 JS 밖)
+    expect(files.has(join(ROOT, 'src/app/aim.ts'))).toBe(false);
     // 보기 링크의 고른 것 낱말(selink.ts)과 STL·OBJ·CSV 내보내기(export.ts), 분해 방식 단추·계획(explodebar.ts — explode.ts를 품음)도
     // 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/explode.ts'))).toBe(false);
@@ -112,5 +120,7 @@ describe('코어 나눠 받기', () => {
     // 앱이 바로 가져온 작은 모듈과 코어가 같은 객체를 쓴다(뷰 이름 번역이 코어 그림에도 닿게)
     const { VIEW_LABELS } = await import('opencad-viewer3d/camera');
     expect(m.VIEW_LABELS).toBe(VIEW_LABELS);
+    // 같은 조각의 정밀 조준(뷰어를 만들 때 캔버스에 단다)
+    expect(m.TouchAim).toBe((await import('../../src/app/aim')).TouchAim);
   });
 });

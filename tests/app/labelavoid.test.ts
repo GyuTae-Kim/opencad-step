@@ -2,14 +2,15 @@
 /**
  * 측정 거리 글상자가 3D 보기 위 앱 요소를 비켜 그리기(app/labelavoid.ts — 코어 0.13.0 setMeasureLabelAvoid의 rects).
  * - 요소 상자 → 캔버스 기준 사각형(숨긴 요소는 뺀다), 정밀 조준 자리와 합치기
- * - 3D 보기의 측정 띠·위 띠·단면 막대·코어 뷰 큐브만 고르고(알림·다른 곳의 띠는 빼고), 크기가 바뀌면 다시 알린다
+ * - 3D 보기의 측정 띠·위 띠·단면 막대만 고르고(알림·다른 곳의 띠는 빼고), 뷰 큐브는 코어 viewCubeRect(0.23.0 — 내부 클래스를 찾지 않는다).
+ *   크기가 바뀌면 다시 알린다
  * - 코어 자리 고르기(placeMeasureLabel)에 넘기면: 휴대폰(375×700 캔버스)에서 띠·큐브 밑으로 들어가던 글상자가 비키고,
  *   겹치지 않던 자리는 그대로다(헤드리스에서 잰 띠·큐브·글상자 크기)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MeasureLabelAvoid, MeasureLabelRect } from 'opencad-viewer3d';
 import { placeMeasureLabel, rectsOverlap } from 'opencad-viewer3d/measurelabel';
-import { LABEL_AVOID_SELECTOR, LabelAvoid, mergeLabelAvoid, overlayRects } from '../../src/app/labelavoid';
+import { canvasBox, LABEL_AVOID_SELECTOR, LabelAvoid, mergeLabelAvoid, overlayRects } from '../../src/app/labelavoid';
 import { aimLabelAvoid } from '../../src/app/aim';
 
 const box = (left: number, top: number, width: number, height: number): DOMRect => ({ left, top, width, height, x: left, y: top, right: left + width, bottom: top + height, toJSON: () => ({}) }) as DOMRect;
@@ -100,24 +101,47 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
     ]);
     for (const e of rects.keys()) e.getBoundingClientRect = () => rects.get(e)!;
     const calls: (MeasureLabelAvoid | null)[] = [];
-    const viewer = { canvas, setMeasureLabelAvoid: (a: MeasureLabelAvoid | readonly MeasureLabelRect[] | null) => void calls.push(a as MeasureLabelAvoid | null) };
+    // 코어 viewCubeRect(위·오른쪽에서 8화소, 한 변 viewCubeSize, 감추면 null — 캔버스 왼쪽 위 기준)
+    const viewer = {
+      canvas,
+      cubeRect: { x: 291, y: 8, width: 76, height: 76 } as MeasureLabelRect | null,
+      get viewCubeRect(): MeasureLabelRect | null {
+        return this.cubeRect ? { ...this.cubeRect } : null;
+      },
+      setMeasureLabelAvoid: (a: MeasureLabelAvoid | readonly MeasureLabelRect[] | null) => void calls.push(a as MeasureLabelAvoid | null),
+    };
     return { view, canvas, cube, section, bar, toasts, rects, calls, viewer };
   }
 
-  it('측정 띠·위 띠·단면 막대·뷰 큐브만 지켜보고(알림 빼고), 만들 때 바로 알린다', () => {
+  it('측정 띠·위 띠·단면 막대만 지켜보고(알림 빼고), 뷰 큐브는 코어 viewCubeRect로(내부 클래스 v3d-cube를 찾지 않는다), 만들 때 바로 알린다', () => {
     const d = viewDom();
-    expect([...d.view.querySelectorAll(LABEL_AVOID_SELECTOR)].map((e) => e.className)).toEqual(['v3d-cube', 'section-bar', 'top-bars', 'measure-bar']);
+    expect([...d.view.querySelectorAll(LABEL_AVOID_SELECTOR)].map((e) => e.className)).toEqual(['section-bar', 'top-bars', 'measure-bar']);
     new LabelAvoid(d.viewer, d.view);
     expect(observers).toHaveLength(1);
     expect(observers[0]!.els).toContain(d.canvas);
     expect(observers[0]!.els).toContain(d.bar);
     expect(observers[0]!.els).not.toContain(d.toasts);
+    expect(observers[0]!.els).not.toContain(d.cube);
+    // 0.20.0까지 큐브 요소 상자로 재던 것과 같은 사각형
     expect(d.calls.at(-1)).toEqual({
       rects: [
         { x: 291, y: 8, width: 76, height: 76 },
         { x: 9, y: 578, width: 357, height: 112 },
       ],
     });
+    // 내부 요소 상자가 달라도(앱이 CSS로 옮기지 않았다) 코어가 둔 자리를 쓴다
+    d.rects.set(d.cube, box(0, 0, 0, 0));
+    new LabelAvoid(d.viewer, d.view);
+    expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 291, y: 8, width: 76, height: 76 });
+  });
+
+  it('캔버스 기준 사각형 → 화면 상자(바깥쪽 정수 맞춤·캔버스 밖 자르기는 다른 요소와 같다)', () => {
+    const c = box(10, 86, 375.5, 700);
+    expect(canvasBox(c, null)).toBeNull();
+    // 캔버스 너비 375.5 → 코어 자리 x = 375.5 − 8 − 76 = 291.5: 바깥쪽으로 291~368
+    const b = canvasBox(c, { x: 291.5, y: 8, width: 76, height: 76 })!;
+    expect(b).toEqual({ left: 301.5, top: 94, width: 76, height: 76 });
+    expect(overlayRects(c, [b])).toEqual([{ x: 291, y: 8, width: 77, height: 76 }]);
   });
 
   it('크기가 바뀌면(띠를 숨김·단면 막대가 나타남) 다시 알리고, 정밀 조준 자리와 합친다', () => {
@@ -137,11 +161,15 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
     expect(d.calls.at(-1)).toEqual({ rects: [{ x: 291, y: 8, width: 76, height: 76 }, { x: 10, y: 10, width: 200, height: 36 }, ...aim.rects], pointerRadius: aim.pointerRadius });
     la.aim(null);
     expect(d.calls.at(-1)).not.toHaveProperty('pointerRadius');
-    // 뷰 큐브를 끄고 단면 막대도 닫으면 끈다(null — 코어 기본 자리)
-    d.rects.set(d.cube, box(0, 0, 0, 0));
+    // 뷰 큐브를 끄고(viewCubeRect = null — 앱이 update를 부른다) 단면 막대도 닫으면 끈다(null — 코어 기본 자리)
+    d.viewer.cubeRect = null;
     d.rects.set(d.section, box(0, 0, 0, 0));
     la.update();
     expect(d.calls.at(-1)).toBeNull();
+    // 큐브를 다시 켜고 크기를 바꾸면(휴대폰 ↔ 넓은 화면) 새 자리
+    d.viewer.cubeRect = { x: 263, y: 8, width: 104, height: 104 };
+    la.update();
+    expect(d.calls.at(-1)).toEqual({ rects: [{ x: 263, y: 8, width: 104, height: 104 }] });
   });
 
   it('ResizeObserver가 없는 브라우저에서도 만들 때 한 번 알린다', () => {

@@ -18,12 +18,12 @@
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
-import type { MeasureResult, Pick3d, Projection, RenderMode, SectionAxis, SectionState, SnapPoint, ViewName, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureResult, Pick3d, PickEvent, Projection, RenderMode, SectionAxis, SectionState, SnapPoint, ViewName, Viewer3d } from 'opencad-viewer3d';
 import { loadCurveTangents, loadViewerCore } from './core';
 import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../archive';
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
-import { TouchAim } from './aim';
+import type { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame } from './dom';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
@@ -45,7 +45,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeMode } from './explode';
@@ -58,7 +58,7 @@ import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, fa
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
-import { desiredLooks, lookKey, OPACITY_STEPS } from './looks';
+import { desiredLooks, lookKey, OPACITY_STEPS, translucentView } from './looks';
 import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
 
@@ -162,7 +162,7 @@ export class StepApp {
   private readonly narrow: MediaQueryList | null;
   private readonly phone: MediaQueryList | null;
   private readonly coarse: MediaQueryList | null;
-  /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다) */
+  /** 정밀 조준(터치 길게 누르기, 뷰어를 만들 때 붙인다 — 코어와 함께 받는 viewerkit.ts 조각) */
   private aim: TouchAim | null = null;
   /** 표시 설정(길이 단위·소수 자리) — 이 브라우저에 기억한다 */
   private display: DisplaySettings = { ...DEFAULT_DISPLAY };
@@ -265,6 +265,10 @@ export class StepApp {
   private readonly appliedLooks = new Map<string, string>();
   /** 분해 보기로 옮겨 그린 그물의 이동량(정면으로 보기가 보이는 자리의 면을 본다) */
   private lookMoves = new Map<string, [number, number, number]>();
+  /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다) */
+  private pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
+  /** 누르기·측정이 반투명 그물 너머를 고르는지(코어 0.23.0 throughTranslucent — looks.ts translucentView) */
+  private pickThrough = false;
   // ── 분해 막대 ──
   private readonly explodeBar: HTMLElement;
   private readonly explodeSlider: HTMLInputElement;
@@ -887,7 +891,8 @@ export class StepApp {
     }
     if (this.viewer) return;
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
-    v.onPick((p, e) => {
+    // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
+    this.pickCb = (p, e) => {
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
       if (this.entMeasuring) {
         this.onEntityPick(p, e.pointerType);
@@ -903,7 +908,9 @@ export class StepApp {
       this.onPick(p, this.faceMode || e.altKey);
       // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
       if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
-    });
+    };
+    this.pickThrough = translucentView(this.doc);
+    v.onPick(this.pickCb, { throughTranslucent: this.pickThrough });
     v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
     v.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
@@ -913,7 +920,7 @@ export class StepApp {
     v.onCameraChange(() => this.sectionBar.place());
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
-    this.aim = new TouchAim(v.canvas, {
+    this.aim = new core.TouchAim(v.canvas, {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
@@ -1198,7 +1205,8 @@ export class StepApp {
   pickAt(x: number, y: number, face = false): Pick3d | null {
     const v = this.viewer;
     if (!v) return null;
-    const p = v.pick(x, y);
+    // 반투명 보기면 반투명 그물 너머(누르기 알림과 같은 고르기)
+    const p = v.pick(x, y, { throughTranslucent: this.pickThrough });
     this.onPick(p, face || this.faceMode);
     return p;
   }
@@ -1206,7 +1214,8 @@ export class StepApp {
   private onMeasure(m: MeasureResult | null): void {
     const d = this.doc;
     if (!d) return;
-    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점"
+    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점",
+    // 붙잡지 않은 면 위 점을 곡면 위로 다듬어 찍었으면(코어 0.21.0 'onFace' — 선분 식별자가 없다) "곡면 위 점"
     // (코어 0.14.0 — 결과에는 싣지 않고 찍은 점 measurePoints에만 있다)
     const pts = m ? (this.viewer?.measurePoints ?? []) : [];
     // 끌어온 축(코어 0.16.0)·모서리 위·축끼리의 교차(0.17.0)·첫 점 축과 모서리·축과 면(0.18.0)으로 찍은 점: 결과에는 축만 실리므로
@@ -1214,14 +1223,16 @@ export class StepApp {
     // (둘째 점의 첫 점 축 방향은 결과의 directionB로도 본다 — 첫 점 축 위 나란한 자리는 그 축 방향 그대로)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : false;
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : false;
-    // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face로
+    // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0)·끌어온 점의 축과 만나는 점(0.21.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face·trackOther·trackFrom으로
     const meet = m?.lockedB ? lockMeet(pts[1]) : null;
+    const rA = refinedKind(pts[0]);
+    const rB = refinedKind(pts[1]);
     d.measure = m
       ? {
           ...m,
           ...(this.tangents?.result(m) ? { tangentB: true } : {}),
-          ...(pts[0]?.refined ? { refinedA: true } : {}),
-          ...(pts[1]?.refined ? { refinedB: true } : {}),
+          ...(rA ? { refinedA: rA } : {}),
+          ...(rB ? { refinedB: rB } : {}),
           ...(tA ? { trackA: tA } : {}),
           ...(tB ? { trackB: tB } : {}),
           ...(meet ? { lockMeetB: meet } : {}),
@@ -1658,6 +1669,20 @@ export class StepApp {
       v.setItemMatrix(id, l.matrix);
       this.appliedLooks.set(id, k);
     }
+    this.syncPickThrough();
+  }
+
+  /**
+   * 반투명 보기(looks.ts translucentView — 부품 불투명도를 낮췄거나 나머지 흐리게)가 바뀌었으면 누르기 알림과 측정 붙잡기 선택을 다시 단다
+   * (측정 중이면 붙잡기 선택을 다시 주므로 Shift 잠금·끌어온 점이 풀린다 — 작업 메뉴의 불투명도는 측정 밖에서만 바꾸고, 측정 중에는 격리 띠로 나머지 흐리게를 풀 때쯤이다)
+   */
+  private syncPickThrough(): void {
+    const v = this.viewer;
+    const on = translucentView(this.doc);
+    if (!v || on === this.pickThrough) return;
+    this.pickThrough = on;
+    if (this.pickCb) v.onPick(this.pickCb, { throughTranslucent: on });
+    this.syncMeasureSnap();
   }
 
   /** 고른 것의 불투명도(1 또는 null = 되돌리기) */
@@ -1776,7 +1801,7 @@ export class StepApp {
     const d = this.doc;
     if (!v || !d || this.loading || v.measureMode || this.entMeasuring) return false;
     const r = v.canvas.getBoundingClientRect();
-    const p = v.pick(clientX - r.left, clientY - r.top, 'touch');
+    const p = v.pick(clientX - r.left, clientY - r.top, { pointerType: 'touch', throughTranslucent: this.pickThrough });
     // 여러 개 고르기 중에는 누른 것을 고른 것에 더해 메뉴가 모은 것 전체에 쓰이게 한다(바꾸지 않는다)
     if (p && !selectionItemIds(d).includes(p.id)) {
       if (this.multiPick && !this.faceMode) this.toggleInSelection(unitItemIds(d.products, p.id, this.pickUnit));
@@ -1937,6 +1962,8 @@ export class StepApp {
     const v = this.viewer;
     if (!v) return;
     v.setViewCubeVisible(!v.viewCubeVisible);
+    // 글상자가 비킬 뷰 큐브 자리(viewCubeRect — 감추면 null)
+    this.labelAvoid?.update();
     this.toolbar.refresh();
   }
 
@@ -1963,7 +1990,7 @@ export class StepApp {
     }
     let centers = this.snapCenters.get(d);
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
-    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d)));
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d)));
   }
 
   /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */
@@ -1985,13 +2012,17 @@ export class StepApp {
   /**
    * 해석 워커에 남은 곡면 정의를 받아 곡면 조각(facesurf.ts — 곡면 계산과 함께 나눠 받는다)으로 되살린다
    * (두 점 측정을 켤 때·처음 쓸 때 한 번 — 지금 문서만, 못 받으면 null).
-   * 받은 뒤의 refineFace부터 곡면 위로 옮긴다(코어가 기억한 앞 결과는 그대로 — 붙잡기 선택을 다시 주면 잠금도 풀리므로)
+   * 받으면 코어가 기억한 다듬기 결과(받기 전 refineFace의 null)만 비운다(코어 0.21.0 clearMeasureRefine — 잠금·끌어온 점·찍은 점은 그대로,
+   * 지금 미리 보기부터 곡면 위로). 그사이 다른 문서로 바꿨으면 비우지 않는다(그 문서의 붙잡기 선택이 이미 새로 들어갔다)
    */
   private fetchFaceSurfaces(d: StepDoc): void {
     if (this.faceSurfs.has(d) || !this.surfDocs.has(d) || this.doc !== d) return;
     this.faceSurfs.set(d, 0);
     Promise.all([this.client.faceSurfaces(), loadCurveTangents().then((m) => m.loadFaceSurfaces())]).then(
-      ([p, m]) => this.faceSurfs.set(d, m.reviveFaceSurfaces(p)),
+      ([p, m]) => {
+        this.faceSurfs.set(d, m.reviveFaceSurfaces(p));
+        if (this.doc === d) this.viewer?.clearMeasureRefine();
+      },
       () => this.faceSurfs.set(d, null),
     );
   }
@@ -2670,6 +2701,8 @@ export class StepApp {
     this.phone?.addEventListener('change', () => {
       this.viewer?.setViewCubeSize(this.cubeSize());
       this.togglePanel(!this.phone?.matches);
+      // 뷰 큐브 크기가 바뀌었다(캔버스 크기가 바뀌면 LabelAvoid가 다시 잰다 — 그대로여도 큐브 자리는 새로)
+      this.labelAvoid?.update();
     });
   }
 

@@ -109,6 +109,15 @@ export function desiredLooks(inp: LookInput): Map<string, Look> {
   return out;
 }
 
+/**
+ * 반투명 보기인지: 사용자가 부품 불투명도를 낮췄거나(불투명도 메뉴 — 1 미만만 남는다) 나머지 흐리게 중이다. 그동안 앱의 누르기·측정은
+ * 반투명 그물의 면을 지나 그 뒤 불투명 면을 고른다(코어 0.23.0 throughTranslucent — 뒤에 불투명 면이 없으면 예전처럼 반투명 면, 흐린 부품은 원래 고르지 않는다).
+ * 그 밖에는 앞 면을 고른다(파일이 정한 투명 색만 있는 문서도 그대로)
+ */
+export function translucentView(inp: Pick<LookInput, 'opacity' | 'dim'> | null): boolean {
+  return !!inp && (inp.opacity.size > 0 || !!inp.dim);
+}
+
 /** 겉모습 비교 열쇠(같으면 코어에 다시 넘기지 않는다) */
 export function lookKey(l: Look): string {
   return `${l.alpha ?? ''}|${l.pickable ? 1 : 0}|${l.color ? l.color.map((x) => x.toFixed(4)).join(',') : ''}|${l.matrix ? l.matrix.slice(12, 15).map((x) => x.toPrecision(9)).join(',') : ''}`;
