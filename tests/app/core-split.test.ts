@@ -83,9 +83,10 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', 'opencad-viewer3d']);
-    // 정밀 조준(aim.ts — 뷰어를 만들 때 단다)도 그 조각에만(첫 화면 JS 밖)
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', './gpucontext', 'opencad-viewer3d']);
+    // 정밀 조준(aim.ts — 뷰어를 만들 때 단다)과 그래픽 문맥 잃음·되찾음 안내(gpucontext.ts — 코어 0.25.0)도 그 조각에만(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/aim.ts'))).toBe(false);
+    expect(files.has(join(ROOT, 'src/app/gpucontext.ts'))).toBe(false);
     // 개체 측정(entpick.ts·entmeasure.ts와 최소 거리용 코어 bvh·closest — 뷰어의 누르기로만 쓴다)도 그 조각에만.
     // 측정 띠·패널이 바로 쓰는 값 줄 글(lineValue)은 첫 화면의 measure.ts에 있다
     for (const m of ['src/app/entpick.ts', 'src/app/entmeasure.ts', 'node_modules/opencad-viewer3d/src/bvh.ts', 'node_modules/opencad-viewer3d/src/closest.ts'])
@@ -130,6 +131,8 @@ describe('코어 나눠 받기', () => {
     expect(m.VIEW_LABELS).toBe(VIEW_LABELS);
     // 같은 조각의 정밀 조준(뷰어를 만들 때 캔버스에 단다)
     expect(m.TouchAim).toBe((await import('../../src/app/aim')).TouchAim);
+    // 같은 조각의 그래픽 문맥 잃음·되찾음 안내(뷰어를 만들 때 단다)
+    expect(m.watchGraphicsContext).toBe((await import('../../src/app/gpucontext')).watchGraphicsContext);
     // 같은 조각의 개체 측정 계산(앱은 뷰어를 만들기 전에 이 모듈을 쥔다)
     const ent = await import('../../src/app/entpick');
     for (const k of ['measurePicked', 'pickedAnnotations', 'pickedClosest', 'pickedFace', 'pickedEdge', 'pickedPoint', 'pickedSection', 'armSize'] as const) expect(m[k], k).toBe(ent[k]);
