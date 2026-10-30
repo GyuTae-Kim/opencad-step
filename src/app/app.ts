@@ -29,7 +29,7 @@ import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, read
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
-import { armSize, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from './entpick';
+import type { Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { TRUNCATED_WARNING } from '../messages';
@@ -39,7 +39,7 @@ import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseSt
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { formatBytes, fmtCount, fmtPercent, imageFileName, imageSizeLabel, stageLabel } from './format';
 import { controlOf, isTextTarget, routeKey } from './keys';
-import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
+import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -243,6 +243,8 @@ export class StepApp {
   private lockFailClose: (() => void) | null = null;
   /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
   private tangents: TangentLock | null = null;
+  /** 개체 측정 계산(entpick.ts — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다) */
+  private ent: typeof import('./entpick') | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
@@ -890,6 +892,8 @@ export class StepApp {
       throw new Error('3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.');
     }
     if (this.viewer) return;
+    // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다)
+    this.ent = core;
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
@@ -2200,29 +2204,30 @@ export class StepApp {
     this.updateStatus();
   }
 
-  /** 누른 것 → 개체(면·모서리·꼭짓점·가운데 점·단면·점) */
-  private toPicked(d: StepDoc, v: Viewer3d, p: Pick3d, pointerType: string): Picked | null {
-    if (p.section && p.normal) return pickedSection(p.id, [...p.point], [...p.normal]);
+  /** 누른 것 → 개체(면·모서리·꼭짓점·가운데 점·단면·점) — E는 코어 조각의 개체 측정 계산 */
+  private toPicked(E: typeof import('./entpick'), d: StepDoc, v: Viewer3d, p: Pick3d, pointerType: string): Picked | null {
+    if (p.section && p.normal) return E.pickedSection(p.id, [...p.point], [...p.normal]);
     if (p.kind === 'edge') {
       const ep = this.findEdge(d, p);
-      if (!ep) return pickedPoint(p.id, [...p.point], '모서리 위 점');
+      if (!ep) return E.pickedPoint(p.id, [...p.point], '모서리 위 점');
       // 화면에서 끝점·가운데 점 가까이면 그 점(터치는 넓게)
       const snap = snapOnEdge(ep, p.point, (q) => v.project(q), pointerType === 'touch' ? 18 : 9);
-      return pickedEdge(ep, [...p.point], snap);
+      return E.pickedEdge(ep, [...p.point], snap);
     }
     if (p.kind === 'mesh') {
       const fp = this.findFace(d, p);
-      return fp ? pickedFace(fp, [...p.point]) : pickedPoint(p.id, [...p.point], '면 위 점');
+      return fp ? E.pickedFace(fp, [...p.point]) : E.pickedPoint(p.id, [...p.point], '면 위 점');
     }
-    return pickedPoint(p.id, [...p.point]);
+    return E.pickedPoint(p.id, [...p.point]);
   }
 
   /** 개체 측정의 누르기: 둘째 개체면 재고, 셋째면 새로 시작한다(빈 곳은 무시) */
   private onEntityPick(p: Pick3d | null, pointerType: string): void {
     const d = this.doc;
     const v = this.viewer;
-    if (!d || !v || !p) return;
-    const picked = this.toPicked(d, v, p, pointerType);
+    const E = this.ent;
+    if (!d || !v || !p || !E) return;
+    const picked = this.toPicked(E, d, v, p, pointerType);
     if (!picked) return;
     if (d.ent.picks.length >= 2) d.ent = { picks: [], result: null };
     d.ent.picks.push(picked);
@@ -2230,9 +2235,9 @@ export class StepApp {
       const [a, b] = d.ent.picks as [Picked, Picked];
       const diag = this.sceneDiag(d);
       const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
-      d.ent.result = measurePicked(a, b, {
-        size: armSize(a, b, diag),
-        closest: (x, y) => pickedClosest(x, y, meshOf),
+      d.ent.result = E.measurePicked(a, b, {
+        size: E.armSize(a, b, diag),
+        closest: (x, y) => E.pickedClosest(x, y, meshOf),
         parts: (x, y) => v.closestPoints(x, y),
       });
       for (const l of d.ent.result.lines) logMeasure(d, { type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title });
@@ -2258,7 +2263,8 @@ export class StepApp {
   private showEntities(): void {
     const v = this.viewer;
     const d = this.doc;
-    if (!v || !d) return;
+    const E = this.ent;
+    if (!v || !d || !E) return;
     const ranges = new Map<string, { prims: { start: number; count: number }[]; edges: { start: number; count: number }[] }>();
     for (const p of d.ent.picks) {
       const r = ranges.get(p.meshId) ?? { prims: [], edges: [] };
@@ -2270,7 +2276,7 @@ export class StepApp {
     v.highlight(null);
     v.setHighlightSegments(null);
     v.highlightRanges(ranges.size ? ranges : null);
-    v.setAnnotations(d.ent.picks.length ? pickedAnnotations(d.ent.picks, d.ent.result, this.fmt) : null);
+    v.setAnnotations(d.ent.picks.length ? E.pickedAnnotations(d.ent.picks, d.ent.result, this.fmt) : null);
   }
 
   /** 지금 화면을 PNG로(손가락 기기는 공유 시트가 되면 공유, 아니면 내려받기) */

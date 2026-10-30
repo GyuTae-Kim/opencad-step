@@ -4,8 +4,9 @@ import { stepToScene } from '../../src/index';
 import { stepEdgeIndex, stepFaceIndex } from '../../src/app/doc';
 import { Fmt } from '../../src/app/display';
 import { edgeDetails, type EdgePick } from '../../src/app/edges';
-import { armSize, edgeEntity, faceEntity, lineValue, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from '../../src/app/entpick';
+import { armSize, edgeEntity, faceEntity, measurePicked, pickedAnnotations, pickedClosest, pickedEdge, pickedFace, pickedPoint, pickedSection, type Picked } from '../../src/app/entpick';
 import { faceDetails, type FacePick } from '../../src/app/faces';
+import { lineValue } from '../../src/app/measure';
 import { cube, cylinder, StepText } from '../stepText';
 
 const MM = new Fmt('mm');

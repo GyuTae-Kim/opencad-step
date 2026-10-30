@@ -1,7 +1,7 @@
 /**
  * 3D 뷰어 코어를 문서를 열 때 나눠 받기(app/core.ts): 앱 입구(src/app/main.ts)에서 정적 가져오기로 닿는 모듈은
  * 코어 입구(opencad-viewer3d)와 무거운 모듈(viewer·renderer 등)을 값으로 가져오지 않는다. 값은 작은 코어 모듈만, 입구는 core.ts가 import()로 받는
- * viewerkit.ts 조각(코어 입구와 뷰어를 만든 뒤에만 쓰는 정밀 조준 aim.ts를 묶는다)으로만.
+ * viewerkit.ts 조각(코어 입구와 뷰어를 만든 뒤에만 쓰는 정밀 조준 aim.ts·개체 측정 entpick.ts를 묶는다)으로만.
  * 이 규칙이 깨지면 번들러가 코어 전체를 첫 화면 JS에 다시 넣는다.
  *
  * 앱 입구에서 닿는 그래프만 훑는다 — 해석기 입구(src/index.ts)와 워커는 다른 묶음이라 코어 모듈을 값으로 가져와도 된다.
@@ -16,8 +16,11 @@ import { VIEW_KEYS } from '../../src/app/keys';
 const ROOT = join(__dirname, '../..');
 const ENTRY = join(ROOT, 'src/app/main.ts');
 const CORE_SRC = join(ROOT, 'node_modules/opencad-viewer3d/src');
-/** 첫 화면에서 바로 가져와도 되는 코어 모듈(작고 무거운 코어 모듈을 끌어오지 않는다) */
-const SMALL = new Set(['camera', 'pointer', 'viewcube', 'types', 'math', 'bounds', 'bvh', 'closest', 'ranges']);
+/**
+ * 첫 화면에서 바로 가져와도 되는 코어 모듈(작고 무거운 코어 모듈을 끌어오지 않는다).
+ * 개체 측정의 최소 거리(bvh·closest)는 코어 조각에만 든다(27차 — 개체 측정 entpick.ts를 viewerkit.ts로 옮겼다)
+ */
+const SMALL = new Set(['camera', 'pointer', 'viewcube', 'types', 'math', 'bounds', 'ranges']);
 
 /** 글에서 값 가져오기(정적 import·export … from·빈 import) 대상과 동적 import() 대상 */
 function importsOf(text: string): { values: string[]; dynamic: string[] } {
@@ -80,9 +83,14 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', 'opencad-viewer3d']);
     // 정밀 조준(aim.ts — 뷰어를 만들 때 단다)도 그 조각에만(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/aim.ts'))).toBe(false);
+    // 개체 측정(entpick.ts·entmeasure.ts와 최소 거리용 코어 bvh·closest — 뷰어의 누르기로만 쓴다)도 그 조각에만.
+    // 측정 띠·패널이 바로 쓰는 값 줄 글(lineValue)은 첫 화면의 measure.ts에 있다
+    for (const m of ['src/app/entpick.ts', 'src/app/entmeasure.ts', 'node_modules/opencad-viewer3d/src/bvh.ts', 'node_modules/opencad-viewer3d/src/closest.ts'])
+      expect(files.has(join(ROOT, m)), m).toBe(false);
+    expect(dynamic.some((d) => d.spec.endsWith('entpick') || d.spec.endsWith('entmeasure'))).toBe(false);
     // 보기 링크의 고른 것 낱말(selink.ts)과 STL·OBJ·CSV 내보내기(export.ts), 분해 방식 단추·계획(explodebar.ts — explode.ts를 품음)도
     // 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/explode.ts'))).toBe(false);
@@ -122,5 +130,8 @@ describe('코어 나눠 받기', () => {
     expect(m.VIEW_LABELS).toBe(VIEW_LABELS);
     // 같은 조각의 정밀 조준(뷰어를 만들 때 캔버스에 단다)
     expect(m.TouchAim).toBe((await import('../../src/app/aim')).TouchAim);
+    // 같은 조각의 개체 측정 계산(앱은 뷰어를 만들기 전에 이 모듈을 쥔다)
+    const ent = await import('../../src/app/entpick');
+    for (const k of ['measurePicked', 'pickedAnnotations', 'pickedClosest', 'pickedFace', 'pickedEdge', 'pickedPoint', 'pickedSection', 'armSize'] as const) expect(m[k], k).toBe(ent[k]);
   });
 });
