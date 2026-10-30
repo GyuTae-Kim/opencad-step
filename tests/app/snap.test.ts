@@ -11,6 +11,7 @@ import {
   CURVE_POINT_LABEL,
   edgeSnapPoints,
   hoverSnapLabel,
+  isTrackDir,
   lockHint,
   lockMeet,
   lockName,
@@ -22,9 +23,12 @@ import {
   TANGENT_LABEL,
   type TangentHint,
   trackMark,
+  TRACK_PARALLEL_LABEL,
+  TRACK_PERPENDICULAR_LABEL,
   viewerLockHint,
   viewerLockName,
 } from '../../src/app/snap';
+import { straightEdgeFilter } from '../../src/app/trackdir';
 import { translate } from '../../site/i18n.mjs';
 import { StepText, plateWithHole } from '../stepText';
 
@@ -164,6 +168,63 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'x' })).toEqual(['꼭짓점', 'X축 방향']);
   });
 
+  it('끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs): trackFrom이 있고 잠그지 않은 나란함·수직만 그 이름, 첫 점의 나란함·수직 발은 그대로', () => {
+    // 가르는 법(코어 0.28.0 README): snap 'parallel'·'perpendicular' + trackFrom + locked 없음
+    expect(isTrackDir({ snap: 'parallel', trackFrom: [1, 2, 3] })).toBe(true);
+    expect(isTrackDir({ snap: 'perpendicular', trackFrom: [1, 2, 3] })).toBe(true);
+    expect(isTrackDir({ snap: 'parallel', direction: [1, 0, 0] } as never)).toBe(false);
+    expect(isTrackDir({ snap: 'perpendicular' })).toBe(false);
+    expect(isTrackDir({ snap: 'axis', trackFrom: [1, 2, 3] })).toBe(false);
+    expect(isTrackDir({ snap: 'parallel', trackFrom: [1, 2, 3], locked: true })).toBe(false);
+    expect(isTrackDir(null)).toBe(false);
+    expect(hoverSnapLabel({ snap: 'parallel', trackFrom: [1, 2, 3] })).toBe(TRACK_PARALLEL_LABEL);
+    expect(hoverSnapLabel({ snap: 'perpendicular', trackFrom: [1, 2, 3] })).toBe(TRACK_PERPENDICULAR_LABEL);
+    expect(TRACK_PARALLEL_LABEL).toBe('끌어온 점에서 모서리와 나란히');
+    expect(TRACK_PERPENDICULAR_LABEL).toBe('끌어온 점에서 모서리에 수직');
+    // 첫 점의 나란함(0.10.0 — direction, trackFrom 없음)·첫 점에서 내린 수직 발은 예전 이름
+    expect(hoverSnapLabel({ snap: 'parallel', direction: [0.6, 0.8, 0] })).toBe('모서리와 나란히');
+    expect(hoverSnapLabel({ snap: 'perpendicular', direction: [0, 1, 0] })).toBe('수직 발');
+    // 잠근 나란함 위 끌어온 점과 나란한 자리(0.21.0 lockTracks — locked + trackFrom)는 잠근 선 이름
+    expect(hoverSnapLabel({ snap: 'parallel', direction: [0.6, 0.8, 0], locked: true, trackFrom: [1, 2, 3] })).toBe('잠근 방향 · 끌어온 점과 나란히');
+    // 결과: 코어 결과에는 나란함·수직만 실려 앱이 찍은 점의 isTrackDir를 trackA·trackB로 옮긴다
+    expect(snapPair({ snapA: 'endpoint', snapB: 'parallel', trackB: true })).toEqual(['끝점', TRACK_PARALLEL_LABEL]);
+    expect(snapPair({ snapA: 'perpendicular', trackA: true, snapB: 'vertex' })).toEqual([TRACK_PERPENDICULAR_LABEL, '꼭짓점']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'parallel' })).toEqual(['끝점', '모서리와 나란히']);
+    expect(translate(TRACK_PARALLEL_LABEL, 'en')).toBe('Parallel to edge from tracked point');
+    expect(translate(TRACK_PERPENDICULAR_LABEL, 'de')).toBe('Senkrecht zur Kante vom verfolgten Punkt');
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const l of [TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL]) {
+        expect(translate(l, code), `${code}: ${l}`).not.toMatch(/[가-힣]/);
+        expect(translate(l, code)).not.toBe(translate(l === TRACK_PARALLEL_LABEL ? '모서리와 나란히' : '수직 발', code));
+      }
+  });
+
+  it('straightEdgeFilter(코어 0.28.0 trackDirs { edge }): 곧은 B-rep 모서리의 윤곽선 선분만 받고, 원호를 나눈 현·선 묶음·표가 없는 그물은 받지 않는다', () => {
+    const s = stepToScene(halfMoon());
+    const ex = stepEdgeIndex(s)!;
+    const mesh = s.meshes[0]!;
+    const t = ex.tables[ex.tableOf.get(mesh.id)!]!;
+    const f = straightEdgeFilter(ex);
+    let line = 0;
+    let chord = 0;
+    for (let e = 0; e < t.kinds.length; e++) {
+      const kind = ex.kinds[t.kinds[e]!];
+      for (let k = t.segStart[e]!; k < t.segStart[e + 1]!; k++) {
+        const ok = f({ kind: 'edge', id: mesh.id, index: k, raw: k, ends: [[0, 0, 0], [1, 0, 0]] });
+        expect(ok, `${kind} 선분 ${k}`).toBe(kind === 'line');
+        if (kind === 'line') line++;
+        else chord++;
+      }
+    }
+    // 반달: 지름(곧은 모서리) 선분 하나, 반원 호는 여러 현
+    expect(line).toBe(1);
+    expect(chord).toBeGreaterThan(4);
+    // 선 묶음(와이어프레임 곡선·PMI 선)·모서리 표가 없는 그물·표 밖 번호는 받지 않는다
+    expect(f({ kind: 'line', id: mesh.id, index: 0, raw: 0, ends: [[0, 0, 0], [1, 0, 0]] })).toBe(false);
+    expect(f({ kind: 'edge', id: 'no-such-mesh', index: 0, raw: 0, ends: [[0, 0, 0], [1, 0, 0]] })).toBe(false);
+    expect(f({ kind: 'edge', id: mesh.id, index: 9999, raw: 9999, ends: [[0, 0, 0], [1, 0, 0]] })).toBe(false);
+  });
+
   it('끌어온 축끼리의 교차·모서리 위(코어 0.17.0): 가르는 차례 trackOther → segment → direction, 이름 9개가 네 언어 사전에 있다', () => {
     expect(trackMark({ trackFrom: [0, 0, 0] })).toBe(true);
     expect(trackMark({ trackFrom: [0, 0, 0], trackOther: { axis: 'x' } })).toBe('x');
@@ -295,7 +356,11 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     // 반투명 보기가 아니면 반투명 그물 너머를 고르지 않는다(코어 0.23.0 throughTranslucent — 주지 않는다)
     expect(o).not.toHaveProperty('throughTranslucent');
     expect(measureSnapOptions(s.meshes, ex, centers, null, true).throughTranslucent).toBe(true);
+    // 기준 선분 거르기(뷰어 조각의 trackdir.ts — 뷰어를 만든 뒤 앱이 넘긴다)를 받기 전에는 0.26.0 꼴 그대로
     expect(o.inference).toBe(MEASURE_INFERENCE);
+    // 받으면 0.27.0 끌어온 점에서 모서리와 나란히·수직을 그 거르기와 함께 켠다(0.28.0 { edge } — 곧은 모서리만 기준)
+    const f = straightEdgeFilter(ex);
+    expect(measureSnapOptions(s.meshes, ex, centers, null, false, f).inference).toEqual({ ...MEASURE_INFERENCE, trackDirs: { edge: f } });
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);
     const mesh = s.meshes[0]!;

@@ -13,9 +13,11 @@
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
  *   화살표 →·←·↑는 X·Y·Z축, ↓는 지금 방향을 잠근다(같은 키로 풀기). 손가락 기기는 측정 띠의 잠금 단추. 여기서는 잠금 이름·안내·키 판단만 한다.
  *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
+ * - 끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs, 0.28.0 기준 선분 거르기): 커서가 앞서 지나간 곧은 B-rep 모서리만 기준으로 받는다
+ *   (trackdir.ts straightEdgeFilter — 원·타원·B-스플라인을 나눈 현은 기준이 되지 않는다). 여기서는 이름만 가른다(isTrackDir).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
-import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineFaceInput, SnapRefineInput, Viewer3d } from 'opencad-viewer3d';
+import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineFaceInput, SnapRefineInput, SnapSegment, Viewer3d } from 'opencad-viewer3d';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt, edgeDetails, isFullCircle } from './edges';
 
@@ -124,7 +126,9 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
  * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로, 교차점을 두 곡선의 교차점으로 다듬고(코어 0.14.0·0.15.0 refine),
  * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점과 붙잡지 않은 곡면 위 점도 그 곡면 위로(0.19.0·0.21.0 refineFace).
- * through(반투명 보기 — 부품 불투명도를 낮췄거나 나머지 흐리게 중)면 반투명 그물의 면을 지나 그 뒤 불투명 면에 붙는다(코어 0.23.0 throughTranslucent)
+ * through(반투명 보기 — 부품 불투명도를 낮췄거나 나머지 흐리게 중)면 반투명 그물의 면을 지나 그 뒤 불투명 면에 붙는다(코어 0.23.0 throughTranslucent).
+ * trackDirEdge(기준 선분 거르기 — 뷰어 조각의 trackdir.ts straightEdgeFilter, 모서리 표가 있을 때만)가 있으면 끌어온 점에서 곧은 모서리와 나란히·수직도 켠다
+ * (코어 0.27.0 trackDirs, 0.28.0 { edge } — 원·B-스플라인을 나눈 현은 기준이 되지 않는다)
  */
 export function measureSnapOptions(
   meshes: readonly Mesh3d[],
@@ -132,13 +136,14 @@ export function measureSnapOptions(
   centers: readonly SnapPoint[],
   curve: CurveSnap | null = null,
   through = false,
+  trackDirEdge: ((seg: SnapSegment) => boolean) | null = null,
 ): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
   let lastKey = '';
   let last: SnapPoint[] | null = null;
   return {
     edges: true,
-    inference: MEASURE_INFERENCE,
+    inference: trackDirEdge ? { ...MEASURE_INFERENCE, trackDirs: { edge: trackDirEdge } } : MEASURE_INFERENCE,
     ...(through ? { throughTranslucent: true } : {}),
     points: centers,
     pointsFor: (p) => {
@@ -153,6 +158,14 @@ export function measureSnapOptions(
     ...(curve ? { refine: (c: SnapRefineInput) => curve.refine(c) } : {}),
     ...(curve?.refineFace ? { refineFace: (c: SnapRefineFaceInput) => curve.refineFace!(c) } : {}),
   };
+}
+
+/**
+ * 끌어온 점에서 모서리와 나란히·수직인 선 위 점인지(코어 0.27.0 trackDirs — 코어 0.28.0 README의 가르는 법): snap이 'parallel'·'perpendicular'이고
+ * 끌어온 점(trackFrom)이 있으며 잠그지 않았다. 첫 점의 나란함(0.10.0)과 첫 점에서 내린 수직 발에는 trackFrom이 없다
+ */
+export function isTrackDir(p: { snap?: SnapKind | null; trackFrom?: readonly number[]; locked?: boolean } | null | undefined): boolean {
+  return !!p?.trackFrom && !p.locked && (p.snap === 'parallel' || p.snap === 'perpendicular');
 }
 
 /**
@@ -260,7 +273,8 @@ function trackLabel(axis: SnapAxis, track: TrackMark): string {
  * 곡선 모서리 위 점, 코어 0.14.0) '곡선 위 점'.
  * 축 붙잡기(코어 0.9.0)는 축을 알면 "X축 방향"처럼(커서 아래는 measureHoverSnap.axis, 찍은 결과는 0.9.1 MeasureResult.axisA·axisB),
  * 끌어온 축(track — trackMark, 코어 0.16.0·0.17.0: 기억한 점을 지나는 축이라 첫 점에서 그 방향이 아니다)이면 "끌어온 점에서 X축"·
- * "끌어온 점에서 X축 · 모서리 위"·"끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나는 점(0.18.0)이면 "X축 · 모서리 위"·"X축 · 면 위"
+ * "끌어온 점에서 X축 · 모서리 위"·"끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나는 점(0.18.0)이면 "X축 · 모서리 위"·"X축 · 면 위".
+ * 나란함·수직에 track(isTrackDir — 코어 0.27.0 trackDirs: 첫 점이 아니라 끌어온 점에서 그은 선)이면 "끌어온 점에서 모서리와 나란히"·"끌어온 점에서 모서리에 수직"
  */
 export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined: Refined = false, track: TrackMark | boolean = false): string {
   switch (kind) {
@@ -277,15 +291,21 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'intersection':
       return '교차점';
     case 'perpendicular':
-      return '수직 발';
+      return track ? TRACK_PERPENDICULAR_LABEL : '수직 발';
     case 'axis':
       return axis ? (track ? trackLabel(axis, track) : AXIS_LABEL[axis]) : '축 방향';
     case 'parallel':
-      return '모서리와 나란히';
+      return track ? TRACK_PARALLEL_LABEL : '모서리와 나란히';
     default:
       return refined === 'face' ? SURFACE_POINT_LABEL : refined ? CURVE_POINT_LABEL : '면 위 점';
   }
 }
+
+/** 끌어온 점에서 기준 모서리와 나란한 선 위 점(코어 0.27.0 trackDirs 'parallel')의 이름 */
+export const TRACK_PARALLEL_LABEL = '끌어온 점에서 모서리와 나란히';
+
+/** 끌어온 점에서 기준 모서리에 수직인 선 위 점(코어 0.27.0 trackDirs 'perpendicular')의 이름 */
+export const TRACK_PERPENDICULAR_LABEL = '끌어온 점에서 모서리에 수직';
 
 /** 붙잡지 않은 점을 앱이 곡선 모서리 위로 다듬은 것(코어 0.14.0 refined)의 이름 */
 export const CURVE_POINT_LABEL = '곡선 위 점';
@@ -366,8 +386,9 @@ export function hoverSnapLabel(
   if (!h) return null;
   const meet = lockMeet(h);
   if (meet) return lockMeetLabel(h.snap === 'axis' ? h.axis : null, meet, tangent);
-  // 축 위 점(trackMark): 끌어온 축·모서리 위·면 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로)
-  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, refinedKind(h), h.snap === 'axis' ? trackMark(h) : false);
+  // 축 위 점(trackMark): 끌어온 축·모서리 위·면 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로).
+  // 나란함·수직은 끌어온 점에서 그은 선이면(isTrackDir — 코어 0.27.0 trackDirs) "끌어온 점에서 모서리와 나란히·수직"
+  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, refinedKind(h), h.snap === 'axis' ? trackMark(h) : isTrackDir(h));
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }
 
