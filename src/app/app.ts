@@ -14,6 +14,7 @@
  * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
  * - 휴대폰·터치: 측정·면 고르기 중에는 3D 보기 아래 가운데 띠(measure.ts)에 안내·거리·고른 면 치수와 다시 재기·끝내기 단추를 두고,
  *   길게 누르면 손가락 위 십자선으로 정밀 조준한다(aim.ts — 코어 포인터 처리를 그대로 쓴다).
+ *   코어 거리 글상자는 이 띠·위 띠·단면 막대·뷰 큐브와 십자선을 비켜 그린다(labelavoid.ts — 접선 조각).
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
  *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
  */
@@ -244,6 +245,8 @@ export class StepApp {
   private tangents: TangentLock | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
+  /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
+  private labelAvoid: InstanceType<typeof import('./tangent').LabelAvoid> | null = null;
   /** 문서마다 곡선 붙잡기(곡선 위로 다듬기·곡선 가운데 점) */
   private readonly curveSnaps = new WeakMap<StepDoc, CurveSnap | null>();
   /** 면 표에 식이 없는 곡면을 워커에 남긴 문서와, 받은 곡면 정의(축이 곡면을 뚫는 점 — 받는 중이면 0) */
@@ -914,8 +917,8 @@ export class StepApp {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
       onHold: (x, y) => this.contextMenuAt(x, y),
-      // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다
-      labelAvoid: (a) => v.setMeasureLabelAvoid(a),
+      // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다 — 접선 조각을 받은 뒤에는 화면 요소 자리와 합쳐
+      labelAvoid: (a) => (this.labelAvoid ? this.labelAvoid.aim(a) : v.setMeasureLabelAvoid(a)),
     });
     // 오른쪽 누르기(끌어 이동하지 않았을 때)로 작업 메뉴. 코어는 캔버스의 기본 메뉴만 막는다
     let rightDown: { x: number; y: number } | null = null;
@@ -948,6 +951,8 @@ export class StepApp {
     void loadCurveTangents().then(
       (m) => {
         this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null));
+        // 거리 글상자가 측정 띠·위 띠·단면 막대·뷰 큐브를 비켜 그리게(휴대폰에서 띠·큐브 밑으로 들어가던 것)
+        this.labelAvoid ??= new m.LabelAvoid(v, this.viewEl);
         if (this.curveSnapOf) return;
         this.curveSnapOf = m.curveSnap;
         this.syncMeasureSnap();

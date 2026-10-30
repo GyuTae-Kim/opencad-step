@@ -86,7 +86,8 @@ describe('코어 나눠 받기', () => {
     expect(files.has(join(ROOT, 'src/app/tangent.ts'))).toBe(false);
     expect(dynamic.filter((d) => d.spec === './tangent').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     // 축이 곡면을 뚫는 점(facesnap.ts — 접선 조각)과 곡면 정의 되살리기·곡면 계산(facesurf.ts·surfaces.ts — 접선 조각이 import()로 받는 곡면 조각)도 첫 화면 밖
-    for (const m of ['src/app/facesnap.ts', 'src/facesurf.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
+    // 거리 글상자가 앱 화면 요소를 비켜 그리기(labelavoid.ts — 접선 조각)도 첫 화면 밖
+    for (const m of ['src/app/facesnap.ts', 'src/facesurf.ts', 'src/app/labelavoid.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('facesurf'))).toBe(false);
     expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/=> import\('\.\.\/facesurf'\)/);
   });

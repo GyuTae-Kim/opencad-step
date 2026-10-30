@@ -43,6 +43,8 @@ import { edgeAt } from './edges';
 import type { SnapEdgeIndex } from './snap';
 
 export { curveSnap } from './curvesnap';
+/** 거리 글상자가 3D 보기 위 앱 요소를 비켜 그리기(labelavoid.ts — 측정에서만 쓰므로 이 조각에) */
+export { LabelAvoid } from './labelavoid';
 
 /** 곡면 조각(facesurf.ts — 면 표에 식이 없는 곡면 정의 되살리기와 곡면 계산)을 받는다(import()를 첫 화면 밖 이 조각에 둔다) */
 export const loadFaceSurfaces = (): Promise<typeof import('../facesurf')> => import('../facesurf');
