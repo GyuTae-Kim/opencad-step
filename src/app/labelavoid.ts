@@ -12,6 +12,7 @@
  * - 정밀 조준(aim.ts)의 십자선 둘레·손가락 자리와 합쳐 알린다
  * - 알림(토스트)은 잠깐 나왔다 사라지므로 넣지 않는다(글상자가 따라 뛰지 않게)
  * 코어 0.23.0부터 앱 측정 덧그림(개체 측정 — 코어 setAnnotations)의 글상자도 같은 사각형을 비켜 그린다(코어가 한다 — 앱 코드는 그대로).
+ * 0.24.0부터는 덧그림 글상자끼리(최소 거리 ≈와 부품 사이 최소 거리 ≈처럼 같은 자리에 겹치던 것)도 뒤에 놓는 것이 비킨다(코어 — 그림 저장은 기본 자리).
  */
 import type { MeasureLabelAvoid, MeasureLabelRect, Viewer3d } from 'opencad-viewer3d';
 import type { AimLabelAvoid } from './aim';

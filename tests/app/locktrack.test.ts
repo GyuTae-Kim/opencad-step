@@ -7,6 +7,8 @@
  *   · lockTracks를 끄면 0.20.0 그대로(잠근 선 위 커서에 가까운 점, "X축 방향 · 잠금")
  * - 앞의 작은 상자(반투명으로 그린다)와 그 뒤 큰 상자: 반투명 보기 선택(measureSnapOptions의 through)을 주면 측정 점이 뒤 상자 면에 붙고,
  *   주지 않거나 앞 상자가 불투명하면 예전처럼 앞 상자 면
+ * - 측정 중 반투명 보기를 켜고 끌 때(앱 syncMeasurePickThrough — 코어 0.24.0 setMeasurePickThrough): 찍은 점·화살표 잠금·Shift 잠금·끌어온 점이 남고
+ *   반투명 너머 고르기만 바뀐다(붙잡기 선택을 다시 주던 26차까지는 잠금·끌어온 점이 풀렸다). 붙잡기가 꺼져 있을 때만 붙잡기 선택을 다시 준다
  * 화면 좌표로 가리킬 때는 그물 경계를 정확히 가리키지 않는다.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -14,7 +16,7 @@ import { Viewer3d, type MeasureResult } from 'opencad-viewer3d';
 import type { Scene3d } from 'opencad-viewer3d/types';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex, stepFaceIndex } from '../../src/app/doc';
-import { circleCenters, hoverSnapLabel, lockMeet, MEASURE_INFERENCE, measureSnapOptions, snapPair } from '../../src/app/snap';
+import { circleCenters, hoverSnapLabel, lockMeet, MEASURE_INFERENCE, measureSnapOptions, snapPair, syncMeasurePickThrough } from '../../src/app/snap';
 import { curveSnap } from '../../src/app/curvesnap';
 import { cube, StepText, type P3 } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -212,5 +214,126 @@ describe('반투명 그물 너머 측정(코어 0.23.0 throughTranslucent — �
     hoverAt(w, T);
     const h = v.measureHoverSnap!;
     expect(Math.abs(h.point[2] - 4)).toBeLessThan(1e-4);
+  });
+});
+
+describe('측정 중 반투명 보기 전환(앱 syncMeasurePickThrough — 코어 0.24.0 setMeasurePickThrough)', () => {
+  const key = (k: string) => ({ key: k, code: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: k === 'Shift', repeat: false, preventDefault() {}, stopPropagation() {} }) as unknown as KeyboardEvent;
+  /** 앱 applyLooks → syncPickThrough처럼: 겉모습을 바꾸고 반투명 너머 고르기만 바꾼다(붙잡기 선택을 다시 줬으면 true) */
+  const toggle = (w: View, id: string, on: boolean, resnap: () => void): boolean => {
+    w.v.setItemOpacity(id, on ? 0.4 : null);
+    const again = syncMeasurePickThrough(w.v, on, resnap);
+    w.v.renderNow();
+    return again;
+  };
+
+  describe('정육면체 하나(잠근 선·끌어온 축의 교차는 빈 곳)', () => {
+    const s = boxes([['box', 10, [0, 0, 0]]]);
+    const box = s.meshes[0]!;
+    const F: V3 = [10, 10, 10];
+
+    it('찍은 점·화살표(X축) 잠금·끌어온 점이 켜고 끄는 동안 남고, 잠근 X축과 끌어온 점 Y축의 교차에 그대로 붙는다 — 붙잡기 선택은 다시 주지 않는다', () => {
+      const w = view(s);
+      const { v } = w;
+      clickAt(w, F);
+      expect(v.measurePointCount).toBe(1);
+      const first = [...v.measurePoints[0]!.point];
+      close(first, F);
+      expect(v.setMeasureInferenceLock('x')).toBe(true);
+      const lock = v.measureInferenceLock;
+      expect(lock?.axis).toBe('x');
+      const P: V3 = [12.5, 3, 10];
+      expect(v.setMeasureTrackPoints([P])).toBe(1);
+      const resnap = vi.fn();
+      for (const on of [true, false, true, false]) {
+        expect(toggle(w, box.id, on, resnap), `${on}`).toBe(false);
+        expect(v.measureSnap?.throughTranslucent).toBe(on ? true : undefined);
+        expect(v.measurePointCount).toBe(1);
+        expect(v.measurePoints[0]!.point).toEqual(first);
+        expect(v.measureInferenceLock).toEqual(lock);
+        expect(v.measureTrackPoints).toEqual([P]);
+        hoverAt(w, [12.5, 10, 10]);
+        const h = v.measureHoverSnap!;
+        expect(h.locked).toBe(true);
+        expect(h.trackOther).toEqual({ from: P, axis: 'y' });
+        close(h.point, [12.5, 10, 10]);
+        expect(hoverSnapLabel(h)).toBe('잠근 X축 · 끌어온 점 Y축 위');
+      }
+      expect(resnap).not.toHaveBeenCalled();
+      // 26차까지처럼 붙잡기 선택을 다시 주면 잠금·끌어온 점이 풀린다(그래서 전환에는 쓰지 않는다)
+      const e = stepEdgeIndex(s);
+      v.setMeasureSnap({ ...measureSnapOptions(s.meshes, e, circleCenters(s.meshes, e), null, true), inference: MEASURE_INFERENCE });
+      expect(v.measureInferenceLock).toBeNull();
+      expect(v.measureTrackPoints).toEqual([]);
+    });
+
+    it('Shift로 건 잠금도 켜고 끄는 동안 남고, Shift를 떼면 그때 푼다', () => {
+      const w = view(s);
+      const { v } = w;
+      clickAt(w, F);
+      expect(v.measurePointCount).toBe(1);
+      // 첫 점에서 윗면 모서리의 다른 끝을 가리키고 Shift: 그 모서리 방향(X축)
+      hoverAt(w, [0, 10, 10]);
+      v.handleKey(key('Shift'));
+      v.renderNow();
+      const lock = v.measureInferenceLock;
+      expect(lock?.source).toBe('shift');
+      const resnap = vi.fn();
+      for (const on of [true, false]) {
+        toggle(w, box.id, on, resnap);
+        expect(v.measureInferenceLock).toEqual(lock);
+        expect(v.measurePointCount).toBe(1);
+      }
+      expect(resnap).not.toHaveBeenCalled();
+      v.handleKeyUp(key('Shift'));
+      v.renderNow();
+      expect(v.measureInferenceLock).toBeNull();
+    });
+
+    it('붙잡기가 꺼져 있으면(코어 false) 그때만 붙잡기 선택을 다시 준다. 같은 값이면 아무것도 하지 않는다', () => {
+      const w = view(s);
+      const { v } = w;
+      expect(syncMeasurePickThrough(v, false, () => expect.unreachable())).toBe(false);
+      expect(v.measureSnap).not.toHaveProperty('throughTranslucent');
+      v.setMeasureSnap(null);
+      const e = stepEdgeIndex(s);
+      const resnap = vi.fn(() => v.setMeasureSnap({ ...measureSnapOptions(s.meshes, e, circleCenters(s.meshes, e), null, true), inference: MEASURE_INFERENCE }));
+      expect(syncMeasurePickThrough(v, true, resnap)).toBe(true);
+      expect(resnap).toHaveBeenCalledTimes(1);
+      expect(v.measureSnap?.throughTranslucent).toBe(true);
+    });
+  });
+
+  describe('앞 상자(반투명으로 바꾼다)와 그 뒤 큰 상자', () => {
+    const s = boxes([
+      ['front', 4, [0, 0, 0]],
+      ['back', 10, [-15, 9, -15]],
+    ]);
+    const front = s.meshes.find((m) => m.name === 'front' || m.id.includes('front')) ?? s.meshes[0]!;
+    const T: V3 = [1.3, 2.4, 4];
+
+    it('켜면 그 자리 미리 보기를 다시 구해 앞 상자 너머 뒤 상자 면에, 끄면 앞 상자 윗면 — 찍은 점은 그대로', () => {
+      const w = view(s);
+      const { v } = w;
+      // 첫 점: 앞 상자에서 눈 쪽 꼭짓점
+      clickAt(w, [4, 0, 4]);
+      expect(v.measurePointCount).toBe(1);
+      const first = [...v.measurePoints[0]!.point];
+      v.setItemOpacity(front.id, 0.4);
+      zoomAround(w, T, 1.5);
+      hoverAt(w, T);
+      expect(Math.abs(v.measureHoverSnap!.point[2] - 4)).toBeLessThan(1e-4);
+      const resnap = vi.fn();
+      // 커서를 움직이지 않아도 코어가 마지막 자리에서 다시 구한다
+      expect(syncMeasurePickThrough(v, true, resnap)).toBe(false);
+      v.renderNow();
+      const h = v.measureHoverSnap!;
+      expect(h.point[0] < 0 || h.point[1] > 4 || h.point[2] < 0).toBe(true);
+      syncMeasurePickThrough(v, false, resnap);
+      v.renderNow();
+      expect(Math.abs(v.measureHoverSnap!.point[2] - 4)).toBeLessThan(1e-4);
+      expect(v.measurePoints[0]!.point).toEqual(first);
+      expect(resnap).not.toHaveBeenCalled();
+    });
   });
 });

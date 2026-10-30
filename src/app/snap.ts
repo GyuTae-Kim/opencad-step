@@ -156,6 +156,17 @@ export function measureSnapOptions(
 }
 
 /**
+ * 반투명 보기를 켜고 끌 때 측정 붙잡기의 반투명 너머 고르기만 바꾼다(코어 0.24.0 setMeasurePickThrough — measureSnapOptions의 through와 같은 값).
+ * 찍은 점, Shift·화살표·잠금 단추 잠금, 끌어온 점, 다듬기 기억은 그대로다(붙잡기 선택을 다시 주면 잠금·끌어온 점이 풀린다).
+ * 붙잡기가 꺼져 있으면(코어가 false) resnap으로 붙잡기 선택을 다시 준다. 다시 줬으면 true
+ */
+export function syncMeasurePickThrough(v: Pick<Viewer3d, 'setMeasurePickThrough'>, on: boolean, resnap: () => void): boolean {
+  if (v.setMeasurePickThrough(on)) return false;
+  resnap();
+  return true;
+}
+
+/**
  * 두 점 측정의 추론 붙잡기: 교차점·수직 발·축 방향과 모서리와 나란히, Shift 잠금, 끌어온 축(코어 0.16.0 track — 마우스·펜 커서가
  * 점 붙잡기 위에 0.5초 머물면 그 점을 기억하고 그 점을 지나는 X·Y·Z 축에 붙는다). 터치는 머무르지 않는다: 손가락 길게 누르기는
  * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다.

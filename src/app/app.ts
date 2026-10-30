@@ -45,7 +45,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeMode } from './explode';
@@ -1677,8 +1677,9 @@ export class StepApp {
   }
 
   /**
-   * 반투명 보기(looks.ts translucentView — 부품 불투명도를 낮췄거나 나머지 흐리게)가 바뀌었으면 누르기 알림과 측정 붙잡기 선택을 다시 단다
-   * (측정 중이면 붙잡기 선택을 다시 주므로 Shift 잠금·끌어온 점이 풀린다 — 작업 메뉴의 불투명도는 측정 밖에서만 바꾸고, 측정 중에는 격리 띠로 나머지 흐리게를 풀 때쯤이다)
+   * 반투명 보기(looks.ts translucentView — 부품 불투명도를 낮췄거나 나머지 흐리게)가 바뀌었으면 누르기 알림의 선택을 다시 달고
+   * 측정 붙잡기는 반투명 너머 고르기만 바꾼다(코어 0.24.0 setMeasurePickThrough — 측정 중 격리 띠로 나머지 흐리게를 풀어도
+   * 찍은 점·Shift·화살표 잠금·끌어온 점이 남는다. 붙잡기가 꺼져 있을 때만 붙잡기 선택을 다시 준다)
    */
   private syncPickThrough(): void {
     const v = this.viewer;
@@ -1686,7 +1687,7 @@ export class StepApp {
     if (!v || on === this.pickThrough) return;
     this.pickThrough = on;
     if (this.pickCb) v.onPick(this.pickCb, { throughTranslucent: on });
-    this.syncMeasureSnap();
+    syncMeasurePickThrough(v, on, () => this.syncMeasureSnap());
   }
 
   /** 고른 것의 불투명도(1 또는 null = 되돌리기) */
