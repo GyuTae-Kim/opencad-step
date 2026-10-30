@@ -216,14 +216,18 @@ export class Panel {
     const kids: HTMLElement[] = [];
     const clear = h('button', { type: 'button', class: 'btn small' }, st.running ? '멈추기' : '결과 지우기');
     clear.addEventListener('click', () => this.host.clearInterference());
-    if (st.running) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사 중…'), ` ${st.total ? `${fmtCount(st.done)} / ${fmtCount(st.total)}` : ''}`));
+    const count = st.total ? ` ${fmtCount(st.done)} / ${fmtCount(st.total)}` : '';
+    if (st.running && !st.result) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사 중…'), count));
     else if (st.error) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
-    else if (st.result) {
+    if (st.result) {
       const r = st.result;
+      const f = this.host.fmt;
       const inside = r.pairs.filter((p) => p.inside).length;
       kids.push(
         h('p', { class: 'hint' }, h('span', {}, '범위가 겹친 쌍'), ` ${fmtCount(r.tested)} · `, h('span', {}, '간섭'), ` ${fmtCount(r.pairs.length)}`, ...(inside ? [' · ', h('span', {}, `안에 듦 ${fmtCount(inside)}`)] : []), ` · ${fmtCount(r.ms)} ms`),
       );
+      // 쌍을 찾은 뒤 워커가 겹친 부피를 구하는 동안(쌍 목록은 먼저 보인다)
+      if (st.running) kids.push(h('p', { class: 'hint' }, h('span', {}, '겹친 부피 계산 중…'), count));
       const LIMIT = 200;
       for (const p of r.pairs.slice(0, LIMIT)) {
         const label = interferenceLabel(d, p);
@@ -232,9 +236,19 @@ export class Panel {
         b.addEventListener('click', () => this.host.showInterference(p));
         // 안에 든 쌍: 겉면이 만나지 않아 교차 삼각형 수 대신 "안에 듦"(앞이 안쪽 부품)
         const chip = p.inside ? h('span', { class: 'chip dim-chip', title: '앞 부품이 뒤 부품 안에 통째로 들었습니다(겉면은 만나지 않음)' }, '안에 듦') : h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count));
-        kids.push(h('div', { class: 'prop-row' }, b, chip));
+        kids.push(h('div', { class: `prop-row${p.volume === undefined ? '' : ' has-vol'}` }, b, chip));
+        // 겹친 부피(두 그물이 닫힌 입체일 때 — 광선 표본 어림): 이름 아래 줄에, 어림 오차는 부피에 견준 몫을 유효 숫자 두 자리쯤으로(전체 값은 title)
+        if (p.volume !== undefined) {
+          const rel = p.volume && p.volumeErr ? (100 * p.volumeErr) / p.volume : 0;
+          const text = `≈ ${f.vol(p.volume)}${rel > 0 ? ` ±${f.num(rel, Math.min(6, Math.max(1, 1 - Math.floor(Math.log10(rel)))))}%` : ''}`;
+          kids.push(h('div', { class: 'vol-line', title: `겹친 부피 ≈ ${f.vol(p.volume)} ± ${f.vol(p.volumeErr ?? 0)}` }, h('span', {}, '겹친 부피'), ' ', h('span', { class: 'vol-val' }, text)));
+        }
       }
       if (inside) kids.push(h('p', { class: 'hint' }, '안에 든 부품은 바깥 부품에 가려 보이지 않을 수 있습니다 — X-ray 그리기나 나머지 흐리게로 보십시오.'));
+      if (r.volumes?.done)
+        kids.push(h('p', { class: 'hint' }, '겹친 부피(≈)는 화면 그물을 광선으로 훑은 어림값이고, ±는 어림 오차입니다.'));
+      if (r.volumes?.left) kids.push(h('p', { class: 'hint' }, `시간 한도로 ${fmtCount(r.volumes.left)}쌍은 겹친 부피를 구하지 못했습니다.`));
+      if (st.stopped) kids.push(h('p', { class: 'hint' }, '겹친 부피 계산을 멈췄습니다.'));
       if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않습니다(닫히지 않은 면 모형은 안에 들었는지 보지 않습니다).'));
     }
     return section('간섭 검사', ...kids, h('div', { class: 'tree-tools' }, clear));

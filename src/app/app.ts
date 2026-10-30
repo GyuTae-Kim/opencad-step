@@ -1409,16 +1409,17 @@ export class StepApp {
     w.onmessage = (ev: MessageEvent<CheckResponse>) => {
       const m = ev.data;
       if (m.id !== id || this.doc !== d) return;
-      if (m.type === 'progress') d.interference = { running: true, done: m.done, total: m.total };
-      else {
+      // 겹친 부피를 구하는 동안(phase 'volume')은 먼저 받은 쌍 목록을 그대로 보인다
+      if (m.type === 'progress') d.interference = m.phase && d.interference?.result ? { ...d.interference, done: m.done, total: m.total, phase: m.phase } : { running: true, done: m.done, total: m.total };
+      else if (m.type === 'pairs') {
+        d.interference = { running: true, done: 0, total: 0, result: m.result, phase: 'volume' };
+        const n = m.result.pairs.length;
+        const inside = m.result.pairs.filter((p) => p.inside).length;
+        this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
+      } else {
         d.interference = m.type === 'done' ? { running: false, done: 0, total: 0, result: m.result } : { running: false, done: 0, total: 0, error: m.message };
         w.terminate();
         if (this.checkWorker === w) this.checkWorker = null;
-        if (m.type === 'done') {
-          const n = m.result.pairs.length;
-          const inside = m.result.pairs.filter((p) => p.inside).length;
-          this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
-        }
       }
       this.panel.onInterference();
     };
@@ -1436,10 +1437,16 @@ export class StepApp {
     w.postMessage(req);
   }
 
-  /** 간섭 검사 멈추기·결과 지우기 */
+  /** 간섭 검사 멈추기·결과 지우기(겹친 부피를 구하는 중이면 그것만 멈추고 찾은 쌍 목록은 남긴다) */
   clearInterference(): void {
     this.checkWorker?.terminate();
     this.checkWorker = null;
+    const st = this.doc?.interference;
+    if (st?.running && st.result) {
+      this.doc!.interference = { running: false, done: 0, total: 0, result: st.result, stopped: true };
+      this.panel.onInterference();
+      return;
+    }
     if (this.doc) this.doc.interference = undefined;
     this.viewer?.highlightRanges(null);
     this.panel.onInterference();

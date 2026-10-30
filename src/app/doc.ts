@@ -159,8 +159,11 @@ export interface StepDoc {
   home?: CameraState;
   /** 측정 기록(거리·고른 면 — CSV 복사용) */
   measureLog: MeasureRecord[];
-  /** 간섭 검사 상태·결과(돌린 적이 없으면 없음) */
-  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string };
+  /**
+   * 간섭 검사 상태·결과(돌린 적이 없으면 없음). phase 'volume' = 쌍은 찾았고(result) 겹친 부피를 구하는 중(done·total은 쌍 수),
+   * stopped = 겹친 부피를 구하다 멈췄다(쌍 목록은 남는다)
+   */
+  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string; phase?: 'volume'; stopped?: boolean };
   /** 질량 속성 적분 상태 */
   readonly props: DocProps;
 }

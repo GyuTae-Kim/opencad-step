@@ -1136,6 +1136,20 @@ span.check input {
   background: var(--bg-hover);
   color: var(--text-dim);
 }
+/* 간섭 쌍의 겹친 부피: 쌍 이름 줄 아래 작은 줄(좁은 패널에서도 값을 줄이지 않는다) */
+.prop-row.has-vol {
+  border-bottom: 0;
+}
+.vol-line {
+  padding: 0 0 3px 6px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.vol-line .vol-val {
+  font-variant-numeric: tabular-nums;
+}
 table.grid td.small {
   font-size: 11px;
 }

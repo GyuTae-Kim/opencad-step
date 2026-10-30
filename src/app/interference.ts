@@ -37,17 +37,30 @@ export interface InterferencePair {
   trisB: number[];
   /** 겉면은 만나지 않고 a가 b 안에 통째로 들었다(count 0, 삼각형 없음) */
   inside?: true;
+  /** 겹친 부피(세계 단위³, 두 그물이 모두 닫힌 입체일 때 — 검사 워커가 overlap.ts로 어림한다. 시간 한도로 못 구했으면 없다) */
+  volume?: number;
+  /** 겹친 부피의 어림 오차(세계 단위³) */
+  volumeErr?: number;
 }
 
-/** 검사 워커(src/worker/check.worker.ts) 메시지 */
+/**
+ * 검사 워커(src/worker/check.worker.ts) 메시지: progress(간섭 쌍 찾는 중) → pairs(찾은 쌍 — 겹친 부피 없이 먼저 보인다) →
+ * progress phase 'volume'(겹친 부피를 구하는 중, done·total은 쌍 수) → done(겹친 부피를 실은 결과)
+ */
 export type CheckRequest = { id: number; type: 'interference'; meshes: InterferenceMesh[] };
-export type CheckResponse = { id: number; type: 'progress'; done: number; total: number } | { id: number; type: 'done'; result: InterferenceResult } | { id: number; type: 'error'; message: string };
+export type CheckResponse =
+  | { id: number; type: 'progress'; done: number; total: number; phase?: 'volume' }
+  | { id: number; type: 'pairs'; result: InterferenceResult }
+  | { id: number; type: 'done'; result: InterferenceResult }
+  | { id: number; type: 'error'; message: string };
 
 export interface InterferenceResult {
   pairs: InterferencePair[];
   /** 범위 상자가 겹친 쌍 수(시험한 쌍) */
   tested: number;
   ms: number;
+  /** 겹친 부피: 구한 닫힌 쌍 수, 시간 한도로 못 구한 닫힌 쌍 수, 걸린 시간(ms) — 검사 워커가 싣는다 */
+  volumes?: { done: number; left: number; ms: number };
 }
 
 interface World {
