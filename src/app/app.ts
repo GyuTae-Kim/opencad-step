@@ -45,7 +45,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeMode } from './explode';
@@ -1206,7 +1206,8 @@ export class StepApp {
   private onMeasure(m: MeasureResult | null): void {
     const d = this.doc;
     if (!d) return;
-    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점"
+    // 둘째 점을 곡선 접선 잠금으로 찍었으면 결과 이름을 "접선 방향"으로(코어 결과는 나란함), 곡선 위로 다듬어 찍은 점이면 "곡선 위 점",
+    // 붙잡지 않은 면 위 점을 곡면 위로 다듬어 찍었으면(코어 0.21.0 'onFace' — 선분 식별자가 없다) "곡면 위 점"
     // (코어 0.14.0 — 결과에는 싣지 않고 찍은 점 measurePoints에만 있다)
     const pts = m ? (this.viewer?.measurePoints ?? []) : [];
     // 끌어온 축(코어 0.16.0)·모서리 위·축끼리의 교차(0.17.0)·첫 점 축과 모서리·축과 면(0.18.0)으로 찍은 점: 결과에는 축만 실리므로
@@ -1214,14 +1215,16 @@ export class StepApp {
     // (둘째 점의 첫 점 축 방향은 결과의 directionB로도 본다 — 첫 점 축 위 나란한 자리는 그 축 방향 그대로)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : false;
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : false;
-    // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face로
+    // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0)·끌어온 점의 축과 만나는 점(0.21.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face·trackOther·trackFrom으로
     const meet = m?.lockedB ? lockMeet(pts[1]) : null;
+    const rA = refinedKind(pts[0]);
+    const rB = refinedKind(pts[1]);
     d.measure = m
       ? {
           ...m,
           ...(this.tangents?.result(m) ? { tangentB: true } : {}),
-          ...(pts[0]?.refined ? { refinedA: true } : {}),
-          ...(pts[1]?.refined ? { refinedB: true } : {}),
+          ...(rA ? { refinedA: rA } : {}),
+          ...(rB ? { refinedB: rB } : {}),
           ...(tA ? { trackA: tA } : {}),
           ...(tB ? { trackB: tB } : {}),
           ...(meet ? { lockMeetB: meet } : {}),
@@ -1985,13 +1988,17 @@ export class StepApp {
   /**
    * 해석 워커에 남은 곡면 정의를 받아 곡면 조각(facesurf.ts — 곡면 계산과 함께 나눠 받는다)으로 되살린다
    * (두 점 측정을 켤 때·처음 쓸 때 한 번 — 지금 문서만, 못 받으면 null).
-   * 받은 뒤의 refineFace부터 곡면 위로 옮긴다(코어가 기억한 앞 결과는 그대로 — 붙잡기 선택을 다시 주면 잠금도 풀리므로)
+   * 받으면 코어가 기억한 다듬기 결과(받기 전 refineFace의 null)만 비운다(코어 0.21.0 clearMeasureRefine — 잠금·끌어온 점·찍은 점은 그대로,
+   * 지금 미리 보기부터 곡면 위로). 그사이 다른 문서로 바꿨으면 비우지 않는다(그 문서의 붙잡기 선택이 이미 새로 들어갔다)
    */
   private fetchFaceSurfaces(d: StepDoc): void {
     if (this.faceSurfs.has(d) || !this.surfDocs.has(d) || this.doc !== d) return;
     this.faceSurfs.set(d, 0);
     Promise.all([this.client.faceSurfaces(), loadCurveTangents().then((m) => m.loadFaceSurfaces())]).then(
-      ([p, m]) => this.faceSurfs.set(d, m.reviveFaceSurfaces(p)),
+      ([p, m]) => {
+        this.faceSurfs.set(d, m.reviveFaceSurfaces(p));
+        if (this.doc === d) this.viewer?.clearMeasureRefine();
+      },
       () => this.faceSurfs.set(d, null),
     );
   }

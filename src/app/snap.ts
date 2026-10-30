@@ -123,15 +123,23 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 추론 붙잡기(교차점·수직 발·축 방향 — 코어 0.9.0, 모서리와 나란히·Shift 잠금 — 0.10.0)를 모두 켠다.
  * 코어의 선분 가운데 점(midpoints)은 곡선 모서리에서 현의 가운데라 쓰지 않는다.
  * curve(곡선 계산 조각)가 있으면 곡선 모서리의 수직 발·모서리 위 점을 곡선 위로, 교차점을 두 곡선의 교차점으로 다듬고(코어 0.14.0·0.15.0 refine),
- * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점도 그 곡면 위로(0.19.0 refineFace)
+ * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점과 붙잡지 않은 곡면 위 점도 그 곡면 위로(0.19.0·0.21.0 refineFace).
+ * through(반투명 보기 — 부품 불투명도를 낮췄거나 나머지 흐리게 중)면 반투명 그물의 면을 지나 그 뒤 불투명 면에 붙는다(코어 0.23.0 throughTranslucent)
  */
-export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, centers: readonly SnapPoint[], curve: CurveSnap | null = null): MeasureSnapOptions {
+export function measureSnapOptions(
+  meshes: readonly Mesh3d[],
+  ex: SnapEdgeIndex | null,
+  centers: readonly SnapPoint[],
+  curve: CurveSnap | null = null,
+  through = false,
+): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
   let lastKey = '';
   let last: SnapPoint[] | null = null;
   return {
     edges: true,
     inference: MEASURE_INFERENCE,
+    ...(through ? { throughTranslucent: true } : {}),
     points: centers,
     pointsFor: (p) => {
       if (p.kind !== 'edge') return null;
@@ -152,7 +160,8 @@ export function measureSnapOptions(meshes: readonly Mesh3d[], ex: SnapEdgeIndex 
  * 점 붙잡기 위에 0.5초 머물면 그 점을 기억하고 그 점을 지나는 X·Y·Z 축에 붙는다). 터치는 머무르지 않는다: 손가락 길게 누르기는
  * 정밀 조준(aim.ts)이 쓰므로 끌어올 점을 따로 주지 않는다.
  * 코어 0.18.0: 첫 점 축이 모서리(윤곽선)와 만나는 점(axisEdges), 첫 점 축·끌어온 축이 면을 뚫는 점(axisFaces).
- * 0.19.0: 잠근 동안 잠근 선이 모서리와 만나는 점(lockEdges)·면을 뚫는 점(lockFaces)
+ * 0.19.0: 잠근 동안 잠근 선이 모서리와 만나는 점(lockEdges)·면을 뚫는 점(lockFaces).
+ * 0.21.0: 잠근 동안 잠근 선이 끌어온 점의 X·Y·Z 축과 만나는 점(lockTracks — 축으로 잠갔으면 끌어온 점과 나란한 자리도)
  */
 export const MEASURE_INFERENCE = Object.freeze({
   intersections: true,
@@ -165,21 +174,34 @@ export const MEASURE_INFERENCE = Object.freeze({
   axisFaces: true,
   lockEdges: true,
   lockFaces: true,
+  lockTracks: true,
 });
 
 /**
- * 잠근 선 위 점이 모서리와 만나는 점('edge')·면을 뚫는 점('face')인지(코어 0.19.0 README의 가르는 법 — 잠근 점에 segment·face가 실린다).
- * 끌어온 축 위 점(trackFrom)은 아니다. 그 밖은 null
+ * 잠근 선 위 점이 무엇과 만나는지: 'edge' = 모서리와 만나는 점, 'face' = 면을 뚫는 점(코어 0.19.0 — 잠근 점에 segment·face가 실린다),
+ * 'x'·'y'·'z' = 끌어온 점의 그 축과 만나는 점, 'track' = 잠근 축 위 끌어온 점과 나란한 자리(0.21.0 lockTracks — 잠근 점에 trackOther·trackFrom이 실린다).
+ * 코어 README의 가르는 법대로 넷은 함께 오지 않는다. 잠그지 않았거나 아무것과도 만나지 않으면 null
  */
-export function lockMeet(p: { locked?: boolean; trackFrom?: unknown; segment?: unknown; face?: unknown } | null | undefined): 'edge' | 'face' | null {
-  if (!p?.locked || p.trackFrom) return null;
+export type LockMeet = 'edge' | 'face' | 'track' | SnapAxis;
+
+export function lockMeet(
+  p: { locked?: boolean; trackFrom?: unknown; trackOther?: { axis: SnapAxis }; segment?: unknown; face?: unknown } | null | undefined,
+): LockMeet | null {
+  if (!p?.locked) return null;
+  if (p.trackOther) return p.trackOther.axis;
+  if (p.trackFrom) return 'track';
   return p.segment ? 'edge' : p.face ? 'face' : null;
 }
 
-/** 잠근 선이 모서리·면과 만나는 점의 이름: "잠근 X축 · 모서리 위", 축이 아니면 "잠근 방향 · 면 위", 곡선 접선 잠금이면 "잠근 접선 · 모서리 위" */
-function lockMeetLabel(axis: SnapAxis | null | undefined, meet: 'edge' | 'face', tangent: boolean): string {
+/**
+ * 잠근 선이 만나는 점의 이름: "잠근 X축 · 모서리 위", 축이 아니면 "잠근 방향 · 면 위", 곡선 접선 잠금이면 "잠근 접선 · 모서리 위",
+ * 끌어온 점의 축과 만나면 "잠근 X축 · 끌어온 점 Y축 위", 잠근 축 위 끌어온 점과 나란한 자리면 "잠근 X축 · 끌어온 점과 나란히"
+ * (" · " 앞뒤 조각이 사전에 따로 있다)
+ */
+function lockMeetLabel(axis: SnapAxis | null | undefined, meet: LockMeet, tangent: boolean): string {
   const what = axis ? `${axis.toUpperCase()}축` : tangent ? '접선' : '방향';
-  return `잠근 ${what} · ${meet === 'edge' ? '모서리 위' : '면 위'}`;
+  const where = meet === 'edge' ? '모서리 위' : meet === 'face' ? '면 위' : meet === 'track' ? '끌어온 점과 나란히' : `끌어온 점 ${meet.toUpperCase()}축 위`;
+  return `잠근 ${what} · ${where}`;
 }
 
 /** 축 붙잡기의 축 이름(번역층이 옮긴다) */
@@ -229,7 +251,7 @@ function trackLabel(axis: SnapAxis, track: TrackMark): string {
  * 끌어온 축(track — trackMark, 코어 0.16.0·0.17.0: 기억한 점을 지나는 축이라 첫 점에서 그 방향이 아니다)이면 "끌어온 점에서 X축"·
  * "끌어온 점에서 X축 · 모서리 위"·"끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나는 점(0.18.0)이면 "X축 · 모서리 위"·"X축 · 면 위"
  */
-export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined = false, track: TrackMark | boolean = false): string {
+export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | null, refined: Refined = false, track: TrackMark | boolean = false): string {
   switch (kind) {
     case 'vertex':
       return '꼭짓점';
@@ -250,12 +272,27 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'parallel':
       return '모서리와 나란히';
     default:
-      return refined ? CURVE_POINT_LABEL : '면 위 점';
+      return refined === 'face' ? SURFACE_POINT_LABEL : refined ? CURVE_POINT_LABEL : '면 위 점';
   }
 }
 
 /** 붙잡지 않은 점을 앱이 곡선 모서리 위로 다듬은 것(코어 0.14.0 refined)의 이름 */
 export const CURVE_POINT_LABEL = '곡선 위 점';
+
+/** 붙잡지 않은 면 위 점을 앱이 B-rep 곡면 위로 다듬은 것(코어 0.21.0 'onFace' — refined인데 선분이 없다)의 이름 */
+export const SURFACE_POINT_LABEL = '곡면 위 점';
+
+/** 다듬은 점의 종류: false = 다듬지 않음, true = 곡선 위(선분 위 점을 다듬었다 — 0.14.0), 'face' = 곡면 위(0.21.0 'onFace') */
+export type Refined = boolean | 'face';
+
+/**
+ * 찍은 점·커서 아래 점의 다듬은 종류: 붙잡지 않은 점(snap null)을 다듬었는데 선분 식별자(segment — 0.16.0, 선분 위 점과 그 다듬은 점에 실린다)가 없으면
+ * 면 위 점을 곡면 위로 다듬은 것('face'), 아니면 refined 그대로
+ */
+export function refinedKind(p: { snap?: SnapKind | null; refined?: boolean; segment?: unknown } | null | undefined): Refined {
+  if (!p?.refined) return false;
+  return !p.snap && !p.segment ? 'face' : true;
+}
 
 /** 잠근 선 위 점 이름 뒤에 붙는 글(" · "로 이어 조각마다 번역된다) */
 export const LOCKED_LABEL = '잠금';
@@ -266,8 +303,9 @@ export const TANGENT_LABEL = '접선 방향';
 /**
  * 측정 결과의 두 점 붙잡기 이름(붙잡기를 켠 결과 — snapA·snapB가 있을 때만, 둘 다 붙잡지 않고 다듬지도 않은 점이면 null).
  * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향".
- * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점".
- * 잠근 선이 모서리와 만나는 점·면을 뚫는 점으로 찍었으면(lockMeetB — 찍은 점의 lockMeet, 코어 0.19.0) "잠근 X축 · 모서리 위"
+ * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점", 곡면 위로 다듬었으면('face' — refinedKind) "곡면 위 점".
+ * 잠근 선이 모서리와 만나는 점·면을 뚫는 점·끌어온 점의 축과 만나는 점으로 찍었으면(lockMeetB — 찍은 점의 lockMeet, 코어 0.19.0·0.21.0) "잠근 X축 · 모서리 위"·
+ * "잠근 X축 · 끌어온 점 Y축 위"
  */
 export function snapPair(m: {
   snapA?: SnapKind | null;
@@ -276,24 +314,26 @@ export function snapPair(m: {
   axisB?: SnapAxis;
   lockedB?: boolean;
   tangentB?: boolean;
-  refinedA?: boolean;
-  refinedB?: boolean;
+  refinedA?: Refined;
+  refinedB?: Refined;
   trackA?: TrackMark | boolean;
   trackB?: TrackMark | boolean;
-  lockMeetB?: 'edge' | 'face';
+  lockMeetB?: LockMeet;
 }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB && !m.refinedA && !m.refinedB) return null;
-  const a = snapLabel(m.snapA, m.axisA, !!m.refinedA, m.trackA ?? false);
+  const a = snapLabel(m.snapA, m.axisA, m.refinedA ?? false, m.trackA ?? false);
   if (m.lockedB && m.lockMeetB) return [a, lockMeetLabel(m.snapB === 'axis' ? m.axisB : null, m.lockMeetB, !!m.tangentB)];
-  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, !!m.refinedB, m.trackB ?? false);
+  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, m.refinedB ?? false, m.trackB ?? false);
   return [a, m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
 /**
  * 측정 중 커서 아래 붙잡을 점(코어 measureHoverSnap)의 이름: 상태 막대·측정 띠에 보인다. 커서 아래에 아무것도 없으면 null,
- * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점'). 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금".
- * 잠근 선이 모서리와 만나는 점·면을 뚫는 점(코어 0.19.0 lockEdges·lockFaces — lockMeet)이면 "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위"
+ * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점', B-rep 곡면 위로 다듬은 점이면 '곡면 위 점').
+ * 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금".
+ * 잠근 선이 모서리와 만나는 점·면을 뚫는 점(코어 0.19.0 lockEdges·lockFaces — lockMeet)이면 "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위",
+ * 끌어온 점의 축과 만나는 점·끌어온 점과 나란한 자리(0.21.0 lockTracks)면 "잠근 X축 · 끌어온 점 Y축 위"·"잠근 X축 · 끌어온 점과 나란히"
  */
 export function hoverSnapLabel(
   h:
@@ -316,7 +356,7 @@ export function hoverSnapLabel(
   const meet = lockMeet(h);
   if (meet) return lockMeetLabel(h.snap === 'axis' ? h.axis : null, meet, tangent);
   // 축 위 점(trackMark): 끌어온 축·모서리 위·면 위·축끼리의 교차(첫 점 축 위 나란한 자리는 그 축 방향 그대로)
-  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, !!h.refined, h.snap === 'axis' ? trackMark(h) : false);
+  const name = tangent && h.locked ? TANGENT_LABEL : snapLabel(h.snap, h.axis, refinedKind(h), h.snap === 'axis' ? trackMark(h) : false);
   return h.locked ? `${name} · ${LOCKED_LABEL}` : name;
 }
 

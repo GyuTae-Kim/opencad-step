@@ -11,6 +11,8 @@
  *   교점이 어느 삼각형 안(허용치 tol — 교점과 코어 점 사이의 두 배, 곧 곡면이 삼각형에서 벗어난 만큼)인지 본다. 경계 밖이면 null(코어 점 그대로)
  * 결과는 넘긴 값과 면 표·그물·곡면 정의로만 정해진다(커서 광선을 쓰지 않는다 — 코어가 커서 광선을 빼고 기억한다).
  * 직선은 line.origin·line.dir만 읽는다(코어 0.20.0부터 축이 아닌 잠근 선은 line.axis가 없다 — 같은 계산으로 다듬는다).
+ * 코어 0.21.0부터 붙잡지 않은 면 위 점도 'onFace'(line = 커서 광선)로 온다. 그때는 코어 점에 가장 가까운 근 대신 광선 쪽 첫 근(앞을 보는 곡면 위 — onFaceHit)이다.
+ * 0.22.0 열린 후보('axisFace', open)는 열리지 않은 것과 같은 계산이다(point 둘레 교점 — 만나지 않거나 면 경계 밖이면 null)
  */
 import type { SnapRefineFaceInput } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
@@ -86,31 +88,78 @@ function nearestRoot(A: number, B: number, C: number, s0: number): number | null
   return best;
 }
 
+/** A s² + B s + C = 0의 실근 모두(작은 차례 — onFaceHit이 광선 쪽 첫 근을 고른다, 없으면 빈 배열). 근은 nearestRoot와 같은 꼴로 구한다 */
+function quadRoots(A: number, B: number, C: number): number[] {
+  const scale = Math.max(Math.abs(A), Math.abs(B), Math.abs(C));
+  if (!(scale > 0) || !Number.isFinite(scale)) return [];
+  if (Math.abs(A) <= 1e-12 * scale) return Math.abs(B) > 1e-12 * scale ? [-C / B] : [];
+  const D = B * B - 4 * A * C;
+  if (!(D >= 0)) return [];
+  const q = -0.5 * (B + (B < 0 ? -1 : 1) * Math.sqrt(D));
+  const roots = [q / A];
+  if (q !== 0) roots.push(C / q);
+  return roots.filter(Number.isFinite).sort((x, y) => x - y);
+}
+
+/** 해석 곡면 매개변수(면 표 p)의 반지름 둘·단위 축·원점(틀리면 null) */
+function analyticFrame(p: ArrayLike<number>): { r1: number; r2: number; a: V3; o: V3 } | null {
+  const r1 = p[0]!;
+  const a = unit([p[2]!, p[3]!, p[4]!]);
+  return a && r1 > 0 ? { r1, r2: p[1]!, a, o: [p[5]!, p[6]!, p[7]!] } : null;
+}
+
+/** 이차 곡면(원기둥·구·원뿔)과 직선(w = 직선 시작 − 원점, D 단위)의 이차식 계수 A s² + B s + C. 원환·모르는 곡면이면 null */
+function quadricCoeffs(kind: string, r1: number, r2: number, a: V3, w: V3, D: V3): [number, number, number] | null {
+  const hD = dot(D, a);
+  const h0 = dot(w, a);
+  if (kind === 'cylinder') return [1 - hD * hD, 2 * (dot(w, D) - h0 * hD), dot(w, w) - h0 * h0 - r1 * r1];
+  if (kind === 'sphere') return [1, 2 * dot(w, D), dot(w, w) - r1 * r1];
+  if (kind === 'cone') {
+    const t = Math.tan(r2);
+    if (!Number.isFinite(t)) return null;
+    const rh = r1 + t * h0;
+    return [1 - hD * hD - t * t * hD * hD, 2 * (dot(w, D) - h0 * hD - t * hD * rh), dot(w, w) - h0 * h0 - rh * rh];
+  }
+  return null;
+}
+
 /**
  * 해석 곡면(면 표 매개변수 p = [r1, r2, 축 3, 원점 3], 그물 좌표)과 직선(O + s D, D 단위)의 교점 가운데 코어 점 P에 가장 가까운 것.
  * 원기둥 |d⊥| = r, 원뿔 |d⊥| = r1 + h tan r2(h = 축 방향 높이 — 원점이 반지름 r1인 자리), 구 |d| = r는 이차식, 원환 (|d⊥| − R)² + h² = r²는 뉴턴법
  */
 export function analyticHit(kind: string, p: ArrayLike<number>, O: V3, D: V3, P: V3): SurfaceHit | null {
-  const r1 = p[0]!;
-  const r2 = p[1]!;
-  const a = unit([p[2]!, p[3]!, p[4]!]);
-  const o: V3 = [p[5]!, p[6]!, p[7]!];
-  if (!a || !(r1 > 0)) return null;
+  const fr = analyticFrame(p);
+  if (!fr) return null;
+  const { r1, r2, a, o } = fr;
   const w = sub(O, o);
   const s0 = dot(sub(P, O), D);
-  const hD = dot(D, a);
-  const h0 = dot(w, a);
   let s: number | null;
-  if (kind === 'cylinder') s = nearestRoot(1 - hD * hD, 2 * (dot(w, D) - h0 * hD), dot(w, w) - h0 * h0 - r1 * r1, s0);
-  else if (kind === 'sphere') s = nearestRoot(1, 2 * dot(w, D), dot(w, w) - r1 * r1, s0);
-  else if (kind === 'cone') {
-    const t = Math.tan(r2);
-    if (!Number.isFinite(t)) return null;
-    const rh = r1 + t * h0;
-    s = nearestRoot(1 - hD * hD - t * t * hD * hD, 2 * (dot(w, D) - h0 * hD - t * hD * rh), dot(w, w) - h0 * h0 - rh * rh, s0);
-  } else if (kind === 'torus') s = torusRoot(r1, r2, a, w, D, s0);
-  else return null;
+  if (kind === 'torus') s = torusRoot(r1, r2, a, w, D, s0);
+  else {
+    const q = quadricCoeffs(kind, r1, r2, a, w, D);
+    if (!q) return null;
+    s = nearestRoot(q[0], q[1], q[2], s0);
+  }
   if (s === null || !Number.isFinite(s)) return null;
+  return analyticAt(kind, fr, O, D, s);
+}
+
+/**
+ * 해석 곡면과 직선의 교점 매개변수 후보(onFaceHit): 이차 곡면이면 두 근 모두(작은 차례), 원환이면 s0에서 시작한 뉴턴법의 근 하나. 없으면 빈 배열
+ */
+function analyticRoots(kind: string, fr: { r1: number; r2: number; a: V3; o: V3 }, O: V3, D: V3, s0: number): number[] {
+  const w = sub(O, fr.o);
+  if (kind === 'torus') {
+    const s = torusRoot(fr.r1, fr.r2, fr.a, w, D, s0);
+    return s === null || !Number.isFinite(s) ? [] : [s];
+  }
+  const q = quadricCoeffs(kind, fr.r1, fr.r2, fr.a, w, D);
+  return q ? quadRoots(q[0], q[1], q[2]) : [];
+}
+
+/** 해석 곡면 위 직선 매개변수 s 자리의 교점 X와 곡면 법선(단위, 부호는 상관없다 — 못 구하면 null) */
+function analyticAt(kind: string, fr: { r1: number; r2: number; a: V3; o: V3 }, O: V3, D: V3, s: number): SurfaceHit | null {
+  const { r1, r2, a, o } = fr;
   const X = addK(O, D, s);
   const d = sub(X, o);
   const h = dot(d, a);
@@ -351,10 +400,64 @@ function triangleRetry(mesh: Mesh3d, t: number): ParamRetry | null {
   return starts.every((s) => s.every(Number.isFinite)) && reach > 0 ? { starts, reach } : null;
 }
 
+/** onFaceHit이 광선 쪽 앞 근을 다시 찾을 때 시작점(코어 점에서 광선을 거슬러 그 삼각형의 가장 긴 변 × 이 비율 — 가까운 것부터) */
+const EARLIER = [0.05, 0.25, 1] as const;
+
+/**
+ * 붙잡지 않은 면 위 점(코어 0.21.0 'onFace' — line = 커서 광선, point = 광선이 맞은 그물 삼각형 위 점)을 B-rep 곡면 위로: 광선이 그 곡면을 뚫는 점 가운데
+ * 광선 쪽 첫 근(그물 좌표 — 못 구하면 null). 받는 근은
+ * - 코어 점에서 그 삼각형의 가장 긴 변 안(맞은편 근·멀리 떨어진 곡면의 근이 아니다 — 코어는 그 0.1배 안만 받는다)
+ * - 그 자리 곡면 법선이 광선에 대해 맞은 삼각형과 같은 쪽을 본다: 닫힌 입체를 밖에서 보면 들어가는 근이다. 실루엣 둘레를 스치는 광선은 한 삼각형 둘레에서
+ *   곡면에 들어갔다 나오는데(코어 점이 두 근 사이), 나가는 근은 뒤쪽 면이라 받지 않는다(코어 점에 가장 가까운 근을 고르면 그쪽일 수 있다)
+ * - 면의 경계 안(refineFaceHit의 insideFace 규칙)
+ * 원기둥·구·원뿔은 두 근을 모두 보고, 원환·곡면 정의로 푸는 면은 코어 점에서 푼 근이 뒤쪽이면 광선을 거슬러 다시 푼다(EARLIER). 받는 근 가운데 광선 매개변수가 가장 작은 것
+ */
+function onFaceHit(
+  mesh: Mesh3d,
+  table: StepFaceTable,
+  f: number,
+  t: number,
+  solveAt: (s: number, first: boolean) => SurfaceHit[],
+  quadric: boolean,
+  O: V3,
+  D: V3,
+  P: V3,
+): SurfaceHit | null {
+  const tri = triangleRetry(mesh, t);
+  if (!tri) return null;
+  const [A, B, C] = tri.starts as [V3, V3, V3];
+  const nt = cross(sub(B, A), sub(C, A));
+  const ntD = dot(nt, D);
+  const sAt = (h: SurfaceHit): number => dot(sub(h.X, O), D);
+  // 곡면 법선을 삼각형 법선 쪽으로 돌렸을 때 광선과의 내적 부호가 삼각형과 같은지(0이면 같다고 본다 — 두 근이 겹친 접점)
+  const facing = (h: SurfaceHit): boolean => Math.sign(dot(h.n, nt)) * dot(h.n, D) * ntD >= 0;
+  const near = (h: SurfaceHit): boolean => norm(sub(h.X, P)) <= tri.reach;
+  const sP = dot(sub(P, O), D);
+  const found = solveAt(sP, true).filter(near);
+  if (!quadric && !found.some(facing)) {
+    // 코어 점에서 푼 근이 뒤쪽(실루엣을 스치며 나가는 근)이거나 없다 — 광선을 거슬러 앞 근을 찾는다(앞 근은 찾은 근보다 광선 쪽이다)
+    const s1 = found.length ? Math.min(...found.map(sAt)) : Infinity;
+    for (const k of EARLIER) {
+      for (const h of solveAt(sP - k * tri.reach, false)) if (near(h) && sAt(h) < s1) found.push(h);
+      if (found.some(facing)) break;
+    }
+  }
+  let best: SurfaceHit | null = null;
+  for (const h of found) {
+    if (!facing(h) || (best && sAt(best) <= sAt(h))) continue;
+    const mag = Math.max(Math.abs(h.X[0]), Math.abs(h.X[1]), Math.abs(h.X[2]));
+    const tol = 2 * Math.hypot(h.X[0] - P[0], h.X[1] - P[1], h.X[2] - P[2]) + 1e-6 * (1 + mag);
+    if (insideFace(mesh, table, f, h.X, h.n, tol)) best = h;
+  }
+  return best;
+}
+
 /**
  * 코어 refineFace 입력 → 축 직선과 그 면의 B-rep 곡면의 교점(세계, 축 직선 위 점). 평면·다각형·삼각형 면, 면 표가 없는 그물, 단면의 채운 면(삼각형 번호 −1),
  * 곡면 정의를 아직 받지 않은 곡면, 교점이 없거나 그 면의 경계 밖이면 null(규칙은 머리글). 곡면 정의로 푸는 면은 코어 점에서 수렴하지 않으면
- * 그 삼각형 꼭짓점·매개변수 격자에서 다시 푼다(paramHit retry — 코어 점에서 그 삼각형의 가장 긴 변 안인 교점만)
+ * 그 삼각형 꼭짓점·매개변수 격자에서 다시 푼다(paramHit retry — 코어 점에서 그 삼각형의 가장 긴 변 안인 교점만).
+ * 코어 0.21.0 'onFace'(붙잡지 않은 면 위 점 — line이 커서 광선)는 같은 곡면에서 광선 쪽 첫 근을 고른다(onFaceHit — 실루엣 둘레의 뒤쪽 근을 받지 않는다).
+ * 0.22.0 열린 후보('axisFace', open — 선이 삼각형을 비켜 가며 곡면만 뚫는 자리)도 point 둘레에서 같은 계산이다
  */
 export function refineFaceHit(c: SnapRefineFaceInput, meshes: ReadonlyMap<string, Mesh3d>, fx: SnapFaceIndex, lookup: FaceSurfaceLookup | null = null): V3 | null {
   const mesh = meshes.get(c.face.id);
@@ -371,6 +474,22 @@ export function refineFaceHit(c: SnapRefineFaceInput, meshes: ReadonlyMap<string
   const D = dirToLocal(mesh, c.line.dir);
   if (!P || !O || !D) return null;
   let hit: SurfaceHit | null;
+  if (c.kind === 'onFace') {
+    const fr = analytic ? analyticFrame(table.params.subarray(f * 8, f * 8 + 8)) : null;
+    const fs = analytic ? null : lookup!(ti, f);
+    if (analytic ? !fr : !fs) return null;
+    const retry = analytic ? null : triangleRetry(mesh, c.face.index);
+    // 광선 매개변수 s 둘레의 근: 해석 곡면은 analyticRoots(이차 곡면은 두 근), 곡면 정의는 paramHit(처음은 코어 점에서 다시 풀기까지, 그 뒤는 광선 위 점에서)
+    const solveAt = (s: number, first: boolean): SurfaceHit[] => {
+      if (fr) return analyticRoots(kind, fr, O.p, D, s).flatMap((r) => analyticAt(kind, fr, O.p, D, r) ?? []);
+      const h = paramHit(fs!, O.p, D, first ? P.p : addK(O.p, D, s), first ? retry : null);
+      return h ? [h] : [];
+    };
+    hit = onFaceHit(mesh, table, f, c.face.index, solveAt, analytic && kind !== 'torus', O.p, D, P.p);
+    if (!hit) return null;
+    const w = toWorld(mesh, hit.X[0], hit.X[1], hit.X[2]);
+    return w.every(Number.isFinite) ? w : null;
+  }
   if (analytic) hit = analyticHit(kind, table.params.subarray(f * 8, f * 8 + 8), O.p, D, P.p);
   else {
     const fs = lookup!(ti, f);
