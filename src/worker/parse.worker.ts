@@ -1,6 +1,7 @@
 /**
  * STEP 해석 워커: 파일 바이트를 화면 밖에서 해석해 Scene3d로 돌려준다(일은 src/app/job.ts — 압축 STEP 풀기 포함).
  * 진행률(onProgress)은 60ms에 한 번 이하로 알리고, 결과의 형식 배열은 이전 가능한 버퍼로 넘긴다(protocol.ts collectTransfers).
+ * 그물 법선은 넘기기 전에 Int8 정점 4값으로 줄인다(normals.ts — 해석기 stepToScene은 Float32 그대로).
  *
  * 닫힌 입체의 질량 속성(곡면 적분)은 해석 결과에 넣지 않고 적분 거리만 남긴다. 화면이 문서를 보인 뒤 'props'를 보내면
  * 면 단위로 나눠(PROPS_SLICE_MS마다 쉬며) 적분해 끝낸 입체의 값을 'props'로 보낸다. 새 해석 요청이 오면 앞 문서의 적분은 그만둔다.
@@ -9,6 +10,7 @@
  */
 /// <reference lib="webworker" />
 import { parseStepFile } from '../app/job';
+import { packSceneNormals } from '../app/normals';
 import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest, type SurfacesRequest } from '../app/protocol';
 import { dropFaceSurfaceCaches, type FaceSurfacePayload, packFaceSurfaces } from '../facesurf';
 import type { FaceSurfaceSet, MassPropsJob } from '../scene';
@@ -115,6 +117,8 @@ ctx.onmessage = async (ev: MessageEvent<ParseRequest | PropsRequest | SurfacesRe
   const held = surfaces as { id: number; set: FaceSurfaceSet } | null;
   const job = props as { id: number } | null;
   if (held?.id === req.id && job?.id !== req.id) dropFaceSurfaceCaches(held.set);
+  // 법선은 Int8 정점 4값으로 줄여 넘긴다(옮기는 버퍼·화면 쪽 메모리·GPU 버퍼 — normals.ts)
+  packSceneNormals(result.scene);
   try {
     post({ id: req.id, type: 'done', result }, collectTransfers(result));
   } catch {
