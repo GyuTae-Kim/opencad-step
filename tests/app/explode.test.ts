@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LineSet3d, Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import type { ProductNode, StepDoc } from '../../src/app/doc';
-import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, type ExplodeMode, type ExplodePlan } from '../../src/app/explode';
+import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, type ExplodeAxis, type ExplodeMode, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeControls } from '../../src/app/explodebar';
 import { translate } from '../../site/i18n.mjs';
 
@@ -142,7 +142,7 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
   it('방식 단추(라디오)를 누르면 알리고, 조립 단계별이면 "단계 2/3", 한꺼번에·닫힌 막대면 단계 글을 숨긴다', () => {
     const picked: ExplodeMode[] = [];
     const c = new ExplodeControls((m) => picked.push(m));
-    const [seg, stage] = c.els as [HTMLElement, HTMLElement];
+    const [seg, , stage] = c.els as [HTMLElement, HTMLElement, HTMLElement];
     const btns = [...seg.querySelectorAll<HTMLButtonElement>('button')];
     expect(btns.map((b) => b.textContent)).toEqual(['단계별', '한꺼번에']);
     btns[1]!.click();
@@ -174,5 +174,111 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     expect(p.steps.has('w7')).toBe(false);
     expect(c.moves(d, 'step', 1).get('p5')).toEqual(explodeMoves(explodePlan(meshes, [asm()], 'step'), 1).get('p5'));
     expect(c.moves(d, 'step', 1).has('w7')).toBe(false);
+  });
+
+  it('방향 단추(사방·X·Y·Z — 라디오)를 누르면 알리고, 단추·단계 글이 방향을 따르며, 계획은 방향마다 한 번', () => {
+    const axes: ExplodeAxis[] = [];
+    const c = new ExplodeControls(
+      () => {},
+      (a) => axes.push(a),
+    );
+    const [seg, group, stage] = c.els as [HTMLElement, HTMLElement, HTMLElement];
+    const btns = [...group.querySelectorAll<HTMLButtonElement>('button')];
+    expect(btns.map((b) => b.textContent)).toEqual(['사방', 'X', 'Y', 'Z']);
+    expect(group.getAttribute('role')).toBe('radiogroup');
+    expect(btns.every((b) => b.getAttribute('role') === 'radio' && b.type === 'button')).toBe(true);
+    btns[3]!.click();
+    btns[1]!.click();
+    expect(axes).toEqual(['z', 'x']);
+    const d = doc(0.9);
+    c.sync(d, 'step', true);
+    expect(btns.map((b) => b.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false']);
+    expect(stage.textContent).toBe('단계 3/3');
+    // X로만: 그 축으로 움직이는 단계가 둘(S3 안은 X로 움직이지 않는다)
+    c.sync(d, 'step', true, 'x');
+    expect(btns.map((b) => b.classList.contains('on'))).toEqual([false, true, false, false]);
+    expect(btns.map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false', 'false']);
+    expect(stage.textContent).toBe('단계 2/2');
+    // Z로만: 움직일 것이 없어 단계 글을 숨긴다
+    c.sync(d, 'step', true, 'z');
+    expect(stage.hidden).toBe(true);
+    // 계획: 방식·방향마다 한 번, 방향 없이 부르면 사방
+    const px = c.plan(d, 'step', 'x');
+    expect(c.plan(d, 'step', 'x')).toBe(px);
+    expect(c.plan(d, 'step')).toBe(c.plan(d, 'step', 'free'));
+    expect(c.plan(d, 'step')).not.toBe(px);
+    expect(c.plan(d, 'all', 'x')).not.toBe(px);
+    expect(c.moves(d, 'step', 1, 'x').get('p5')).toEqual([10 * k, 0, 0]);
+    // 번역(4개 언어 사전)
+    for (const lang of ['en', 'ja', 'zh-CN', 'de'])
+      for (const text of [...btns.flatMap((b) => [b.textContent!, b.title]), group.getAttribute('aria-label')!]) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
+    expect(seg.getAttribute('aria-label')).not.toBe(group.getAttribute('aria-label'));
+  });
+});
+
+describe('분해 보기: 한 축 방향으로만', () => {
+  const free = explodePlan(items, [asm()], 'step');
+  const only = (v: number[], axis: 'x' | 'y' | 'z') => v.map((x, i) => (i === 'xyz'.indexOf(axis) ? x : 0));
+
+  it('방향을 주지 않으면 사방(예전과 같은 계획)', () => {
+    expect(explodePlan(items, [asm()], 'step', 'free')).toEqual(free);
+    expect(free.axis).toBe('free');
+    expect(explodePlan(items, [asm()], 'all')).toEqual(explodePlan(items, [asm()], 'all', 'free'));
+  });
+
+  it('100%에서는 사방 분해 자리의 그 축 성분과 같다(두 방식 모두), 다른 축 성분은 0', () => {
+    for (const mode of ['step', 'all'] as const) {
+      const f = explodePlan(items, [asm()], mode);
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const p = explodePlan(items, [asm()], mode, axis);
+        for (const m of items) expect(at(p, 1, m.id), `${mode} ${axis} ${m.id}`).toEqual(only(at(f, 1, m.id), axis));
+      }
+    }
+  });
+
+  it('X로만(조립 단계별): 첫 단계에 하위 조립이 X로만 떨어지고 X로 같은 자리인 부품은 제자리, X로 움직이지 않는 셋째 단계는 건너뛴다', () => {
+    const p = explodePlan(items, [asm()], 'step', 'x');
+    expect(p.levels).toBe(2);
+    expect([0.25, 0.5, 0.75, 1].map((t) => explodeStage(p, t))).toEqual([1, 1, 2, 2]);
+    // 첫 단계 끝(50%): S1 통째로 −8, S2(S3 포함) +8, p7은 X로 조립 가운데라 제자리
+    expect(at(p, 0.5, 'p1')).toEqual([-8 * k, 0, 0]);
+    expect(at(p, 0.5, 'p2')).toEqual(at(p, 0.5, 'p1'));
+    for (const id of ['p3', 'p5', 'p6']) expect(at(p, 0.5, id)).toEqual([8 * k, 0, 0]);
+    expect(explodeMoves(p, 1).has('p7')).toBe(false);
+    expect(explodeMoves(p, 1).has('w7')).toBe(false);
+    // 둘째 단계 끝(100%): 하위 조립 안이 ±2, S3 안의 p5·p6은 X로 같은 자리라 함께
+    expect(at(p, 1, 'p1')).toEqual([-10 * k, 0, 0]);
+    expect(at(p, 1, 'p5')).toEqual(at(p, 1, 'p6'));
+  });
+
+  it('Y로만(조립 단계별): Y로 움직이는 것이 없는 둘째 단계를 건너뛰어 S3 안이 둘째 구간에 벌어진다', () => {
+    const p = explodePlan(items, [asm()], 'step', 'y');
+    expect(p.levels).toBe(2);
+    expect(at(p, 0.5, 'p7')).toEqual([0, 7 * k, 0]);
+    expect(at(p, 0.5, 'w7')).toEqual(at(p, 0.5, 'p7'));
+    expect(at(p, 0.5, 'p5')).toEqual([0, -3 * k, 0]);
+    expect(at(p, 0.5, 'p6')).toEqual(at(p, 0.5, 'p5'));
+    expect(at(p, 0.75, 'p5')).toEqual([0, (-3 + 2) * k, 0]);
+    expect(at(p, 1, 'p5')).toEqual([0, (-3 + 4) * k, 0]);
+    expect(at(p, 1, 'p6')).toEqual([0, (-3 - 4) * k, 0]);
+    // 같은 S1 안의 p1·p2는 Y로 같은 자리라 끝까지 함께
+    expect(at(p, 1, 'p1')).toEqual(at(p, 1, 'p2'));
+  });
+
+  it('한꺼번에 + 축 하나: 모든 밀대 자리에서 사방 분해의 그 축 성분, 평평한 판(Z로 모두 같은 자리)을 Z로 벌리면 아무것도 움직이지 않는다', () => {
+    const f = explodePlan(items, [asm()], 'all');
+    const p = explodePlan(items, [asm()], 'all', 'y');
+    expect(p.levels).toBe(1);
+    for (const t of [0.2, 0.6]) for (const m of items) expect(at(p, t, m.id)).toEqual(only(at(f, t, m.id), 'y'));
+    const z = explodePlan(items, [asm()], 'step', 'z');
+    expect(z.levels).toBe(0);
+    expect(explodeMoves(z, 1).size).toBe(0);
+    expect(explodeStage(z, 0.7)).toBe(0);
+  });
+
+  it('방향을 바꿨다 사방으로 되돌리면 같은 이동(계획은 방향마다 따로라 앞 방향이 남지 않는다)', () => {
+    const before = explodeMoves(explodePlan(items, [asm()], 'step'), 0.6);
+    explodeMoves(explodePlan(items, [asm()], 'step', 'z'), 0.6);
+    expect(explodeMoves(explodePlan(items, [asm()], 'step', 'free'), 0.6)).toEqual(before);
   });
 });

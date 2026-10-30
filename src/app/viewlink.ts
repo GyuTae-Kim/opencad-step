@@ -5,10 +5,11 @@
  * #view=cam:tx,ty,tz,distance,yaw,pitch,p|o;sec:nx,ny,nz,offset;sel:0/2/1,0/3.2;iso:1;exp:60,step
  * (수는 유효 숫자 7자리, 각은 라디안, p = 원근·o = 평행)
  * sel은 나무 자리 낱말을 쉼표로 이은 것(마디·몸체·이웃 범위 — 만들고 푸는 것은 selink.ts). 예전 링크의 마디 하나(sel:0/2/1)도 같은 꼴이다.
- * exp는 분해 정도(1~100%)와 방식(step = 조립 단계별, all = 한꺼번에 — 방식이 없으면 step). 예전 앱은 모르는 열쇠라 건너뛴다.
+ * exp는 분해 정도(1~100%)와 방식(step = 조립 단계별, all = 한꺼번에 — 방식이 없으면 step), 축 하나로만 벌리면 셋째 값으로 그 축
+ * (x·y·z — 예: exp:60,step,z, 없으면 사방). 예전 앱은 모르는 열쇠라 건너뛰고, 축을 모르는 앱은 셋째 값을 건너뛰어 사방으로 벌린다.
  */
 import type { CameraState } from 'opencad-viewer3d';
-import type { ExplodeMode } from './explode';
+import type { ExplodeAxis, ExplodeMode } from './explode';
 
 export interface ViewLink {
   cam?: Pick<CameraState, 'target' | 'distance' | 'yaw' | 'pitch' | 'projection'>;
@@ -18,11 +19,13 @@ export interface ViewLink {
   sel?: string[];
   /** 고른 것만 보기(격리) */
   iso?: boolean;
-  /** 분해 보기: 정도(0~1, 링크에는 1~100%)와 방식 */
-  exp?: { t: number; mode: ExplodeMode };
+  /** 분해 보기: 정도(0~1, 링크에는 1~100%)와 방식, 축 하나로만 벌리면 그 축(없으면 사방) */
+  exp?: { t: number; mode: ExplodeMode; axis?: Exclude<ExplodeAxis, 'free'> };
 }
 
 const n7 = (v: number) => String(Number(v.toPrecision(7)));
+/** 분해 축 낱말(사방은 링크에 적지 않는다) */
+const AXES: ReadonlySet<string> = new Set(['x', 'y', 'z']);
 /** 나무 자리 낱말 꼴(마디·몸체, 범위) */
 const TOKEN = /^\d+(?:\/\d+)*(?:\.\d+)?(?:-\d+)?$/;
 const okSel = (s: readonly string[] | undefined): s is string[] => !!s?.length && s.length <= 5000 && s.every((t) => TOKEN.test(t));
@@ -38,7 +41,10 @@ export function encodeViewLink(v: ViewLink): string {
   const sel = okSel(v.sel);
   if (sel) parts.push(`sel:${v.sel!.join(',')}`);
   if (v.iso && sel) parts.push('iso:1');
-  if (v.exp && v.exp.t > 0) parts.push(`exp:${Math.max(1, Math.min(100, Math.round(v.exp.t * 100)))},${v.exp.mode === 'all' ? 'all' : 'step'}`);
+  if (v.exp && v.exp.t > 0) {
+    const ax = v.exp.axis && AXES.has(v.exp.axis) ? `,${v.exp.axis}` : '';
+    parts.push(`exp:${Math.max(1, Math.min(100, Math.round(v.exp.t * 100)))},${v.exp.mode === 'all' ? 'all' : 'step'}${ax}`);
+  }
   return parts.length ? `view=${parts.join(';')}` : '';
 }
 
@@ -72,9 +78,12 @@ export function decodeViewLink(hash: string): ViewLink | null {
     }
     else if (key === 'iso') out.iso = val === '1';
     else if (key === 'exp') {
-      const [pct, mode] = val.split(',');
+      const [pct, mode, axis] = val.split(',');
       const n = Number(pct);
-      if (pct && Number.isFinite(n) && n > 0) out.exp = { t: Math.min(100, n) / 100, mode: mode === 'all' ? 'all' : 'step' };
+      if (pct && Number.isFinite(n) && n > 0) {
+        out.exp = { t: Math.min(100, n) / 100, mode: mode === 'all' ? 'all' : 'step' };
+        if (axis && AXES.has(axis)) out.exp.axis = axis as 'x' | 'y' | 'z';
+      }
     }
   }
   if (out.iso && !out.sel) delete out.iso;

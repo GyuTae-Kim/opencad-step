@@ -48,7 +48,7 @@ import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
-import type { ExplodeMode } from './explode';
+import type { ExplodeAxis, ExplodeMode } from './explode';
 import type { ExplodeControls } from './explodebar';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
@@ -280,7 +280,9 @@ export class StepApp {
   explodeOpen = false;
   /** 분해 방식: 조립 단계별(바깥 조립부터 한 단계씩) · 한꺼번에 — 이 창에서 마지막에 고른 것 */
   explodeMode: ExplodeMode = 'step';
-  /** 분해 조각(explodebar.ts·explode.ts — 방식 단추·단계 글·계획, 첫 화면 JS 밖, 문서를 열 때 받는다) */
+  /** 분해 방향: 사방(기본) · 장면 X·Y·Z축 하나로만 — 이 창에서 마지막에 고른 것 */
+  explodeAxis: ExplodeAxis = 'free';
+  /** 분해 조각(explodebar.ts·explode.ts — 방식·방향 단추·단계 글·계획, 첫 화면 JS 밖, 문서를 열 때 받는다) */
   private explodeUi: ExplodeControls | null = null;
   private explodeLoad: Promise<unknown> | null = null;
   // ── 최근 문서(시작 화면) ──
@@ -1655,7 +1657,7 @@ export class StepApp {
       opacity: d.opacity,
       dim: d.dim,
       partColors: this.partColors,
-      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode) } : {}),
+      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode, this.explodeAxis) } : {}),
       fixed: d.vis.pmiIds,
     });
     this.lookMoves = new Map();
@@ -1759,11 +1761,22 @@ export class StepApp {
     this.syncExplode();
   }
 
-  /** 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식 단추를 막대에 끼우고 지금 문서의 분해를 다시 건다 */
+  /** 분해 방향 바꾸기(사방 · X·Y·Z축 하나로만) — 분해 정도·방식은 그대로 */
+  setExplodeAxis(axis: ExplodeAxis): void {
+    if (this.explodeAxis === axis) return;
+    this.explodeAxis = axis;
+    this.applyLooks();
+    this.syncExplode();
+  }
+
+  /** 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식·방향 단추를 막대에 끼우고 지금 문서의 분해를 다시 건다 */
   private loadExplode(): Promise<unknown> {
     return (this.explodeLoad ??= import('./explodebar').then(
       (m) => {
-        this.explodeUi = new m.ExplodeControls((k) => this.setExplodeMode(k));
+        this.explodeUi = new m.ExplodeControls(
+          (k) => this.setExplodeMode(k),
+          (k) => this.setExplodeAxis(k),
+        );
         this.explodeOpts.append(...this.explodeUi.els);
         if (this.doc?.explode) this.applyLooks();
         this.syncExplode();
@@ -1797,8 +1810,8 @@ export class StepApp {
     this.explodeBar.hidden = !this.explodeOpen || !d;
     if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
     this.explodeValue.textContent = `${Math.round(t * 100)}%`;
-    // 방식 단추와 지금 벌리는 단계(조각을 받은 뒤)
-    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen);
+    // 방식·방향 단추와 지금 벌리는 단계(조각을 받은 뒤)
+    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis);
     this.toolbar.refresh();
   }
 
@@ -2466,7 +2479,7 @@ export class StepApp {
       if (fit.dropped) kept = sel.resolveTokens(d.products, fit.tokens).ids.length;
     }
     if (link.sel && d?.vis.isolated) link.iso = true;
-    if (d && d.explode > 0) link.exp = { t: d.explode, mode: this.explodeMode };
+    if (d && d.explode > 0) link.exp = { t: d.explode, mode: this.explodeMode, ...(this.explodeAxis !== 'free' ? { axis: this.explodeAxis } : {}) };
     return { url: viewUrl(location.href, link), kept, total: ids.length };
   }
 
@@ -2497,9 +2510,10 @@ export class StepApp {
       v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
     }
     if (link.sec) v.setSection(link.sec);
-    // 분해는 링크대로(방식과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다), 링크에 없으면 접는다
+    // 분해는 링크대로(방식·방향과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다, 방향이 없는 링크는 사방), 링크에 없으면 접는다
     if (link.exp) {
       this.explodeMode = link.exp.mode;
+      this.explodeAxis = link.exp.axis ?? 'free';
       this.explodeOpen = true;
       this.setExplode(link.exp.t);
     } else if (d.explode || this.explodeOpen) this.toggleExplode(false);

@@ -11,6 +11,11 @@
  * 100%에서 한 단계의 이동은 (자리 가운데 − 부모 가운데) × EXPLODE_SCALE이다. 마디에 바로 놓인 형상(부품의 몸체·선 형상)은
  * 한 덩어리로 움직이고, 나무에 없는 묶음은 하나씩 맨 위 단계에서 움직인다.
  *
+ * 방향(ExplodeAxis): 'free'(사방, 기본)는 위 이동 그대로이고, 'x'·'y'·'z'는 그 이동의 장면 축 성분만 쓴다(그 축으로만 벌린다 —
+ * 볼트·와셔처럼 한 축에 꿴 부품을 그 축으로 떼어 볼 때). 그 축으로는 부모 가운데와 같은 자리라 움직이지 않는 단위는 제자리이고,
+ * 조립 단계별에서 그 축으로 움직이는 것이 하나도 없는 단계는 건너뛴다(밀대 구간을 비워 두지 않는다). 100%에서는 사방 분해 자리의
+ * 그 축 성분과 같다(이동이 조상 이동의 합이고 축 성분만 남기기는 더하기와 바꿔 써도 같다).
+ *
  * 계획(explodePlan)은 묶음마다 범위를 한 번만 재서 단계별 이동 벡터를 남기고, 밀대를 움직일 때는 explodeMoves로 곱하기만 한다.
  */
 import { boxCenter, boxIsEmpty, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
@@ -20,6 +25,8 @@ import type { LookItem } from './looks';
 
 /** 분해 방식: 조립 단계별 · 한꺼번에 */
 export type ExplodeMode = 'step' | 'all';
+/** 분해 방향: 사방(자리 가운데가 부모 가운데에서 멀어지는 쪽, 기본) · 장면 X·Y·Z축 하나로만 */
+export type ExplodeAxis = 'free' | 'x' | 'y' | 'z';
 /** 분해 100%에서 자리가 부모(조립) 가운데에서 떨어진 거리의 몇 배를 더 옮기는지 */
 export const EXPLODE_SCALE = 1.5;
 
@@ -28,6 +35,7 @@ type V3 = [number, number, number];
 /** 분해 계획: 단계 수와 묶음마다 [단계(1부터), dx, dy, dz]를 이은 것(100%·배율 1 기준) */
 export interface ExplodePlan {
   mode: ExplodeMode;
+  axis: ExplodeAxis;
   /** 움직이는 단계 수(0이면 옮길 것이 없다) */
   levels: number;
   steps: Map<string, number[]>;
@@ -44,7 +52,7 @@ interface Unit {
  * 장면 묶음과 제품 나무로 분해 계획을 세운다. items는 움직일 묶음만(표현 PMI는 빼고) 준다.
  * 같은 묶음이 나무에 두 번 나오면 먼저 나온 자리만 쓴다(부품 색의 자리 나누기와 같다)
  */
-export function explodePlan(items: readonly LookItem[], products: readonly ProductNode[], mode: ExplodeMode): ExplodePlan {
+export function explodePlan(items: readonly LookItem[], products: readonly ProductNode[], mode: ExplodeMode, axis: ExplodeAxis = 'free'): ExplodePlan {
   const boxOf = new Map<string, Box3>();
   for (const m of items) boxOf.set(m.id, itemBounds(m));
   const seen = new Set<string>();
@@ -79,14 +87,17 @@ export function explodePlan(items: readonly LookItem[], products: readonly Produ
     if (u) top.push(u);
   }
   for (const m of items) if (!seen.has(m.id)) top.push(leaf([m.id]));
-  const plan: ExplodePlan = { mode, levels: 0, steps: new Map() };
+  const plan: ExplodePlan = { mode, axis, levels: 0, steps: new Map() };
   if (!top.length) return plan;
   const root = top.length === 1 ? top[0]! : group(top);
   if (boxIsEmpty(root.box)) return plan;
+  // 축 하나로만: 그 성분만 남긴다
+  const keep = axis === 'x' ? 0 : axis === 'y' ? 1 : axis === 'z' ? 2 : -1;
   const add = (u: Unit, level: number, from: V3): void => {
     if (boxIsEmpty(u.box)) return;
     const c = boxCenter(u.box);
     const d = [c[0] - from[0], c[1] - from[1], c[2] - from[2]];
+    if (keep >= 0) for (let k = 0; k < 3; k++) if (k !== keep) d[k] = 0;
     if (d[0] === 0 && d[1] === 0 && d[2] === 0) return;
     for (const id of u.ids) {
       let s = plan.steps.get(id);
@@ -114,7 +125,17 @@ export function explodePlan(items: readonly LookItem[], products: readonly Produ
     }
   };
   walk(root, 1);
+  if (keep >= 0) compactLevels(plan);
   return plan;
+}
+
+/** 축 하나로 벌릴 때 그 축으로 움직이는 것이 없는 단계를 빼고 단계 번호를 1부터 다시 매긴다 */
+function compactLevels(plan: ExplodePlan): void {
+  const used = new Set<number>();
+  for (const st of plan.steps.values()) for (let i = 0; i < st.length; i += 4) used.add(st[i]!);
+  const rank = new Map([...used].sort((a, b) => a - b).map((l, i) => [l, i + 1]));
+  for (const st of plan.steps.values()) for (let i = 0; i < st.length; i += 4) st[i] = rank.get(st[i]!)!;
+  plan.levels = rank.size;
 }
 
 /** 단계 하나의 진행(0~1): 밀대 t(0~1)를 단계 수로 고르게 나눈 구간에서 */

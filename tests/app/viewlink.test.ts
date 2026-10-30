@@ -99,4 +99,20 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
     // 카메라와 함께(예전 앱은 모르는 열쇠 exp를 건너뛰고 카메라만 쓴다)
     expect(decodeViewLink('#view=cam:1,2,3,50,0.5,-0.25,o;exp:60,all')).toMatchObject({ cam: { projection: 'orthographic' }, exp: { t: 0.6, mode: 'all' } });
   });
+
+  it('분해 방향: 축 하나(x·y·z)면 셋째 값으로 담고 되읽는다, 사방·없는 값·모르는 값은 담지 않고 사방으로 읽는다', () => {
+    expect(encodeViewLink({ exp: { t: 0.6, mode: 'step', axis: 'z' } })).toBe('view=exp:60,step,z');
+    expect(encodeViewLink({ exp: { t: 0.25, mode: 'all', axis: 'x' } })).toBe('view=exp:25,all,x');
+    for (const axis of ['x', 'y', 'z'] as const) expect(decodeViewLink(`#${encodeViewLink({ exp: { t: 0.5, mode: 'step', axis } })}`)).toEqual({ exp: { t: 0.5, mode: 'step', axis } });
+    // 사방(축 없음)은 예전 링크와 같은 꼴
+    expect(encodeViewLink({ exp: { t: 0.6, mode: 'step' } })).toBe('view=exp:60,step');
+    expect(decodeViewLink('#view=exp:60,step')).toEqual({ exp: { t: 0.6, mode: 'step' } });
+    expect('axis' in decodeViewLink('#view=exp:60,step')!.exp!).toBe(false);
+    // 모르는 축·대문자·빈 값은 건너뛴다(사방)
+    for (const odd of ['exp:60,step,w', 'exp:60,step,X', 'exp:60,step,', 'exp:60,all,free']) expect(decodeViewLink(`#view=${odd}`)!.exp!.axis, odd).toBeUndefined();
+    // 방식 없이 축만은 셋째 자리가 아니라 방식 자리라 단계별·사방
+    expect(decodeViewLink('#view=exp:60,z')).toEqual({ exp: { t: 0.6, mode: 'step' } });
+    // 다른 열쇠와 함께
+    expect(decodeViewLink('#view=cam:1,2,3,50,0.5,-0.25,p;sel:0/2;exp:80,all,y')).toMatchObject({ sel: ['0/2'], exp: { t: 0.8, mode: 'all', axis: 'y' } });
+  });
 });

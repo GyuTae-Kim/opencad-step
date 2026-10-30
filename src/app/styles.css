@@ -1753,12 +1753,14 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
-/* 분해 방식(단계별·한꺼번에)과 지금 단계 — 닫기 단추는 줄 끝(휴대폰은 둘째 줄로 내린다) */
+/* 분해 방식(단계별·한꺼번에)·방향(사방·X·Y·Z)과 지금 단계 — 닫기 단추는 줄 끝(휴대폰은 둘째 줄로 내리고, 좁으면 방향을 셋째 줄로) */
 .explode-opts {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
+  max-width: 100%;
 }
 .explode-bar > .icon-btn {
   order: 1;
