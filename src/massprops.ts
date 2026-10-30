@@ -21,7 +21,8 @@
  *   v 매듭 구간마다 v의 다항식(5q−1차)으로 체비쇼프 마디에 미리 구해 두고 무게중심 보간으로 쓴다(반올림 빼고 정확)
  * - 매개변수 공간 직선 토막: u·v 매듭을 지나는 곳에서 나눈 ⌈(5p+5q)/2⌉점 가우스(정확)
  * - 모서리 곡선 토막: 곡선 매듭(과 곡면 매듭을 둘까지 지나면 그 자리 — 할선법)에서 나눠 7–15점 가우스–크론로드, 둘이 어긋나면 반으로
- *   (곡선 t와 곡면 (u,v)의 대응이 거의 특이해도 맞게). 남은 차이와 곡선이 곡면에서 떨어진 거리를 어림 오차에 더한다
+ *   (곡선 t와 곡면 (u,v)의 대응이 거의 특이해도 맞게). 남은 차이와 곡선이 곡면에서 떨어진 거리를 어림 오차에 더한다.
+ *   곡선 위 점은 토막 끝 (u,v) 사이 짐작에서 가우스–뉴턴으로 곧장 되짚는다(nearUV — 곡면에서 projTol보다 멀 때만 곡면의 되짚기·격자 짐작도)
  * - 유리(가중치) 곡면은 F가 유리 함수라 점을 더 쓰고, 점이 적은 규칙과의 차이를 어림 오차에 더한다
  */
 import { BSplineCurve, CircleCurve, CompositeCurve, EllipseCurve, LineCurve, SurfaceMappedCurve, TrimmedCurve } from './curves';
@@ -128,6 +129,13 @@ export function trianglesFlux(out: Float64Array, P: ArrayLike<number>, I: ArrayL
 export interface BoundaryCurve {
   point(t: number): V3;
   d1(t: number): V3;
+  /** 점과 1차 도함수를 함께(curves.ts Curve — 따로 구한 값과 같다) */
+  pointD1?(t: number): [V3, V3];
+}
+
+/** 경계 곡선의 점과 1차 도함수(곡선이 한 번에 구하면 그것으로) */
+function pointD1(c: BoundaryCurve, t: number): [V3, V3] {
+  return c.pointD1 ? c.pointD1(t) : [c.point(t), c.d1(t)];
 }
 
 /** 경계 토막: 곡선 구간 t0 → t1(링을 도는 방향). linear면 3D 직선 */
@@ -397,8 +405,8 @@ const EXACT = 2;
  * 정의역 끝에 걸린 매개변수는 고정이다(그 방향 도함수 0). 다듬기가 안 되거나 야코비안이 특이하면 off = false(되짚은 그대로와 최소 제곱 값 —
  * 부르는 쪽이 떨어진 거리로 1차 어림 오차를 더한다)
  */
-function footOf(s: Surface, X: V3, D: V3, u: number, v: number, tinyDev: number, mode: number): Foot {
-  const [S, Su, Sv] = s.derivs(u, v);
+function footOf(s: Surface, X: V3, D: V3, u: number, v: number, tinyDev: number, mode: number, at: readonly [V3, V3, V3] = s.derivs(u, v)): Foot {
+  const [S, Su, Sv] = at;
   const A = Su[0] * Su[0] + Su[1] * Su[1] + Su[2] * Su[2];
   const B = Su[0] * Sv[0] + Su[1] * Sv[1] + Su[2] * Sv[2];
   const C = Sv[0] * Sv[0] + Sv[1] * Sv[1] + Sv[2] * Sv[2];
@@ -493,6 +501,85 @@ function polishFoot(s: Surface, X: V3, u: number, v: number, dev: number, tinyDe
   return null;
 }
 
+/** nearUV 결과: 되짚은 (u,v), 그 곡면 점·편도함수 [S, S_u, S_v], 곡선 점까지 거리 */
+interface Near {
+  u: number;
+  v: number;
+  d: [V3, V3, V3];
+  dist: number;
+}
+
+/**
+ * 곡선 위 점 X를 짐작 (u, v)에서 곡면에 되짚는다(조각 다항식 곡면 적분 — 곡선을 따라 촘촘히 되짚어 짐작이 가깝다).
+ * Surface.refineUV와 같은 가우스–뉴턴 걸음(정의역 절반 한도, 주기가 아닌 매개변수는 정의역 안으로, 거리가 줄지 않으면 반씩 여덟 번까지)과
+ * 같은 멈춤(걸음이 매개변수 크기의 1e-15배 아래)이지만, 걸음 크기를 새 점을 구하기 전에 보고, 곡면 위 걸음이 tinyDev보다 짧은데 거리가
+ * 줄지 않으면(반올림 수준 — 그 자리가 이미 가장 가까운 점) 반씩 줄여 다시 구하지 않고 멈춘다. 마지막 점의 [S, S_u, S_v]를 함께 돌려준다
+ * (footOf가 같은 점을 다시 구하지 않게)
+ */
+function nearUV(s: Surface, X: V3, u: number, v: number, tinyDev: number): Near {
+  const pu = s.periodU > 0;
+  const pv = s.periodV > 0;
+  const lu = Number.isFinite(s.u1 - s.u0) ? (s.u1 - s.u0) / 2 : Infinity;
+  const lv = Number.isFinite(s.v1 - s.v0) ? (s.v1 - s.v0) / 2 : Infinity;
+  if (!pu) u = Math.min(Math.max(u, s.u0), s.u1);
+  if (!pv) v = Math.min(Math.max(v, s.v0), s.v1);
+  let d = s.derivs(u, v);
+  let d2 = dist2(d[0], X);
+  for (let it = 0; it < 40; it++) {
+    const [S, Su, Sv] = d;
+    const rx = X[0] - S[0], ry = X[1] - S[1], rz = X[2] - S[2];
+    const a = dot3(Su, Su);
+    const b = dot3(Su, Sv);
+    const c = dot3(Sv, Sv);
+    const ru = Su[0] * rx + Su[1] * ry + Su[2] * rz;
+    const rv = Sv[0] * rx + Sv[1] * ry + Sv[2] * rz;
+    const det = a * c - b * b;
+    let du: number;
+    let dv: number;
+    if (det > 1e-14 * a * c && det > 1e-300) {
+      du = (c * ru - b * rv) / det;
+      dv = (a * rv - b * ru) / det;
+    } else {
+      du = a > 1e-300 ? ru / a : 0;
+      dv = c > 1e-300 ? rv / c : 0;
+    }
+    if (Math.abs(du) > lu) du = Math.sign(du) * lu;
+    if (Math.abs(dv) > lv) dv = Math.sign(dv) * lv;
+    let nu = pu ? u + du : Math.min(Math.max(u + du, s.u0), s.u1);
+    let nv = pv ? v + dv : Math.min(Math.max(v + dv, s.v0), s.v1);
+    if (Math.abs(nu - u) + Math.abs(nv - v) < 1e-15 * (1 + Math.abs(u) + Math.abs(v))) break;
+    const mu = nu - u, mv = nv - v;
+    const tiny = Math.hypot(Su[0] * mu + Sv[0] * mv, Su[1] * mu + Sv[1] * mv, Su[2] * mu + Sv[2] * mv) <= tinyDev;
+    let nd: [V3, V3, V3] | null = null;
+    for (let k = 0; k < 8; k++) {
+      if (k) {
+        du *= 0.5;
+        dv *= 0.5;
+        nu = pu ? u + du : Math.min(Math.max(u + du, s.u0), s.u1);
+        nv = pv ? v + dv : Math.min(Math.max(v + dv, s.v0), s.v1);
+      }
+      const e = s.derivs(nu, nv);
+      const e2 = dist2(e[0], X);
+      if (e2 <= d2) {
+        nd = e;
+        d2 = e2;
+        break;
+      }
+      if (tiny) break;
+    }
+    if (!nd) break;
+    u = nu;
+    v = nv;
+    d = nd;
+  }
+  return { u, v, d, dist: Math.sqrt(d2) };
+}
+
+function dist2(a: V3, b: V3): number {
+  const x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+  return x * x + y * y + z * z;
+}
+
 /**
  * 띠의 흐름 값 w·∫₀¹ F·(Y_τ × Y_t) dτ를 out에: 곡면 위 경계점 S(t)에서 곡선 점 X(t)까지 곧은 선분 Y(t,τ) = S + τ(X − S)
  * (Y_t = (1 − τ)(S_u u′ + S_v v′) + τ·D). 면 조각의 경계(되짚은 곡선)에서 모서리 곡선까지 이어, 이웃 면도 같은 곡선까지
@@ -575,8 +662,7 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
   let bound = 0;
   /** 곡선 위 점 t의 (u,v)·dv/dt·곡면 점(u, v를 가까운 주기로) */
   const at = (sg: Seg, t: number, uNear: number, vNear: number, mode = EXACT): Foot => {
-    const X = sg.c.point(t);
-    const D = sg.c.d1(t);
+    const [X, D] = pointD1(sg.c, t);
     let [u, v] = s.project(X);
     u = wrapNear(u, uNear, Pu);
     v = wrapNear(v, vNear, Pv);
@@ -1212,14 +1298,28 @@ function splineFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: UV, b
   const uSpan = inner.uBreaks[inner.uBreaks.length - 1]! - inner.uBreaks[0]!;
   const tmp = new Float64Array(FLUX);
   let bound = 0;
-  /** 곡선 위 점 t를 되짚은 값(exact: 곡선이 곡면에서 떨어졌으면 되짚기 사상의 정확한 도함수까지 — 매듭 찾기에는 (u,v)만) */
+  /**
+   * 곡선 위 점 t를 되짚은 값(exact: 곡선이 곡면에서 떨어졌으면 되짚기 사상의 정확한 도함수까지 — 매듭 찾기에는 (u,v)만).
+   * 짐작 (uNear, vNear)에서 nearUV로 되짚고, 곡면에서 projTol보다 멀면 곡면의 되짚기(격자 짐작 등)도 해 가까운 쪽 — s.project(X, 짐작)과 같은 판단
+   */
   const at = (sg: Seg, t: number, uNear: number, vNear: number, mode = EXACT): Foot => {
-    const X = sg.c.point(t);
-    const D = sg.c.d1(t);
-    let [u, v] = s.project(X, [uNear, vNear]);
+    const [X, D] = pointD1(sg.c, t);
+    const n = nearUV(s, X, uNear, vNear, tinyDev);
+    let u = n.u;
+    let v = n.v;
+    let d = n.d;
+    if (!(n.dist <= s.projTol)) {
+      const [gu, gv] = s.project(X);
+      const g = s.derivs(gu, gv);
+      if (dist2(g[0], X) < n.dist * n.dist) {
+        u = gu;
+        v = gv;
+        d = g;
+      }
+    }
     u = wrapNear(u, uNear, Pu);
     v = wrapNear(v, vNear, Pv);
-    return footOf(s, X, D, u, v, tinyDev, mode);
+    return footOf(s, X, D, u, v, tinyDev, mode, d);
   };
   const strip = new Float64Array(FLUX);
   /** G 3V 성분만 따로 구할 때(유리 곡면 직선 토막의 어림 오차) */
@@ -1432,8 +1532,7 @@ export function addSliverFlux(out: Float64Array, a: V3, b: V3, cv: BoundaryCurve
   for (const [x, gs] of G8) {
     const sg = (1 + x) / 2;
     const t = ta + T * sg;
-    const C = cv.point(t);
-    const D = cv.d1(t);
+    const [C, D] = pointD1(cv, t);
     const px = a[0] + ex * sg, py = a[1] + ey * sg, pz = a[2] + ez * sg;
     // X_τ = C − P(σ)
     const tx = C[0] - px, ty = C[1] - py, tz = C[2] - pz;
