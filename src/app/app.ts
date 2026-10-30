@@ -45,7 +45,7 @@ import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
-import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
+import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, isTrackDir, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeAxis, ExplodeMode } from './explode';
@@ -245,6 +245,8 @@ export class StepApp {
   private tangents: TangentLock | null = null;
   /** 개체 측정 계산(entpick.ts — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다) */
   private ent: typeof import('./entpick') | null = null;
+  /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
+  private trackDirEdgeOf: typeof import('./trackdir').straightEdgeFilter | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
@@ -894,8 +896,9 @@ export class StepApp {
       throw new Error('3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.');
     }
     if (this.viewer) return;
-    // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다)
+    // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다). 끌어온 점 나란함·수직의 기준 선분 거르기도
     this.ent = core;
+    this.trackDirEdgeOf = core.straightEdgeFilter;
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
@@ -1229,8 +1232,9 @@ export class StepApp {
     // 끌어온 축(코어 0.16.0)·모서리 위·축끼리의 교차(0.17.0)·첫 점 축과 모서리·축과 면(0.18.0)으로 찍은 점: 결과에는 축만 실리므로
     // 찍은 점의 trackFrom·trackOther·segment·face로 가른다
     // (둘째 점의 첫 점 축 방향은 결과의 directionB로도 본다 — 첫 점 축 위 나란한 자리는 그 축 방향 그대로)
-    const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : false;
-    const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : false;
+    // 끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs)으로 찍은 점도 결과에는 나란함·수직만 실리므로 찍은 점의 trackFrom으로 가른다(isTrackDir)
+    const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : isTrackDir(pts[0]);
+    const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : isTrackDir(pts[1]);
     // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0)·끌어온 점의 축과 만나는 점(0.21.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face·trackOther·trackFrom으로
     const meet = m?.lockedB ? lockMeet(pts[1]) : null;
     const rA = refinedKind(pts[0]);
@@ -1405,16 +1409,17 @@ export class StepApp {
     w.onmessage = (ev: MessageEvent<CheckResponse>) => {
       const m = ev.data;
       if (m.id !== id || this.doc !== d) return;
-      if (m.type === 'progress') d.interference = { running: true, done: m.done, total: m.total };
-      else {
+      // 겹친 부피를 구하는 동안(phase 'volume')은 먼저 받은 쌍 목록을 그대로 보인다
+      if (m.type === 'progress') d.interference = m.phase && d.interference?.result ? { ...d.interference, done: m.done, total: m.total, phase: m.phase } : { running: true, done: m.done, total: m.total };
+      else if (m.type === 'pairs') {
+        d.interference = { running: true, done: 0, total: 0, result: m.result, phase: 'volume' };
+        const n = m.result.pairs.length;
+        const inside = m.result.pairs.filter((p) => p.inside).length;
+        this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
+      } else {
         d.interference = m.type === 'done' ? { running: false, done: 0, total: 0, result: m.result } : { running: false, done: 0, total: 0, error: m.message };
         w.terminate();
         if (this.checkWorker === w) this.checkWorker = null;
-        if (m.type === 'done') {
-          const n = m.result.pairs.length;
-          const inside = m.result.pairs.filter((p) => p.inside).length;
-          this.toast(n ? (inside ? `간섭 ${fmtCount(n)}쌍을 찾았습니다(안에 든 것 ${fmtCount(inside)}쌍 포함).` : `간섭 ${fmtCount(n)}쌍을 찾았습니다.`) : '간섭을 찾지 못했습니다(맞닿음은 간섭으로 치지 않습니다).', n ? 'warn' : 'info');
-        }
       }
       this.panel.onInterference();
     };
@@ -1432,10 +1437,16 @@ export class StepApp {
     w.postMessage(req);
   }
 
-  /** 간섭 검사 멈추기·결과 지우기 */
+  /** 간섭 검사 멈추기·결과 지우기(겹친 부피를 구하는 중이면 그것만 멈추고 찾은 쌍 목록은 남긴다) */
   clearInterference(): void {
     this.checkWorker?.terminate();
     this.checkWorker = null;
+    const st = this.doc?.interference;
+    if (st?.running && st.result) {
+      this.doc!.interference = { running: false, done: 0, total: 0, result: st.result, stopped: true };
+      this.panel.onInterference();
+      return;
+    }
     if (this.doc) this.doc.interference = undefined;
     this.viewer?.highlightRanges(null);
     this.panel.onInterference();
@@ -1998,7 +2009,8 @@ export class StepApp {
    * 두 점 측정 붙잡기(코어 0.8.0 setMeasureSnap): 측정 중에만 윤곽선도 고르고(면 고르기 밖에서는 pickEdges가 꺼져 있다),
    * 모든 원·원호 중심을 늘 후보로, 고른 모서리에는 곡선 가운데 점·끝점·중심을 더한다. 코어의 선분 가운데 점은 곡선 모서리에서
    * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다).
-   * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)도 켠다 — 원 중심이 512개를 넘으면 코어가 점 색인(BVH)으로 찾는다
+   * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)도 켠다 — 원 중심이 512개를 넘으면 코어가 점 색인(BVH)으로 찾는다.
+   * 모서리 표가 있으면 끌어온 점에서 곧은 모서리와 나란히·수직(코어 0.27.0 trackDirs — 곡선을 나눈 현은 0.28.0 거르기로 뺀다)도 켠다
    */
   private syncMeasureSnap(): void {
     const v = this.viewer;
@@ -2010,7 +2022,9 @@ export class StepApp {
     }
     let centers = this.snapCenters.get(d);
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
-    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d)));
+    // 기준 선분 거르기는 모서리 표가 있을 때만(붙잡기 선택을 다시 줄 때마다 새로 — 코어도 그때 받은 기준을 잊는다)
+    const edge = d.edges && this.trackDirEdgeOf ? this.trackDirEdgeOf(d.edges) : null;
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge));
   }
 
   /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */

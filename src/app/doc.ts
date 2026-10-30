@@ -115,6 +115,7 @@ export interface StepDoc {
    * refinedA·refinedB = 그 점을 곡선 위로(true)·곡면 위로('face' — snap.ts refinedKind) 다듬어 찍었다 — 붙잡지 않은 점이면 "곡선 위 점"·"곡면 위 점",
    * trackA·trackB = 끌어온 축·첫 점 축 위 점으로 찍었다(snap.ts trackMark) — "끌어온 점에서 Z축", 모서리·면과 만나면 "… · 모서리 위"·"… · 면 위",
    * 끌어온 축끼리의 교차면 "끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나면 "X축 · 모서리 위"·"X축 · 면 위",
+   * 나란함·수직에 true면 끌어온 점에서 모서리와 나란히·수직인 선 위 점으로 찍었다(snap.ts isTrackDir — "끌어온 점에서 모서리와 나란히"·"… 모서리에 수직"),
    * lockMeetB = 잠근 선이 모서리와 만나는 점·면을 뚫는 점·끌어온 점의 축과 만나는 점으로 찍었다(snap.ts lockMeet) — "잠근 X축 · 모서리 위"·"잠근 X축 · 끌어온 점 Y축 위")
    */
   measure:
@@ -158,8 +159,11 @@ export interface StepDoc {
   home?: CameraState;
   /** 측정 기록(거리·고른 면 — CSV 복사용) */
   measureLog: MeasureRecord[];
-  /** 간섭 검사 상태·결과(돌린 적이 없으면 없음) */
-  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string };
+  /**
+   * 간섭 검사 상태·결과(돌린 적이 없으면 없음). phase 'volume' = 쌍은 찾았고(result) 겹친 부피를 구하는 중(done·total은 쌍 수),
+   * stopped = 겹친 부피를 구하다 멈췄다(쌍 목록은 남는다)
+   */
+  interference?: { running: boolean; done: number; total: number; result?: InterferenceResult; error?: string; phase?: 'volume'; stopped?: boolean };
   /** 질량 속성 적분 상태 */
   readonly props: DocProps;
 }
