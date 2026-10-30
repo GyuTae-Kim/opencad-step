@@ -7,6 +7,7 @@
  * - 해석적으로 못 재는 것(B-스플라인 면·곡선 모서리 등)이 끼면 고른 면·모서리의 화면용 삼각형·선분 사이 최소 거리(≈, 코어 closestBetween),
  *   두 개체가 다른 부품이면 부품 사이 최소 거리(코어 Viewer3d.closestPoints)도 함께 보인다.
  * 값은 장면 단위(길이)·도(각)로 두고, 화면 글은 Fmt로 만든다(단위·소수 자리·언어가 바뀌면 다시 만든다).
+ * 첫 화면 JS 밖: 코어와 함께 받는 viewerkit.ts 조각에만 든다(앱은 뷰어를 만들 때 받은 그 모듈로 부른다 — 값 줄 글 lineValue는 measure.ts).
  */
 import type { Annotation3d } from 'opencad-viewer3d/annotate';
 import { buildBvh } from 'opencad-viewer3d/bvh';
@@ -16,7 +17,7 @@ import type { Fmt } from './display';
 import { isFullCircle, type EdgePick } from './edges';
 import { measureEntities, type Entity, type EntityMeasure, type MeasureLine, type V3 } from './entmeasure';
 import { faceKindLabel, type FacePick } from './faces';
-import { edgeTitle } from './measure';
+import { edgeTitle, lineValue } from './measure';
 
 /** 누른 개체 하나 */
 export interface Picked {
@@ -178,11 +179,6 @@ export function measurePicked(
     }
   }
   return { lines, annotations, approx: lines.some((l) => l.approx) };
-}
-
-/** 값 줄 글(길이는 표시 단위, 각은 도 — 화면용 삼각형으로 잰 길이는 ≈) */
-export function lineValue(l: MeasureLine, f: Fmt): string {
-  return l.unit === 'angle' ? f.deg(l.value) : `${l.approx ? '≈ ' : ''}${f.len(l.value)}`;
 }
 
 /** 덧그림 색: 부품 사이 최소 거리는 흐린 색 */

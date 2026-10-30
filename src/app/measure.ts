@@ -8,6 +8,7 @@ import { boxIsEmpty, boxSize, emptyBox, itemBounds, unionBox } from 'opencad-vie
 import type { Scene3d } from 'opencad-viewer3d/types';
 import type { Fmt } from './display';
 import { edgeKindLabel, isFullCircle, type EdgePick } from './edges';
+import type { MeasureLine } from './entmeasure';
 import { faceKindLabel, type FacePick } from './faces';
 
 /** 측정 안내(찍은 점 수 0~2, 결과가 있는지) */
@@ -51,6 +52,14 @@ export function measureLabelLines(m: Pick<MeasureResult, 'distance' | 'dx' | 'dy
 /** 측정 결과 글: 거리(굵게)와 축별 길이(패널 아래 띠와 같은 꼴, 표시 단위·소수 자리) */
 export function measureLines(m: Pick<MeasureResult, 'distance' | 'dx' | 'dy' | 'dz'>, f: Fmt): { value: string; axes: string } {
   return { value: f.len(m.distance), axes: `dx ${f.lenNum(m.dx)} · dy ${f.lenNum(m.dy)} · dz ${f.lenNum(m.dz)}` };
+}
+
+/**
+ * 개체 측정 값 줄 글(길이는 표시 단위, 각은 도 — 화면용 삼각형으로 잰 길이는 ≈).
+ * 측정 띠·패널 아래 띠가 바로 쓰므로 첫 화면에 둔다(개체 측정 계산 entpick.ts는 코어 조각에)
+ */
+export function lineValue(l: MeasureLine, f: Fmt): string {
+  return l.unit === 'angle' ? f.deg(l.value) : `${l.approx ? '≈ ' : ''}${f.len(l.value)}`;
 }
 
 /** 고른 면 요약: 종류, 주요 치수(Ø·R, 없으면 null), 이름·값 쌍(이름은 번역 글, 값은 숫자·단위) */
