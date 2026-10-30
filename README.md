@@ -435,7 +435,7 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json`)를 넘기고 사전을 넣는다 |
 | `src/app/main.ts`, `src/app/app.ts`, `src/app/core.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키, 3D 뷰어 코어·곡선 접선 잠금 나눠 받기 |
 | `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
-| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/explode.ts`, `src/app/explodebar.ts`, `src/app/snap.ts`, `src/app/tangent.ts`, `src/app/curvesnap.ts`, `src/app/facesnap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림, 부품 겉모습(불투명도·흐리게·부품 색·분해 이동 걸기, 반투명 보기 판정), 분해 계획(조립 단계별·한꺼번에 — 방식 단추·단계 글과 함께 문서를 열 때 받음), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름, 곡선 모서리 위(끝·가운데)의 접선 잠금과 측정 붙잡기 점을 B-rep 곡선 위로 다듬기(수직 발·모서리 위 점·두 곡선의 교차점·축과 곡선의 교차)·곡선 길이 가운데 점, 축이 면을 뚫는 점과 붙잡지 않은 면 위 점을 B-rep 곡면 위로 다듬기(셋 다 문서를 열 때 받음) |
+| `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/explode.ts`, `src/app/explodebar.ts`, `src/app/snap.ts`, `src/app/tangent.ts`, `src/app/curvesnap.ts`, `src/app/facesnap.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림(이 둘은 코어 조각으로 받음), 부품 겉모습(불투명도·흐리게·부품 색·분해 이동 걸기, 반투명 보기 판정), 분해 계획(조립 단계별·한꺼번에 — 방식 단추·단계 글과 함께 문서를 열 때 받음), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름, 곡선 모서리 위(끝·가운데)의 접선 잠금과 측정 붙잡기 점을 B-rep 곡선 위로 다듬기(수직 발·모서리 위 점·두 곡선의 교차점·축과 곡선의 교차)·곡선 길이 가운데 점, 축이 면을 뚫는 점과 붙잡지 않은 면 위 점을 B-rep 곡면 위로 다듬기(셋 다 문서를 열 때 받음) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기·고르기 단위(부품·몸체)와 여러 개 고르기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
 | `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/selink.ts`, `src/app/interference.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기, STL·OBJ·CSV(문서를 열 때 받음), 보기 링크 글과 그 고른 것 ↔ 나무 자리 낱말(문서를 열 때 받음), 간섭 검사(교차·안에 듦) |
 | `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/app/glyphs.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 내장 글꼴에 없는 PMI 글자를 기기 글꼴 윤곽선으로(워커의 OffscreenCanvas), 해석 워커, 검사(간섭) 워커 |
@@ -510,8 +510,8 @@ B-rep 면 그물에는 `Mesh3d.triangleEdges: false`(코어 0.7.1부터)를 둡�
 다각 고리(POLY_LOOP) 면이 든 그물은 모서리 선이 없어 삼각형 변을 그대로 그립니다.
 개발 서버가 옛 코어를 미리 묶어 둔 채라면 `npx vite --force`로 다시 묶습니다.
 첫 화면 JS를 줄이려고 코어 입구(`opencad-viewer3d` — 뷰어·그리기·고르기)는 열기 상자를 열거나 파일을 끌어 오거나 문서를 열기 시작할 때 `src/app/core.ts`의 `import()`로 받습니다.
-받는 것은 코어 입구와 뷰어를 만든 뒤에만 쓰는 앱 모듈(정밀 조준 `src/app/aim.ts`)을 묶은 `src/app/viewerkit.ts` 조각입니다(요청은 그대로 하나).
-앱 입구에서 닿는 모듈은 코어의 작은 모듈(`camera`·`viewcube`·`bounds`·`bvh`·`closest` 등)만 값으로 가져오고 코어 입구는 타입으로만 가져옵니다
+받는 것은 코어 입구와 뷰어를 만든 뒤에만 쓰는 앱 모듈(정밀 조준 `src/app/aim.ts`, 개체 측정 `src/app/entpick.ts`)을 묶은 `src/app/viewerkit.ts` 조각입니다(요청은 그대로 하나).
+앱 입구에서 닿는 모듈은 코어의 작은 모듈(`camera`·`viewcube`·`bounds` 등)만 값으로 가져오고 코어 입구는 타입으로만 가져옵니다
 (`tests/app/core-split.test.ts`가 앱 입구의 정적 가져오기 그래프를 훑어 확인합니다. 숫자 키 표 `VIEW_KEYS`도 코어 0.10.0부터 작은 `camera` 모듈에서 가져옵니다).
 보기 링크의 고른 것 낱말(`src/app/selink.ts`)과 STL·OBJ·CSV 내보내기(`src/app/export.ts`)도 첫 화면 JS에 넣지 않고 `import()`로 받습니다 — 문서를 열 때 미리 받아 두어
 눌렀을 때 기다리지 않습니다(같은 시험이 확인). 그래서 몸체 줄·보기 링크 고른 것·간섭 안에 듦을 넣은 뒤에도 첫 화면 JS는 gzip 86.4 kB로 그 전(86.0 kB)과 거의 같습니다.
@@ -545,6 +545,9 @@ B-스플라인 면 적분의 되짚기 다듬기는 해석 워커에 들어가 �
 광선 쪽 첫 근 고르기는 접선 조각에 들어가 접선 조각이 17.23 kB에서 17.93 kB, 코어 조각이 71.84 kB에서 76.72 kB가 되었습니다(해석 워커는 그대로).
 그 뒤 휴대폰 성능 예산(88 KiB)을 넘지 않게 정밀 조준(뷰어를 만들 때 캔버스에 다는 것 — 코어 `pointer` 모듈과 함께)을 코어 조각으로 옮겨
 첫 화면 JS는 gzip 88.99 kB에서 87.18 kB, 코어 조각은 76.72 kB에서 78.53 kB가 되었습니다(동작은 그대로).
+개체 측정 계산(`src/app/entpick.ts`·`src/app/entmeasure.ts`와 최소 거리용 코어 `bvh`·`closest` 모듈)도 뷰어의 누르기로만 쓰므로 코어 조각으로 옮겨
+첫 화면 JS는 gzip 87.18 kB에서 78.97 kB, 코어 조각은 78.53 kB에서 86.56 kB가 되었습니다(동작·문구는 그대로 — 측정 띠·패널이 바로 쓰는 값 글만 첫 화면의 `src/app/measure.ts`에).
+CI의 휴대폰 검사가 재는 JS는 같은 빌드의 vite gzip 값보다 1.2 kB쯤 큽니다(CI의 압축 차이와 응답 머리).
 서비스 워커는 이 조각들도 미리 담아 오프라인에서 엽니다.
 
 **공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
@@ -621,7 +624,8 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
 ## 남은 일
 
 - STEP-XML(.stpx, ISO 10303-28) 읽기
-- PMI: 정의된 기호(DEFINED_SYMBOL), 파일이 정한 글꼴(TEXT_STYLE의 글꼴 이름)대로 그리기(지금은 내장 한 획 글꼴과 기기 기본 글꼴 윤곽선),
+- PMI: 정의된 기호(DEFINED_SYMBOL — 로컬 STEP 표본 1,864개(내용 기준)에 이 엔터티를 쓴 파일이 없어 실제 표본으로 확인할 수 있을 때로 미뤘습니다),
+  파일이 정한 글꼴(TEXT_STYLE의 글꼴 이름)대로 그리기(지금은 내장 한 획 글꼴과 기기 기본 글꼴 윤곽선),
   저장된 보기의 보이기 묶음·자르기 평면, 모서리·점에 이어진 PMI 강조, 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
 - 경계가 없는 곡면(GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION의 B-스플라인·잘린 곡면)을 그물로 그리기
   (로컬 STEP 6,522개에 이 표현을 쓴 파일이 하나도 없어 실제 표본으로 확인할 수 있을 때로 미뤘습니다)
@@ -647,7 +651,8 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
   다른 파일을 열기 시작하면 워커가 앞 문서의 적분 거리를 버리므로, 그 파일을 못 열거나 열기를 취소해 앞 문서가 남으면 적분이 덜 끝난 입체는 삼각형 값입니다
   (그 파일을 다시 열지 않고 이어 하려면 새 해석이 끝날 때까지 앞 적분 거리를 들고 있어야 해 메모리를 더 씁니다)
 - 간섭 검사: 겹친 부피, 열린 면 모형이 다른 입체 안에 든 경우
-- 레이어: 면 단위 레이어 배정(지금은 형상 항목·껍질·첫 면까지 보고 형상 항목 하나를 한 레이어에 넣는다)
+- 레이어: 면 단위 레이어 배정(지금은 형상 항목·껍질·첫 면까지 보고 형상 항목 하나를 한 레이어에 넣는다 —
+  로컬 표본에서 레이어를 쓴 파일 3개는 모두 입체·양식 항목을 가리켜 면을 가리키는 배정이 없습니다)
 
 ## 내력
 
