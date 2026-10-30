@@ -10,6 +10,7 @@
  * - 잘린 면의 경계 안인지: 해석기는 면을 매개변수 공간 경계 다각형 안에서 삼각화하고 경계 꼭짓점을 모서리 위에 둔다. 교점의 접평면에 그 면의 삼각형을 펼쳐
  *   교점이 어느 삼각형 안(허용치 tol — 교점과 코어 점 사이의 두 배, 곧 곡면이 삼각형에서 벗어난 만큼)인지 본다. 경계 밖이면 null(코어 점 그대로)
  * 결과는 넘긴 값과 면 표·그물·곡면 정의로만 정해진다(커서 광선을 쓰지 않는다 — 코어가 커서 광선을 빼고 기억한다).
+ * 직선은 line.origin·line.dir만 읽는다(코어 0.20.0부터 축이 아닌 잠근 선은 line.axis가 없다 — 같은 계산으로 다듬는다).
  */
 import type { SnapRefineFaceInput } from 'opencad-viewer3d';
 import type { Mesh3d } from 'opencad-viewer3d/types';
@@ -26,10 +27,16 @@ export interface SnapFaceIndex {
   tableOf: ReadonlyMap<string, number>;
 }
 
-/** 면 표에 식이 없는 곡면의 계산(surfaces.ts Surface — 점·편도함수, 점에서 (u, v) 되짚기) */
+/** 면 표에 식이 없는 곡면의 계산(surfaces.ts Surface — 점·편도함수, 점에서 (u, v) 되짚기, 정의역 — 무한하면 다시 풀기의 매개변수 격자를 쓰지 않는다) */
 export interface ParamSurface {
   derivs(u: number, v: number): [V3, V3, V3];
   project(p: V3, hint?: readonly [number, number] | null): [number, number];
+  readonly u0?: number;
+  readonly u1?: number;
+  readonly v0?: number;
+  readonly v1?: number;
+  readonly periodU?: number;
+  readonly periodV?: number;
 }
 
 /** 면 하나의 곡면 정의: 형상 항목 좌표의 곡면과, 그물 좌표로 옮기는 배율 k·항목 묶음 원점 origin(그물 좌표 = (항목 좌표 − origin)·k) */
@@ -150,24 +157,56 @@ function torusRoot(R: number, r: number, a: V3, w: V3, D: V3, s0: number): numbe
 }
 
 /**
+ * paramHit의 다시 풀기: 코어 점을 되짚은 (u, v)에서 수렴하지 않으면 다른 시작점에서 다시 푼다(refineFaceHit이 준다).
+ * 극점(한 매개변수 줄이 한 점으로 모인 자리 — 돔 꼭대기·모서리 둥글림 끝) 둘레에서는 코어 점의 되짚기가 극점 (u, v)로 가 v가 정해지지 않고
+ * 야코비가 퇴화해(∂v = 0) 뉴턴이 멈춘다. 삼각형 꼭짓점·매개변수 격자는 극점에서 떨어진 (u, v)를 준다
+ */
+export interface ParamRetry {
+  /** 다른 시작점(그물 좌표 — 코어 점이 놓인 삼각형의 꼭짓점). 그 점을 곡면에 되짚은 (u, v)와 직선에 내린 자리에서 */
+  starts: readonly V3[];
+  /** 받는 교점은 코어 점에서 이 거리(그물 좌표) 안이어야 한다 — 다른 시작점이 데려가는 먼 근을 받지 않게(그 삼각형의 가장 긴 변) */
+  reach: number;
+}
+
+/** 다시 풀 때 쓰는 매개변수 격자(칸 가운데 GRID × GRID — 극점 줄 위가 아니다)에서 코어 점에 가까운 칸 수 */
+const GRID = 8;
+const GRID_SEEDS = 3;
+
+/** 매개변수 t에서 dt만큼 갈 때 정의역 [a, b] 안에 머무는 걸음 비율(경계까지의 0.9배, 주기·무한·정의역 밖이면 1) */
+function room(t: number, dt: number, a: number | undefined, b: number | undefined, period: number | undefined): number {
+  if ((period ?? 0) > 0 || a === undefined || b === undefined || !Number.isFinite(a) || !Number.isFinite(b) || t < a || t > b || dt === 0) return 1;
+  const left = dt > 0 ? b - t : t - a;
+  return Math.min(1, (0.9 * left) / Math.abs(dt)) || 1;
+}
+
+/** 곡면 정의역(유한하면)의 GRID × GRID 칸 가운데 가운데 점이 p에 가까운 차례로 count개 */
+function gridSeeds(surf: ParamSurface, p: V3, count: number): [number, number][] {
+  const { u0, u1, v0, v1 } = surf;
+  if (u0 === undefined || u1 === undefined || v0 === undefined || v1 === undefined || ![u0, u1, v0, v1].every(Number.isFinite) || !(u1 > u0) || !(v1 > v0)) return [];
+  const all: [number, number, number][] = [];
+  for (let i = 0; i < GRID; i++)
+    for (let j = 0; j < GRID; j++) {
+      const u = u0 + ((u1 - u0) * (i + 0.5)) / GRID;
+      const v = v0 + ((v1 - v0) * (j + 0.5)) / GRID;
+      const d = norm(sub(surf.derivs(u, v)[0], p));
+      if (Number.isFinite(d)) all.push([d, u, v]);
+    }
+  all.sort((a, b) => a[0] - b[0]);
+  return all.slice(0, count).map(([, u, v]) => [u, v]);
+}
+
+/**
  * 곡면 정의(항목 좌표)와 그물 좌표 직선의 교점: 항목 좌표로 옮겨 (u, v, s) 뉴턴법 — F = S(u, v) − (O + s D) = 0, 야코비 [S_u, S_v, −D].
  * 시작은 코어 점을 곡면에 되짚은 (u, v)와 그 점의 직선 매개변수. 늘면 걸음을 반씩, 더 줄지 않을 때까지(도함수가 차분인 곡면도 다가간다).
- * |F|가 항목 크기의 1e-9 안이면 받는다
+ * |F|가 항목 크기의 1e-9 안이면 받는다. 수렴하지 않고 retry가 있으면 그 시작점(삼각형 꼭짓점), 그다음 매개변수 격자에서 코어 점에 가까운 칸 셋의
+ * 가운데에서 차례로 다시 풀어, 코어 점에서 retry.reach 안인 첫 교점을 받는다(코어 점에서 수렴한 답은 그대로다)
  */
-export function paramHit(fs: FaceSurface, O: V3, D: V3, P: V3): SurfaceHit | null {
+export function paramHit(fs: FaceSurface, O: V3, D: V3, P: V3, retry: ParamRetry | null = null): SurfaceHit | null {
   const k = fs.k;
   if (!(k > 0)) return null;
   const toItem = (q: V3): V3 => [q[0] / k + fs.origin[0], q[1] / k + fs.origin[1], q[2] / k + fs.origin[2]];
   const Oi = toItem(O);
   const Pi = toItem(P);
-  let uv: [number, number];
-  try {
-    uv = fs.surf.project(Pi);
-  } catch {
-    return null;
-  }
-  let [u, v] = uv;
-  let s = dot(sub(Pi, Oi), D);
   const size = Math.max(1, norm(Pi));
   const tol = 1e-15 * size;
   const F = (uu: number, vv: number, ss: number): { f: V3; e: number; Su: V3; Sv: V3 } | null => {
@@ -176,37 +215,70 @@ export function paramHit(fs: FaceSurface, O: V3, D: V3, P: V3): SurfaceHit | nul
     const e = norm(f);
     return Number.isFinite(e) ? { f, e, Su, Sv } : null;
   };
-  let cur = F(u, v, s);
-  if (!cur) return null;
-  for (let it = 0; it < 40 && cur.e > tol; it++) {
-    const { f, Su, Sv } = cur;
-    const nD: V3 = [-D[0], -D[1], -D[2]];
-    // 3×3 [Su Sv −D] Δ = −f (크라머)
-    const det = dot(Su, cross(Sv, nD));
-    if (!(Math.abs(det) > 1e-300)) return null;
-    const rhs: V3 = [-f[0], -f[1], -f[2]];
-    const du = dot(rhs, cross(Sv, nD)) / det;
-    const dv = dot(Su, cross(rhs, nD)) / det;
-    const ds = dot(Su, cross(Sv, rhs)) / det;
-    let moved = false;
-    for (let j = 0, w = 1; j < 20; j++, w *= 0.5) {
-      const nx = F(u + w * du, v + w * dv, s + w * ds);
-      if (nx && nx.e < cur.e) {
-        u += w * du;
-        v += w * dv;
-        s += w * ds;
-        cur = nx;
-        moved = true;
-        break;
+  /** (u, v, s)에서 뉴턴 — 받을 만큼 줄면 그 교점(그물 좌표)과 법선, 아니면 null */
+  const solve = (u: number, v: number, s: number, inside = false): SurfaceHit | null => {
+    let cur = F(u, v, s);
+    if (!cur) return null;
+    for (let it = 0; it < 40 && cur.e > tol; it++) {
+      const { f, Su, Sv } = cur;
+      const nD: V3 = [-D[0], -D[1], -D[2]];
+      // 3×3 [Su Sv −D] Δ = −f (크라머)
+      const det = dot(Su, cross(Sv, nD));
+      if (!(Math.abs(det) > 1e-300)) return null;
+      const rhs: V3 = [-f[0], -f[1], -f[2]];
+      const du = dot(rhs, cross(Sv, nD)) / det;
+      const dv = dot(Su, cross(rhs, nD)) / det;
+      const ds = dot(Su, cross(Sv, rhs)) / det;
+      let moved = false;
+      // 다시 풀 때는 정의역 밖으로 나가는 걸음을 경계까지 남은 거리의 0.9배로 줄인다(정의역 밖은 경계 값으로 잘려 뉴턴이 멈춘다 — 극점 둘레)
+      const w0 = inside ? Math.min(1, room(u, du, fs.surf.u0, fs.surf.u1, fs.surf.periodU), room(v, dv, fs.surf.v0, fs.surf.v1, fs.surf.periodV)) : 1;
+      for (let j = 0, w = w0; j < 20; j++, w *= 0.5) {
+        const nx = F(u + w * du, v + w * dv, s + w * ds);
+        if (nx && nx.e < cur.e) {
+          u += w * du;
+          v += w * dv;
+          s += w * ds;
+          cur = nx;
+          moved = true;
+          break;
+        }
       }
+      if (!moved) break;
     }
-    if (!moved) break;
+    if (!(cur.e <= 1e-9 * size)) return null;
+    const n = unit(cross(cur.Su, cur.Sv));
+    if (!n) return null;
+    const Xi = addK(Oi, D, s);
+    return { X: [(Xi[0] - fs.origin[0]) * k, (Xi[1] - fs.origin[1]) * k, (Xi[2] - fs.origin[2]) * k], n };
+  };
+  /** 항목 좌표 점 q를 곡면에 되짚은 (u, v)와 직선에 내린 자리에서 */
+  const from = (q: V3, inside = false): SurfaceHit | null => {
+    let uv: [number, number];
+    try {
+      uv = fs.surf.project(q);
+    } catch {
+      return null;
+    }
+    return solve(uv[0], uv[1], dot(sub(q, Oi), D), inside);
+  };
+  const hit = from(Pi);
+  if (hit || !retry || !(retry.reach > 0)) return hit;
+  const near = (h: SurfaceHit | null): SurfaceHit | null => (h && norm(sub(h.X, P)) <= retry.reach ? h : null);
+  for (const q of retry.starts) {
+    const h = near(from(toItem(q), true));
+    if (h) return h;
   }
-  if (!(cur.e <= 1e-9 * size)) return null;
-  const n = unit(cross(cur.Su, cur.Sv));
-  if (!n) return null;
-  const Xi = addK(Oi, D, s);
-  return { X: [(Xi[0] - fs.origin[0]) * k, (Xi[1] - fs.origin[1]) * k, (Xi[2] - fs.origin[2]) * k], n };
+  let seeds: [number, number][];
+  try {
+    seeds = gridSeeds(fs.surf, Pi, GRID_SEEDS);
+  } catch {
+    return null;
+  }
+  for (const [u, v] of seeds) {
+    const h = near(solve(u, v, dot(sub(fs.surf.derivs(u, v)[0], Oi), D), true));
+    if (h) return h;
+  }
+  return null;
 }
 
 /**
@@ -265,9 +337,24 @@ export function insideFace(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>,
   return false;
 }
 
+/** 코어 점이 놓인 삼각형(그물 삼각형 번호 t)의 세 꼭짓점과 가장 긴 변 — paramHit 다시 풀기. 없으면 null */
+function triangleRetry(mesh: Mesh3d, t: number): ParamRetry | null {
+  const I = mesh.indices;
+  const P = mesh.positions;
+  if (!I || !(t >= 0) || (t + 1) * 3 > I.length) return null;
+  const starts = [0, 1, 2].map((c): V3 => {
+    const q = I[t * 3 + c]! * 3;
+    return [P[q]!, P[q + 1]!, P[q + 2]!];
+  });
+  const [a, b, c] = starts as [V3, V3, V3];
+  const reach = Math.max(norm(sub(b, a)), norm(sub(c, b)), norm(sub(a, c)));
+  return starts.every((s) => s.every(Number.isFinite)) && reach > 0 ? { starts, reach } : null;
+}
+
 /**
  * 코어 refineFace 입력 → 축 직선과 그 면의 B-rep 곡면의 교점(세계, 축 직선 위 점). 평면·다각형·삼각형 면, 면 표가 없는 그물, 단면의 채운 면(삼각형 번호 −1),
- * 곡면 정의를 아직 받지 않은 곡면, 교점이 없거나 그 면의 경계 밖이면 null(규칙은 머리글)
+ * 곡면 정의를 아직 받지 않은 곡면, 교점이 없거나 그 면의 경계 밖이면 null(규칙은 머리글). 곡면 정의로 푸는 면은 코어 점에서 수렴하지 않으면
+ * 그 삼각형 꼭짓점·매개변수 격자에서 다시 푼다(paramHit retry — 코어 점에서 그 삼각형의 가장 긴 변 안인 교점만)
  */
 export function refineFaceHit(c: SnapRefineFaceInput, meshes: ReadonlyMap<string, Mesh3d>, fx: SnapFaceIndex, lookup: FaceSurfaceLookup | null = null): V3 | null {
   const mesh = meshes.get(c.face.id);
@@ -287,7 +374,7 @@ export function refineFaceHit(c: SnapRefineFaceInput, meshes: ReadonlyMap<string
   if (analytic) hit = analyticHit(kind, table.params.subarray(f * 8, f * 8 + 8), O.p, D, P.p);
   else {
     const fs = lookup!(ti, f);
-    hit = fs ? paramHit(fs, O.p, D, P.p) : null;
+    hit = fs ? paramHit(fs, O.p, D, P.p, triangleRetry(mesh, c.face.index)) : null;
   }
   if (!hit) return null;
   const mag = Math.max(Math.abs(hit.X[0]), Math.abs(hit.X[1]), Math.abs(hit.X[2]));

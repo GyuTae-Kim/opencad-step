@@ -4,7 +4,8 @@
  * - 원기둥(반지름 10, 높이 20 — 윗 테두리 이음 꼭짓점 30°)과 세로 삼각 판(y = −4, 꼭짓점 (20, −4, 10)) — 0.18.0 시험(measureaxis.test.ts)과 같은 장면
  *   · 이음 꼭짓점에서 X축으로 잠그면 그 축이 맞은편 테두리와 만나는 점: 원 위(1e-9 — refine 'axisEdge'가 잠근 축에도), "잠근 X축 · 모서리 위"
  *   · 판 꼭짓점에서 X축으로 잠그면 그 축이 옆면을 뚫는 점: 원기둥 위(1e-9 — refineFace), "잠근 X축 · 면 위". 잠그지 않은 첫 점 축도 곡면 위
- *   · 축이 아닌 방향으로 잠근 선은 다듬지 않는다(꺾은선 위, "잠근 방향 · 모서리 위")
+ *   · 축이 아닌 방향으로 잠근 선도 다듬는다(코어 0.20.0 — SnapRefineLine.axis 없음): 테두리와 만나는 점은 원 위, 옆면·지붕을 뚫는 점은 곡면 위(1e-9),
+ *     "잠근 방향 · 모서리 위"·"잠근 방향 · 면 위"(0.19.0은 꺾은선·삼각형 위 그대로였다)
  *   · 두 선택을 끄면 0.18.0 그대로(잠근 선 위 커서에 가까운 점), 잠그지 않았을 때는 켜도 끈 것과 같다
  * - 위가 B-스플라인 곡면인 지붕 블록과 매단 삼각 판: 판 꼭짓점의 Z축이 지붕을 뚫는 점 — 해석 워커가 남긴 곡면 정의(facesurf.ts — 구조화 복제 뒤 되살림)로 곡면 위
  * - 옆면이 민 곡면(원을 z로)인 원기둥: 판 꼭짓점 X축이 옆면을 뚫는 점이 반지름 위
@@ -162,30 +163,40 @@ describe('잠근 선과 모서리의 교차(코어 0.19.0 lockEdges)', () => {
     expect(got).toHaveLength(2);
   });
 
-  it('축이 아닌 방향(1, 0.3, 0)으로 잠근 선이 테두리와 만나는 점: 꺾은선 위 그대로(다듬지 않음) — "잠근 방향 · 모서리 위"', () => {
+  it('축이 아닌 방향(1, 0.3, 0)으로 잠근 선이 테두리와 만나는 점: 원 위(1e-9 — 코어 0.20.0부터 축 이름 없는 직선도 다듬는다), "잠근 방향 · 모서리 위", 결과도', () => {
     const w = view();
     const { v } = w;
+    const got: MeasureResult[] = [];
+    v.onMeasure((m) => m && got.push(m));
     clickAt(w, SEAM);
     const F = v.measurePoints[0]!.point;
     const l = Math.hypot(1, 0.3);
     const d: V3 = [1 / l, 0.3 / l, 0];
     expect(v.setMeasureInferenceLock({ direction: d, kind: 'parallel' })).toBe(true);
-    // F + t d가 원 위인 다른 근: t = −2 F·d(xy)
-    const t = -2 * (F[0] * d[0] + F[1] * d[1]);
+    // F + t d가 원 위인 먼 근(F는 float32 꼭짓점이라 원에서 그만큼 벗어나 있어 이차식으로 — F가 원 위면 t = −2 F·d)
+    const b = F[0] * d[0] + F[1] * d[1];
+    const t = -b - Math.sqrt(b * b - (F[0] ** 2 + F[1] ** 2 - RIM_R ** 2));
     const X: V3 = [F[0] + t * d[0], F[1] + t * d[1], F[2]];
     zoomAround(w, X, 1.5);
     hoverAt(w, inside(X));
     const h = v.measureHoverSnap!;
     expect(h.locked).toBe(true);
     expect(h.snap).toBe('parallel');
-    expect(h.segment).toBeTruthy();
-    expect(h.refined).toBeUndefined();
-    // 잠근 선 위, 원에서는 현의 화살 높이 안
+    expect(h.axis).toBeUndefined();
+    expect(h.segment?.kind).toBe('edge');
+    expect(h.refined).toBe(true);
+    close(h.point, X);
+    expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - RIM_R)).toBeLessThan(1e-9);
+    // 잠근 선 위
     const q = [h.point[0] - F[0], h.point[1] - F[1], h.point[2] - F[2]];
     expect(Math.abs(q[0]! * d[1] - q[1]! * d[0])).toBeLessThan(1e-9);
-    expect(RIM_R - Math.hypot(h.point[0], h.point[1])).toBeGreaterThan(-1e-9);
-    expect(dist(h.point, X)).toBeLessThan(0.1);
+    expect(h.point[2]).toBe(F[2]);
     expect(hoverSnapLabel(h)).toBe('잠근 방향 · 모서리 위');
+    clickAt(w, inside(X));
+    const m = got[got.length - 1]!;
+    expect(m.lockedB).toBe(true);
+    expect(Math.abs(m.distance - Math.abs(t))).toBeLessThan(1e-9);
+    expect(snapPair(result(v, m))).toEqual(['끝점', '잠근 방향 · 모서리 위']);
   });
 
   it('두 선택을 끄면 0.18.0 그대로(잠근 선 위 커서에 가까운 점 — 모서리·면이 실리지 않는다), 잠그지 않았을 때는 켜도 끈 것과 같다', () => {
@@ -330,5 +341,93 @@ describe('축이 면을 뚫는 점을 곡면 위로(코어 0.19.0 refineFace·lo
     expect(h.face?.id).toBeTruthy();
     expect(h.refined).toBe(true);
     close(h.point, X);
+  });
+
+  it('판 꼭짓점에서 축이 아닌 방향으로 잠근 선이 원기둥 옆면을 뚫는 점: 원기둥 위(1e-9 — 코어 0.20.0 lockFaces의 축 이름 없는 직선), "잠근 방향 · 면 위"', () => {
+    const w = view();
+    const { v } = w;
+    const got: MeasureResult[] = [];
+    v.onMeasure((m) => m && got.push(m));
+    clickAt(w, TRI);
+    const F = v.measurePoints[0]!.point;
+    const n = Math.hypot(1, 0.15, 0.1);
+    const d: V3 = [-1 / n, 0.15 / n, 0.1 / n];
+    expect(v.setMeasureInferenceLock({ direction: d, kind: 'parallel' })).toBe(true);
+    // F + t d가 원기둥(x² + y² = 100) 위인 가까운 근
+    const a = d[0] ** 2 + d[1] ** 2;
+    const b = F[0] * d[0] + F[1] * d[1];
+    const c = F[0] ** 2 + F[1] ** 2 - RIM_R ** 2;
+    const t = (-b - Math.sqrt(b * b - a * c)) / a;
+    const P: V3 = [F[0] + t * d[0], F[1] + t * d[1], F[2] + t * d[2]];
+    expect(P[2]).toBeGreaterThan(1);
+    expect(P[2]).toBeLessThan(RIM_H - 1);
+    zoomAround(w, P, 1.5);
+    hoverAt(w, [P[0], P[1], P[2] + 0.05]);
+    const h = v.measureHoverSnap!;
+    expect(h.locked).toBe(true);
+    expect(h.snap).toBe('parallel');
+    expect(h.face?.id).toBeTruthy();
+    expect(h.segment).toBeUndefined();
+    expect(h.refined).toBe(true);
+    close(h.point, P);
+    expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - RIM_R)).toBeLessThan(1e-9);
+    expect(hoverSnapLabel(h)).toBe('잠근 방향 · 면 위');
+    clickAt(w, [P[0], P[1], P[2] + 0.05]);
+    const m = got[got.length - 1]!;
+    expect(m.lockedB).toBe(true);
+    expect(Math.abs(m.distance - t)).toBeLessThan(1e-9);
+    expect(snapPair(result(v, m))).toEqual(['끝점', '잠근 방향 · 면 위']);
+  });
+
+  it('지붕(B-스플라인 곡면): 매단 판 꼭짓점에서 비스듬히 잠근 선이 지붕을 뚫는 점 — 워커가 남긴 곡면 정의로 곡면 위(1e-9), 정의가 없으면 삼각형 위', () => {
+    const A = 12;
+    const B = 8;
+    const P0: V3 = [4.3, 3.1, 11];
+    const w0 = new StepText();
+    const mm = w0.context('mm');
+    const roof = w0.product('roof', [roofBlock(w0, A, B)], mm);
+    const plate = w0.product('plate', [hangingPlate(w0, P0)], mm, 'SHAPE_REPRESENTATION');
+    const root = w0.product('roof-lock', [w0.ax2([0, 0, 0])], mm, 'SHAPE_REPRESENTATION');
+    w0.place(root, roof, w0.ax2([0, 0, 0]), 'roof-1');
+    w0.place(root, plate, w0.ax2([0, 0, 0]), 'plate-1');
+    const { scene: s, surfaces } = stepToSceneDeferred(w0.bytes('roof-lock.stp'));
+    const look = reviveFaceSurfaces(structuredClone(packFaceSurfaces(surfaces)));
+    const n = Math.hypot(0.3, -0.2, -1);
+    const d: V3 = [0.3 / n, -0.2 / n, -1 / n];
+    for (const withDef of [true, false]) {
+      const w = view(s, { surfaces: withDef ? look : null });
+      const { v } = w;
+      clickAt(w, P0);
+      const F = v.measurePoints[0]!.point;
+      expect(v.setMeasureInferenceLock({ direction: d, kind: 'parallel' })).toBe(true);
+      // 잠근 선 위 높이와 지붕 높이의 차가 0인 자리(반 나눔 — 앱 계산과 다른 길)
+      const g = (t: number): number => F[2] + t * d[2] - roofZ((F[0] + t * d[0]) / A, (F[1] + t * d[1]) / B);
+      let lo = 0;
+      let hi = 15;
+      expect(g(lo) > 0 && g(hi) < 0).toBe(true);
+      for (let i = 0; i < 200; i++) {
+        const mid = 0.5 * (lo + hi);
+        if (mid === lo || mid === hi) break;
+        if (g(mid) > 0) lo = mid;
+        else hi = mid;
+      }
+      const t = 0.5 * (lo + hi);
+      const X: V3 = [F[0] + t * d[0], F[1] + t * d[1], F[2] + t * d[2]];
+      zoomAround(w, X, 1);
+      hoverAt(w, [X[0] + 0.04, X[1], roofZ((X[0] + 0.04) / A, X[1] / B)]);
+      const h = v.measureHoverSnap!;
+      expect(h.locked, `${withDef}`).toBe(true);
+      expect(h.snap).toBe('parallel');
+      expect(h.face?.id).toBeTruthy();
+      expect(hoverSnapLabel(h)).toBe('잠근 방향 · 면 위');
+      if (withDef) {
+        expect(h.refined).toBe(true);
+        close(h.point, X);
+      } else {
+        expect(h.refined).toBeUndefined();
+        expect(dist(h.point, X)).toBeLessThan(0.1);
+        expect(dist(h.point, X)).toBeGreaterThan(1e-7);
+      }
+    }
   });
 });

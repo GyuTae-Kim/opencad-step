@@ -212,4 +212,34 @@ describe("축과 모서리 곡선의 교차 다듬기(intersectAxis — 코어 0
     // 'onEdge'처럼 풀지 않는다(축과 상관없는 곡선 위 점이 아니다)
     expect(refineSnap({ ...c, kind: 'onEdge' }, cById, cx)).not.toEqual(a);
   });
+
+  it('코어 0.20.0: 축 이름 없는 직선(잠근 방향 — line.axis 없음)과 열린 후보(open — 직선 위에서 토막에 가장 가까운 점)도 같은 계산, 직선 위·곡선 위', () => {
+    const d = (v: V3): V3 => {
+      const l = Math.hypot(...v);
+      return [v[0] / l, v[1] / l, v[2] / l];
+    };
+    // 세로 원판 테두리 위 점을 비스듬히 지나는 직선, 원기둥 테두리 평면 위의 비스듬한 직선(두 교점 가운데 코어 점에 가까운 것), 타원 호를 지나는 직선
+    const E = ellAt((2 * Math.PI) / 3);
+    for (const [X, dir, edges, kind, keep, id, ex] of [
+      [[8.8, -6.6, 23], d([1, 0.5, -0.3]), cEdges, 'circle', isRing, cById, cx],
+      [[8, 6, RIM_H], d([1, 0.2, 0]), cEdges, 'circle', isRim, cById, cx],
+      [E, d([0.4, -1, 0.7]), vEdges, 'ellipse', () => true, vById, vx],
+    ] as [V3, V3, EdgeRef[], string, (r: EdgeRef) => boolean, typeof cById, SnapEdgeIndex][]) {
+      const O: V3 = [X[0] - 7 * dir[0], X[1] - 7 * dir[1], X[2] - 7 * dir[2]];
+      const t = edgeNear(edges, X, kind, keep);
+      const sg = segOf(t.ref, t.k);
+      const point = coreMid(O, dir, sg.ends[0], sg.ends[1]);
+      const c: SnapRefineInput = { kind: 'axisEdge', point, segment: sg, first: O, ray: { origin: [0, 0, 100], dir: [0, 0, -1] }, line: { origin: O, dir } };
+      const q = intersectAxis(c, id, ex);
+      close(q, X, 1e-11);
+      // 직선 위(지나는 점에서 방향으로 잰 자리)
+      const s = (q![0] - O[0]) * dir[0] + (q![1] - O[1]) * dir[1] + (q![2] - O[2]) * dir[2];
+      close(q, [O[0] + s * dir[0], O[1] + s * dir[1], O[2] + s * dir[2]], 1e-12);
+      // 열린 후보: point는 직선 위에서 토막에 가장 가까운 점(커서와 상관없다) — 같은 답
+      const along = (point[0] - O[0]) * dir[0] + (point[1] - O[1]) * dir[1] + (point[2] - O[2]) * dir[2];
+      const onLine: V3 = [O[0] + along * dir[0], O[1] + along * dir[1], O[2] + along * dir[2]];
+      expect(intersectAxis({ ...c, point: onLine, open: true }, id, ex)).toEqual(q);
+      expect(refineSnap({ ...c, open: true }, id, ex)).toEqual(q);
+    }
+  });
 });

@@ -5,11 +5,12 @@
  * 닫힌 입체의 질량 속성(곡면 적분)은 해석 결과에 넣지 않고 적분 거리만 남긴다. 화면이 문서를 보인 뒤 'props'를 보내면
  * 면 단위로 나눠(PROPS_SLICE_MS마다 쉬며) 적분해 끝낸 입체의 값을 'props'로 보낸다. 새 해석 요청이 오면 앞 문서의 적분은 그만둔다.
  * 면 표에 식이 없는 곡면(B-스플라인 등)은 다음 해석까지 들고 있다가 화면이 측정을 켜며 'surfaces'를 보내면 복사해 보낸다(facesurf.ts).
+ * 들고 있는 동안은 되짚기 캐시(B-스플라인 첫 짐작 격자)를 버린 꼴로 둔다 — 질량 속성 적분이 끝난 뒤(적분 거리가 없으면 해석 뒤 바로).
  */
 /// <reference lib="webworker" />
 import { parseStepFile } from '../app/job';
 import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest, type SurfacesRequest } from '../app/protocol';
-import { type FaceSurfacePayload, packFaceSurfaces } from '../facesurf';
+import { dropFaceSurfaceCaches, type FaceSurfacePayload, packFaceSurfaces } from '../facesurf';
 import type { FaceSurfaceSet, MassPropsJob } from '../scene';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -73,6 +74,8 @@ async function integrate(entry: NonNullable<typeof props>): Promise<void> {
     post(msg, collectTransfers(results));
     if (finished) {
       if (props === entry) props = null;
+      // 적분이 끝났으니 들고 있는 곡면 정의의 되짚기 캐시를 버린다(화면에 보낼 때·다시 쓸 때 같은 값으로 다시 만든다)
+      if (surfaces?.id === id) dropFaceSurfaceCaches(surfaces.set);
       return;
     }
     await pause();
@@ -108,6 +111,10 @@ ctx.onmessage = async (ev: MessageEvent<ParseRequest | PropsRequest | SurfacesRe
     post({ id: req.id, type: 'error', message: errorText(e) });
     return;
   }
+  // 적분할 입체가 없으면 곡면 정의의 되짚기 캐시를 바로 버린다(있으면 적분이 끝난 뒤). 둘 다 해석 중 되부름이 채운다(위에서 비운 것으로 좁히지 않게)
+  const held = surfaces as { id: number; set: FaceSurfaceSet } | null;
+  const job = props as { id: number } | null;
+  if (held?.id === req.id && job?.id !== req.id) dropFaceSurfaceCaches(held.set);
   try {
     post({ id: req.id, type: 'done', result }, collectTransfers(result));
   } catch {
