@@ -1674,7 +1674,7 @@ export class StepApp {
 
   /**
    * 반투명 보기(looks.ts translucentView — 부품 불투명도를 낮췄거나 나머지 흐리게)가 바뀌었으면 누르기 알림과 측정 붙잡기 선택을 다시 단다
-   * (측정 중이면 붙잡기 선택을 다시 주므로 잠금이 풀린다 — 겉모습은 측정 밖에서 바꾼다)
+   * (측정 중이면 붙잡기 선택을 다시 주므로 Shift 잠금·끌어온 점이 풀린다 — 작업 메뉴의 불투명도는 측정 밖에서만 바꾸고, 측정 중에는 격리 띠로 나머지 흐리게를 풀 때쯤이다)
    */
   private syncPickThrough(): void {
     const v = this.viewer;
