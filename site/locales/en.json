@@ -919,5 +919,7 @@
   "선 형상 {0} 숨기기": "Hide Line shape {0}",
   "선 형상 {0} 보이기": "Show Line shape {0}",
   "점 형상 {0} 숨기기": "Hide Point shape {0}",
-  "점 형상 {0} 보이기": "Show Point shape {0}"
+  "점 형상 {0} 보이기": "Show Point shape {0}",
+  "그래픽 장치가 다시 시작되어 3D 화면을 잠시 그리지 못합니다 — 되찾으면 바로 다시 그립니다.": "The graphics device restarted, so the 3D view can't draw for a moment — it will redraw as soon as it's back.",
+  "3D 화면을 다시 그렸습니다.": "The 3D view has been redrawn."
 }

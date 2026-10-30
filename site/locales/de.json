@@ -919,5 +919,7 @@
   "선 형상 {0} 숨기기": "Linienform {0} ausblenden",
   "선 형상 {0} 보이기": "Linienform {0} anzeigen",
   "점 형상 {0} 숨기기": "Punktform {0} ausblenden",
-  "점 형상 {0} 보이기": "Punktform {0} anzeigen"
+  "점 형상 {0} 보이기": "Punktform {0} anzeigen",
+  "그래픽 장치가 다시 시작되어 3D 화면을 잠시 그리지 못합니다 — 되찾으면 바로 다시 그립니다.": "Das Grafikgerät wurde neu gestartet, daher kann die 3D-Ansicht kurz nicht zeichnen – sobald es wieder bereit ist, wird sie neu gezeichnet.",
+  "3D 화면을 다시 그렸습니다.": "Die 3D-Ansicht wurde neu gezeichnet."
 }

@@ -922,6 +922,8 @@ export class StepApp {
     v.onSectionChange((st) => this.syncSection(st));
     // 카메라가 바뀌면 단면 손잡이 자리를 다시 잡는다
     v.onCameraChange(() => this.sectionBar.place());
+    // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고, 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
+    core.watchGraphicsContext(v, (msg, kind, ms) => this.toast(msg, kind, ms));
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
     this.aim = new core.TouchAim(v.canvas, {
