@@ -6,17 +6,18 @@
  * 잰 뒤 보기를 옮기거나 아래쪽 두 점의 가운데가 띠 높이에 오면 측정 띠 밑으로 들어갔다.
  * 이 요소들의 화면 사각형을 캔버스 왼쪽 위 기준으로 코어에 알려 코어가 정해진 차례(기준점 네 귀 → 선분 위 → 피할 자리 위아래)로 비켜 그리게 한다.
  * - 기본 자리가 어느 요소와도 겹치지 않으면 코어는 옮기지 않는다(넓은 화면의 보통 측정 그림은 그대로). 그림 저장은 늘 기본 자리다(코어)
- * - 요소·캔버스 크기가 바뀔 때(ResizeObserver — 띠가 나타나고 사라지거나 글 줄 수가 바뀔 때, 뷰 큐브를 끄고 켤 때, 화면을 돌릴 때) 다시 알린다.
+ * - 요소·캔버스 크기가 바뀔 때(ResizeObserver — 띠가 나타나고 사라지거나 글 줄 수가 바뀔 때, 화면을 돌릴 때) 다시 알린다.
  *   요소 자리는 모두 3D 보기 안에서 크기로만 정해진다(아래 가운데 띠, 위 가운데·왼쪽 위 띠, 오른쪽 위 큐브)
+ * - 뷰 큐브 자리는 코어가 준다(0.23.0 viewCubeRect — 내부 요소 이름을 찾지 않는다). 앱은 큐브를 끄고 켜거나 크기를 바꿀 때 update를 부른다
  * - 정밀 조준(aim.ts)의 십자선 둘레·손가락 자리와 합쳐 알린다
  * - 알림(토스트)은 잠깐 나왔다 사라지므로 넣지 않는다(글상자가 따라 뛰지 않게)
- * 앱 측정 덧그림(개체 측정 — 코어 setAnnotations)의 글상자는 코어가 비키지 않는다.
+ * 코어 0.23.0부터 앱 측정 덧그림(개체 측정 — 코어 setAnnotations)의 글상자도 같은 사각형을 비켜 그린다(코어가 한다 — 앱 코드는 그대로).
  */
 import type { MeasureLabelAvoid, MeasureLabelRect, Viewer3d } from 'opencad-viewer3d';
 import type { AimLabelAvoid } from './aim';
 
-/** 글상자가 비킬 요소: 3D 보기(.view)의 측정 띠·위 띠(분해·격리)·단면 막대와 코어 뷰 큐브 캔버스 */
-export const LABEL_AVOID_SELECTOR = ':scope > .measure-bar, :scope > .top-bars, :scope > .section-bar, .v3d-cube';
+/** 글상자가 비킬 앱 요소: 3D 보기(.view)의 측정 띠·위 띠(분해·격리)·단면 막대(뷰 큐브는 코어 viewCubeRect) */
+export const LABEL_AVOID_SELECTOR = ':scope > .measure-bar, :scope > .top-bars, :scope > .section-bar';
 
 /** 화면 상자(getBoundingClientRect 꼴) */
 export type ScreenBox = Pick<DOMRectReadOnly, 'left' | 'top' | 'width' | 'height'>;
@@ -39,6 +40,11 @@ export function overlayRects(canvas: ScreenBox, boxes: readonly ScreenBox[]): Me
   return out;
 }
 
+/** 캔버스 기준 사각형(코어 viewCubeRect 꼴) → 화면 상자(overlayRects에 같은 규칙으로 넣는다). 없으면 null */
+export function canvasBox(canvas: ScreenBox, r: MeasureLabelRect | null | undefined): ScreenBox | null {
+  return r ? { left: canvas.left + r.x, top: canvas.top + r.y, width: r.width, height: r.height } : null;
+}
+
 /** 화면 요소 사각형과 정밀 조준 자리를 합친 setMeasureLabelAvoid 값(둘 다 없으면 null — 코어 0.12.0 자리) */
 export function mergeLabelAvoid(ui: readonly MeasureLabelRect[], aim: AimLabelAvoid | null): MeasureLabelAvoid | null {
   const rects = [...ui, ...(aim?.rects ?? [])];
@@ -51,7 +57,7 @@ export class LabelAvoid {
   private aimAt: AimLabelAvoid | null = null;
 
   constructor(
-    private readonly v: Pick<Viewer3d, 'canvas' | 'setMeasureLabelAvoid'>,
+    private readonly v: Pick<Viewer3d, 'canvas' | 'setMeasureLabelAvoid' | 'viewCubeRect'>,
     private readonly view: ParentNode,
   ) {
     if (typeof ResizeObserver === 'function') {
@@ -72,9 +78,11 @@ export class LabelAvoid {
     this.update();
   }
 
-  /** 지금 요소 자리로 다시 알린다(같은 값이면 코어가 다시 그리지 않는다) */
+  /** 지금 요소 자리로 다시 알린다(같은 값이면 코어가 다시 그리지 않는다) — 뷰 큐브가 먼저(코어가 위 오른쪽에 둔 자리) */
   update(): void {
-    const boxes = this.els().map((e) => e.getBoundingClientRect());
-    this.v.setMeasureLabelAvoid(mergeLabelAvoid(overlayRects(this.v.canvas.getBoundingClientRect(), boxes), this.aimAt));
+    const canvas = this.v.canvas.getBoundingClientRect();
+    const cube = canvasBox(canvas, this.v.viewCubeRect);
+    const boxes = [...(cube ? [cube] : []), ...this.els().map((e) => e.getBoundingClientRect())];
+    this.v.setMeasureLabelAvoid(mergeLabelAvoid(overlayRects(canvas, boxes), this.aimAt));
   }
 }

@@ -1962,6 +1962,8 @@ export class StepApp {
     const v = this.viewer;
     if (!v) return;
     v.setViewCubeVisible(!v.viewCubeVisible);
+    // 글상자가 비킬 뷰 큐브 자리(viewCubeRect — 감추면 null)
+    this.labelAvoid?.update();
     this.toolbar.refresh();
   }
 
@@ -2699,6 +2701,8 @@ export class StepApp {
     this.phone?.addEventListener('change', () => {
       this.viewer?.setViewCubeSize(this.cubeSize());
       this.togglePanel(!this.phone?.matches);
+      // 뷰 큐브 크기가 바뀌었다(캔버스 크기가 바뀌면 LabelAvoid가 다시 잰다 — 그대로여도 큐브 자리는 새로)
+      this.labelAvoid?.update();
     });
   }
 
