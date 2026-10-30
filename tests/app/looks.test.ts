@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LineSet3d, Mesh3d, Rgba } from 'opencad-viewer3d/types';
 import type { ProductNode } from '../../src/app/doc';
-import { DIM_ALPHA, desiredLooks, lookKey, partColor, partPlacements } from '../../src/app/looks';
+import { DIM_ALPHA, desiredLooks, lookKey, partColor, partPlacements, translucentView } from '../../src/app/looks';
 import { EXPLODE_SCALE, explodeMoves, explodePlan } from '../../src/app/explode';
 
 /** 한 변 2인 상자 그물(가운데 c) */
@@ -57,5 +57,13 @@ describe('부품 겉모습: 불투명도·흐리게·부품 색·분해', () => 
     expect(lookKey(looks.get('a')!)).not.toBe(lookKey(looks.get('b')!));
     const la = looks.get('a')!;
     expect(lookKey({ ...la, color: la.color ? ([...la.color] as Rgba) : null })).toBe(lookKey(la));
+  });
+
+  it('반투명 보기(코어 0.23.0 throughTranslucent를 줄 때): 사용자 불투명도가 하나라도 있거나 나머지 흐리게 중일 때만', () => {
+    expect(translucentView(null)).toBe(false);
+    // 불투명도 메뉴는 1이면 지운다(setSelectionOpacity) — 빈 표는 반투명 보기가 아니다(파일이 정한 투명 색만 있는 문서도 앞 면을 고른다)
+    expect(translucentView({ opacity: new Map(), dim: null })).toBe(false);
+    expect(translucentView({ opacity: new Map([['a', 0.5]]), dim: null })).toBe(true);
+    expect(translucentView({ opacity: new Map(), dim: new Set(['a']) })).toBe(true);
   });
 });
