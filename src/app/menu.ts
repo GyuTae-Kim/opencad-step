@@ -86,18 +86,30 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
   document.body.append(el);
   const usable = buttons.filter((b) => !b.disabled);
   // 자리: 단추 아래 왼쪽 맞춤, 화면 밖으로 나가지 않게
-  const r = anchor.getBoundingClientRect();
-  const mw = el.offsetWidth;
-  const mh = el.offsetHeight;
-  const left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8));
-  let top = r.bottom + 4;
-  if (top + mh > window.innerHeight - 8) {
-    if (r.top - mh - 4 >= 8) top = r.top - mh - 4;
-    // 위아래 모두 모자라면(휴대폰 가로 등) 아래로 펴고 메뉴 안에서 굴린다
-    else el.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
-  }
-  el.style.left = `${left}px`;
-  el.style.top = `${top}px`;
+  const place = (): void => {
+    el.style.maxHeight = '';
+    const r = anchor.getBoundingClientRect();
+    const mw = el.offsetWidth;
+    const mh = el.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8));
+    let top = r.bottom + 4;
+    if (top + mh > window.innerHeight - 8) {
+      if (r.top - mh - 4 >= 8) top = r.top - mh - 4;
+      // 위아래 모두 모자라면(휴대폰 가로 등) 아래로 펴고 메뉴 안에서 굴린다
+      else el.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
+    }
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  };
+  place();
+  // 다른 언어 화면은 번역층(i18n.ts — 문서 변화 관찰, 마이크로태스크)이 붙인 뒤 글을 바꿔 폭이 달라진다(375px 독일어 "App-Einstellungen" 메뉴가
+  // 한국어 폭으로 놓여 화면 오른쪽 밖으로 18px 나갔다): 번역 뒤 크기로 다시 놓는다. 관찰자 마이크로태스크는 붙일 때 이미 줄을 섰으니 이것이 뒤에 돈다.
+  // 그 뒤에도 글꼴을 늦게 받으면 폭이 또 바뀌므로(일본어 앱 설정 메뉴 188 → 196px) 열린 동안 크기가 바뀔 때마다 다시 놓는다
+  queueMicrotask(() => {
+    if (current?.el === el) place();
+  });
+  const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => current?.el === el && place()) : null;
+  sized?.observe(el);
   anchor.setAttribute('aria-expanded', 'true');
 
   const onDown = (e: PointerEvent) => {
@@ -124,6 +136,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     if (window.innerWidth !== width) closeMenu();
   };
   const close = () => {
+    sized?.disconnect();
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('resize', onResize);
