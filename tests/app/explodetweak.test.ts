@@ -1,15 +1,21 @@
 // 분해 손질(35차): 계획의 단위 낱말·단계, 덧이동을 더한 이동, 방향마다 손질·되돌리기, 저장 꼴, 보기 링크 꼴 왕복·옛 링크, 끄는 길·끌 단위
+// 38차: 다시 하기(방향마다, 새 손질이면 비움, 모두 되돌리기 뒤), 끄는 동안 옮긴 거리 글과 그 자리
 import { describe, expect, it } from 'vitest';
 import { basisFromAngles, computeFrame, projectToScreen, type CameraState } from 'opencad-viewer3d/camera';
 import type { LineSet3d, Mesh3d } from 'opencad-viewer3d/types';
+import { Fmt } from '../../src/app/display';
 import type { ProductNode } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, type ExplodeAxis, type ExplodePlan } from '../../src/app/explode';
+import { measureLabelLines } from '../../src/app/measure';
 import {
   canonicalTweaks,
   decodeTweakLink,
+  DRAG_LABEL_LIFT,
   DRAG_MIN_FRACTION,
   dragConstraint,
   dragDelta,
+  dragDistanceLines,
+  dragLabelSpot,
   dragUnits,
   encodeTweakLink,
   ExplodeTweaks,
@@ -188,6 +194,95 @@ describe('방향마다 손질·되돌리기·저장 꼴', () => {
     while (tw.undo('z')) n++;
     expect(n).toBe(TWEAK_UNDO_MAX);
     expect(tw.moves('z').get('0/1')).toEqual([5]);
+    // 되돌린 것은 모두 다시 할 수 있고, 다 다시 하면 처음 끝 자리로(되돌리기 단계도 그대로 한도만큼)
+    let k = 0;
+    while (tw.redo('z')) k++;
+    expect(k).toBe(TWEAK_UNDO_MAX);
+    expect(tw.moves('z').get('0/1')).toEqual([TWEAK_UNDO_MAX + 5]);
+    expect(tw.canRedo('z')).toBe(false);
+    n = 0;
+    while (tw.undo('z')) n++;
+    expect(n).toBe(TWEAK_UNDO_MAX);
+  });
+
+  it('다시 하기(38차): 되돌린 단계를 차례로 다시 걸고, 새 손질을 하면 그 방향의 다시 할 목록을 비운다 — 방향마다 따로', () => {
+    const tw = new ExplodeTweaks();
+    tw.begin('x');
+    tw.put('0/1', [3]);
+    tw.put('0/2', [-1]);
+    tw.commit();
+    tw.begin('x');
+    tw.put('0/1', [5]);
+    tw.commit();
+    tw.replace('z', [['0/2', [2]]]);
+    expect([tw.canRedo('x'), tw.redo('x')]).toEqual([false, false]);
+    expect(tw.undo('x')).toBe(true);
+    expect([...tw.moves('x')]).toEqual([['0/1', [3]], ['0/2', [-1]]]);
+    expect(tw.undo('x')).toBe(true);
+    expect(tw.count('x')).toBe(0);
+    expect([tw.canUndo('x'), tw.canRedo('x'), tw.canRedo('z')]).toEqual([false, true, false]);
+    // 다른 방향의 손질은 x의 다시 할 목록을 건드리지 않는다
+    tw.replace('z', [['0/2', [7]]]);
+    expect(tw.canRedo('x')).toBe(true);
+    expect(tw.redo('x')).toBe(true);
+    expect([...tw.moves('x')].sort()).toEqual([['0/1', [3]], ['0/2', [-1]]]);
+    expect(tw.redo('x')).toBe(true);
+    expect(tw.moves('x').get('0/1')).toEqual([5]);
+    expect(tw.redo('x')).toBe(false);
+    // 다시 한 것은 되돌리기 단계로 돌아가 다시 되돌린다
+    expect(tw.undo('x')).toBe(true);
+    expect(tw.moves('x').get('0/1')).toEqual([3]);
+    // 새 손질(끌기 한 번)은 다시 할 목록을 비운다
+    tw.begin('x');
+    tw.put('0/2', [9]);
+    expect(tw.commit()).toBe(true);
+    expect(tw.canRedo('x')).toBe(false);
+    // 바뀐 것이 없는 끌기·취소한 끌기는 비우지 않는다
+    tw.undo('x');
+    tw.begin('x');
+    tw.put('0/1', [8]);
+    tw.cancel();
+    tw.begin('x');
+    tw.put('0/1', [4]);
+    tw.put('0/1', [3]);
+    expect(tw.commit()).toBe(false);
+    expect(tw.canRedo('x')).toBe(true);
+    // 남은 다시 할 단계는 그대로 다시 건다
+    expect(tw.redo('x')).toBe(true);
+    expect(tw.moves('x').get('0/2')).toEqual([9]);
+  });
+
+  it('모두 되돌리기 뒤 다시 하기: 모두 지우기도 되돌리고 다시 할 수 있는 한 단계, 모두 지우면 다시 할 목록은 빈다', () => {
+    const tw = new ExplodeTweaks();
+    tw.replace('free', [['0/1', [1, 2, 3]], ['0/2', [0, 0, 4]]]);
+    tw.replace('free', [['0/1', [1, 2, 5]], ['0/2', [0, 0, 4]]]);
+    expect(tw.undo('free')).toBe(true);
+    expect(tw.canRedo('free')).toBe(true);
+    // 모두 되돌리기(새 단계)는 다시 할 목록을 비운다
+    expect(tw.clear('free')).toBe(true);
+    expect([tw.count('free'), tw.canRedo('free')]).toEqual([0, false]);
+    // 되돌리면 지우기 전 손질, 다시 하면 다시 비운다
+    expect(tw.undo('free')).toBe(true);
+    expect([...tw.moves('free')]).toEqual([['0/1', [1, 2, 3]], ['0/2', [0, 0, 4]]]);
+    expect(tw.redo('free')).toBe(true);
+    expect(tw.count('free')).toBe(0);
+    expect(tw.undo('free')).toBe(true);
+    expect(tw.undo('free')).toBe(true);
+    expect(tw.count('free')).toBe(0);
+    expect(tw.redo('free')).toBe(true);
+    expect(tw.redo('free')).toBe(true);
+    expect(tw.count('free')).toBe(0);
+    // 저장 꼴은 지금 손질만(되돌리기·다시 하기 단계는 남기지 않는다), 다시 할 것만 남은 방향은 저장해 둔 손질로 채우지 않는다
+    expect(tw.toJSON()).toBeNull();
+    tw.undo('free');
+    expect(tw.toJSON()).toEqual({ v: 1, axes: { free: [['0/1', 1, 2, 3], ['0/2', 0, 0, 4]] } });
+    const b = new ExplodeTweaks();
+    b.replace('x', [['0/1', [2]]]);
+    b.undo('x');
+    expect([b.count('x'), b.canUndo('x'), b.canRedo('x')]).toEqual([0, false, true]);
+    expect(b.absorb({ v: 1, axes: { x: [['0/3', 1]], z: [['0/3', 1]] } })).toBe(true);
+    expect([b.count('x'), b.count('z')]).toEqual([0, 1]);
+    expect(b.axes()).toEqual(['z']);
   });
 
   it('저장 꼴 왕복: 되돌리기 단계는 남기지 않고, 받을 때는 손질·되돌리기가 없는 방향만 채운다(꼴이 틀린 항목은 버린다)', () => {
@@ -365,5 +460,61 @@ describe('끄는 길(분해 방향)과 끌 단위', () => {
     const full = explodeMoves(plan, 1, EXPLODE_SCALE, tw.resolve(plan, 'free', undefined)).get('b')!;
     const plain = explodeMoves(plan, 1).get('b')!;
     expect(r9(full.map((v, i) => v - plain[i]!))).toEqual(r9(d.map((v) => v * 2)));
+  });
+});
+
+describe('끄는 동안 옮긴 거리 글(38차)', () => {
+  /** 이름·값 조각을 측정 글상자처럼 한 줄 글로 */
+  const text = (lines: [string, string][][]) => lines.map((l) => l.map(([w, v]) => `${w} ${v}`).join('  '));
+  const add = (a: readonly number[], b: readonly number[]) => a.map((x, i) => x + b[i]!);
+
+  it('측정 글상자와 같은 수 꼴: 사방은 거리와 ΔX·ΔY·ΔZ(measureLabelLines 그대로), 장면 축은 그 성분 하나(부호 있음), 표시 단위·소수 자리·화면 언어를 따른다', () => {
+    const f = new Fmt('mm');
+    const d = [3, -4, 12];
+    expect(text(dragDistanceLines('free', null, d, f))).toEqual(measureLabelLines({ distance: 13, dx: 3, dy: -4, dz: 12 }, f));
+    expect(text(dragDistanceLines('free', null, d, f))).toEqual(['거리 13 mm', 'ΔX 3  ΔY -4  ΔZ 12']);
+    expect(text(dragDistanceLines('x', null, [-2.25, 0, 0], f))).toEqual(['ΔX -2.25 mm']);
+    expect(text(dragDistanceLines('z', null, [0, 0, 1 / 3], f))).toEqual(['ΔZ 0.333 mm']);
+    // 인치로 보이기·소수 1자리·독일어(소수 쉼표) — 장면은 mm
+    const g = new Fmt('mm', { unit: 'in', decimals: 1, quality: 'normal' }, 'de');
+    expect(text(dragDistanceLines('y', null, [0, 25.4 * 1.5, 0], g))).toEqual(['ΔY 1,5 in']);
+    // 단위를 모르는 장면은 수만
+    expect(text(dragDistanceLines('x', null, [5, 0, 0], new Fmt('unknown')))).toEqual(['ΔX 5']);
+  });
+
+  it('화면 가로·세로는 계획 카메라 각 성분 하나, 화면 평면은 거리와 가로·세로 두 성분', () => {
+    const f = new Fmt('mm');
+    const v = { yaw: 0.6, pitch: 0.3 };
+    const b = basisFromAngles(v.yaw, v.pitch);
+    const d = add(b.right.map((x) => x * 6), b.up.map((x) => x * -8));
+    expect(text(dragDistanceLines('sx', v, b.right.map((x) => x * 6), f))).toEqual(['가로 6 mm']);
+    expect(text(dragDistanceLines('sy', v, b.up.map((x) => x * -8), f))).toEqual(['세로 -8 mm']);
+    expect(text(dragDistanceLines('sp', v, d, f))).toEqual(['거리 10 mm', '가로 6  세로 -8']);
+  });
+
+  it('글 자리: 마우스는 커서 오른쪽 아래(넘치면 반대쪽), 손가락은 손가락 위 — 위에 자리가 없으면 옆, 늘 캔버스 안(375px 폭)', () => {
+    const W2 = 375;
+    const H2 = 560;
+    const w = 120;
+    const h = 40;
+    expect(dragLabelSpot(100, 100, w, h, W2, H2, false)).toEqual({ left: 116, top: 118 });
+    expect(dragLabelSpot(300, 540, w, h, W2, H2, false)).toEqual({ left: 164, top: 482 });
+    /** 손가락 점 (x, y)와 그 둘레 반지름 r(화소)이 글과 겹치는지 */
+    const covers = (x: number, y: number, s: { left: number; top: number }, r = 30) => x + r > s.left && x - r < s.left + w && y + r > s.top && y - r < s.top + h;
+    for (const [x, y] of [
+      [187.5, 300],
+      [10, 300],
+      [370, 300],
+      [187.5, 60],
+      [40, 20],
+      [360, 20],
+      [200, 555],
+    ] as const) {
+      const s = dragLabelSpot(x, y, w, h, W2, H2, true);
+      expect(s.left >= 4 && s.left + w <= W2 - 4 && s.top >= 4 && s.top + h <= H2 - 4, `${x},${y} ${JSON.stringify(s)}`).toBe(true);
+      expect(covers(x, y, s), `${x},${y} ${JSON.stringify(s)}`).toBe(false);
+    }
+    // 가운데에서는 손가락 바로 위 LIFT 너머
+    expect(dragLabelSpot(187.5, 300, w, h, W2, H2, true)).toEqual({ left: 127.5, top: 300 - DRAG_LABEL_LIFT - h });
   });
 });
