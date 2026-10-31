@@ -594,3 +594,40 @@ describe('37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(
     expect(dist(r!, far)).toBeLessThan(1e-9);
   });
 });
+
+describe('42차 보통 거리에서 이웃 칸을 얕게 뚫는 안내 선(코어 0.36.0 — 0.35.0은 안내 선 위 커서 자리)', () => {
+  it('거리 40에서 기준 모서리와 나란한 안내 선이 칸 현과 약 7°로 이웃 칸을 얕게 뚫는 교점을 가리키면 원기둥 위 다듬은 교점("· 면 위")', () => {
+    // 낮은 원기둥, 높이 10: φ 칸 반각의 두 배로 스치는 선(φ 칸 현과 나란 — 두 교점은 이웃 칸에 들고 그 칸의 현과는 7.2°쯤으로 얕게 만난다)
+    const angs = rimAngles(lowScene, LOW_H, LOW_R);
+    const lo = Math.max(...angs.filter((t) => t < LOW_PHI));
+    const hi = Math.min(...angs.filter((t) => t > LOW_PHI));
+    const w = 2 * Math.min(LOW_PHI - lo, hi - LOW_PHI);
+    const z = 10;
+    const d = LOW_R * Math.cos(w);
+    const xi = LOW_R * Math.sin(w);
+    const n: V3 = [Math.cos(LOW_PHI), Math.sin(LOW_PHI), 0];
+    const at0: V3 = [d * n[0], d * n[1], z];
+    const M: V3 = [at0[0] + xi * LOW_E[0], at0[1] + xi * LOW_E[1], z];
+    const P: V3 = [at0[0] - 15 * LOW_E[0], at0[1] - 15 * LOW_E[1], z];
+    expect(Math.abs(Math.hypot(M[0], M[1]) - LOW_R)).toBeLessThan(1e-9);
+    const v = view('app', LOWCYL);
+    hoverAt(v, [LA[0] + 6 * LOW_E[0], LA[1] + 6 * LOW_E[1], LA[2]]);
+    expect(v.v.setMeasureTrackPoints([P])).toBe(1);
+    v.v.setCamera({ ...v.v.getCamera(), target: [...M], distance: 40, yaw: Math.PI / 18, pitch: 0.25, projection: 'perspective' });
+    v.v.renderNow();
+    hoverAt(v, M);
+    const h = v.v.measureHoverSnap!;
+    v.v.dispose();
+    expect(h.snap).toBe('parallel');
+    expect(h.trackFrom).toEqual(P);
+    expect(trackDirMeet(h)).toBe('face');
+    expect(h.refined).toBe(true);
+    // 원기둥 위(반지름 1e-9)·높이·그 안내 선 위·그 교점 자리
+    expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - LOW_R)).toBeLessThan(1e-9);
+    expect(Math.abs(h.point[2] - z)).toBeLessThan(1e-9);
+    const k = (h.point[0] - P[0]) * LOW_E[0] + (h.point[1] - P[1]) * LOW_E[1];
+    expect(dist(h.point, [P[0] + LOW_E[0] * k, P[1] + LOW_E[1] * k, z])).toBeLessThan(1e-9);
+    expect(dist(h.point, M)).toBeLessThan(1e-6);
+    expect(trackDirMeetLabel(h)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
+  });
+});

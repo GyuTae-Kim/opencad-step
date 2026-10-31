@@ -300,6 +300,26 @@ describe('잘린 면의 경계(insideFace)와 refineFaceHit', () => {
     const moved: Mesh3d = { ...mesh, matrix: new Float64Array([0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 100, 0, 0, 1]) } as Mesh3d;
     close(refineFaceHit(input([80, 3, 4], [1, 0, 0], [90.5, 3, 4]), new Map([['cyl', moved]]), fx), [100 - Math.sqrt(91), 3, 4], 1e-11);
   });
+
+  it('42차 코어 0.36.0: 열린 후보(open)와 닫힌 입력은 같은 점 둘레에서 같은 답(코어가 기억 열쇠에 open을 넣어 따로 물어도 값이 갈리지 않는다)', () => {
+    const { mesh, table } = cylPatch(10, 0, Math.PI / 2, 10, 6, 4);
+    const fx: SnapFaceIndex = { kinds: FACE_KINDS, tables: [table], tableOf: new Map([['cyl', 0]]) };
+    const meshes = new Map([['cyl', mesh]]);
+    // 칸과 거의 나란히 얕게 뚫는 선(칸 현과 약 5°): 원기둥과 두 번 만나고, 뚫는 자리(힌트)에서 가까운 근을 고른다
+    const dir = unit([-Math.sin(0.6), Math.cos(0.6), 0.02]);
+    const origin: V3 = [9.93 * Math.cos(0.45), 9.93 * Math.sin(0.45), 4];
+    for (const hint of [origin, [origin[0] + dir[0] * 0.8, origin[1] + dir[1] * 0.8, origin[2] + dir[2] * 0.8] as V3]) {
+      const base: SnapRefineFaceInput = { kind: 'axisFace', point: hint, face: { id: 'cyl', index: 5, normal: [1, 0, 0] }, line: { origin, dir }, first: origin, ray: { origin: [50, 50, 50], dir: unit([-1, -1, -1]) } };
+      const closed = refineFaceHit(base, meshes, fx);
+      const open = refineFaceHit({ ...base, open: true }, meshes, fx);
+      expect(closed).not.toBeNull();
+      expect(open).toEqual(closed);
+      // 원기둥 위·그 선 위
+      expect(Math.abs(Math.hypot(open![0], open![1]) - 10)).toBeLessThan(1e-9);
+      const k = (open![0] - origin[0]) * dir[0] + (open![1] - origin[1]) * dir[1] + (open![2] - origin[2]) * dir[2];
+      expect(Math.hypot(open![0] - origin[0] - dir[0] * k, open![1] - origin[1] - dir[1] * k, open![2] - origin[2] - dir[2] * k)).toBeLessThan(1e-9);
+    }
+  });
 });
 
 /**
