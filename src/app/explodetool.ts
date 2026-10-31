@@ -1,7 +1,7 @@
 /**
  * 분해 손질 도구(분해 조각 안 — 첫 화면 JS 밖): 부품 끌기(끌기 손짓 explodedrag.ts → 끌 단위·끄는 길·덧이동 explodetweak.ts),
  * 옮기기 켜고 끄기, 한 단계·모두 되돌리기와 다시 하기(38차), 보기 링크의 손질(exm) 만들기·받기, 최근 문서 항목에 손질 남기기·받기,
- * 손질 파일 내보내기·불러오기(38차 — 꼴과 받는 규칙은 explodefile.ts), 끄는 동안 옮긴 거리 글(38차).
+ * 손질 파일 내보내기·불러오기(38차 — 꼴과 받는 규칙은 explodefile.ts, 39차에 읽기 전 크기 한도·줄 한도·부품 지문), 끄는 동안 옮긴 거리 글(38차).
  * 앱은 TweakHost로 뷰어·문서·분해 상태와 고르기·다시 걸기·알림·파일 건네기를 건네고, 키(Esc·Ctrl+Z·Ctrl+Shift+Z)·길게 누르기·링크·파일 열기에서 이것을 부른다.
  *
  * 끌기: 누른 자리를 고르고(누르기와 같은 반투명 너머 선택), 그 묶음의 끌 단위(dragUnits)를 정해 손질 단계를 연다. 고른 것 밖을 눌렀으면
@@ -15,7 +15,18 @@ import { h } from './dom';
 import type { ExplodeAxis, ExplodeMode, ExplodePlan, ExplodeView } from './explode';
 import type { TweakHandlers, TweakState } from './explodebar';
 import { ExplodeDrag } from './explodedrag';
-import { importedAxis, importedView, makeTweakFile, matchTweakFile, readTweakFile, tweakFileName, tweakFileText } from './explodefile';
+import {
+  importedAxis,
+  importedView,
+  makeTweakFile,
+  matchTweakFile,
+  readTweakFile,
+  TWEAK_FILE_MAX_BYTES,
+  TWEAK_FILE_MAX_ENTRIES,
+  tweakFileFits,
+  tweakFileName,
+  tweakFileText,
+} from './explodefile';
 import {
   canonicalTweaks,
   decodeTweakLink,
@@ -34,6 +45,7 @@ import {
   type LenFormat,
 } from './explodetweak';
 import { stemName } from './files';
+import { fmtCount } from './format';
 import { cleanEntries, type RecentBackend } from './recent';
 
 /** 앱이 건네는 것 */
@@ -192,7 +204,12 @@ export class ExplodeTweakTool implements TweakHandlers {
     const t = d?.tweaks;
     if (!d || this.g) return false;
     const { axis, view } = this.host.setup();
-    const f = t ? makeTweakFile(d, t, axis, view) : null;
+    // 받는 쪽 줄 한도를 넘는 손질은 내보내지 않는다(읽지 못할 파일을 만들지 않게)
+    if (t && !tweakFileFits(t)) {
+      this.host.toast(`손질이 너무 많아 파일로 내보내지 못했습니다(한도 ${fmtCount(TWEAK_FILE_MAX_ENTRIES)}개).`, 'warn', 6000);
+      return false;
+    }
+    const f = t ? makeTweakFile(d, t, axis, view, this.host.plan(d)) : null;
     if (!f) {
       this.host.toast('내보낼 분해 손질이 없습니다.', 'warn');
       return false;
@@ -221,27 +238,44 @@ export class ExplodeTweakTool implements TweakHandlers {
     i.click();
   }
 
-  /** 손질 파일 받기(파일 고르기·끌어다 놓기). 받았으면 true */
+  /** 손질 파일 받기(파일 고르기·끌어다 놓기): 크기 한도(TWEAK_FILE_MAX_BYTES)를 넘으면 읽지 않고 알린다. 받았으면 true */
   async importFile(file: Blob, d: StepDoc | null = this.host.opened()): Promise<boolean> {
+    if (!d) return false;
+    if (!(file.size <= TWEAK_FILE_MAX_BYTES)) {
+      this.tooLarge();
+      return false;
+    }
     let text = '';
     try {
       text = await file.text();
     } catch {
       /* 못 읽은 파일은 꼴이 틀린 것으로 알린다 */
     }
-    return !!d && this.importText(d, text);
+    return this.importText(d, text);
+  }
+
+  private tooLarge(): void {
+    this.host.toast(`손질 파일이 너무 커서 읽지 않았습니다(한도 약 ${Math.floor(TWEAK_FILE_MAX_BYTES / 1e6)} MB).`, 'warn', 6000);
   }
 
   /**
-   * 손질 파일 글 받기: 꼴이 틀리거나 판이 다르면 알리고 그대로, 같은 문서면 이 나무에 있는 손질을 모두, 다른 문서면 자리와 부품 이름이 맞는 것만
-   * (explodefile.ts). 파일에 든 방향마다 그 방향의 손질을 파일대로 바꾸고(방향마다 되돌리기 한 단계), 내보낸 때의 방향(받았으면)으로 바꿔 보인다.
-   * 받았으면 true
+   * 손질 파일 글 받기: 너무 크거나 줄이 너무 많거나 꼴이 틀리거나 판이 다르면 알리고 그대로, 같은 문서면 이 나무에 있는 손질을 모두,
+   * 다른 문서면 자리와 부품 이름(판 2는 지문도)이 맞는 것만(explodefile.ts). 파일에 든 방향마다 그 방향의 손질을 파일대로 바꾸고
+   * (방향마다 되돌리기 한 단계), 내보낸 때의 방향(받았으면)으로 바꿔 보인다. 받았으면 true
    */
   importText(d: StepDoc, text: string): boolean {
     const r = readTweakFile(text);
+    if (r.kind === 'large') {
+      this.tooLarge();
+      return false;
+    }
     if (r.kind !== 'ok') {
       this.host.toast(
-        r.kind === 'version' ? `판 ${r.v}의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 1을 읽습니다.` : '손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.',
+        r.kind === 'version'
+          ? `판 ${r.v}의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 2까지 읽습니다.`
+          : r.kind === 'toomany'
+            ? `손질 줄이 너무 많은 파일이라 불러오지 않았습니다(한도 ${fmtCount(TWEAK_FILE_MAX_ENTRIES)}개).`
+            : '손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.',
         'warn',
         6000,
       );
@@ -249,8 +283,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     }
     const f = r.file;
     const m = matchTweakFile(f, d, this.host.plan(d));
+    const odd = m.outliers ? [`값이 범위를 벗어난 손질 ${m.outliers}개는 건너뛰었습니다.`] : [];
     if (!m.taken) {
-      this.host.toast(m.same ? '이 파일에는 이 문서에 걸 손질이 없습니다 — 불러오지 않았습니다.' : '다른 문서에서 내보낸 손질이라 이 문서에 맞는 부품이 없습니다 — 불러오지 않았습니다.', 'warn', 6000);
+      this.host.toast([m.same ? '이 파일에는 이 문서에 걸 손질이 없습니다 — 불러오지 않았습니다.' : '다른 문서에서 내보낸 손질이라 이 문서에 맞는 부품이 없습니다 — 불러오지 않았습니다.', ...odd], 'warn', 6000);
       return false;
     }
     this.cancel();
@@ -259,9 +294,15 @@ export class ExplodeTweakTool implements TweakHandlers {
     this.host.aim(importedAxis(f, m, this.host.setup().axis), importedView(f, m));
     this.changed(d);
     const msg = [`분해 손질을 불러왔습니다(방향 ${m.axes.length}개 · 손질 ${m.taken}개).`];
-    if (!m.same) msg.unshift('다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품 이름이 맞는 것만 받았습니다.');
+    if (!m.same)
+      msg.unshift(
+        m.fp
+          ? '다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.'
+          : '다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품 이름이 맞는 것만 받았습니다.',
+      );
     if (m.skipped) msg.push(m.same ? `이 문서 나무에 없는 손질 ${m.skipped}개는 건너뛰었습니다.` : `맞지 않는 손질 ${m.skipped}개는 건너뛰었습니다.`);
-    const plain = m.same && !m.skipped;
+    msg.push(...odd);
+    const plain = m.same && !m.skipped && !m.outliers;
     this.host.toast(msg, plain ? 'info' : 'warn', plain ? 3500 : 7000);
     return true;
   }
