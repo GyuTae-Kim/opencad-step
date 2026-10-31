@@ -58,7 +58,11 @@ describe('language URLs and UI presentation', () => {
         expect(value.split('\n').length, `${code}: ${key}`).toBe(key.split('\n').length);
         // 해석기(parser)를 통역사로, 그릴(draw)을 석쇠로, 자리(placement)를 맞춤으로 옮긴 말
         expect(value, `${code}: ${key}`).not.toMatch(/译员|Dolmetsch|Grill|grill|グリル|烤架|Justification/);
+        // 재다(measure)를 재고(stock)로, 나무(tree)를 목재로, 머리(header)를 머리(head)로 옮긴 말
+        expect(value, `${code}: ${key}`).not.toMatch(/ストック|製品木|頭の情報/);
       }
+    // 거리(distance)를 거리(street)로 옮긴 말 — 측정 거리 글상자·CSV·개체 측정 이름에 쓰인다
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('거리', code))).toEqual(['Distance', '距離', '距离', 'Entfernung']);
     expect(translate('삼각화 못 한 면', 'en')).toBe('Faces that could not be triangulated');
     expect(translate('삼각형 1,234', 'en')).toBe('Triangles 1,234');
   });
