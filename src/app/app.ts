@@ -59,7 +59,7 @@ import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, fa
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
-import { desiredLooks, lookKey, OPACITY_STEPS, translucentView } from './looks';
+import { desiredLooks, OPACITY_STEPS, putLooks, translucentView } from './looks';
 import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
 
@@ -1683,7 +1683,7 @@ export class StepApp {
 
   // ───────────────────────── 부품 겉모습(불투명도·부품 색·분해) ─────────────────────────
 
-  /** 문서의 겉모습(불투명도·흐리게·부품 색·분해)을 코어에 건다 — 바뀐 그물만 */
+  /** 문서의 겉모습(불투명도·흐리게·부품 색·분해)을 코어에 건다 — 바뀐 그물만, 행렬은 모아 한 번에(looks.ts putLooks — 코어 0.32.0 setItemMatrices) */
   private applyLooks(): void {
     const v = this.viewer;
     const d = this.doc;
@@ -1702,21 +1702,7 @@ export class StepApp {
     });
     this.lookMoves = new Map();
     for (const [id, l] of want) if (l.matrix) this.lookMoves.set(id, [l.matrix[12]!, l.matrix[13]!, l.matrix[14]!]);
-    for (const id of [...this.appliedLooks.keys()])
-      if (!want.has(id)) {
-        v.setItemOpacity(id, null);
-        v.setItemColor(id, null);
-        v.setItemMatrix(id, null);
-        this.appliedLooks.delete(id);
-      }
-    for (const [id, l] of want) {
-      const k = lookKey(l);
-      if (this.appliedLooks.get(id) === k) continue;
-      v.setItemOpacity(id, l.alpha, { pickable: l.pickable });
-      v.setItemColor(id, l.color);
-      v.setItemMatrix(id, l.matrix);
-      this.appliedLooks.set(id, k);
-    }
+    putLooks(v, this.appliedLooks, want);
     this.syncPickThrough();
   }
 
