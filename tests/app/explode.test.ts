@@ -249,35 +249,80 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     const c = new ExplodeControls(
       () => {},
       () => {},
-      { move: (on) => calls.push(`move ${on}`), undo: () => calls.push('undo'), reset: () => calls.push('reset') },
+      {
+        move: (on) => calls.push(`move ${on}`),
+        undo: () => calls.push('undo'),
+        redo: () => calls.push('redo'),
+        reset: () => calls.push('reset'),
+        exportFile: () => calls.push('export'),
+        pickFile: () => calls.push('pick'),
+      },
     );
     const tw = c.els[3]!;
-    const [move, undo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
+    const [move, file, undo, redo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
     expect(tw.getAttribute('aria-label')).toBe('분해 손질');
-    expect([move!.textContent, undo!.textContent, reset!.textContent]).toEqual(['옮기기', '되돌리기', '모두 되돌리기']);
+    expect([move!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '되돌리기', '다시 하기', '모두 되돌리기']);
+    expect([file!.getAttribute('aria-label'), file!.getAttribute('aria-haspopup')]).toEqual(['손질 파일', 'menu']);
     const d = doc(1);
     c.sync(d, 'step', true);
-    // 되돌리기 둘은 따로 묶은 칸(좁으면 다음 줄로) — 손질도 되돌릴 단계도 없으면 칸째 숨긴다
-    expect(undo!.parentElement).toBe(reset!.parentElement);
+    // 옮기기·손질 파일 | 되돌리기·다시 하기 | 모두 되돌리기는 따로 묶은 칸(좁으면 차례로 다음 줄로) — 할 것이 없으면 칸째 숨긴다
+    expect(file!.parentElement).toBe(move!.parentElement);
+    expect(undo!.parentElement).toBe(redo!.parentElement);
     expect(undo!.parentElement).not.toBe(move!.parentElement);
-    expect([move!.getAttribute('aria-pressed'), undo!.hidden, reset!.hidden, undo!.parentElement!.hidden]).toEqual(['false', true, true, true]);
+    expect(reset!.parentElement).not.toBe(undo!.parentElement);
+    expect([move!.getAttribute('aria-pressed'), undo!.hidden, redo!.hidden, reset!.hidden, undo!.parentElement!.hidden, reset!.parentElement!.hidden]).toEqual(['false', true, true, true, true, true]);
     move!.click();
     c.sync(d, 'step', true, 'z', null, { on: true, count: 2, undo: true });
-    expect([move!.getAttribute('aria-pressed'), move!.classList.contains('on'), undo!.hidden, reset!.hidden, undo!.parentElement!.hidden]).toEqual(['true', true, false, false, false]);
+    expect([move!.getAttribute('aria-pressed'), move!.classList.contains('on'), undo!.hidden, redo!.hidden, reset!.hidden, undo!.parentElement!.hidden, reset!.parentElement!.hidden]).toEqual([
+      'true',
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
     move!.click();
     undo!.click();
     reset!.click();
     expect(calls).toEqual(['move true', 'move false', 'undo', 'reset']);
-    // 되돌릴 단계만 있고 손질이 없으면(모두 지운 뒤) 되돌리기만
+    // 되돌릴 단계만 있고 손질이 없으면(모두 지운 뒤) 되돌리기만, 다시 할 것만 있으면(모두 되돌린 뒤) 다시 하기만
     c.sync(d, 'step', true, 'z', null, { on: false, count: 0, undo: true });
-    expect([undo!.hidden, reset!.hidden]).toEqual([false, true]);
+    expect([undo!.hidden, redo!.hidden, reset!.hidden, reset!.parentElement!.hidden]).toEqual([false, true, true, true]);
+    c.sync(d, 'step', true, 'z', null, { on: false, count: 0, undo: false, redo: true });
+    expect([undo!.hidden, redo!.hidden, undo!.parentElement!.hidden, reset!.hidden]).toEqual([true, false, false, true]);
+    redo!.click();
+    expect(calls.at(-1)).toBe('redo');
+    // 손질 파일 메뉴: 내보내기는 어느 방향에든 손질이 있을 때만, 불러오기는 늘
+    const menuItems = () => [...document.querySelectorAll<HTMLButtonElement>('.menu .menu-item')];
+    file!.click();
+    expect(menuItems().map((b) => [b.textContent, b.disabled])).toEqual([
+      ['손질 내보내기(JSON 파일)', true],
+      ['손질 불러오기…', false],
+    ]);
+    menuItems()[1]!.click();
+    expect(calls.at(-1)).toBe('pick');
+    c.sync(d, 'step', true, 'z', null, { on: false, count: 0, undo: false, any: true });
+    file!.click();
+    expect(menuItems()[0]!.disabled).toBe(false);
+    menuItems()[0]!.click();
+    expect(calls.at(-1)).toBe('export');
+    expect(menuItems()).toEqual([]);
     const t = new ExplodeTweaks();
     t.replace('free', [['0/1/1/0', [0, 0, 3]]]);
     const plain = c.moves(d, 'step', 1, 'free').get('p5')!;
     expect(c.moves(d, 'step', 1, 'free', null, t).get('p5')).toEqual([plain[0], plain[1], 3]);
     expect(c.moves(d, 'step', 1, 'x', null, t).get('p5')).toEqual([10 * k, 0, 0]);
     for (const lang of ['en', 'ja', 'zh-CN', 'de'])
-      for (const text of [tw.getAttribute('aria-label')!, ...[move!, undo!, reset!].flatMap((b) => [b.textContent!, b.title])]) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
+      for (const text of [
+        tw.getAttribute('aria-label')!,
+        file!.getAttribute('aria-label')!,
+        '손질 파일',
+        '손질 내보내기(JSON 파일)',
+        '손질 불러오기…',
+        ...[move!, file!, undo!, redo!, reset!].flatMap((b) => [b.textContent!, b.title].filter(Boolean)),
+      ])
+        expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
   });
 });
 

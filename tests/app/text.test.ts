@@ -114,14 +114,26 @@ describe('키 규칙', () => {
     expect(routeKey({ key: 'O', meta: true })).toBe('open');
     expect(routeKey({ key: 'o', ctrl: true, alt: true })).toBeNull();
     expect(routeKey({ key: 'o', ctrl: true, inText: true })).toBeNull();
-    // 분해 손질 한 단계 되돌리기(35차): Ctrl/⌘+Z — Shift(다시 하기)·Alt·글 칸·문서 없음은 아니다
+    // 분해 손질 한 단계 되돌리기(35차): Ctrl/⌘+Z — Alt·글 칸·문서 없음은 아니다
     expect(routeKey({ key: 'z', ctrl: true, hasDoc: true })).toBe('undo');
     expect(routeKey({ key: 'Z', meta: true, hasDoc: true })).toBe('undo');
-    expect(routeKey({ key: 'z', ctrl: true, shift: true, hasDoc: true })).toBeNull();
     expect(routeKey({ key: 'z', ctrl: true, alt: true, hasDoc: true })).toBeNull();
     expect(routeKey({ key: 'z', ctrl: true, hasDoc: true, inText: true })).toBeNull();
     expect(routeKey({ key: 'z', ctrl: true })).toBeNull();
     expect(routeKey({ key: 'z', hasDoc: true })).toBe('viewer');
+    // 다시 하기(38차): Ctrl/⌘+Shift+Z(Shift를 누르면 key가 대문자인 브라우저도), Windows 꼴 Ctrl+Y — ⌘+Y(브라우저 방문 기록)·Ctrl+Shift+Y·Alt·글 칸·문서 없음은 아니다
+    expect(routeKey({ key: 'z', ctrl: true, shift: true, hasDoc: true })).toBe('redo');
+    expect(routeKey({ key: 'Z', ctrl: true, shift: true, hasDoc: true })).toBe('redo');
+    expect(routeKey({ key: 'Z', meta: true, shift: true, hasDoc: true })).toBe('redo');
+    expect(routeKey({ key: 'y', ctrl: true, hasDoc: true })).toBe('redo');
+    expect(routeKey({ key: 'Y', ctrl: true, hasDoc: true })).toBe('redo');
+    expect(routeKey({ key: 'y', meta: true, hasDoc: true })).toBeNull();
+    expect(routeKey({ key: 'y', ctrl: true, shift: true, hasDoc: true })).toBeNull();
+    expect(routeKey({ key: 'Z', ctrl: true, shift: true, alt: true, hasDoc: true })).toBeNull();
+    expect(routeKey({ key: 'Z', ctrl: true, shift: true, hasDoc: true, inText: true })).toBeNull();
+    expect(routeKey({ key: 'Z', ctrl: true, shift: true })).toBeNull();
+    expect(routeKey({ key: 'y', ctrl: true })).toBeNull();
+    expect(routeKey({ key: 'y', hasDoc: true })).toBe('viewer');
   });
 
   it('routeKey: 밀대·라디오에 초점이 있으면 그 칸이 쓰는 키(Home·End·Page·화살표)는 뷰어·홈 뷰로 보내지 않는다', () => {

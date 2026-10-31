@@ -4,24 +4,30 @@
  * 방향 단추는 한 라디오 묶음 안에 장면 축(사방·X·Y·Z)과 화면 방향(가로·세로·가로세로 — 보는 방향에 수직인 축) 두 칸으로 나눠
  * 휴대폰 폭에서는 화면 칸이 다음 줄로 내려간다.
  * 손질 칸(35차): "옮기기"(켜면 부품을 바로 끌어 분해 자리를 손질 — 손가락은 켜지 않아도 길게 눌러 끈다), 손질이 있으면 "되돌리기"(한 단계)·"모두 되돌리기".
- * 손질 도구(explodetool.ts — 손질 계산 explodetweak.ts·끌기 손짓 explodedrag.ts를 품는다)도 이 조각으로 받는다(앱은 이 모듈에서 꺼내 쓴다 — 첫 화면 JS 밖).
+ * 38차: 되돌린 것이 있으면 "다시 하기"(Ctrl/⌘+Shift+Z·Ctrl+Y), 옮기기 옆 "…"(손질 파일) 메뉴에 손질 내보내기(JSON)·불러오기.
+ * 되돌리기·다시 하기 칸과 모두 되돌리기 칸은 따로 묶어 좁은 막대에서는 차례로 다음 줄로 내려간다.
+ * 손질 도구(explodetool.ts — 손질 계산 explodetweak.ts·끌기 손짓 explodedrag.ts·손질 파일 explodefile.ts를 품는다)도 이 조각으로 받는다(앱은 이 모듈에서 꺼내 쓴다 — 첫 화면 JS 밖).
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
 import type { StepDoc } from './doc';
 import { h, icon } from './dom';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, isScreenAxis, type ExplodeAxis, type ExplodeMode, type ExplodePlan, type ExplodeView } from './explode';
 import type { ExplodeTweaks } from './explodetweak';
+import { openMenu } from './menu';
 
 export { ExplodeTweakTool } from './explodetool';
 
 /** 화면 방향을 정한 카메라 각의 열쇠(같은 각이면 같은 계획) */
 const viewKey = (v: ExplodeView | null | undefined) => (v ? `${v.yaw},${v.pitch}` : '0,0');
 
-/** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·모두 되돌리기) */
+/** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·다시 하기·모두 되돌리기, 손질 파일 내보내기·불러오기) */
 export interface TweakHandlers {
   move: (on: boolean) => void;
   undo: () => void;
+  redo: () => void;
   reset: () => void;
+  exportFile: () => void;
+  pickFile: () => void;
 }
 
 /** 손질 칸 상태 */
@@ -32,6 +38,10 @@ export interface TweakState {
   count: number;
   /** 되돌릴 단계가 있는지 */
   undo: boolean;
+  /** 다시 할 단계가 있는지 */
+  redo?: boolean;
+  /** 어느 방향에든 손질이 있는지(손질 파일로 내보낼 것) */
+  any?: boolean;
 }
 
 /** 네 방향 화살표(옮기기) */
@@ -50,8 +60,12 @@ export class ExplodeControls {
   private readonly stage: HTMLElement;
   private readonly moveBtn: HTMLButtonElement;
   private readonly undoBtn: HTMLButtonElement;
+  private readonly redoBtn: HTMLButtonElement;
   private readonly resetBtn: HTMLButtonElement;
   private readonly undoSeg: HTMLElement;
+  private readonly resetSeg: HTMLElement;
+  /** 어느 방향에든 손질이 있는지(손질 파일 메뉴의 내보내기) — 마지막 sync 것 */
+  private anyTweak = false;
   /** 장면·방식·방향마다 계획(묶음 범위를 한 번만 잰다 — 밀대를 움직일 때는 곱하기만). 화면 방향은 마지막 카메라 각 것만 둔다 */
   private readonly plans = new WeakMap<Scene3d, Map<string, ExplodePlan>>();
 
@@ -94,13 +108,32 @@ export class ExplodeControls {
       h('span', {}, '옮기기'),
     );
     this.moveBtn.addEventListener('click', () => tweak.move?.(this.moveBtn.getAttribute('aria-pressed') !== 'true'));
+    // 손질 파일(…): 내보내기(JSON — 손질이 있을 때)·불러오기 메뉴
+    const fileBtn = h(
+      'button',
+      { type: 'button', class: 'seg-btn explode-file-btn', 'aria-label': '손질 파일', 'aria-haspopup': 'menu', title: '손질 파일: 분해 손질을 JSON 파일로 내보내거나 불러옵니다' },
+      icon('more', 16),
+    );
+    fileBtn.addEventListener('click', () =>
+      openMenu(
+        fileBtn,
+        [
+          { label: '손질 내보내기(JSON 파일)', disabled: !this.anyTweak, run: () => tweak.exportFile?.() },
+          { label: '손질 불러오기…', run: () => tweak.pickFile?.() },
+        ],
+        '손질 파일',
+      ),
+    );
     this.undoBtn = h('button', { type: 'button', class: 'seg-btn explode-undo', title: '손질 한 단계 되돌리기 (Ctrl+Z)', hidden: true }, icon('reset', 14), h('span', {}, '되돌리기'));
     this.undoBtn.addEventListener('click', () => tweak.undo?.());
+    this.redoBtn = h('button', { type: 'button', class: 'seg-btn explode-redo', title: '되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)', hidden: true }, icon('reset', 14), h('span', {}, '다시 하기'));
+    this.redoBtn.addEventListener('click', () => tweak.redo?.());
     this.resetBtn = h('button', { type: 'button', class: 'seg-btn explode-reset', title: '손질을 모두 지우고 계획 자리로', hidden: true }, '모두 되돌리기');
     this.resetBtn.addEventListener('click', () => tweak.reset?.());
-    // 옮기기와 되돌리기 둘은 따로 묶어 좁은 막대에서는 되돌리기 칸이 다음 줄로 내려간다(긴 번역 — 독일어 등)
-    this.undoSeg = h('div', { class: 'seg', hidden: true }, this.undoBtn, this.resetBtn);
-    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn), this.undoSeg);
+    // 옮기기·되돌리기·모두 되돌리기 칸은 따로 묶어 좁은 막대에서는 다음 줄로 내려간다(긴 번역 — 독일어 등)
+    this.undoSeg = h('div', { class: 'seg', hidden: true }, this.undoBtn, this.redoBtn);
+    this.resetSeg = h('div', { class: 'seg', hidden: true }, this.resetBtn);
+    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn, fileBtn), this.undoSeg, this.resetSeg);
     this.els = [seg, axes, this.stage, tw];
   }
 
@@ -142,8 +175,11 @@ export class ExplodeControls {
     this.moveBtn.classList.toggle('on', tw.on);
     this.moveBtn.setAttribute('aria-pressed', String(tw.on));
     this.undoBtn.hidden = !tw.undo;
+    this.redoBtn.hidden = !tw.redo;
     this.resetBtn.hidden = !tw.count;
-    this.undoSeg.hidden = !tw.undo && !tw.count;
+    this.undoSeg.hidden = !tw.undo && !tw.redo;
+    this.resetSeg.hidden = !tw.count;
+    this.anyTweak = !!tw.any;
     for (const [k, b] of this.btns) {
       b.classList.toggle('on', k === mode);
       b.setAttribute('aria-checked', String(k === mode));

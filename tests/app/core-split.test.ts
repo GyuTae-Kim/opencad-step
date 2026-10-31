@@ -99,9 +99,9 @@ describe('코어 나눠 받기', () => {
     // 문서를 연 뒤 import()로만 받는다(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/explode.ts'))).toBe(false);
     // 분해 손질(35차 — 끌어 옮긴 덧이동·되돌리기·링크 꼴 explodetweak.ts, 끌기 손짓 explodedrag.ts)도 분해 조각에만, 그 조각은 코어 조각과 모듈을 나눠 쓰지 않는다
-    // 손질 도구(explodetool.ts — 끌기·되돌리기·링크·최근 문서에 남기기)도
-    for (const m of ['src/app/explodetweak.ts', 'src/app/explodedrag.ts', 'src/app/explodetool.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
-    expect(dynamic.some((d) => /explode(tweak|drag|tool)$/.test(d.spec))).toBe(false);
+    // 손질 도구(explodetool.ts — 끌기·되돌리기·링크·최근 문서에 남기기)와 손질 파일 꼴(explodefile.ts — 38차 내보내기·불러오기)도
+    for (const m of ['src/app/explodetweak.ts', 'src/app/explodedrag.ts', 'src/app/explodetool.ts', 'src/app/explodefile.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
+    expect(dynamic.some((d) => /explode(tweak|drag|tool|file)$/.test(d.spec))).toBe(false);
     expect(importsOf(readFileSync(join(ROOT, 'src/app/explodedrag.ts'), 'utf8')).values).toEqual([]);
     for (const m of ['selink', 'export', 'explodebar']) {
       expect(files.has(join(ROOT, `src/app/${m}.ts`)), m).toBe(false);

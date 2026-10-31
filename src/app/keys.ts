@@ -28,8 +28,9 @@ export function viewKeyOf(v: ViewName): string | undefined {
  * - hide: 고른 것 숨기기(H), isolate: 고른 것만 보기·격리 풀기(I), home: 홈 뷰(Home)
  * - viewer: 뷰어 키일 수 있으니 `viewer.handleKey`에 넘긴다(F·1~7 등, 처리 여부는 코어가 정한다)
  * - undo: 분해 손질 한 단계 되돌리기(Ctrl/⌘+Z — 되돌릴 것이 없으면 앱이 아무것도 하지 않는다)
+ * - redo: 되돌린 분해 손질 다시 하기(Ctrl/⌘+Shift+Z, Windows 꼴 Ctrl+Y — ⌘+Y는 브라우저 방문 기록이라 받지 않는다. 다시 할 것이 없으면 아무것도 하지 않는다)
  */
-export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'home' | 'viewer' | 'undo';
+export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'home' | 'viewer' | 'undo' | 'redo';
 
 export interface KeyInput {
   key: string;
@@ -52,7 +53,8 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);
   if (mod && !k.alt && (k.key === 'o' || k.key === 'O')) return 'open';
-  if (mod && !k.alt && !k.shift && k.hasDoc && (k.key === 'z' || k.key === 'Z')) return 'undo';
+  if (mod && !k.alt && k.hasDoc && (k.key === 'z' || k.key === 'Z')) return k.shift ? 'redo' : 'undo';
+  if (k.ctrl && !k.meta && !k.alt && !k.shift && k.hasDoc && (k.key === 'y' || k.key === 'Y')) return 'redo';
   if (mod || k.alt) return null;
   if (k.key === 'Escape') return 'escape';
   if (!k.hasDoc) return null;
