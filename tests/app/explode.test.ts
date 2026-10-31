@@ -515,3 +515,123 @@ describe('분해 보기: 축 하나로 벌릴 때 같은 자리에 겹친 부품
     expect(t1 - t0).toBeLessThan(1500);
   });
 });
+
+/** 로컬 X로 긴 직육면체(반폭 r — 꼭짓점 여덟)를 Z축으로 turn만큼 돌려 t에 놓은 그물(행렬 — STEP 자리 놓기처럼). 같은 정점 배열을 여럿이 함께 쓸 수 있다 */
+const boxPositions = (r: [number, number, number]): Float32Array => {
+  const p: number[] = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) p.push(sx * r[0], sy * r[1], sz * r[2]);
+  return Float32Array.from(p);
+};
+const placed = (id: string, positions: Float32Array, turn: number, t: [number, number, number]): Mesh3d => {
+  const c = Math.cos(turn), s = Math.sin(turn);
+  return {
+    id,
+    positions,
+    indices: Uint32Array.from([0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3]),
+    color: [0.7, 0.7, 0.7, 1],
+    matrix: Float64Array.from([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, t[0], t[1], t[2], 1]),
+  };
+};
+
+describe('분해 보기: 화면 방향 떼기는 꼭짓점 범위로(34차 — 코어 itemExtent)', () => {
+  // 45° 돌린 카메라(yaw π/4, pitch 0): 화면 가로 r = (1, 1, 0)/√2, 화면 세로 = Z, 보는 방향 n = (1, −1, 0)/√2
+  const view = { yaw: Math.PI / 4, pitch: 0 };
+  const b = basisFromAngles(view.yaw, view.pitch);
+  const q = Math.SQRT1_2;
+  const n: [number, number, number] = [q, -q, 0];
+  const off = (k: number): [number, number, number] => [n[0] * k, n[1] * k, 0];
+  const dotv = (p: readonly number[], v: readonly number[]) => p[0]! * v[0]! + p[1]! * v[1]! + p[2]! * v[2]!;
+  /** 묶음의 세계 꼭짓점을 방향 v에 비춘 [최소, 최대](시험 쪽 셈 — 행렬 그대로) */
+  const span = (m: Mesh3d, v: readonly number[], d: readonly number[] = [0, 0, 0]): [number, number] => {
+    const M = m.matrix!, P = m.positions;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < P.length; i += 3) {
+      const w = [0, 1, 2].map((k) => M[k]! * P[i]! + M[4 + k]! * P[i + 1]! + M[8 + k]! * P[i + 2]! + M[12 + k]! + d[k]!);
+      lo = Math.min(lo, dotv(w, v));
+      hi = Math.max(hi, dotv(w, v));
+    }
+    return [lo, hi];
+  };
+  /** 범위 상자(코어 itemBounds — 행렬은 로컬 상자 구석 여덟)를 방향 v에 비춘 구간 */
+  const boxSpan = (m: Mesh3d, v: readonly number[]): [number, number] => {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    const M = m.matrix!, P = m.positions;
+    for (let i = 0; i < P.length; i += 3)
+      for (let k = 0; k < 3; k++) {
+        const w = M[k]! * P[i]! + M[4 + k]! * P[i + 1]! + M[8 + k]! * P[i + 2]! + M[12 + k]!;
+        lo[k] = Math.min(lo[k]!, w);
+        hi[k] = Math.max(hi[k]!, w);
+      }
+    const c = dotv([0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2), v);
+    const h = [0, 1, 2].reduce((s, k) => s + ((hi[k]! - lo[k]!) / 2) * Math.abs(v[k]!), 0);
+    return [c - h, c + h];
+  };
+  const overlaps = (a: [number, number], c: [number, number]) => Math.min(a[1], c[1]) - Math.max(a[0], c[0]) > 1e-9;
+
+  it('나란히 놓인 두 대각선 막대(안 닿는다)는 화면 가로·세로로 떼지 않는다 — 상자를 비추면 보는 방향으로 겹쳐 보였다', () => {
+    // 화면 가로로 긴 막대(반폭 5 × 0.5 × 0.5) 둘이 보는 방향으로 3 떨어져 나란히(꼭짓점 사이 2) — 같은 정점 배열, 행렬만 다르다
+    const pos = boxPositions([5, 0.5, 0.5]);
+    const A = placed('A', pos, Math.PI / 4, off(-1.5));
+    const B = placed('B', pos, Math.PI / 4, off(1.5));
+    expect(b.right[0]).toBeCloseTo(q, 12);
+    expect(b.up[2]).toBeCloseTo(1, 12);
+    // 꼭짓점은 보는 방향으로 떨어져 있지만(−2~−1, 1~2) 상자를 비추면 겹친다(옛 판정이 같은 자리 묶음으로 본 까닭)
+    expect(overlaps(span(A, b.back), span(B, b.back))).toBe(false);
+    expect(overlaps(boxSpan(A, b.back), boxSpan(B, b.back))).toBe(true);
+    for (const mode of ['all', 'step'] as const)
+      for (const axis of ['sx', 'sy'] as const) {
+        const p = explodePlan([A, B], [flat('T', ['A', 'B'])], mode, axis, { view });
+        expect(p.stacked, `${mode} ${axis}`).toBe(0);
+        // 둘 다 화면 가로·세로로 부모 가운데와 같은 자리라 아무것도 움직이지 않는다(장면이 넓어지지 않는다)
+        expect(explodeMoves(p, 1).size, `${mode} ${axis}`).toBe(0);
+      }
+  });
+
+  it('대각선 축에 꿴 고리·허브·볼트(실제로 겹친다)는 꼭짓점 반폭으로 뗀다 — 축에 나란한 같은 묶음과 같은 거리', () => {
+    // 화면 가로 r을 축으로 하는 고리(축 반폭 1)·허브(1)·볼트(3) — 로컬 X를 r로 돌려 놓았다
+    const ring = placed('ring', boxPositions([1, 5, 5]), Math.PI / 4, [0, 0, 0]);
+    const hub = placed('hub', boxPositions([1, 2, 2]), Math.PI / 4, [0, 0, 0]);
+    const bolt = placed('bolt', boxPositions([3, 0.5, 0.5]), Math.PI / 4, [0, 0, 0]);
+    const list = [ring, hub, bolt];
+    const p = explodePlan(list, [flat('A', ['ring', 'hub', 'bolt'])], 'all', 'sx', { view });
+    expect(p.stacked).toBe(2);
+    // 축에 나란한 X 묶음(위 "화면 가로(앞에서 본 카메라)" 시험)과 같다: 허브 +2.5, 볼트 −5(화면 가로 r을 따라)
+    const mv = explodeMoves(p, 1);
+    for (const [id, want] of [
+      ['hub', 2.5],
+      ['bolt', -5],
+    ] as const) {
+      const d = mv.get(id)!;
+      expect(dotv(d, b.right), id).toBeCloseTo(want, 9);
+      expect(Math.hypot(d[0], d[1], d[2]), id).toBeCloseTo(Math.abs(want), 9);
+    }
+    expect(mv.has('ring')).toBe(false);
+    // 100%에서 화면 가로로 꼭짓점 범위가 겹치지 않는다
+    const s = list.map((m) => span(m, b.right, mv.get(m.id) ?? [0, 0, 0]));
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) expect(overlaps(s[i]!, s[j]!), `${i} ${j}`).toBe(false);
+  });
+
+  it('장면 축(X·Y·Z)은 범위 상자 그대로다(앞서 세운 계획과 같은 값 — 나란한 대각선 막대도 Z로는 같은 자리 묶음)', () => {
+    const pos = boxPositions([5, 0.5, 0.5]);
+    const A = placed('A', pos, Math.PI / 4, off(-1.5));
+    const B = placed('B', pos, Math.PI / 4, off(1.5));
+    const p = explodePlan([A, B], [flat('T', ['A', 'B'])], 'all', 'z');
+    expect(p.stacked).toBe(1);
+    // B는 A 위로 Z 반폭 합의 ¼을 띄워: 0.5 + 0.5 + 0.25 = 1.25
+    expect(at(p, 1, 'B')).toEqual([0, 0, 1.25]);
+    expect(explodeMoves(p, 1).has('A')).toBe(false);
+  });
+
+  it('같은 자리 부품 3,000개(한꺼번에·기운 화면 가로)도 계획이 가볍다(묶음마다 방향 셋을 한 번만 잰다)', () => {
+    const big: Mesh3d[] = [];
+    const pos = boxPositions([1, 1, 1]);
+    for (let i = 0; i < 3000; i++) big.push(placed(`q${i}`, pos, 0.3, [(i % 60) * 4, Math.floor(i / 60) * 4, 0]));
+    for (let i = 0; i < 10; i++) big.push(placed(`dup${i}`, pos, 0.3, [i * 4, 0, 0]));
+    const t0 = performance.now();
+    const p = explodePlan(big, [flat('top', big.map((m) => m.id))], 'all', 'sx', { view: { yaw: 0.6, pitch: 0.35 } });
+    const t1 = performance.now();
+    expect(p.stacked).toBeGreaterThan(0);
+    // 기계 부하를 감안한 넉넉한 한도(보통 수십 ms)
+    expect(t1 - t0).toBeLessThan(1500);
+  });
+});
