@@ -5,7 +5,8 @@
  * - 모서리: 직선(선분), 원·원호·타원(중심·법선 원 — 중심으로 잰다). 끝점·가운데 점 가까이 누르면 그 점(꼭짓점·가운데 점)
  * - 잘린 면(단면 채움): 단면 평면, 선·점 형상: 누른 점
  * - 해석적으로 못 재는 것(B-스플라인 면·곡선 모서리 등)이 끼면 고른 면·모서리의 화면용 삼각형·선분 사이 최소 거리(≈, 코어 closestBetween),
- *   두 개체가 다른 부품이면 부품 사이 최소 거리(코어 Viewer3d.closestPoints)도 함께 보인다.
+ *   두 개체가 다른 부품이면 부품 사이 최소 거리(코어 Viewer3d.closestPoints)도 함께 보인다. 40차부터 앱이 곡선 접선 조각(exactdist.ts)을 받았으면
+ *   그 두 값을 B-rep 곡면·곡선 정의로 다듬어 받으면 "≈" 없이 보인다.
  * 값은 장면 단위(길이)·도(각)로 두고, 화면 글은 Fmt로 만든다(단위·소수 자리·언어가 바뀌면 다시 만든다).
  * 첫 화면 JS 밖: 코어와 함께 받는 viewerkit.ts 조각에만 든다(앱은 뷰어를 만들 때 받은 그 모듈로 부른다 — 값 줄 글 lineValue는 measure.ts).
  */
@@ -146,9 +147,13 @@ export function pickedClosest(a: Picked, b: Picked, meshOf: (id: string) => Mesh
   return r ? { a: [r.a[0], r.a[1], r.a[2]], b: [r.b[0], r.b[1], r.b[2]], distance: r.distance } : null;
 }
 
+/** 최소 거리 답(두 점 — 세계, 거리) */
+type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
+
 /**
  * 두 개체 측정. 둘 다 해석적으로 잴 수 있으면 entmeasure, 아니면 closest(고른 면·모서리 사이 최소 거리 ≈).
  * parts를 주고 두 개체가 다른 그물이면 부품 사이 최소 거리(코어 closestPoints)를 덧붙인다(해석적으로 못 잴 때만).
+ * refine·refineParts(40차 — 곡선 접선 조각의 exactdist.ts)를 주면 그 삼각형 답을 B-rep 곡면·곡선 정의로 다듬어, 받으면 "≈" 없이 그 값·두 점으로 보인다.
  * size는 각 덧그림 팔 길이 기준(장면 단위)
  */
 export function measurePicked(
@@ -156,17 +161,22 @@ export function measurePicked(
   B: Picked,
   opts: {
     size: number;
-    closest?: (a: Picked, b: Picked) => { a: V3; b: V3; distance: number } | null;
-    parts?: (idA: string, idB: string) => { a: readonly number[]; b: readonly number[]; distance: number } | null;
+    closest?: (a: Picked, b: Picked) => Closest | null;
+    parts?: (idA: string, idB: string) => Closest | null;
+    refine?: (a: Picked, b: Picked, c: Closest) => Closest | null;
+    refineParts?: (idA: string, idB: string, r: Closest) => Closest | null;
   },
 ): PickedMeasure {
   if (A.entity && B.entity) return { ...measureEntities(A.entity, B.entity, opts.size), approx: false };
   const lines: MeasureLine[] = [];
   const annotations: EntityMeasure['annotations'] = [];
+  const v3 = (p: readonly number[]): V3 => [p[0]!, p[1]!, p[2]!];
   const c = opts.closest?.(A, B) ?? null;
   if (c) {
-    lines.push({ label: '최소 거리', unit: 'length', value: c.distance, approx: true });
-    annotations.push({ kind: 'distance', a: c.a, b: c.b, line: 0 });
+    const e = opts.refine?.(A, B, c) ?? null;
+    const m = e ?? c;
+    lines.push({ label: '최소 거리', unit: 'length', value: m.distance, approx: !e });
+    annotations.push({ kind: 'distance', a: v3(m.a), b: v3(m.b), line: 0 });
   } else {
     lines.push({ label: '누른 점 사이 거리', unit: 'length', value: dist(A.point, B.point) });
     annotations.push({ kind: 'distance', a: A.point, b: B.point, line: 0 });
@@ -174,8 +184,10 @@ export function measurePicked(
   if (A.meshId !== B.meshId && opts.parts) {
     const r = opts.parts(A.meshId, B.meshId);
     if (r) {
-      lines.push({ label: '부품 사이 최소 거리', unit: 'length', value: r.distance, approx: true });
-      annotations.push({ kind: 'distance', a: [r.a[0]!, r.a[1]!, r.a[2]!], b: [r.b[0]!, r.b[1]!, r.b[2]!], line: lines.length - 1 });
+      const e = opts.refineParts?.(A.meshId, B.meshId, r) ?? null;
+      const m = e ?? r;
+      lines.push({ label: '부품 사이 최소 거리', unit: 'length', value: m.distance, approx: !e });
+      annotations.push({ kind: 'distance', a: v3(m.a), b: v3(m.b), line: lines.length - 1 });
     }
   }
   return { lines, annotations, approx: lines.some((l) => l.approx) };

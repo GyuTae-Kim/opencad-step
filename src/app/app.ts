@@ -254,6 +254,8 @@ export class StepApp {
   private trackMeetLabelOf: typeof import('./trackdir').trackDirMeetLabel | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
+  /** 같은 조각의 개체 측정 최소 거리 다듬기(exactdist.ts — 받기 전·못 받으면 null이라 삼각형 값 ≈ 그대로) */
+  private exactOf: Pick<typeof import('./tangent'), 'exactPicked' | 'exactParts'> | null = null;
   /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
   private labelAvoid: InstanceType<typeof import('./tangent').LabelAvoid> | null = null;
   /** 문서마다 곡선 붙잡기(곡선 위로 다듬기·곡선 가운데 점) */
@@ -996,6 +998,7 @@ export class StepApp {
         this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null));
         // 거리 글상자가 측정 띠·위 띠·단면 막대·뷰 큐브를 비켜 그리게(휴대폰에서 띠·큐브 밑으로 들어가던 것)
         this.labelAvoid ??= new m.LabelAvoid(v, this.viewEl);
+        this.exactOf ??= m;
         if (this.curveSnapOf) return;
         this.curveSnapOf = m.curveSnap;
         this.syncMeasureSnap();
@@ -2146,6 +2149,8 @@ export class StepApp {
       ([p, m]) => {
         this.faceSurfs.set(d, m.reviveFaceSurfaces(p));
         if (this.doc === d) this.viewer?.clearMeasureRefine();
+        // 개체 측정 결과가 곡면 정의를 기다리던 "≈"면 곡면 위로 다시 잰다
+        if (this.doc === d && d.ent.result?.approx) this.measureEntityPair(d);
       },
       () => this.faceSurfs.set(d, null),
     );
@@ -2313,6 +2318,8 @@ export class StepApp {
     if (this.entMeasuring && !on) this.clearEntities();
     this.entMeasuring = on;
     if (v) v.canvas.style.cursor = on || v.measureMode ? 'crosshair' : '';
+    // 최소 거리를 곡면 위로 다듬을 곡면 정의를 미리 받는다(B-스플라인 등 — 두 개체를 누르기 전에)
+    if (on && this.doc) this.fetchFaceSurfaces(this.doc);
   }
 
   /** 개체 측정: 누른 개체와 결과·강조·덧그림 지우기 */
@@ -2355,20 +2362,53 @@ export class StepApp {
     d.ent.picks.push(picked);
     if (d.ent.picks.length === 2) {
       const [a, b] = d.ent.picks as [Picked, Picked];
-      const diag = this.sceneDiag(d);
-      const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
-      d.ent.result = E.measurePicked(a, b, {
-        size: E.armSize(a, b, diag),
-        closest: (x, y) => E.pickedClosest(x, y, meshOf),
-        parts: (x, y) => v.closestPoints(x, y),
-      });
-      for (const l of d.ent.result.lines) logMeasure(d, { type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title });
+      this.measureEntityPair(d, false);
+      const rows = d.ent.result!.lines.map((l): EntityRecord => ({ type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title }));
+      for (const r of rows) logMeasure(d, r);
+      this.entLogged.set(d.ent, rows);
     } else d.ent.result = null;
     this.showEntities();
     this.panel.onMeasure();
     this.updateStatus();
   }
 
+  /**
+   * 누른 두 개체를 잰다(해석적으로 못 재는 최소 거리는 곡선 접선 조각을 받았으면 B-rep 곡면·곡선 정의로 다듬는다 — exactdist.ts).
+   * show면 강조·덧그림·패널도 다시(곡면 정의를 받은 뒤 다시 잴 때)
+   */
+  private measureEntityPair(d: StepDoc, show = true): void {
+    const v = this.viewer;
+    const E = this.ent;
+    if (!v || !E || d.ent.picks.length !== 2) return;
+    const [a, b] = d.ent.picks as [Picked, Picked];
+    const diag = this.sceneDiag(d);
+    const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
+    const X = this.exactOf;
+    const s = X && { meshes: new Map(d.scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces: this.surfDocs.has(d) ? (t: number, f: number) => this.faceSurfaceAt(d, t, f) : null };
+    d.ent.result = E.measurePicked(a, b, {
+      size: E.armSize(a, b, diag),
+      closest: (x, y) => E.pickedClosest(x, y, meshOf),
+      parts: (x, y) => v.closestPoints(x, y),
+      ...(X && s ? { refine: (x, y, c) => X.exactPicked(x, y, c, s, diag), refineParts: (x, y, r) => X.exactParts(x, y, r, s, diag) } : {}),
+    });
+    // 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
+    const rows = this.entLogged.get(d.ent);
+    if (rows)
+      d.ent.result.lines.forEach((l, i) => {
+        const r = rows[i];
+        if (r?.label !== l.label) return;
+        r.value = l.value;
+        if (l.approx) r.approx = true;
+        else delete r.approx;
+      });
+    if (!show) return;
+    this.showEntities();
+    this.panel.onMeasure();
+    this.updateStatus();
+  }
+
+  /** 개체 측정 짝(d.ent)마다 남긴 측정 기록 줄(다시 잴 때 값을 고친다) */
+  private entLogged = new WeakMap<StepDoc['ent'], EntityRecord[]>();
   private diagOf = new WeakMap<StepDoc, number>();
   /** 장면 범위 대각선(문서마다 한 번 잰다) */
   private sceneDiag(d: StepDoc): number {
@@ -3267,6 +3307,9 @@ export class StepApp {
 function nextPaint(): Promise<void> {
   return new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 }
+
+/** 측정 기록의 개체 측정 한 줄 */
+type EntityRecord = Extract<MeasureRecord, { type: 'entity' }>;
 
 /** 측정 기록에 한 줄(이 문서 동안 500줄까지) */
 function logMeasure(d: StepDoc, r: MeasureRecord): void {
