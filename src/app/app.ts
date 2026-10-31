@@ -48,7 +48,7 @@ import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, isTrackDir, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
-import type { ExplodeAxis, ExplodeMode } from './explode';
+import type { ExplodeAxis, ExplodeMode, ExplodeView } from './explode';
 import type { ExplodeControls } from './explodebar';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
@@ -82,6 +82,8 @@ const BIG_TRIANGLES = 400_000;
 const BIG_MESHES = 3000;
 /** 고른 면 경계 색(청록) */
 const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
+/** 화면 방향 분해(가로·세로·평면 — 카메라 각으로 방향을 정한다. explode.ts isScreenAxis와 같다: 첫 화면에 분해 조각을 들이지 않게 따로 둔다) */
+const screenAxis = (a: ExplodeAxis): boolean => a === 'sx' || a === 'sy' || a === 'sp';
 
 interface Loading {
   name: string;
@@ -282,8 +284,10 @@ export class StepApp {
   explodeOpen = false;
   /** 분해 방식: 조립 단계별(바깥 조립부터 한 단계씩) · 한꺼번에 — 이 창에서 마지막에 고른 것 */
   explodeMode: ExplodeMode = 'step';
-  /** 분해 방향: 사방(기본) · 장면 X·Y·Z축 하나로만 — 이 창에서 마지막에 고른 것 */
+  /** 분해 방향: 사방(기본) · 장면 X·Y·Z축 하나로만 · 화면 가로·세로·평면 — 이 창에서 마지막에 고른 것 */
   explodeAxis: ExplodeAxis = 'free';
+  /** 화면 방향 분해의 카메라 각(분해를 켜거나 화면 방향을 고를 때 정한다 — 돌려 보는 동안 계획이 흔들리지 않게, 보기 링크에도 담는다) */
+  explodeView: ExplodeView | null = null;
   /** 분해 조각(explodebar.ts·explode.ts — 방식·방향 단추·단계 글·계획, 첫 화면 JS 밖, 문서를 열 때 받는다) */
   private explodeUi: ExplodeControls | null = null;
   private explodeLoad: Promise<unknown> | null = null;
@@ -1668,7 +1672,7 @@ export class StepApp {
       opacity: d.opacity,
       dim: d.dim,
       partColors: this.partColors,
-      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode, this.explodeAxis) } : {}),
+      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode, this.explodeAxis, this.explodeView) } : {}),
       fixed: d.vis.pmiIds,
     });
     this.lookMoves = new Map();
@@ -1772,12 +1776,23 @@ export class StepApp {
     this.syncExplode();
   }
 
-  /** 분해 방향 바꾸기(사방 · X·Y·Z축 하나로만) — 분해 정도·방식은 그대로 */
+  /**
+   * 분해 방향 바꾸기(사방 · X·Y·Z축 하나로만 · 화면 가로·세로·평면) — 분해 정도·방식은 그대로.
+   * 화면 방향은 지금 카메라로 정한다(같은 화면 방향을 다시 고르면 지금 카메라로 다시 맞춘다)
+   */
   setExplodeAxis(axis: ExplodeAxis): void {
-    if (this.explodeAxis === axis) return;
+    const screen = screenAxis(axis);
+    if (this.explodeAxis === axis && !screen) return;
     this.explodeAxis = axis;
+    if (screen) this.aimExplode();
     this.applyLooks();
     this.syncExplode();
+  }
+
+  /** 화면 방향 분해의 카메라 각을 지금 카메라로 */
+  private aimExplode(): void {
+    const c = this.viewer?.getCamera();
+    this.explodeView = c ? { yaw: c.yaw, pitch: c.pitch } : null;
   }
 
   /** 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식·방향 단추를 막대에 끼우고 지금 문서의 분해를 다시 건다 */
@@ -1799,9 +1814,11 @@ export class StepApp {
     ));
   }
 
-  /** 분해 막대 열고 닫기(닫으면 제자리로) */
+  /** 분해 막대 열고 닫기(닫으면 제자리로, 열 때 화면 방향이면 지금 카메라로 방향을 정한다) */
   toggleExplode(on = !this.explodeOpen): void {
+    const opening = on && !this.explodeOpen && !!this.doc;
     this.explodeOpen = on && !!this.doc;
+    if (opening && screenAxis(this.explodeAxis)) this.aimExplode();
     if (!this.explodeOpen && this.doc?.explode) this.setExplode(0);
     else if (this.explodeOpen && this.doc && !this.doc.explode) this.setExplode(0.5);
     this.syncExplode();
@@ -1822,7 +1839,7 @@ export class StepApp {
     if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
     this.explodeValue.textContent = `${Math.round(t * 100)}%`;
     // 방식·방향 단추와 지금 벌리는 단계(조각을 받은 뒤)
-    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis);
+    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis, this.explodeView);
     this.toolbar.refresh();
   }
 
@@ -2493,7 +2510,10 @@ export class StepApp {
       if (fit.dropped) kept = sel.resolveTokens(d.products, fit.tokens).ids.length;
     }
     if (link.sel && d?.vis.isolated) link.iso = true;
-    if (d && d.explode > 0) link.exp = { t: d.explode, mode: this.explodeMode, ...(this.explodeAxis !== 'free' ? { axis: this.explodeAxis } : {}) };
+    if (d && d.explode > 0) {
+      const a = this.explodeAxis;
+      link.exp = { t: d.explode, mode: this.explodeMode, ...(a !== 'free' ? { axis: a } : {}), ...(screenAxis(a) && this.explodeView ? { view: this.explodeView } : {}) };
+    }
     return { url: viewUrl(location.href, link), kept, total: ids.length };
   }
 
@@ -2524,10 +2544,15 @@ export class StepApp {
       v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
     }
     if (link.sec) v.setSection(link.sec);
-    // 분해는 링크대로(방식·방향과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다, 방향이 없는 링크는 사방), 링크에 없으면 접는다
+    // 분해는 링크대로(방식·방향과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다, 방향이 없는 링크는 사방), 링크에 없으면 접는다.
+    // 화면 방향은 링크에 담긴 카메라 각으로(없으면 위에서 맞춘 링크의 카메라 — 곧 지금 카메라로)
     if (link.exp) {
       this.explodeMode = link.exp.mode;
       this.explodeAxis = link.exp.axis ?? 'free';
+      if (screenAxis(this.explodeAxis)) {
+        if (link.exp.view) this.explodeView = { ...link.exp.view };
+        else this.aimExplode();
+      }
       this.explodeOpen = true;
       this.setExplode(link.exp.t);
     } else if (d.explode || this.explodeOpen) this.toggleExplode(false);
