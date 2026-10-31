@@ -793,6 +793,12 @@ select {
     flex-basis: 100%;
     order: 3;
   }
+  /* 커서 아래 붙잡을 점의 이름이 띠보다 길면(만나는 점 "… · 끌어온 점 Y축 위"의 영어·독일어 등) 띠 안에서 줄을 바꾼다 */
+  .measure-bar.measuring .mb-hover {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: normal;
+  }
   .view:has(.measure-bar.measuring:not([hidden])) .toasts {
     bottom: 112px;
   }
@@ -1316,10 +1322,14 @@ table.grid td.mono {
   margin: 0 7px;
   color: var(--text-faint);
 }
+/* 커서 아래 붙잡을 점의 이름: 좁은 창에서 막대보다 길면 줄여 보인다(측정 띠에 다 보인다 — 화면 밖으로 밀지 않는다) */
 .status-snap {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-weight: 600;
+  text-overflow: ellipsis;
 }
 .status-sel {
   flex: none;
