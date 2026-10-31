@@ -956,7 +956,7 @@ export class StepApp {
     this.aim = new core.TouchAim(v.canvas, {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
-      onHold: (x, y) => !!this.tweakTool?.grab(x, y) || this.contextMenuAt(x, y),
+      onHold: (x, y, id) => !!this.tweakTool?.grab(x, y, id) || this.contextMenuAt(x, y),
       // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다 — 접선 조각을 받은 뒤에는 화면 요소 자리와 합쳐
       labelAvoid: (a) => (this.labelAvoid ? this.labelAvoid.aim(a) : v.setMeasureLabelAvoid(a)),
     });
@@ -986,8 +986,8 @@ export class StepApp {
     });
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
-    // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(정밀 조준 뒤에 — 같은 캡처 단계에서 그다음에 받는다)
-    this.tweakTool?.attach(v.canvas);
+    // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(코어 포인터 맡기 훅 — 길게 눌러 잡은 손가락은 정밀 조준 뒤 같은 캡처 단계에서 듣는다)
+    this.tweakTool?.attach(v);
     // 곡선 모서리 끝의 접선 잠금과 곡선 위로 다듬기는 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다
     // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine·곡선 가운데 점)
     void loadCurveTangents().then(
@@ -1837,11 +1837,7 @@ export class StepApp {
           },
           opened: () => (this.explodeOpen ? this.doc : null),
           setup: () => ({ mode: this.explodeMode, axis: this.explodeAxis, view: this.explodeView }),
-          pick: (x, y, pointerType) => {
-            const v = this.viewer;
-            const r = v?.canvas.getBoundingClientRect();
-            return v && r ? v.pick(x - r.left, y - r.top, { pointerType, throughTranslucent: this.pickThrough }) : null;
-          },
+          pick: (x, y, pointerType) => this.viewer?.pick(x, y, { pointerType, throughTranslucent: this.pickThrough }) ?? null,
           select: (p) => {
             if (this.multiPick && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit), this.bodyPick ? p.id : undefined);
             else this.onPick(p, false);
@@ -1859,7 +1855,7 @@ export class StepApp {
           tool,
         );
         this.explodeOpts.append(...this.explodeUi.els);
-        if (this.viewer) tool.attach(this.viewer.canvas);
+        if (this.viewer) tool.attach(this.viewer);
         if (this.doc?.explode) this.applyLooks();
         this.syncExplode();
       },
