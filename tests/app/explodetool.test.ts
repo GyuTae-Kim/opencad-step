@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-// 분해 손질 도구(35차, 가짜 DOM에서 끌기): 앱이 건네는 것(TweakHost)으로 부품을 끌어 손질 → 끈 점이 커서 아래, 되돌리기·모두 되돌리기,
-// 측정 중·빈 곳은 코어가 돌려 봄, 손가락 길게 눌러 잡기·떼면 작업 메뉴, 링크 손질 만들기 → 새 문서에 받기, 최근 문서 항목에 남기기·받기
+// 분해 손질 도구(35차 — 36차부터 jsdom에 실제 코어 Viewer3d로 끌기): 앱이 건네는 것(TweakHost)으로 부품을 끌어 손질 → 끈 점이 커서 아래, 되돌리기·모두 되돌리기,
+// 측정 중·빈 곳은 코어가 돌려 봄, 손가락 길게 눌러 잡기·떼면 작업 메뉴, 링크 손질 만들기 → 새 문서에 받기, 최근 문서 항목에 남기기·받기.
+// 끌기 셈은 시험이 정한 카메라(cam)로 하고, 포인터는 실제 코어(포인터 맡기 훅)가 받는다 — 코어가 돌았는지는 그 뷰어 카메라로 본다
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeFrame, projectToScreen, type CameraState } from 'opencad-viewer3d/camera';
-import { dragStarted } from 'opencad-viewer3d/pointer';
 import type { Mesh3d, Pick3d, Viewer3d } from 'opencad-viewer3d';
 import { touchPointerEvent } from '../../src/app/aim';
+import { jsdomViewer } from './jsdomview';
 import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, type ExplodeAxis, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeTweakTool, storedTweaks, type TweakHost } from '../../src/app/explodetool';
@@ -24,7 +25,6 @@ const W = 800;
 const H = 600;
 const cam: CameraState = { target: [0, 0, 0], distance: 40, yaw: 0, pitch: 0, projection: 'perspective', fovY: (40 * Math.PI) / 180 };
 const frame = computeFrame(cam, W, H, { center: cam.target, radius: cam.distance });
-const RECT = { left: 0, top: 0, right: W, bottom: H, width: W, height: H, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
 const add = (a: readonly number[], b: readonly number[]) => a.map((x, i) => x + b[i]!);
 
 /** 메모리 최근 문서 저장소 */
@@ -40,31 +40,12 @@ function memory(): RecentBackend {
   };
 }
 
-/** 코어 포인터 처리를 줄인 가짜(끌기 문턱을 넘으면 궤도, 움직이지 않고 떼면 누르기) */
-function fakeCore(canvas: HTMLElement) {
-  let drag: { sx: number; sy: number; type: string; moved: boolean } | null = null;
-  const st = { orbits: 0, clicks: 0 };
-  canvas.addEventListener('pointerdown', (e) => {
-    const p = e as PointerEvent;
-    drag = { sx: p.clientX, sy: p.clientY, type: p.pointerType, moved: false };
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    const p = e as PointerEvent;
-    if (!drag || (!drag.moved && !dragStarted(p.clientX - drag.sx, p.clientY - drag.sy, drag.type))) return;
-    drag.moved = true;
-    st.orbits++;
-  });
-  canvas.addEventListener('pointerup', () => {
-    if (drag && !drag.moved) st.clicks++;
-    drag = null;
-  });
-  canvas.addEventListener('pointercancel', () => void (drag = null));
-  return st;
-}
-
-describe('분해 손질 도구(가짜 DOM 끌기)', () => {
+describe('분해 손질 도구(jsdom 끌기)', () => {
+  let env: ReturnType<typeof jsdomViewer>;
   let canvas: HTMLCanvasElement;
-  let core: ReturnType<typeof fakeCore>;
+  /** 코어 뷰어 카메라(돌았는지)와 누르기 알림 수 */
+  let coreCam: () => string;
+  let picks: number;
   let doc: StepDoc;
   let axis: ExplodeAxis;
   let measuring: boolean;
@@ -85,12 +66,12 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
 
   beforeEach(async () => {
     document.body.innerHTML = '';
-    const wrap = document.createElement('div');
-    canvas = document.createElement('canvas');
-    wrap.append(canvas);
-    document.body.append(wrap);
-    canvas.getBoundingClientRect = () => RECT;
-    core = fakeCore(canvas);
+    env = jsdomViewer();
+    const real = env.viewer;
+    canvas = real.canvas;
+    coreCam = () => JSON.stringify(real.getCamera());
+    picks = 0;
+    real.onPick(() => void picks++);
     plans.clear();
     axis = 'free';
     measuring = false;
@@ -117,10 +98,13 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
       recent: new RecentStore(backend),
     };
     tool = new ExplodeTweakTool(host);
-    tool.attach(canvas);
+    tool.attach(real);
   });
 
-  afterEach(() => tool.cancel());
+  afterEach(() => {
+    tool.cancel();
+    env.restore();
+  });
 
   it('옮기기를 켜고 마우스로 끌면 고르고 손질해, 끈 점이 커서 아래에 온다 — 코어는 돌지 않고, 최근 문서 항목에 남긴다', async () => {
     tool.move(true);
@@ -128,6 +112,7 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
     expect(tool.state(doc, 'free')).toEqual({ on: true, count: 0, undo: false });
     const s = projectToScreen(frame, shownB())!;
     const p0 = shownB();
+    const c0 = coreCam();
     fire('pointerdown', s[0], s[1]);
     fire('pointermove', s[0] + 3, s[1]);
     expect(tool.dragging).toBe(false);
@@ -136,8 +121,8 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
     expect(log.slice(2, 3)).toEqual(['select b']);
     fire('pointermove', s[0] + 83.7, s[1] - 29.1);
     fire('pointerup', s[0] + 83.7, s[1] - 29.1);
-    expect(core.orbits).toBe(0);
-    expect(core.clicks).toBe(0);
+    expect(coreCam()).toBe(c0);
+    expect(picks).toBe(0);
     // 누른 점(p0)이 지금은 커서 아래
     const moved = add(p0, add(shownB(), p0.map((v) => -v)));
     const q = projectToScreen(frame, moved)!;
@@ -155,23 +140,24 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
 
   it('측정 중(손질할 때가 아님)·빈 곳·옮기기를 끈 끌기는 코어가 돌려 보고, 움직이지 않고 떼면 코어의 누르기', () => {
     tool.move(true);
+    /** 그 끌기에 코어가 돌았는지 */
+    const orbited = (x0: number, x1: number): boolean => {
+      const c = coreCam();
+      fire('pointerdown', x0, 300);
+      fire('pointermove', x1, 300);
+      fire('pointerup', x1, 300);
+      return coreCam() !== c;
+    };
     measuring = true;
-    fire('pointerdown', 400, 300);
-    fire('pointermove', 450, 300);
-    fire('pointerup', 450, 300);
+    expect(orbited(400, 450)).toBe(true);
     measuring = false;
-    fire('pointerdown', 50, 300);
-    fire('pointermove', 90, 300);
-    fire('pointerup', 90, 300);
+    expect(orbited(50, 90)).toBe(true);
     tool.move(false);
-    fire('pointerdown', 400, 300);
-    fire('pointermove', 450, 300);
-    fire('pointerup', 450, 300);
-    expect(core.orbits).toBe(3);
+    expect(orbited(400, 450)).toBe(true);
     tool.move(true);
     fire('pointerdown', 400, 300);
     fire('pointerup', 401, 301);
-    expect(core.clicks).toBe(1);
+    expect(picks).toBe(1);
     expect(doc.tweaks?.count('free') ?? 0).toBe(0);
     expect(log.filter((l) => l.startsWith('select'))).toEqual([]);
   });
@@ -198,13 +184,13 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
   it('손가락: 길게 눌러 잡고(옮기기를 켜지 않아도) 끌면 손질, 움직이지 않고 떼면 손질 없이 작업 메뉴 — 처음 한 번 안내', () => {
     const s = projectToScreen(frame, shownB())!;
     fire('pointerdown', s[0], s[1], 'touch');
-    expect(tool.grab(s[0], s[1])).toBe(true);
+    expect(tool.grab(s[0], s[1], 1)).toBe(true);
     fire('pointerup', s[0] + 2, s[1] + 3, 'touch');
     expect(log).toEqual(['select b', 'toast 끌어 옮기십시오 — 움직이지 않고 떼면 작업 메뉴입니다.', 'redraw', `menu ${s[0]},${s[1]}`]);
     expect(doc.tweaks!.count('free')).toBe(0);
     log = [];
     fire('pointerdown', s[0], s[1], 'touch');
-    expect(tool.grab(s[0], s[1])).toBe(true);
+    expect(tool.grab(s[0], s[1], 1)).toBe(true);
     fire('pointermove', s[0] + 40, s[1] + 10, 'touch');
     fire('pointerup', s[0] + 40, s[1] + 10, 'touch');
     // 이미 고른 b라 다시 고르지 않고, 안내도 한 번만
@@ -215,7 +201,7 @@ describe('분해 손질 도구(가짜 DOM 끌기)', () => {
     expect(doc.tweaks!.count('free')).toBe(1);
     // 빈 곳은 잡지 않는다(앱은 예전처럼 작업 메뉴)
     fire('pointerdown', 50, 50, 'touch', 2);
-    expect(tool.grab(50, 50)).toBe(false);
+    expect(tool.grab(50, 50, 2)).toBe(false);
     fire('pointerup', 50, 50, 'touch', 2);
   });
 

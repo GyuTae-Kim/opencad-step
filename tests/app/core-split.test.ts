@@ -18,9 +18,10 @@ const ENTRY = join(ROOT, 'src/app/main.ts');
 const CORE_SRC = join(ROOT, 'node_modules/opencad-viewer3d/src');
 /**
  * 첫 화면에서 바로 가져와도 되는 코어 모듈(작고 무거운 코어 모듈을 끌어오지 않는다).
- * 개체 측정의 최소 거리(bvh·closest)는 코어 조각에만 든다(27차 — 개체 측정 entpick.ts를 viewerkit.ts로 옮겼다)
+ * 개체 측정의 최소 거리(bvh·closest)는 코어 조각에만 든다(27차 — 개체 측정 entpick.ts를 viewerkit.ts로 옮겼다).
+ * 방향 범위(extent)는 코어 0.31.0부터 bounds가 다시 내보내 그래프에 닿을 뿐이고, 첫 화면이 쓰지 않아 번들에는 들지 않는다(36차 — 첫 화면 JS gzip 81,009 → 81,003 B)
  */
-const SMALL = new Set(['camera', 'pointer', 'viewcube', 'types', 'math', 'bounds', 'ranges']);
+const SMALL = new Set(['camera', 'pointer', 'viewcube', 'types', 'math', 'bounds', 'ranges', 'extent']);
 
 /** 글에서 값 가져오기(정적 import·export … from·빈 import) 대상과 동적 import() 대상 */
 function importsOf(text: string): { values: string[]; dynamic: string[] } {

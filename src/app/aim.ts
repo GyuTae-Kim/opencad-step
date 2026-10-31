@@ -58,10 +58,10 @@ export interface AimOptions {
   /** 조준 시작·끝 알림 */
   onChange?: (aiming: boolean) => void;
   /**
-   * 조준할 때가 아닐 때(측정·면 고르기 밖) 길게 누르기(HOLD_MENU_MS) — 화면 좌표. true를 돌려주면 그 손가락을 코어가 잊게 하고
-   * 뗄 때 누르기로 넘기지 않는다(작업 메뉴를 연 뒤 엉뚱한 고르기·회전이 없게)
+   * 조준할 때가 아닐 때(측정·면 고르기 밖) 길게 누르기(HOLD_MENU_MS) — 화면 좌표와 그 손가락. true를 돌려주면 그 손가락을 코어가 잊게 하고
+   * 뗄 때 누르기로 넘기지 않는다(작업 메뉴를 연 뒤 엉뚱한 고르기·회전이 없게 — 분해 중 부품을 잡으면 그 손가락을 분해 끌기가 듣는다)
    */
-  onHold?: (x: number, y: number) => boolean;
+  onHold?: (x: number, y: number, pointerId: number) => boolean;
   /**
    * 조준 중 코어 거리 글상자가 비킬 자리(aimLabelAvoid — 십자선을 옮길 때마다, 코어에 십자선 자리 pointermove를 보내기 바로 전에)와
    * 조준을 마칠 때 null. 앱은 코어 setMeasureLabelAvoid에 넘긴다(같은 프레임에 반영된다)
@@ -260,7 +260,7 @@ export class TouchAim {
     this.timer = null;
     const p = this.presses.get(id);
     if (!p || p.moved || this.presses.size !== 1 || this.heldId !== null || this.opts.enabled()) return;
-    if (!this.opts.onHold?.(p.x, p.y)) return;
+    if (!this.opts.onHold?.(p.x, p.y, id)) return;
     this.heldId = id;
     this.relay('pointercancel', id, p);
     try {

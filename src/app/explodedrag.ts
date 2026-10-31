@@ -1,41 +1,31 @@
 /**
- * 분해 손질 끌기(분해 조각 안 — 뷰어 캔버스에 단다): 부품을 끌어 분해 자리를 바꾸는 손짓만 다루고, 무엇을 얼마나 옮길지는 앱이 정한다(start·move·end).
+ * 분해 손질 끌기(분해 조각 안 — 뷰어에 단다): 부품을 끌어 분해 자리를 바꾸는 손짓만 다루고, 무엇을 얼마나 옮길지는 앱이 정한다(start·move·end).
  *
- * 정밀 조준(aim.ts)처럼 코어(Viewer3d)는 고치지 않고 캔버스 부모의 캡처 단계에서 먼저 받는다(코어 듣기는 캔버스에 있다):
- * - 바로 끌기(direct — 분해 막대의 "옮기기"를 켰을 때, 마우스·펜·손가락): 누르기는 코어에 그대로 넘기고, 움직임이 코어의 끌기 시작 거리
- *   (dragStarted — 마우스·펜 4화소, 손가락 10화소)를 넘는 그 사건에서 앱에 누른 자리를 묻는다(start). 앱이 받으면 코어에 pointercancel을 보내
- *   그 포인터의 끌기(궤도)를 잊게 하고, 그 뒤 움직임·떼기는 코어로 보내지 않는다. 받지 않으면(빈 곳·덜 벌어진 부품) 코어가 그대로 돌려 본다.
- *   움직이지 않고 떼면 코어의 누르기(고르기·두 번 눌러 맞춰 보기)가 그대로다.
+ * - 바로 끌기(direct — 분해 막대의 "옮기기"를 켰을 때, 마우스 왼쪽 단추·펜·손가락): 코어 0.32.0 포인터 맡기 훅(setPointerClaim)으로 받는다.
+ *   코어는 캔버스를 누를 때마다 묻고('down' — 여기서는 맡지 않아 그냥 누르기의 고르기·두 번 눌러 맞춰 보기는 코어가 한다), 한 포인터만 누른 채
+ *   끌기 시작 거리(마우스·펜 4화소, 손가락 10화소)를 넘는 순간('drag' — 코어가 궤도·이동을 시작하기 바로 전) 한 번 더 묻는다. 그때 앱에 누른 자리를
+ *   묻고(start) 앱이 받으면 그 포인터는 뗄 때까지 앱 것이다(코어는 궤도·고르기를 하지 않고 움직임·떼기만 넘긴다). 받지 않으면(빈 곳·덜 벌어진 부품)
+ *   코어가 그대로 돌려 본다. 끄는 동안 둘째 손가락이 닿으면 코어가 첫 손가락을 돌려받아(end 'pinch') 두 손가락 이동·확대를 하고, 끌기는 앞 자리로 돌아간다.
  * - 길게 눌러 잡기(grab — 손가락, 옮기기를 켜지 않아도): 정밀 조준 모듈의 길게 누르기(HOLD_MENU_MS — 측정·면 고르기 밖이면 작업 메뉴)에서 앱이 부른다.
- *   그 손가락은 정밀 조준이 코어에서 이미 떼어 냈다(움직임·떼기를 코어로 보내지 않는다). 손가락 끌기 문턱(10화소)을 넘게 움직이면 끌고,
- *   움직이지 않고 떼면 tap(앱은 작업 메뉴 — 예전 길게 누르기와 같은 것)을 부른다.
- * - 끄는 동안 둘째 손가락이 닿으면 끌기를 취소하고(end(false)) 첫 손가락을 지금 자리에서 다시 눌린 것으로 코어에 알려 두 손가락 확대·이동을 넘긴다
- *   (길게 눌러 잡은 손가락은 정밀 조준 모듈이 알린다). pointercancel·cancel()(Esc)도 끌기를 취소하고, 그 포인터는 뗄 때까지 코어에 넘기지 않는다.
- * 끌기 문턱과 보내는 사건 꼴은 코어 pointer 모듈·정밀 조준 모듈(aim.ts touchPointerEvent)과 같은 값을 여기 둔다 — 그 둘은 코어 조각에 있어
- * 가져오면 분해 조각과 코어 조각이 나눠 쓰는 조각이 하나 더 생긴다(시험이 값이 같은지 본다).
+ *   그 손가락은 정밀 조준 모듈이 코어에서 떼어 내고(합성 pointercancel) 움직임·떼기를 코어로 보내지 않는다 — 그 모듈은 같은 pointerId로 코어에 측정 미리 보기를
+ *   보내는 길이라 코어 맡기로 바꾸지 않는다(코어 README). 그래서 잡은 동안만 캔버스 부모의 캡처 단계에서 그 손가락을 듣는다(정밀 조준 모듈 다음).
+ *   손가락 끌기 문턱(10화소)을 넘게 움직이면 끌고, 움직이지 않고 떼면 tap(앱은 작업 메뉴)을 부른다. 둘째 손가락이 닿으면 정밀 조준 모듈이 첫 손가락을
+ *   코어에 다시 알리고(그 누르기도 코어가 'down'으로 묻는다) 끌기는 앞 자리로 돌아간다.
+ * - 끄는 동안 캔버스를 새로 누르면(둘째 손가락, 마우스로 끄는 중 손가락 등 — 코어의 'down' 물음) 끌기를 취소한다. pointercancel·cancel()(Esc)도 끌기를 취소하고,
+ *   그 포인터는 뗄 때까지 코어에 넘기지 않는다(바로 끌기는 코어가 맡긴 채 두고, 길게 눌러 잡은 손가락은 정밀 조준 모듈이 막는다).
+ * 좌표는 캔버스 기준 CSS 화소(코어 pick과 같다). tap만 화면 좌표(작업 메뉴 자리).
  */
+import type { HeldPointer, PointerClaimHandler, PointerClaimQuery, PointerHoldEnd, Viewer3d } from 'opencad-viewer3d';
 
-/** 끌기 시작 거리(화소 — 코어 DRAG_START_PX·TOUCH_DRAG_START_PX) */
-export const DRAG_PX = 4;
+/** 길게 눌러 잡은 손가락을 끌기로 보는 거리(화소 — 코어 TOUCH_DRAG_START_PX와 같다, 시험이 본다) */
 export const TOUCH_DRAG_PX = 10;
-
-/** 코어에 보낼 포인터 사건(aim.ts touchPointerEvent와 같은 꼴 — PointerEvent가 없으면 MouseEvent에 pointerId·pointerType을 덧붙인다) */
-export function relayEvent(type: string, pointerId: number, clientX: number, clientY: number, pointerType: string): MouseEvent {
-  const init = { bubbles: true, cancelable: type !== 'pointercancel', composed: true, clientX, clientY, button: 0, buttons: type === 'pointerdown' ? 1 : 0, pointerId, pointerType, isPrimary: true };
-  if (typeof PointerEvent === 'function') return new PointerEvent(type, init);
-  const e = new MouseEvent(type, init);
-  Object.defineProperty(e, 'pointerId', { value: pointerId });
-  Object.defineProperty(e, 'pointerType', { value: pointerType });
-  Object.defineProperty(e, 'isPrimary', { value: true });
-  return e;
-}
 
 export interface ExplodeDragOptions {
   /** 바로 끌기(옮기기 단추가 켜짐) */
   direct: () => boolean;
-  /** 끌기 시작: 누른 자리(화면 좌표)의 부품을 끌 수 있으면 앱이 손질을 열고 true */
+  /** 끌기 시작: 누른 자리(캔버스 좌표)의 부품을 끌 수 있으면 앱이 손질을 열고 true */
   start: (x: number, y: number, pointerType: string) => boolean;
-  /** 끄는 동안 포인터 자리(화면 좌표) */
+  /** 끄는 동안 포인터 자리(캔버스 좌표) */
   move: (x: number, y: number) => void;
   /** 끌기 끝: commit이면 남기고, 아니면 앞 자리로 */
   end: (commit: boolean) => void;
@@ -45,37 +35,42 @@ export interface ExplodeDragOptions {
 
 interface Active {
   id: number;
-  type: string;
-  /** 정밀 조준 모듈의 길게 누르기로 잡았는지(그 모듈이 코어에서 떼어 냈고, 둘째 손가락이면 그 모듈이 코어에 다시 알린다) */
+  /** 정밀 조준 모듈의 길게 누르기로 잡았는지(캔버스 부모에서 듣는다) — 아니면 코어가 맡긴 바로 끌기 */
   hold: boolean;
+  /** 누른 자리(캔버스 좌표), 길게 눌러 잡았으면 화면 좌표도(tap) */
   x0: number;
   y0: number;
+  sx: number;
+  sy: number;
   moved: boolean;
   /** 취소한 뒤에는 뗄 때까지 삼키기만 한다 */
   live: boolean;
 }
 
 export class ExplodeDrag {
+  private readonly canvas: HTMLElement;
   private readonly trap: HTMLElement;
-  private readonly off: (() => void)[] = [];
-  /** 누르고 있는 손가락·포인터(화면 좌표) */
-  private readonly presses = new Map<number, { x: number; y: number; type: string }>();
-  /** 바로 끌기를 기다리는 누르기 */
-  private pending: { id: number; type: string; x0: number; y0: number } | null = null;
   private active: Active | null = null;
-  private relaying = false;
-  /** 길게 눌러 잡은 손가락: 정밀 조준 모듈이 곧 코어에 보낼 pointercancel은 우리 끌기를 끝내지 않는다 */
-  private heldCancel: number | null = null;
+  /** 길게 눌러 잡은 손가락 듣기(잡은 동안만) */
+  private unlisten: (() => void) | null = null;
+  /** 길게 눌러 잡은 바로 뒤 정밀 조준 모듈이 코어에 보내는 pointercancel은 우리 끌기를 끝내지 않는다(그 손가락이 움직이기 전까지) */
+  private skipCancel = false;
+  private readonly handler: PointerClaimHandler = {
+    claim: (q) => this.claim(q),
+    move: (p) => {
+      const a = this.active;
+      if (a && !a.hold && a.live && p.pointerId === a.id) this.opts.move(p.x, p.y);
+    },
+    end: (p, why) => this.released(p, why),
+  };
 
   constructor(
-    private readonly canvas: HTMLElement,
+    private readonly viewer: Pick<Viewer3d, 'canvas' | 'setPointerClaim'>,
     private readonly opts: ExplodeDragOptions,
   ) {
-    this.trap = canvas.parentElement ?? canvas;
-    this.listen('pointerdown', (e) => this.onDown(e));
-    this.listen('pointermove', (e) => this.onMove(e));
-    this.listen('pointerup', (e) => this.onUp(e, false));
-    this.listen('pointercancel', (e) => this.onUp(e, true));
+    this.canvas = viewer.canvas;
+    this.trap = this.canvas.parentElement ?? this.canvas;
+    viewer.setPointerClaim(this.handler);
   }
 
   /** 부품을 끄는 중인지(잡은 뒤 움직이기 전도) */
@@ -84,22 +79,23 @@ export class ExplodeDrag {
   }
 
   /**
-   * 길게 눌러 잡기(정밀 조준 모듈의 길게 누르기에서): 누르고 있는 손가락이 하나뿐이고 앱이 그 자리 부품을 받으면 true.
+   * 길게 눌러 잡기(정밀 조준 모듈의 길게 누르기에서 — 화면 좌표와 그 손가락): 앱이 그 자리 부품을 받으면 true.
    * 그 손가락은 정밀 조준 모듈이 코어에서 떼어 낸다(true를 돌려주면)
    */
-  grab(x: number, y: number): boolean {
-    if (this.active || this.presses.size !== 1) return false;
-    const [id, p] = [...this.presses][0]!;
-    if (p.type !== 'touch' || !this.opts.start(x, y, p.type)) return false;
-    this.pending = null;
-    this.active = { id, type: p.type, hold: true, x0: x, y0: y, moved: false, live: true };
-    this.heldCancel = id;
+  grab(x: number, y: number, pointerId: number): boolean {
+    if (this.active) return false;
+    const r = this.canvas.getBoundingClientRect();
+    const cx = x - r.left;
+    const cy = y - r.top;
+    if (!this.opts.start(cx, cy, 'touch')) return false;
+    this.active = { id: pointerId, hold: true, x0: cx, y0: cy, sx: x, sy: y, moved: false, live: true };
+    this.skipCancel = true;
+    this.listen();
     return true;
   }
 
   /** 끌기 취소(Esc·밖에서): 앞 자리로 되돌리고, 그 포인터는 뗄 때까지 코어에 넘기지 않는다 */
   cancel(): void {
-    this.pending = null;
     const a = this.active;
     if (!a?.live) return;
     a.live = false;
@@ -107,98 +103,88 @@ export class ExplodeDrag {
   }
 
   dispose(): void {
-    for (const f of this.off) f();
-    this.off.length = 0;
-    this.presses.clear();
-    this.pending = null;
-    this.active = null;
+    this.drop();
+    this.viewer.setPointerClaim(null);
   }
 
-  private listen(type: string, fn: (e: PointerEvent) => void): void {
-    const h = (e: Event): void => {
-      if (!this.relaying) fn(e as PointerEvent);
-    };
-    this.trap.addEventListener(type, h, true);
-    this.off.push(() => this.trap.removeEventListener(type, h, true));
-  }
-
-  private onDown(e: PointerEvent): void {
-    if (e.target !== this.canvas) return;
+  /** 코어의 물음: 끄는 동안 새 누르기면 끌기를 취소하고, 바로 끌기는 한 포인터 끌기 시작에서만 맡는다 */
+  private claim(q: PointerClaimQuery): boolean {
     const a = this.active;
-    if (a && e.pointerId !== a.id) {
-      // 둘째 포인터: 끌기를 그만두고 두 손가락 몸짓은 코어에(길게 눌러 잡은 손가락은 정밀 조준 모듈이 다시 알린다)
-      const p = this.presses.get(a.id);
-      this.active = null;
-      if (a.live) this.opts.end(false);
-      if (!a.hold && p && e.pointerType === 'touch') this.relay('pointerdown', a.id, p, a.type);
-    }
-    this.presses.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-    this.pending = null;
-    if (this.presses.size !== 1 || this.active || !this.opts.direct()) return;
-    if (e.pointerType !== 'touch' && e.button !== 0) return;
-    this.pending = { id: e.pointerId, type: e.pointerType, x0: e.clientX, y0: e.clientY };
-  }
-
-  private onMove(e: PointerEvent): void {
-    // 정밀 조준 모듈은 잡은 바로 그때 pointercancel을 보낸다 — 그 뒤 움직임부터는 진짜 취소다
-    this.heldCancel = null;
-    const p = this.presses.get(e.pointerId);
-    if (p) {
-      p.x = e.clientX;
-      p.y = e.clientY;
-    }
-    const a = this.active;
-    if (a && e.pointerId === a.id) {
-      // 코어(궤도)로 보내지 않는다
-      e.stopPropagation();
-      if (!a.live) return;
-      if (!a.moved) {
-        if (Math.hypot(e.clientX - a.x0, e.clientY - a.y0) < TOUCH_DRAG_PX) return;
-        a.moved = true;
+    if (q.phase === 'down') {
+      if (a) {
+        this.cancel();
+        // 길게 눌러 잡은 손가락은 정밀 조준 모듈이 코어에 다시 알린다(둘째 손가락) — 더 듣지 않는다
+        if (a.hold) this.drop();
       }
-      this.opts.move(e.clientX, e.clientY);
-      return;
+      return false;
     }
-    const q = this.pending;
-    if (!q || e.pointerId !== q.id) return;
-    if (Math.hypot(e.clientX - q.x0, e.clientY - q.y0) < (q.type === 'touch' ? TOUCH_DRAG_PX : DRAG_PX)) return;
-    this.pending = null;
-    // 코어가 이 사건에서 돌려 보기 시작한다 — 그 전에 누른 자리 부품을 끌 수 있는지 묻는다
-    if (!this.opts.start(q.x0, q.y0, q.type)) return;
-    e.stopPropagation();
-    this.relay('pointercancel', q.id, { x: e.clientX, y: e.clientY }, q.type);
-    this.active = { id: q.id, type: q.type, hold: false, x0: q.x0, y0: q.y0, moved: true, live: true };
-    this.opts.move(e.clientX, e.clientY);
+    if (a || q.pointers !== 1 || (q.pointerType !== 'touch' && q.button !== 0) || !this.opts.direct() || !this.opts.start(q.x, q.y, q.pointerType)) return false;
+    this.active = { id: q.pointerId, hold: false, x0: q.x, y0: q.y, sx: 0, sy: 0, moved: true, live: true };
+    // 맡은 그 사건에는 코어가 move를 부르지 않는다 — 그 자리는 물음의 at
+    this.opts.move(q.at.x, q.at.y);
+    return true;
   }
 
-  private onUp(e: PointerEvent, cancel: boolean): void {
-    if (cancel && this.heldCancel === e.pointerId) {
-      this.heldCancel = null;
+  /** 코어가 맡긴 포인터가 끝났다: 떼면 남기고, 취소·둘째 손가락(코어가 돌려받아 핀치)·처리기를 바꿈은 앞 자리로 */
+  private released(p: HeldPointer, why: PointerHoldEnd): void {
+    const a = this.active;
+    if (!a || a.hold || p.pointerId !== a.id) return;
+    this.active = null;
+    if (a.live) this.opts.end(why === 'up');
+  }
+
+  private listen(): void {
+    const t = this.trap;
+    const move = (e: Event): void => this.heldMove(e as PointerEvent);
+    const up = (e: Event): void => this.heldUp(e as PointerEvent, false);
+    const cancel = (e: Event): void => this.heldUp(e as PointerEvent, true);
+    t.addEventListener('pointermove', move, true);
+    t.addEventListener('pointerup', up, true);
+    t.addEventListener('pointercancel', cancel, true);
+    this.unlisten = () => {
+      t.removeEventListener('pointermove', move, true);
+      t.removeEventListener('pointerup', up, true);
+      t.removeEventListener('pointercancel', cancel, true);
+    };
+  }
+
+  /** 길게 눌러 잡기를 끝낸다(듣기를 떼고 잊는다) */
+  private drop(): void {
+    this.unlisten?.();
+    this.unlisten = null;
+    this.active = null;
+    this.skipCancel = false;
+  }
+
+  private heldMove(e: PointerEvent): void {
+    const a = this.active;
+    if (!a?.hold || e.pointerId !== a.id) return;
+    this.skipCancel = false;
+    if (!a.live) return;
+    const r = this.canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    if (!a.moved) {
+      if (Math.hypot(x - a.x0, y - a.y0) < TOUCH_DRAG_PX) return;
+      a.moved = true;
+    }
+    this.opts.move(x, y);
+  }
+
+  private heldUp(e: PointerEvent, cancel: boolean): void {
+    const a = this.active;
+    if (!a?.hold || e.pointerId !== a.id) return;
+    if (cancel && this.skipCancel) {
+      this.skipCancel = false;
       return;
     }
-    if (this.heldCancel === e.pointerId) this.heldCancel = null;
-    this.presses.delete(e.pointerId);
-    if (this.pending?.id === e.pointerId) this.pending = null;
-    const a = this.active;
-    if (!a || e.pointerId !== a.id) return;
-    this.active = null;
-    // 코어는 이 포인터를 이미 잊었다(바로 끌기는 pointercancel, 길게 눌러 잡기는 정밀 조준 모듈이)
-    if (!cancel) e.stopPropagation();
+    this.drop();
     if (!a.live) return;
     if (cancel || !a.moved) {
       this.opts.end(false);
-      if (!cancel && a.hold) this.opts.tap?.(a.x0, a.y0);
+      if (!cancel) this.opts.tap?.(a.sx, a.sy);
       return;
     }
     this.opts.end(true);
-  }
-
-  private relay(type: string, id: number, at: { x: number; y: number }, pointerType: string): void {
-    this.relaying = true;
-    try {
-      this.canvas.dispatchEvent(relayEvent(type, id, at.x, at.y, pointerType));
-    } finally {
-      this.relaying = false;
-    }
   }
 }

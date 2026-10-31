@@ -7,7 +7,7 @@
 type Listener = (e: unknown) => void;
 
 /** 가짜 WebGL2: 대문자 상수는 이름마다 다른 수, create*는 새 객체, 그 밖의 없는 메서드는 아무것도 하지 않는다 */
-function fakeGL(canvas: { width: number; height: number }): WebGL2RenderingContext {
+export function fakeGL(canvas: { width: number; height: number }): WebGL2RenderingContext {
   const consts = new Map<string, number>();
   let ids = 0;
   let fb: unknown = null;
@@ -48,7 +48,7 @@ function fakeGL(canvas: { width: number; height: number }): WebGL2RenderingConte
 }
 
 /** 가짜 2D 문맥(덧그림·뷰 큐브): 모든 호출을 받아 넘기고 값은 들고만 있는다 */
-function fake2d(): CanvasRenderingContext2D {
+export function fake2d(): CanvasRenderingContext2D {
   const store: Record<string | symbol, unknown> = { fillStyle: '#000000', strokeStyle: '#000000', font: '10px sans-serif', globalAlpha: 1 };
   const ret = { width: 10, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2, addColorStop() {} };
   return new Proxy(store, {

@@ -23,7 +23,7 @@ export interface TweakHost {
   opened(): StepDoc | null;
   /** 지금 분해 방식·방향·화면 방향 카메라 각 */
   setup(): { mode: ExplodeMode; axis: ExplodeAxis; view: ExplodeView | null };
-  /** 화면 점(화면 좌표)의 고르기(누르기 알림과 같은 반투명 너머 선택) */
+  /** 캔버스 점(캔버스 기준 CSS 화소 — 코어 pick과 같다)의 고르기(누르기 알림과 같은 반투명 너머 선택) */
   pick(x: number, y: number, pointerType: string): Pick3d | null;
   /** 고른 것 밖을 눌러 끌 때 그 부품 고르기(누르기처럼 — 여러 개 고르기면 더한다) */
   select(p: Pick3d): void;
@@ -73,9 +73,9 @@ export class ExplodeTweakTool implements TweakHandlers {
 
   constructor(private readonly host: TweakHost) {}
 
-  /** 끌기 손짓을 뷰어 캔버스에 단다(정밀 조준 모듈 다음 — 한 번) */
-  attach(canvas: HTMLElement): void {
-    this.drag ??= new ExplodeDrag(canvas, {
+  /** 끌기 손짓을 뷰어에 단다(코어 포인터 맡기 훅 — 정밀 조준 모듈을 단 뒤, 한 번) */
+  attach(viewer: Pick<Viewer3d, 'canvas' | 'setPointerClaim'>): void {
+    this.drag ??= new ExplodeDrag(viewer, {
       direct: () => this.on && !!this.host.live(),
       start: (x, y, type) => this.start(x, y, type),
       move: (x, y) => this.moveTo(x, y),
@@ -89,9 +89,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     return !!this.drag?.dragging;
   }
 
-  /** 손가락 길게 누르기에서 그 자리 부품 잡기(잡았으면 true) */
-  grab(x: number, y: number): boolean {
-    return !!this.drag?.grab(x, y);
+  /** 손가락 길게 누르기에서 그 자리(화면 좌표) 부품 잡기(잡았으면 true) */
+  grab(x: number, y: number, pointerId: number): boolean {
+    return !!this.drag?.grab(x, y, pointerId);
   }
 
   /** 끄는 중이면 취소(앞 자리로) */
@@ -167,7 +167,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     this.save(d);
   }
 
-  /** 끌기 시작(끌기 손짓에서 — 화면 좌표). 끌 것이 없으면 false(코어가 돌려 본다) */
+  /** 끌기 시작(끌기 손짓에서 — 캔버스 좌표). 끌 것이 없으면 false(코어가 돌려 본다) */
   private start(x: number, y: number, pointerType: string): boolean {
     const l = this.host.live();
     if (!l || this.g) return false;
@@ -201,7 +201,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     return true;
   }
 
-  /** 끄는 동안: 누른 점에서 끄는 길 위로 옮긴 만큼을 단위마다 그 진행으로 나눠 담고 다시 건다 */
+  /** 끄는 동안(캔버스 좌표): 누른 점에서 끄는 길 위로 옮긴 만큼을 단위마다 그 진행으로 나눠 담고 다시 건다 */
   private moveTo(x: number, y: number): void {
     const g = this.g;
     const l = this.host.live();
@@ -211,7 +211,7 @@ export class ExplodeTweakTool implements TweakHandlers {
       return;
     }
     const r = l.viewer.canvas.getBoundingClientRect();
-    const dd = dragDelta(l.viewer.getCamera(), r.width, r.height, g.path, g.p0, x - r.left, y - r.top, g.limit);
+    const dd = dragDelta(l.viewer.getCamera(), r.width, r.height, g.path, g.p0, x, y, g.limit);
     if (!dd) return;
     const c = worldComps(g.axis, g.view, dd);
     for (const u of g.units) g.doc.tweaks.put(u.token, u.start.map((s, i) => s + c[i]! / u.f));

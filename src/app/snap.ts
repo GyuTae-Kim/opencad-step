@@ -136,7 +136,8 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 그 선이 첫 점 축·첫 점의 나란함·다른 끌어온 점의 축·모서리·면과 만나는 점에도 붙는다(0.29.0 trackDirs { meets } — 곡선 모서리·곡면과 만나는 점은
  * 앱 refine 'axisEdge'·refineFace 'axisFace'가 축 이름 없는 안내 선으로 곡선·곡면 위로 다듬는다. 이름은 뷰어 조각의 trackdir.ts trackDirMeetLabel),
  * 두 끌어온 점의 안내 선끼리 만나는 점(같은 기준 모서리에 대해 한 점의 나란한 선과 다른 점의 수직인 선이 만나는 기운 사각형의 구석 —
- * 0.30.0 meets { guides: true }, 정확한 직선끼리라 다듬지 않는다)에도 붙는다
+ * 0.30.0 meets { guides: true }, 정확한 직선끼리라 다듬지 않는다)에도 붙는다. 그 선이 곡선 모서리 꺾은선의 활꼴만 지나 현과 만나지 않는 자리(0.31.0 open)와
+ * 곡면을 나눈 삼각형을 비켜 가며 곡면만 뚫는 자리(0.32.0 openFaces)도 앱 refine·refineFace가 곡선·곡면과의 정확한 교차로 풀어 붙는다
  */
 export function measureSnapOptions(
   meshes: readonly Mesh3d[],
@@ -151,7 +152,7 @@ export function measureSnapOptions(
   let last: SnapPoint[] | null = null;
   return {
     edges: true,
-    inference: trackDirEdge ? { ...MEASURE_INFERENCE, parallelEdge: trackDirEdge, trackDirs: { edge: trackDirEdge, meets: { guides: true } } } : MEASURE_INFERENCE,
+    inference: trackDirEdge ? { ...MEASURE_INFERENCE, parallelEdge: trackDirEdge, trackDirs: { edge: trackDirEdge, meets: { guides: true, open: true, openFaces: true } } } : MEASURE_INFERENCE,
     ...(through ? { throughTranslucent: true } : {}),
     points: centers,
     pointsFor: (p) => {
