@@ -28,14 +28,11 @@
  * 있으면 가까운 쪽(같으면 +). 옮길 거리가 (부모 반폭 + 제 반폭) × 2 + 묶음 반폭 합 × 1.25(조립 대각선 절반까지)를 넘으면 그대로 둔다
  * (큰 하위 조립이 장면 밖으로 날아가지 않게). 떼는 양은 그 단계의 이동에 더하므로 조립 단계별 차례(하위 조립은 통째로, 그 안은 다음 단계에)와
  * 어긋나지 않는다.
- * 범위: 장면 축(x·y·z)은 범위 상자 그대로다. 화면 가로·세로(기운 방향)는 상자를 그 방향에 비추면 상자 구석이 실제 꼭짓점보다 멀어
- * 안 닿는 부품까지 겹친 것으로 보므로, 축과 수직 두 방향의 범위(가운데·반폭)와 부모 반폭을 단위의 그물·선·점 꼭짓점 그대로 잰다
- * (코어 itemExtent — 행렬·원점 반영, 묶음마다 방향 셋을 계획에서 한 번만).
  *
  * 계획(explodePlan)은 묶음마다 범위를 한 번만 재서 단계별 이동 벡터를 남기고, 밀대를 움직일 때는 explodeMoves로 곱하기만 한다.
  */
 import { basisFromAngles } from 'opencad-viewer3d/camera';
-import { boxCenter, boxDiagonal, boxIsEmpty, emptyBox, itemBounds, itemExtent, unionBox } from 'opencad-viewer3d/bounds';
+import { boxCenter, boxDiagonal, boxIsEmpty, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
 import type { Box3 } from 'opencad-viewer3d/types';
 import type { ProductNode } from './doc';
 import type { LookItem } from './looks';
@@ -93,60 +90,6 @@ function along(b: Box3, v: readonly number[]): [number, number] {
     h += ((b.max[k]! - b.min[k]!) / 2) * Math.abs(v[k]!);
   }
   return [c, h];
-}
-
-/** 겹친 자리 떼기의 단위 범위: 단위 u의 방향 q(0 = 떼는 축, 1·2 = 그에 수직인 두 방향) 가운데·반폭 */
-type UnitSpan = (u: Unit, q: number) => [number, number];
-
-/** 묶음마다 최근에 잰 방향 범위(방향 글 → [최소, 최대]) — 같은 카메라 각의 다른 방식·가로·세로 계획이 다시 훑지 않게. 묶음마다 EXTENT_KEEP개까지 */
-const extentMemo = new WeakMap<LookItem, Map<string, [number, number] | null>>();
-const EXTENT_KEEP = 6;
-
-/** 묶음 it의 방향 v 꼭짓점 범위(코어 itemExtent, 기억한 값이 있으면 그것) */
-function extentOf(it: LookItem, v: V3): [number, number] | null {
-  let m = extentMemo.get(it);
-  if (!m) extentMemo.set(it, (m = new Map()));
-  const key = `${v[0]},${v[1]},${v[2]}`;
-  if (m.has(key)) return m.get(key) ?? null;
-  const r = itemExtent(it, v);
-  if (m.size >= EXTENT_KEEP) m.delete(m.keys().next().value!);
-  m.set(key, r);
-  return r;
-}
-
-/**
- * 꼭짓점 그대로의 단위 범위(화면 가로·세로 떼기): 방향 dirs마다 묶음의 꼭짓점 지지 값(코어 itemExtent)을 묶음마다 한 번만 재고
- * (같은 카메라 각의 다른 계획도 다시 훑지 않는다 — extentMemo), 단위는 제 묶음들의 가장 작은 최소·가장 큰 최대로 한다(단위마다 한 번).
- * 꼭짓점이 없으면 상자를 비춘 구간
- */
-function vertexSpans(items: readonly LookItem[], dirs: readonly V3[]): UnitSpan {
-  const itemOf = new Map<string, LookItem>();
-  for (const m of items) if (!itemOf.has(m.id)) itemOf.set(m.id, m);
-  const byItem = new Map<string, ([number, number] | null)[]>();
-  const byUnit = new Map<Unit, [number, number][]>();
-  return (u, q) => {
-    let s = byUnit.get(u);
-    if (!s) {
-      const lo = [Infinity, Infinity, Infinity];
-      const hi = [-Infinity, -Infinity, -Infinity];
-      for (const id of u.ids) {
-        let e = byItem.get(id);
-        if (!e) {
-          const it = itemOf.get(id);
-          byItem.set(id, (e = dirs.map((v) => (it ? extentOf(it, v) : null))));
-        }
-        for (let k = 0; k < 3; k++) {
-          const r = e[k];
-          if (!r) continue;
-          if (r[0] < lo[k]!) lo[k] = r[0];
-          if (r[1] > hi[k]!) hi[k] = r[1];
-        }
-      }
-      s = dirs.map((v, k): [number, number] => (lo[k]! <= hi[k]! ? [(lo[k]! + hi[k]!) / 2, (hi[k]! - lo[k]!) / 2] : along(u.box, v)));
-      byUnit.set(u, s);
-    }
-    return s[q]!;
-  };
 }
 
 /**
@@ -223,11 +166,7 @@ export function explodePlan(
   const unit = (k: number): V3 => [k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0];
   const line: V3 | null = keep >= 0 ? unit(keep) : b && axis === 'sx' ? b.right : b && axis === 'sy' ? b.up : null;
   const perp: [V3, V3] | null = keep >= 0 ? [unit((keep + 1) % 3), unit((keep + 2) % 3)] : b && axis === 'sx' ? [b.up, b.back] : b && axis === 'sy' ? [b.right, b.back] : null;
-  // 범위: 장면 축은 범위 상자 그대로(정확하다), 화면 가로·세로는 꼭짓점 그대로(상자를 기운 방향에 비추면 넉넉하다)
-  const stack =
-    opts.stack !== false && line && perp
-      ? { line, span: keep >= 0 ? ((u: Unit, q: number) => along(u.box, q === 0 ? line : perp[q - 1]!)) as UnitSpan : vertexSpans(items, [line, perp[0], perp[1]]) }
-      : null;
+  const stack = opts.stack !== false && line && perp ? { line, perp } : null;
   const put = (u: Unit, level: number, d: V3): void => {
     if (d[0] === 0 && d[1] === 0 && d[2] === 0) return;
     for (const id of u.ids) {
@@ -237,15 +176,15 @@ export function explodePlan(
     }
     if (level > plan.levels) plan.levels = level;
   };
-  /** 형제 단위들을 부모 단위 가운데(범위 상자 가운데)에서 벌리는 이동(겹친 자리 떼기 포함) */
-  const spread = (kids: readonly Unit[], level: number, parent: Unit): void => {
-    const c = boxCenter(parent.box);
+  /** 형제 단위들을 부모(범위 parentBox) 가운데에서 벌리는 이동(겹친 자리 떼기 포함) */
+  const spread = (kids: readonly Unit[], level: number, parentBox: Box3): void => {
+    const c = boxCenter(parentBox);
     const live = kids.filter((u) => !boxIsEmpty(u.box));
     const ds = live.map((u): V3 => {
       const m = boxCenter(u.box);
       return project([m[0] - c[0], m[1] - c[1], m[2] - c[2]]);
     });
-    if (stack && live.length > 1) plan.stacked += separate(live, ds, stack.line, stack.span, tiny, stack.span(parent, 0)[1], half);
+    if (stack && live.length > 1) plan.stacked += separate(live, ds, stack.line, stack.perp, tiny, along(parentBox, stack.line)[1], half);
     live.forEach((u, i) => put(u, level, ds[i]!));
   };
   if (mode === 'all') {
@@ -256,12 +195,12 @@ export function explodePlan(
       else for (const k of u.kids) leaves(k);
     };
     leaves(root);
-    spread(all, 1, root);
+    spread(all, 1, root.box);
     return plan;
   }
   // 조립 단계별: 묶음마다 자식 단위를 그 묶음 가운데에서, 자식 묶음은 다음 단계로
   const walk = (u: Unit, level: number): void => {
-    spread(u.kids, level, u);
+    spread(u.kids, level, u.box);
     for (const k of u.kids) if (k.kids.length && !boxIsEmpty(k.box)) walk(k, level + 1);
   };
   walk(root, 1);
@@ -272,18 +211,17 @@ export function explodePlan(
 /**
  * 겹친 자리 떼기: 형제 단위(live)와 그 이동(ds — 축 a 방향 성분만 있는 벡터)에서, 축에 수직인 두 방향(p)으로 범위가 겹치고
  * 축 위 가운데가 거의 같은 단위끼리(겹침으로 이어진 것끼리) 묶어 하나만 제 자리에 두고 나머지를 축을 따라 비는 자리로 옮긴다.
- * ds를 고치고, 자리를 바꾼 단위 수를 돌려준다. span = 단위의 축(0)·수직 두 방향(1·2) 가운데·반폭, tiny = 같은 자리로 칠 길이(장면 크기의 1e-9),
- * H = 부모의 그 축 반폭, R = 조립 대각선 절반
+ * ds를 고치고, 자리를 바꾼 단위 수를 돌려준다. tiny = 같은 자리로 칠 길이(장면 크기의 1e-9), H = 부모의 그 축 반폭, R = 조립 대각선 절반
  */
-function separate(live: readonly Unit[], ds: V3[], a: V3, span: UnitSpan, tiny: number, H: number, R: number): number {
+function separate(live: readonly Unit[], ds: V3[], a: V3, p: [V3, V3], tiny: number, H: number, R: number): number {
   const n = live.length;
   const s = new Float64Array(n);
   const h = new Float64Array(n);
   const pc = [new Float64Array(n), new Float64Array(n)] as const;
   const ph = [new Float64Array(n), new Float64Array(n)] as const;
   for (let i = 0; i < n; i++) {
-    [s[i], h[i]] = span(live[i]!, 0);
-    for (let q = 0; q < 2; q++) [pc[q][i], ph[q][i]] = span(live[i]!, q + 1);
+    [s[i], h[i]] = along(live[i]!.box, a);
+    for (let q = 0; q < 2; q++) [pc[q][i], ph[q][i]] = along(live[i]!.box, p[q]);
   }
   // 수직 면 겹침: 두 방향 모두 겹친 길이가 좁은 쪽 폭의 1/1000보다 길다(맞닿기만 한 것은 겹침이 아니다)
   const crossOverlap = (i: number, j: number): boolean => {
