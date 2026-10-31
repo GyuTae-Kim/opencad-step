@@ -1683,7 +1683,7 @@ export class StepApp {
 
   // ───────────────────────── 부품 겉모습(불투명도·부품 색·분해) ─────────────────────────
 
-  /** 문서의 겉모습(불투명도·흐리게·부품 색·분해)을 코어에 건다 — 바뀐 그물만, 행렬은 모아 한 번에(looks.ts putLooks — 코어 0.32.0 setItemMatrices) */
+  /** 문서의 겉모습(불투명도·흐리게·부품 색·분해)을 코어에 건다 — 바뀐 그물만 한 목록으로(looks.ts putLooks — 코어 0.33.0 setItemLooks) */
   private applyLooks(): void {
     const v = this.viewer;
     const d = this.doc;

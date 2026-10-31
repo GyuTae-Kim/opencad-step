@@ -1,13 +1,13 @@
 /**
  * 부품 겉모습(순수, DOM 없음): 부품별 불투명도, 격리의 "나머지 흐리게", 부품 색 구분, 분해 보기를
- * 그물마다 코어 묶음 겉모습(Viewer3d.setItemOpacity·setItemColor, 행렬은 모아 setItemMatrices)으로 바꾼다.
+ * 그물마다 코어 묶음 겉모습(바뀐 묶음만 한 목록으로 Viewer3d.setItemLooks — 불투명도·고르기·색·행렬)으로 바꾼다.
  *
  * - 불투명도: 사용자가 정한 값(0~1). 흐리게 하는 중이면 초점 밖 항목은 DIM_ALPHA로 흐리게 하고 고르기에서 뺀다
  * - 부품 색: 같은 제품(이름·제품 번호)은 같은 색 — 골든 각으로 색상환을 돈다(조립의 같은 부품을 알아보게)
  * - 분해: 묶음마다 옮길 양을 받아 이동 행렬로 건다(양은 분해 조각 explode.ts가 조립 단계별·한꺼번에로 구한다 — 첫 화면 JS 밖)
  * 코어는 setScene마다 겉모습을 모두 풀므로 앱이 새 장면에 다시 건다(applyLooks — 바뀐 묶음만 putLooks로).
  */
-import type { Viewer3d } from 'opencad-viewer3d';
+import type { ItemLookInput, Viewer3d } from 'opencad-viewer3d';
 import type { LineSet3d, Mesh3d, PointSet3d, Rgba } from 'opencad-viewer3d/types';
 
 /** 겉모습을 거는 묶음(그물·선·점) */
@@ -125,27 +125,23 @@ export function lookKey(l: Look): string {
 }
 
 /**
- * 원하는 겉모습(want)을 코어에 건다 — 바뀐 묶음만(applied: 묶음 id → 건 겉모습 열쇠, 여기서 고친다). 불투명도·색은 묶음마다,
- * 분해 행렬은 모아 한 번에 건다(코어 0.32.0 setItemMatrices — 묶음마다 setItemMatrix를 부른 것과 같은 결과, 범위·고르기 목록은 한 번만 버린다).
- * want에 없는 묶음은 겉모습을 푼다. 건 묶음 수를 돌려준다
+ * 원하는 겉모습(want)을 코어에 건다 — 바뀐 묶음만(applied: 묶음 id → 건 겉모습 열쇠, 여기서 고친다) 한 목록으로(코어 0.33.0 setItemLooks —
+ * 묶음마다 setItemOpacity·setItemColor·setItemMatrix를 부른 것과 같은 결과, 그림자·고르기 목록은 한 번만 버리고 행렬을 바꾼 묶음만 범위를 다시 센다).
+ * want에 없는 묶음은 불투명도·색·행렬을 되돌린다(필드 null — 앱이 걸지 않는 겉모습은 건드리지 않는다). 건 묶음 수를 돌려준다
  */
-export function putLooks(v: Pick<Viewer3d, 'setItemOpacity' | 'setItemColor' | 'setItemMatrices'>, applied: Map<string, string>, want: ReadonlyMap<string, Look>): number {
-  const mats: [string, number[] | null][] = [];
+export function putLooks(v: Pick<Viewer3d, 'setItemLooks'>, applied: Map<string, string>, want: ReadonlyMap<string, Look>): number {
+  const list: [string, ItemLookInput][] = [];
   for (const id of [...applied.keys()])
     if (!want.has(id)) {
-      v.setItemOpacity(id, null);
-      v.setItemColor(id, null);
-      mats.push([id, null]);
+      list.push([id, { opacity: null, color: null, matrix: null }]);
       applied.delete(id);
     }
   for (const [id, l] of want) {
     const k = lookKey(l);
     if (applied.get(id) === k) continue;
-    v.setItemOpacity(id, l.alpha, { pickable: l.pickable });
-    v.setItemColor(id, l.color);
-    mats.push([id, l.matrix]);
+    list.push([id, { opacity: l.alpha, pickable: l.pickable, color: l.color, matrix: l.matrix }]);
     applied.set(id, k);
   }
-  if (mats.length) v.setItemMatrices(mats);
-  return mats.length;
+  if (list.length) v.setItemLooks(list);
+  return list.length;
 }
