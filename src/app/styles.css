@@ -1819,6 +1819,31 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .explode-stage[hidden] {
   display: none;
 }
+/* 손질 칸: 옮기기(누름 단추) | 되돌리기 · 모두 되돌리기(손질이 있을 때만 — 좁으면 다음 줄로) */
+.explode-tweak {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.explode-tweak .seg[hidden] {
+  display: none;
+}
+.explode-tweak .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.explode-tweak .seg-btn[hidden] {
+  display: none;
+}
+/* 옮기기를 켠 동안 3D 보기 커서(부품을 끌면 옮기고, 빈 곳은 돌려 본다) */
+.viewer-host.explode-moving canvas {
+  cursor: move;
+}
 @media (pointer: coarse) {
   /* 손가락 기기: 밀대·방식·닫기를 38px 넘게 */
   .explode-slider {

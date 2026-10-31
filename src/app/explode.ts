@@ -30,6 +30,13 @@
  * 어긋나지 않는다.
  *
  * 계획(explodePlan)은 묶음마다 범위를 한 번만 재서 단계별 이동 벡터를 남기고, 밀대를 움직일 때는 explodeMoves로 곱하기만 한다.
+ *
+ * 손질(끌어 옮긴 부품의 덧이동 — explodetweak.ts)을 걸 수 있게 계획은 분해 단위마다 나무 자리 낱말(token)과 벌어지는 단계를 남긴다(units·owner).
+ * 낱말은 마디 경로("0/2/1" — 보기 링크의 고른 것 낱말과 같은 꼴)이고, 마디에 바로 놓인 형상이 자식 마디와 함께 있으면 그 형상 덩어리는 "0/2/1.0"이다.
+ * 자식이 하나뿐이라 줄인 마디는 여러 낱말이 한 단위를 가리키고, 그 단위의 낱말(token)은 가장 위 마디의 것이다(나무 모양이 같으면 늘 같다).
+ * 단위의 단계(level)는 그 단위가 형제와 함께 부모 가운데에서 벌어지는 계획 단계다 — 조립 단계별은 그 단계(움직이는 것이 없어 건너뛴 단계면
+ * 그다음 남은 단계, 없으면 마지막 단계), 한꺼번에는 모두 1. 덧이동은 그 단계의 진행과 함께 늘어(explodeMoves) 0%에서 0, 100%에서 다 간다.
+ * 맨 위 전체와 나무에 없는 묶음은 단계가 0이라 손질하지 않는다.
  */
 import { basisFromAngles } from 'opencad-viewer3d/camera';
 import { boxCenter, boxDiagonal, boxIsEmpty, emptyBox, itemBounds, unionBox } from 'opencad-viewer3d/bounds';
@@ -59,6 +66,14 @@ type V3 = [number, number, number];
 /** 화면 방향 분해인지(카메라 각으로 방향을 정한다) */
 export const isScreenAxis = (a: ExplodeAxis | undefined): a is ScreenAxis => a === 'sx' || a === 'sy' || a === 'sp';
 
+/** 분해 단위(손질을 거는 쪽에서 보는 것): 나무 자리 낱말, 움직이는 묶음 id, 벌어지는 단계(0이면 손질하지 않는다), 부모 단위 */
+export interface PlanUnit {
+  readonly token?: string;
+  readonly ids: readonly string[];
+  readonly level?: number;
+  readonly parent?: PlanUnit;
+}
+
 /** 분해 계획: 단계 수와 묶음마다 [단계(1부터), dx, dy, dz]를 이은 것(100%·배율 1 기준) */
 export interface ExplodePlan {
   mode: ExplodeMode;
@@ -70,6 +85,12 @@ export interface ExplodePlan {
   steps: Map<string, number[]>;
   /** 겹친 자리 떼기로 자리를 바꾼 단위 수(축 하나일 때 — 묶음마다 제자리에 남긴 하나는 세지 않는다) */
   stacked: number;
+  /** 나무 자리 낱말 → 분해 단위(줄인 마디의 낱말도 같은 단위를 가리킨다) */
+  units: Map<string, PlanUnit>;
+  /** 묶음 id → 그 묶음이 든 가장 안쪽 단위 */
+  owner: Map<string, PlanUnit>;
+  /** 조립(움직일 묶음 전체) 범위 대각선 */
+  size: number;
 }
 
 /** 분해 단위: 잎(ids만 — 마디에 바로 놓인 형상)이거나 자식 단위가 둘 이상인 묶음 */
@@ -77,6 +98,9 @@ interface Unit {
   ids: string[];
   kids: Unit[];
   box: Box3;
+  token?: string;
+  level?: number;
+  parent?: Unit;
 }
 
 const dot = (a: readonly number[], b: readonly number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
@@ -107,42 +131,60 @@ export function explodePlan(
   const boxOf = new Map<string, Box3>();
   for (const m of items) boxOf.set(m.id, itemBounds(m));
   const seen = new Set<string>();
+  const units = new Map<string, Unit>();
+  const owner = new Map<string, Unit>();
   const leaf = (ids: string[]): Unit => {
     let box = emptyBox();
     for (const id of ids) {
       const b = boxOf.get(id)!;
       if (!boxIsEmpty(b)) box = unionBox(box, b);
     }
-    return { ids, kids: [], box };
+    const u: Unit = { ids, kids: [], box };
+    for (const id of ids) owner.set(id, u);
+    return u;
   };
   const group = (kids: Unit[]): Unit => {
     let box = emptyBox();
     for (const k of kids) if (!boxIsEmpty(k.box)) box = unionBox(box, k.box);
-    return { ids: kids.flatMap((k) => k.ids), kids, box };
+    const u: Unit = { ids: kids.flatMap((k) => k.ids), kids, box };
+    for (const k of kids) k.parent = u;
+    return u;
+  };
+  // 낱말 붙이기: 부모 마디가 나중에 붙여 줄인 단위의 낱말은 가장 위 마디의 것이 된다
+  const name = (u: Unit, key: string): void => {
+    u.token = key;
+    units.set(key, u);
   };
   // 마디 → 단위: 바로 놓인 형상(잎 하나) + 자식 마디들. 단위가 하나뿐이면 그것으로 줄인다(단계로 치지 않는다)
-  const unitOf = (n: ProductNode): Unit | null => {
+  const unitOf = (n: ProductNode, key: string): Unit | null => {
     const kids: Unit[] = [];
     const own = [...n.meshIds, ...(n.lineIds ?? [])].filter((id) => boxOf.has(id) && !seen.has(id));
     for (const id of own) seen.add(id);
-    if (own.length) kids.push(leaf(own));
-    for (const c of n.children) {
-      const u = unitOf(c);
-      if (u) kids.push(u);
+    if (own.length) {
+      const l = leaf(own);
+      name(l, `${key}.0`);
+      kids.push(l);
     }
-    return kids.length === 0 ? null : kids.length === 1 ? kids[0]! : group(kids);
+    n.children.forEach((c, i) => {
+      const u = unitOf(c, `${key}/${i}`);
+      if (u) kids.push(u);
+    });
+    const u = kids.length === 0 ? null : kids.length === 1 ? kids[0]! : group(kids);
+    if (u) name(u, key);
+    return u;
   };
   const top: Unit[] = [];
-  for (const r of products) {
-    const u = unitOf(r);
+  products.forEach((r, i) => {
+    const u = unitOf(r, String(i));
     if (u) top.push(u);
-  }
+  });
   for (const m of items) if (!seen.has(m.id)) top.push(leaf([m.id]));
   const view = isScreenAxis(axis) ? { yaw: opts.view?.yaw ?? 0, pitch: opts.view?.pitch ?? 0 } : undefined;
-  const plan: ExplodePlan = { mode, axis, ...(view ? { view } : {}), levels: 0, steps: new Map(), stacked: 0 };
+  const plan: ExplodePlan = { mode, axis, ...(view ? { view } : {}), levels: 0, steps: new Map(), stacked: 0, units, owner, size: 0 };
   if (!top.length) return plan;
   const root = top.length === 1 ? top[0]! : group(top);
   if (boxIsEmpty(root.box)) return plan;
+  plan.size = boxDiagonal(root.box);
   // 방향: 장면 축 하나는 그 성분만(다른 성분은 정확히 0), 화면 방향은 카메라 틀에 비춘 성분(아주 작은 성분은 0 — 같은 자리는 제자리)
   const keep = axis === 'x' ? 0 : axis === 'y' ? 1 : axis === 'z' ? 2 : -1;
   const b = view ? basisFromAngles(view.yaw, view.pitch) : null;
@@ -185,7 +227,10 @@ export function explodePlan(
       return project([m[0] - c[0], m[1] - c[1], m[2] - c[2]]);
     });
     if (stack && live.length > 1) plan.stacked += separate(live, ds, stack.line, stack.perp, tiny, along(parentBox, stack.line)[1], half);
-    live.forEach((u, i) => put(u, level, ds[i]!));
+    live.forEach((u, i) => {
+      u.level = level;
+      put(u, level, ds[i]!);
+    });
   };
   if (mode === 'all') {
     // 잎(부품 자리)마다 조립 가운데에서
@@ -196,6 +241,8 @@ export function explodePlan(
     };
     leaves(root);
     spread(all, 1, root.box);
+    // 손질은 한꺼번에 벌어지는 한 단계에서(하위 조립도 그 아래 부품과 함께)
+    for (const u of new Set(units.values())) u.level = u === root || boxIsEmpty(u.box) ? 0 : 1;
     return plan;
   }
   // 조립 단계별: 묶음마다 자식 단위를 그 묶음 가운데에서, 자식 묶음은 다음 단계로
@@ -204,8 +251,22 @@ export function explodePlan(
     for (const k of u.kids) if (k.kids.length && !boxIsEmpty(k.box)) walk(k, level + 1);
   };
   walk(root, 1);
-  if (axis !== 'free') compactLevels(plan);
+  const rank = axis !== 'free' ? compactLevels(plan) : null;
+  // 손질 단계: 그 단위가 벌어지는 단계(움직이는 것이 없어 건너뛰었거나 빈 단계면 그다음 남은 단계, 없으면 마지막 단계)
+  const used = rank ? [...rank.keys()].sort((a, b) => a - b) : [...new Set([...plan.steps.values()].flatMap((st) => st.filter((_, i) => i % 4 === 0)))].sort((a, b) => a - b);
+  root.level = 0;
+  for (const u of new Set(units.values())) {
+    if (u === root || !u.level) continue;
+    const raw = used.find((l) => l >= u.level!) ?? used[used.length - 1];
+    u.level = raw === undefined ? 1 : rank ? rank.get(raw)! : raw;
+  }
   return plan;
+}
+
+/** 단위 손질의 진행(0~1): 밀대 t에서 그 단위가 벌어지는 단계의 진행(계획에 단계가 없으면 t 그대로) */
+export function unitFraction(plan: Pick<ExplodePlan, 'levels'>, level: number, t: number): number {
+  if (!(t > 0) || !(level > 0)) return 0;
+  return stageFraction(Math.min(1, t) * Math.max(1, plan.levels), level);
 }
 
 /**
@@ -327,35 +388,58 @@ function separate(live: readonly Unit[], ds: V3[], a: V3, p: [V3, V3], tiny: num
   return moved;
 }
 
-/** 방향을 고른 분해에서 그 방향으로 움직이는 것이 없는 단계를 빼고 단계 번호를 1부터 다시 매긴다 */
-function compactLevels(plan: ExplodePlan): void {
+/** 방향을 고른 분해에서 그 방향으로 움직이는 것이 없는 단계를 빼고 단계 번호를 1부터 다시 매긴다(남은 단계 → 새 번호를 돌려준다) */
+function compactLevels(plan: ExplodePlan): Map<number, number> {
   const used = new Set<number>();
   for (const st of plan.steps.values()) for (let i = 0; i < st.length; i += 4) used.add(st[i]!);
   const rank = new Map([...used].sort((a, b) => a - b).map((l, i) => [l, i + 1]));
   for (const st of plan.steps.values()) for (let i = 0; i < st.length; i += 4) st[i] = rank.get(st[i]!)!;
   plan.levels = rank.size;
+  return rank;
 }
 
 /** 단계 하나의 진행(0~1): 밀대 t(0~1)를 단계 수로 고르게 나눈 구간에서 */
 const stageFraction = (s: number, level: number): number => Math.max(0, Math.min(1, s - (level - 1)));
 
-/** 밀대 t(0~1)에서 묶음마다 옮길 양(옮기지 않는 묶음은 빠진다) */
-export function explodeMoves(plan: ExplodePlan, t: number, scale = EXPLODE_SCALE): Map<string, V3> {
+/** 손질 하나(계획에 더할 덧이동): 움직일 묶음, 그 단위가 벌어지는 단계, 100%에서의 세계 이동 */
+export interface PlanTweak {
+  ids: readonly string[];
+  level: number;
+  d: readonly number[];
+}
+
+/** 밀대 t(0~1)에서 묶음마다 옮길 양(옮기지 않는 묶음은 빠진다). tweaks는 그 단위의 단계 진행만큼 더한다(배율 없이) */
+export function explodeMoves(plan: ExplodePlan, t: number, scale = EXPLODE_SCALE, tweaks?: readonly PlanTweak[]): Map<string, V3> {
   const out = new Map<string, V3>();
-  if (!(t > 0) || !plan.levels) return out;
-  const s = Math.min(1, t) * plan.levels;
-  for (const [id, st] of plan.steps) {
-    let x = 0;
-    let y = 0;
-    let z = 0;
-    for (let i = 0; i < st.length; i += 4) {
-      const f = stageFraction(s, st[i]!) * scale;
-      if (!f) continue;
-      x += st[i + 1]! * f;
-      y += st[i + 2]! * f;
-      z += st[i + 3]! * f;
+  if (!(t > 0)) return out;
+  if (plan.levels) {
+    const s = Math.min(1, t) * plan.levels;
+    for (const [id, st] of plan.steps) {
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      for (let i = 0; i < st.length; i += 4) {
+        const f = stageFraction(s, st[i]!) * scale;
+        if (!f) continue;
+        x += st[i + 1]! * f;
+        y += st[i + 2]! * f;
+        z += st[i + 3]! * f;
+      }
+      if (x || y || z) out.set(id, [x, y, z]);
     }
-    if (x || y || z) out.set(id, [x, y, z]);
+  }
+  for (const tw of tweaks ?? []) {
+    const f = unitFraction(plan, tw.level, t);
+    if (!f) continue;
+    const [dx, dy, dz] = [tw.d[0]! * f, tw.d[1]! * f, tw.d[2]! * f];
+    for (const id of tw.ids) {
+      const v = out.get(id);
+      if (v) {
+        v[0] += dx;
+        v[1] += dy;
+        v[2] += dz;
+      } else out.set(id, [dx, dy, dz]);
+    }
   }
   return out;
 }

@@ -9,6 +9,8 @@
  * (x·y·z, 화면 가로 sx·화면 세로 sy·화면 평면 sp — 예: exp:60,step,z, 없으면 사방). 화면 방향은 넷째·다섯째 값으로 그 방향을 정한
  * 카메라 각(yaw·pitch, 라디안 — 예: exp:60,step,sx,0.7853982,0.5235988)을 담아, 받는 쪽이 링크의 카메라와 상관없이 같은 방향으로 벌린다.
  * 예전 앱은 모르는 열쇠라 건너뛰고, 방향을 모르는 앱(31차까지는 화면 방향을 모른다)은 셋째 값 뒤를 건너뛰어 사방으로 벌린다.
+ * exm은 끌어 옮긴 부품의 손질(exp의 방향 것 — 꼴은 분해 조각 explodetweak.ts가 만들고 푼다, 여기서는 글 그대로 나른다). exp가 없으면 버린다.
+ * 34차까지의 앱은 모르는 열쇠라 건너뛰어 손질 없이 계획대로 벌린다.
  */
 import type { CameraState } from 'opencad-viewer3d';
 import type { ExplodeAxis, ExplodeMode, ExplodeView } from './explode';
@@ -23,7 +25,12 @@ export interface ViewLink {
   iso?: boolean;
   /** 분해 보기: 정도(0~1, 링크에는 1~100%)와 방식, 방향을 고르면 그 방향(없으면 사방), 화면 방향이면 그 방향을 정한 카메라 각 */
   exp?: { t: number; mode: ExplodeMode; axis?: Exclude<ExplodeAxis, 'free'>; view?: ExplodeView };
+  /** 분해 손질(exp의 방향에서 끌어 옮긴 부품 — explodetweak.ts 꼴의 글) */
+  exm?: string;
 }
+
+/** 손질 글 꼴(수·낱말 글자만, 길이 한도) */
+const EXM = /^[0-9.e+\-:,/]{1,4000}$/;
 
 const n7 = (v: number) => String(Number(v.toPrecision(7)));
 /** 분해 방향 낱말(사방은 링크에 적지 않는다) */
@@ -50,6 +57,7 @@ export function encodeViewLink(v: ViewLink): string {
     const w = v.exp.view;
     const ax = a && AXES.has(a) ? `,${a}${SCREEN.has(a) && w && Number.isFinite(w.yaw) && Number.isFinite(w.pitch) ? `,${n7(w.yaw)},${n7(w.pitch)}` : ''}` : '';
     parts.push(`exp:${Math.max(1, Math.min(100, Math.round(v.exp.t * 100)))},${v.exp.mode === 'all' ? 'all' : 'step'}${ax}`);
+    if (v.exm && EXM.test(v.exm)) parts.push(`exm:${v.exm}`);
   }
   return parts.length ? `view=${parts.join(';')}` : '';
 }
@@ -93,9 +101,10 @@ export function decodeViewLink(hash: string): ViewLink | null {
         const w = [yaw, pitch].map((x) => (x ? Number(x) : NaN));
         if (axis && SCREEN.has(axis) && w.every(Number.isFinite)) out.exp.view = { yaw: w[0]!, pitch: w[1]! };
       }
-    }
+    } else if (key === 'exm' && EXM.test(val)) out.exm = val;
   }
   if (out.iso && !out.sel) delete out.iso;
+  if (out.exm && !out.exp) delete out.exm;
   return out.cam || out.sec || out.sel || out.exp ? out : null;
 }
 

@@ -43,13 +43,14 @@ import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, lineValue, m
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
-import { RecentStore, recentTimeLabel, type RecentEntry } from './recent';
+import { recentId, RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, isTrackDir, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
 import type { ExplodeAxis, ExplodeMode, ExplodeView } from './explode';
 import type { ExplodeControls } from './explodebar';
+import type { ExplodeTweakTool } from './explodetool';
 import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
@@ -293,6 +294,8 @@ export class StepApp {
   /** 분해 조각(explodebar.ts·explode.ts — 방식·방향 단추·단계 글·계획, 첫 화면 JS 밖, 문서를 열 때 받는다) */
   private explodeUi: ExplodeControls | null = null;
   private explodeLoad: Promise<unknown> | null = null;
+  /** 분해 손질 도구(같은 조각의 explodetool.ts — 부품 끌기·옮기기·되돌리기·링크·최근 문서에 남기기) */
+  tweakTool: ExplodeTweakTool | null = null;
   // ── 최근 문서(시작 화면) ──
   private readonly recent = new RecentStore();
   private readonly recentList = h('ul', { class: 'recent-list' });
@@ -594,6 +597,16 @@ export class StepApp {
       }
     }
     const ok = await this.load(file.name, () => file.arrayBuffer(), 'local', attempt);
+    // 최근 문서 항목(같은 이름·크기)에 남긴 분해 손질을 받고, 이 문서에서 끌어 옮긴 것을 그 항목에 남긴다
+    const d = ok ? this.doc : null;
+    if (d) {
+      d.recentKey = recentId(file.name, file.size);
+      void this.loadExplode()
+        .then(() => this.tweakTool?.restore(d))
+        .then((got) => {
+          if (got && this.doc === d) this.redrawExplode();
+        }, () => undefined);
+    }
     if (ok && remember)
       void this.recent.add(file.name, file).then((saved) => {
         if (saved) void this.refreshRecent();
@@ -818,6 +831,8 @@ export class StepApp {
     // 앞 문서의 간섭 검사는 결과를 쓸 곳이 없다 — 워커를 멈춘다(돌던 채로 CPU를 쓰지 않게)
     this.checkWorker?.terminate();
     this.checkWorker = null;
+    // 부품을 끄는 중이면 앞 문서에서 취소한다(장면을 바꾸기 전에 — 앞 자리로)
+    this.tweakTool?.cancel();
     // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다
     let tris = 0;
     for (const m of doc.scene.meshes) tris += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
@@ -937,11 +952,11 @@ export class StepApp {
     // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고, 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
     core.watchGraphicsContext(v, (msg, kind, ms) => this.toast(msg, kind, ms));
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
-    // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다)
+    // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다) — 분해 중 부품이면 잡아서 끌고, 그대로 떼면 작업 메뉴
     this.aim = new core.TouchAim(v.canvas, {
       enabled: () => !!this.doc && (v.measureMode || this.entMeasuring || this.faceMode),
       layer: this.aimLayer,
-      onHold: (x, y) => this.contextMenuAt(x, y),
+      onHold: (x, y) => !!this.tweakTool?.grab(x, y) || this.contextMenuAt(x, y),
       // 조준 중 코어 거리 글상자가 십자선·손가락을 비켜 그린다(코어 0.13.0), 마치면 끈다 — 접선 조각을 받은 뒤에는 화면 요소 자리와 합쳐
       labelAvoid: (a) => (this.labelAvoid ? this.labelAvoid.aim(a) : v.setMeasureLabelAvoid(a)),
     });
@@ -971,6 +986,8 @@ export class StepApp {
     });
     this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
     this.viewer = v;
+    // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(정밀 조준 뒤에 — 같은 캡처 단계에서 그다음에 받는다)
+    this.tweakTool?.attach(v.canvas);
     // 곡선 모서리 끝의 접선 잠금과 곡선 위로 다듬기는 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다
     // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine·곡선 가운데 점)
     void loadCurveTangents().then(
@@ -1680,7 +1697,7 @@ export class StepApp {
       opacity: d.opacity,
       dim: d.dim,
       partColors: this.partColors,
-      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode, this.explodeAxis, this.explodeView) } : {}),
+      ...(ui ? { moves: ui.moves(d, this.explodeMode, d.explode, this.explodeAxis, this.explodeView, d.tweaks) } : {}),
       fixed: d.vis.pmiIds,
     });
     this.lookMoves = new Map();
@@ -1779,6 +1796,7 @@ export class StepApp {
   /** 분해 방식 바꾸기(조립 단계별 · 한꺼번에) — 분해 정도는 그대로 */
   setExplodeMode(mode: ExplodeMode): void {
     if (this.explodeMode === mode) return;
+    this.tweakTool?.cancel();
     this.explodeMode = mode;
     this.applyLooks();
     this.syncExplode();
@@ -1791,6 +1809,7 @@ export class StepApp {
   setExplodeAxis(axis: ExplodeAxis): void {
     const screen = screenAxis(axis);
     if (this.explodeAxis === axis && !screen) return;
+    this.tweakTool?.cancel();
     this.explodeAxis = axis;
     if (screen) this.aimExplode();
     this.applyLooks();
@@ -1803,15 +1822,44 @@ export class StepApp {
     this.explodeView = c ? { yaw: c.yaw, pitch: c.pitch } : null;
   }
 
-  /** 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식·방향 단추를 막대에 끼우고 지금 문서의 분해를 다시 건다 */
+  /**
+   * 분해 조각 받기(한 번, 못 받으면 다음에 다시) — 받으면 방식·방향 단추와 손질 칸을 막대에 끼우고, 뷰어 캔버스에 끌기 손짓을 달고,
+   * 지금 문서의 분해를 다시 건다
+   */
   private loadExplode(): Promise<unknown> {
     return (this.explodeLoad ??= import('./explodebar').then(
       (m) => {
+        const tool = (this.tweakTool = new m.ExplodeTweakTool({
+          live: () => {
+            const v = this.viewer;
+            const d = this.doc;
+            return v && d && this.explodeOpen && d.explode > 0 && !this.loading && !v.measureMode && !this.entMeasuring && !this.faceMode ? { doc: d, viewer: v } : null;
+          },
+          opened: () => (this.explodeOpen ? this.doc : null),
+          setup: () => ({ mode: this.explodeMode, axis: this.explodeAxis, view: this.explodeView }),
+          pick: (x, y, pointerType) => {
+            const v = this.viewer;
+            const r = v?.canvas.getBoundingClientRect();
+            return v && r ? v.pick(x - r.left, y - r.top, { pointerType, throughTranslucent: this.pickThrough }) : null;
+          },
+          select: (p) => {
+            if (this.multiPick && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit), this.bodyPick ? p.id : undefined);
+            else this.onPick(p, false);
+          },
+          plan: (d) => this.explodeUi!.plan(d, this.explodeMode, this.explodeAxis, this.explodeView),
+          redraw: () => this.redrawExplode(),
+          looks: () => this.applyLooks(),
+          toast: (msg) => this.toast(msg),
+          menu: (x, y) => void this.contextMenuAt(x, y),
+          recent: this.recent,
+        }));
         this.explodeUi = new m.ExplodeControls(
           (k) => this.setExplodeMode(k),
           (k) => this.setExplodeAxis(k),
+          tool,
         );
         this.explodeOpts.append(...this.explodeUi.els);
+        if (this.viewer) tool.attach(this.viewer.canvas);
         if (this.doc?.explode) this.applyLooks();
         this.syncExplode();
       },
@@ -1824,6 +1872,7 @@ export class StepApp {
 
   /** 분해 막대 열고 닫기(닫으면 제자리로, 열 때 화면 방향이면 지금 카메라로 방향을 정한다) */
   toggleExplode(on = !this.explodeOpen): void {
+    if (!on) this.tweakTool?.cancel();
     const opening = on && !this.explodeOpen && !!this.doc;
     this.explodeOpen = on && !!this.doc;
     if (opening && screenAxis(this.explodeAxis)) this.aimExplode();
@@ -1835,6 +1884,7 @@ export class StepApp {
   /** 측정·면 고르기를 켜면 분해를 접는다(제자리 형상으로 잰다) */
   private collapseExplode(): void {
     if (!this.doc?.explode) return;
+    this.tweakTool?.cancel();
     this.doc.explode = 0;
     this.applyLooks();
     this.syncExplode();
@@ -1846,9 +1896,16 @@ export class StepApp {
     this.explodeBar.hidden = !this.explodeOpen || !d;
     if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
     this.explodeValue.textContent = `${Math.round(t * 100)}%`;
-    // 방식·방향 단추와 지금 벌리는 단계(조각을 받은 뒤)
-    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis, this.explodeView);
+    // 방식·방향 단추와 지금 벌리는 단계, 손질 칸(조각을 받은 뒤)
+    this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis, this.explodeView, this.tweakTool?.state(d, this.explodeAxis));
+    this.hostEl.classList.toggle('explode-moving', !!this.tweakTool?.on && this.explodeOpen && t > 0);
     this.toolbar.refresh();
+  }
+
+  /** 분해 겉모습 다시 걸기와 막대 맞추기(손질 도구가 부른다) */
+  private redrawExplode(): void {
+    this.applyLooks();
+    this.syncExplode();
   }
 
   /** 화면 점(client 좌표)에서 작업 메뉴: 그 자리 항목을 고르고(없으면 고르기 그대로) 메뉴를 연다. 열었으면 true */
@@ -2502,7 +2559,7 @@ export class StepApp {
    * 지금 보기(카메라·단면·고른 것 — 나무 마디·몸체·여러 개, 분해 정도·방식)를 담은 주소 — 파일은 담지 않는다.
    * 나무 마디 하나가 아닌 고른 것은 자리 낱말 모듈(sel — selink.ts)로 바꾸고, 글 한도를 넘으면 앞의 것만 담아 담은·고른 형상 수를 함께 돌려준다
    */
-  viewLinkUrl(sel: typeof import('./selink') | null): { url: string; kept: number; total: number } {
+  viewLinkUrl(sel: typeof import('./selink') | null): { url: string; kept: number; total: number; tweakCut?: boolean } {
     const v = this.viewer;
     const d = this.doc;
     const link: ViewLink = {};
@@ -2521,11 +2578,16 @@ export class StepApp {
       if (fit.dropped) kept = sel.resolveTokens(d.products, fit.tokens).ids.length;
     }
     if (link.sel && d?.vis.isolated) link.iso = true;
+    let tweakCut = false;
     if (d && d.explode > 0) {
       const a = this.explodeAxis;
       link.exp = { t: d.explode, mode: this.explodeMode, ...(a !== 'free' ? { axis: a } : {}), ...(screenAxis(a) && this.explodeView ? { view: this.explodeView } : {}) };
+      // 끌어 옮긴 손질(지금 방향 것): 링크 전체를 2,000자 안쪽으로 — 남은 자리(1,500자까지)를 넘으면 담지 않고 알린다
+      const s = this.tweakTool?.link(d, 1995 - viewUrl(location.href, link).length);
+      if (s) link.exm = s;
+      tweakCut = s === null;
     }
-    return { url: viewUrl(location.href, link), kept, total: ids.length };
+    return { url: viewUrl(location.href, link), kept, total: ids.length, ...(tweakCut ? { tweakCut } : {}) };
   }
 
   async copyViewLink(): Promise<void> {
@@ -2533,9 +2595,12 @@ export class StepApp {
     if (!d) return;
     // 나무 마디 하나는 기다리지 않고(클립보드 쓰기는 누른 직후여야 하는 브라우저가 있다), 그 밖의 고른 것은 낱말 모듈(문서를 열 때 미리 받음)을 받아
     const sel = !d.selKey && selectionItemIds(d).length ? await import('./selink') : null;
-    const { url, kept, total } = this.viewLinkUrl(sel);
-    // 고른 것이 많아 일부만 담았으면 알림에 덧붙인다(조각마다 따로 번역되게)
-    const cut = kept < total ? [`고른 것이 많아 형상 ${fmtCount(total)}개 가운데 ${fmtCount(kept)}개만 담았습니다.`] : [];
+    const { url, kept, total, tweakCut } = this.viewLinkUrl(sel);
+    // 고른 것이 많아 일부만 담았거나 손질을 담지 못했으면 알림에 덧붙인다(조각마다 따로 번역되게)
+    const cut = [
+      ...(kept < total ? [`고른 것이 많아 형상 ${fmtCount(total)}개 가운데 ${fmtCount(kept)}개만 담았습니다.`] : []),
+      ...(tweakCut ? ['끌어 옮긴 부품이 많아 손질은 링크에 담지 못했습니다 — 받는 쪽은 손질 없이 벌립니다.'] : []),
+    ];
     try {
       await navigator.clipboard.writeText(url);
       this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것·분해 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', cut.length ? 6000 : 3500);
@@ -2558,6 +2623,7 @@ export class StepApp {
     // 분해는 링크대로(방식·방향과 정도 — 분해 조각을 아직 받지 않았으면 받은 뒤 걸린다, 방향이 없는 링크는 사방), 링크에 없으면 접는다.
     // 화면 방향은 링크에 담긴 카메라 각으로(없으면 위에서 맞춘 링크의 카메라 — 곧 지금 카메라로)
     if (link.exp) {
+      this.tweakTool?.cancel();
       this.explodeMode = link.exp.mode;
       this.explodeAxis = link.exp.axis ?? 'free';
       if (screenAxis(this.explodeAxis)) {
@@ -2565,6 +2631,12 @@ export class StepApp {
         else this.aimExplode();
       }
       this.explodeOpen = true;
+      // 손질(exm)이 있으면 그 방향의 손질을 링크대로(없는 링크는 이 문서의 손질 그대로 — 34차까지의 링크)
+      if (link.exm) {
+        await this.loadExplode().catch(() => undefined);
+        if (this.doc !== d) return;
+        this.tweakTool?.applyLink(d, link.exm);
+      }
       this.setExplode(link.exp.t);
     } else if (d.explode || this.explodeOpen) this.toggleExplode(false);
     this.toolbar.refresh();
@@ -2781,9 +2853,15 @@ export class StepApp {
 
   private onKey(ev: KeyboardEvent): void {
     if (ev.defaultPrevented) return;
-    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc });
+    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, shift: ev.shiftKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc });
     if (!action) return;
     const v = this.viewer;
+    // 부품을 끄는 중 Esc는 그 끌기만 취소한다(앞 자리로)
+    if (action === 'escape' && this.tweakTool?.dragging) {
+      this.tweakTool.cancel();
+      ev.preventDefault();
+      return;
+    }
     // 두 점 측정 방향 잠금: 화살표(→·←·↑ 축, ↓ 지금 방향)
     if (action === 'viewer' && this.arrowMeasureLock(ev)) {
       ev.preventDefault();
@@ -2811,6 +2889,10 @@ export class StepApp {
         break;
       case 'home':
         this.goHome();
+        break;
+      case 'undo':
+        // 분해 손질 한 단계(분해 막대가 열려 있고 되돌릴 것이 있을 때만 — 아니면 브라우저 기본 동작 그대로)
+        if (!this.tweakTool?.undo()) return;
         break;
       case 'escape':
         // 대화 상자·메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기

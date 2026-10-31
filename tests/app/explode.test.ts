@@ -5,6 +5,7 @@ import type { LineSet3d, Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, type ExplodeAxis, type ExplodeMode, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeControls } from '../../src/app/explodebar';
+import { ExplodeTweaks } from '../../src/app/explodetweak';
 import { translate } from '../../site/i18n.mjs';
 
 /** 한 변 2인 상자 그물(가운데 c) */
@@ -241,6 +242,42 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     // 다른 화면 방향·방식은 따로
     expect(c.plan(d, 'step', 'sy', a)).not.toBe(c.plan(d, 'step', 'sx', a));
     expect(c.moves(d, 'step', 1, 'sx', a)).toEqual(explodeMoves(explodePlan(items, [asm()], 'step', 'sx', { view: a }), 1));
+  });
+
+  it('손질 칸(35차): 옮기기는 누름 단추(누르면 반대 값을 알린다), 되돌리기·모두 되돌리기는 손질이 있을 때만, 이동에 그 방향 손질을 더한다', () => {
+    const calls: string[] = [];
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      { move: (on) => calls.push(`move ${on}`), undo: () => calls.push('undo'), reset: () => calls.push('reset') },
+    );
+    const tw = c.els[3]!;
+    const [move, undo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
+    expect(tw.getAttribute('aria-label')).toBe('분해 손질');
+    expect([move!.textContent, undo!.textContent, reset!.textContent]).toEqual(['옮기기', '되돌리기', '모두 되돌리기']);
+    const d = doc(1);
+    c.sync(d, 'step', true);
+    // 되돌리기 둘은 따로 묶은 칸(좁으면 다음 줄로) — 손질도 되돌릴 단계도 없으면 칸째 숨긴다
+    expect(undo!.parentElement).toBe(reset!.parentElement);
+    expect(undo!.parentElement).not.toBe(move!.parentElement);
+    expect([move!.getAttribute('aria-pressed'), undo!.hidden, reset!.hidden, undo!.parentElement!.hidden]).toEqual(['false', true, true, true]);
+    move!.click();
+    c.sync(d, 'step', true, 'z', null, { on: true, count: 2, undo: true });
+    expect([move!.getAttribute('aria-pressed'), move!.classList.contains('on'), undo!.hidden, reset!.hidden, undo!.parentElement!.hidden]).toEqual(['true', true, false, false, false]);
+    move!.click();
+    undo!.click();
+    reset!.click();
+    expect(calls).toEqual(['move true', 'move false', 'undo', 'reset']);
+    // 되돌릴 단계만 있고 손질이 없으면(모두 지운 뒤) 되돌리기만
+    c.sync(d, 'step', true, 'z', null, { on: false, count: 0, undo: true });
+    expect([undo!.hidden, reset!.hidden]).toEqual([false, true]);
+    const t = new ExplodeTweaks();
+    t.replace('free', [['0/1/1/0', [0, 0, 3]]]);
+    const plain = c.moves(d, 'step', 1, 'free').get('p5')!;
+    expect(c.moves(d, 'step', 1, 'free', null, t).get('p5')).toEqual([plain[0], plain[1], 3]);
+    expect(c.moves(d, 'step', 1, 'x', null, t).get('p5')).toEqual([10 * k, 0, 0]);
+    for (const lang of ['en', 'ja', 'zh-CN', 'de'])
+      for (const text of [tw.getAttribute('aria-label')!, ...[move!, undo!, reset!].flatMap((b) => [b.textContent!, b.title])]) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
   });
 });
 

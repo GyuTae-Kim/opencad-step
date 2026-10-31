@@ -10,6 +10,8 @@
  * - 다시 열 때 "없음"(지워진 파일)과 "못 읽음"(잠깐의 저장소 오류 — iOS가 뒤에서 연결을 끊는 등)을 가린다:
  *   없으면 목록에서 지우고, 못 읽으면 항목을 남겨 다시 누를 수 있게 한다.
  * - 저장소는 RecentBackend로 바꿔 끼울 수 있다(시험은 메모리 저장소로 순서·개수·크기 한계를 본다).
+ * - 항목에 그 파일의 분해 손질(끌어 옮긴 부품 — 꼴은 분해 조각 explodetweak.ts)을 함께 둔다(explode). 같은 파일을 다시 남겨도 지키고,
+ *   항목이 목록에서 빠지면 함께 지워진다. 저장소 판은 그대로다(34차까지의 앱은 그 값을 모르고 건너뛴다 — 그 앱이 순서를 바꾸면 빠진다).
  */
 
 /** 목록에 보일 한 줄(파일 바이트 없음) */
@@ -21,6 +23,8 @@ export interface RecentEntry {
   size: number;
   /** 마지막으로 연 때(ms) */
   time: number;
+  /** 그 파일의 분해 손질(JSON 값 — 없으면 없음) */
+  explode?: unknown;
 }
 
 /** 저장소(IndexedDB 또는 시험용 메모리): 목록과 파일 바이트를 따로 둔다. 오류는 던진다 */
@@ -89,16 +93,17 @@ export function recentTimeLabel(time: number, now: number, locale = 'ko'): strin
   }
 }
 
-/** 모양이 맞는 항목만, 바이트 같은 덧붙은 값 없이 */
-function cleanEntries(list: readonly RecentEntry[]): RecentEntry[] {
+/** 모양이 맞는 항목만, 바이트 같은 덧붙은 값 없이(분해 손질은 객체일 때만 남긴다 — 분해 조각 explodetool.ts가 같은 것으로 읽고 쓴다) */
+export function cleanEntries(list: readonly RecentEntry[]): RecentEntry[] {
   return list
     .filter((e) => e && typeof e.id === 'string' && typeof e.name === 'string' && Number.isFinite(e.size) && Number.isFinite(e.time))
-    .map(({ id, name, size, time }) => ({ id, name, size, time }));
+    .map(({ id, name, size, time, explode }) => ({ id, name, size, time, ...(explode && typeof explode === 'object' ? { explode } : {}) }));
 }
 
 export class RecentStore {
   constructor(
-    private readonly backend: RecentBackend | null = indexedDbBackend(),
+    /** 저장소(분해 조각이 항목의 분해 손질을 읽고 쓴다) */
+    readonly backend: RecentBackend | null = indexedDbBackend(),
     private readonly now: () => number = () => Date.now(),
   ) {}
 
@@ -112,11 +117,13 @@ export class RecentStore {
     }
   }
 
-  /** 잘 연 파일 남기기. 남겼으면 true(크기 한계·저장 실패는 false) */
+  /** 잘 연 파일 남기기(같은 파일의 분해 손질은 지킨다). 남겼으면 true(크기 한계·저장 실패는 false) */
   async add(name: string, data: Blob): Promise<boolean> {
     if (!this.backend || !canRemember(data.size)) return false;
     try {
-      await this.backend.put({ id: recentId(name, data.size), name, size: data.size, time: this.now() }, data);
+      const id = recentId(name, data.size);
+      const explode = cleanEntries(await this.backend.entries()).find((e) => e.id === id)?.explode;
+      await this.backend.put({ id, name, size: data.size, time: this.now(), ...(explode ? { explode } : {}) }, data);
       const extra = overflowIds(cleanEntries(await this.backend.entries()));
       if (extra.length) await this.backend.remove(extra);
       return true;
