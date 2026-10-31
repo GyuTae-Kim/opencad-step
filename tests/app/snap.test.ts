@@ -358,9 +358,12 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(measureSnapOptions(s.meshes, ex, centers, null, true).throughTranslucent).toBe(true);
     // 기준 선분 거르기(뷰어 조각의 trackdir.ts — 뷰어를 만든 뒤 앱이 넘긴다)를 받기 전에는 0.26.0 꼴 그대로
     expect(o.inference).toBe(MEASURE_INFERENCE);
-    // 받으면 0.27.0 끌어온 점에서 모서리와 나란히·수직을 그 거르기와 함께 켠다(0.28.0 { edge } — 곧은 모서리만 기준)
+    // 받으면 0.27.0 끌어온 점에서 모서리와 나란히·수직을 그 거르기와 함께 켠다(0.28.0 { edge } — 곧은 모서리만 기준).
+    // 첫 점 나란함의 기준도 같은 함수로 거르고(0.29.0 parallelEdge), 그 선이 다른 것과 만나는 점도 켠다(0.29.0 meets)
     const f = straightEdgeFilter(ex);
-    expect(measureSnapOptions(s.meshes, ex, centers, null, false, f).inference).toEqual({ ...MEASURE_INFERENCE, trackDirs: { edge: f } });
+    const fi = measureSnapOptions(s.meshes, ex, centers, null, false, f).inference as Record<string, unknown>;
+    expect(fi).toEqual({ ...MEASURE_INFERENCE, parallelEdge: f, trackDirs: { edge: f, meets: true } });
+    expect(fi.parallelEdge).toBe((fi.trackDirs as { edge: unknown }).edge);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);
     const mesh = s.meshes[0]!;

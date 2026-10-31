@@ -7,10 +7,12 @@
  * - 그 뒤 원기둥 윗 테두리(원을 나눈 현)를 지나도 기준이 그 곧은 모서리로 남는다. 거르지 않으면(trackDirs: true — 0.27.0) 기준이 현으로 바뀌어 같은 자리에 붙지 않는다
  * - 첫 점을 찍은 뒤 끌어온 점의 나란함으로 찍은 둘째 점: 결과 이름이 "끌어온 점에서 모서리와 나란히"(찍은 점의 trackFrom — 앱 onMeasure처럼)
  * - 잠근 동안(Shift·화살표)에는 보지 않는다(코어 규칙) — 잠근 선 위 점
+ * - 코어 0.29.0 첫 점 나란함의 기준 거르기(parallelEdge — 같은 함수): 첫 점의 "모서리와 나란히"도 원기둥 테두리 현을 지난 뒤 기운 곧은 모서리 기준이 남는다
+ *   (거르기를 빼면 현이 기준이 된다). 같은 선분은 두 거르기에 한 번만 묻는다
  * 화면 좌표로 가리킬 때는 그물·선의 경계를 정확히 가리키지 않게 조금 비킨다.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Viewer3d, type MeasureInference, type MeasureResult, type TrackDirEdgeFilter } from 'opencad-viewer3d';
+import { Viewer3d, type MeasureInference, type MeasureResult, type MeasureTrackDirOptions, type TrackDirEdgeFilter } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { circleCenters, hoverSnapLabel, isTrackDir, MEASURE_INFERENCE, measureSnapOptions, snapPair, TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL } from '../../src/app/snap';
@@ -72,7 +74,8 @@ interface View {
   asked: number;
 }
 
-function view(trackDirs: 'app' | true = 'app'): View {
+/** 'app' = 앱 붙잡기 선택 그대로, true = 거르지 않음(trackDirs: true — 0.27.0), 'noParallelEdge' = 첫 점 나란함 거르기만 뺌(0.28.0) */
+function view(trackDirs: 'app' | true | 'noParallelEdge' = 'app'): View {
   const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false, renderMode: 'shaded' });
   v.setScene(scene);
   v.setView('seIso', false);
@@ -82,11 +85,15 @@ function view(trackDirs: 'app' | true = 'app'): View {
   // 앱(app.ts syncMeasureSnap)처럼 뷰어 조각의 거르기를 넘긴다
   const o = measureSnapOptions(scene.meshes, ex, circleCenters(scene.meshes, ex), curveSnap(scene.meshes, ex), false, straightEdgeFilter(ex));
   const w: View = { v, canvas: v.canvas as unknown as FakeElement, asked: 0 };
-  const inf = o.inference as MeasureInference & { trackDirs: { edge: TrackDirEdgeFilter } };
-  const edge = inf.trackDirs.edge;
-  // 앱 거르기를 부른 횟수를 센다(커서가 새 선분을 지날 때만 불린다 — 코어 0.28.0)
-  const counted: MeasureInference = { ...inf, trackDirs: { edge: (s, i) => (w.asked++, edge(s, i)) } };
-  v.setMeasureSnap({ ...o, inference: trackDirs === true ? { ...MEASURE_INFERENCE, trackDirs: true } : counted });
+  const inf = o.inference as MeasureInference;
+  const td = inf.trackDirs as MeasureTrackDirOptions & { edge: TrackDirEdgeFilter };
+  const edge = td.edge;
+  // 첫 점 나란함의 기준 거르기도 같은 함수(코어 0.29.0 parallelEdge — 같은 선분은 한 번만 묻는다)
+  expect(inf.parallelEdge).toBe(edge);
+  // 앱 거르기를 부른 횟수를 센다(커서가 새 선분을 지날 때만 불린다 — 코어 0.28.0). 감싼 함수도 둘에 같은 것을 준다
+  const count: TrackDirEdgeFilter = (s, i) => (w.asked++, edge(s, i));
+  const counted: MeasureInference = { ...inf, parallelEdge: count, trackDirs: { ...td, edge: count } };
+  v.setMeasureSnap({ ...o, inference: trackDirs === true ? { ...MEASURE_INFERENCE, trackDirs: true } : trackDirs === 'noParallelEdge' ? { ...counted, parallelEdge: null } : counted });
   return w;
 }
 
@@ -216,5 +223,40 @@ describe('끌어온 점에서 곧은 모서리와 나란히·수직(코어 0.27.
     expect(snapPair({ ...m, ...(tB ? { trackB: tB } : {}) })![1]).toBe(TRACK_PARALLEL_LABEL);
     // 가르지 않으면 첫 점의 나란함 이름이 된다(30차까지)
     expect(snapPair(m)![1]).toBe('모서리와 나란히');
+  });
+
+  it('첫 점의 "모서리와 나란히"도 곧은 모서리만 기준(코어 0.29.0 parallelEdge): 테두리 현을 지나도 기운 모서리 기준이 남고, 거르기를 빼면 현이 기준이 된다', () => {
+    const app = view();
+    const raw = view('noParallelEdge');
+    // 첫 점: 원기둥 윗면 가운데 둘레(붙잡지 않은 면 위 점), 가리킬 자리: 첫 점에서 기운 모서리와 나란한 선 위(원기둥 위 빈 곳)
+    const F: V3 = [0.5, 0.3, RIM_H];
+    for (const w of [app, raw]) {
+      clickAt(w, F);
+      expect(w.v.measurePointCount).toBe(1);
+      const f = w.v.measurePoints[0]!.point;
+      hoverAt(w, ON_EDGE);
+      hoverAt(w, ON_RIM);
+      expect(w.v.measureHoverSnap?.segment?.kind).toBe('edge');
+      hoverAt(w, along(f, E, -8));
+    }
+    const h = app.v.measureHoverSnap!;
+    expect(h.snap).toBe('parallel');
+    expect(h.trackFrom).toBeUndefined();
+    expect(isTiltedEdge(h.edge), `기준 ${JSON.stringify(h.edge)}`).toBe(true);
+    // 첫 점은 윗면 위(가까운 윗 테두리 원 중심에 붙는다)
+    const f = app.v.measurePoints[0]!.point as V3;
+    expect(f[2]).toBeCloseTo(RIM_H, 6);
+    expect(dist(h.point, along(f, E, -8))).toBeLessThan(0.2);
+    expect(hoverSnapLabel(h)).toBe('모서리와 나란히');
+    // 거르지 않으면(0.28.0) 테두리 현이 기준이 되어 그 자리는 기운 모서리와 나란한 선이 아니다
+    const r = raw.v.measureHoverSnap;
+    expect(r?.snap === 'parallel' && !r.trackFrom && isTiltedEdge(r.edge)).toBe(false);
+    // 같은 함수를 끌어온 점의 기준 거르기에도 줬으므로 선분마다 한 번만 묻는다(기운 모서리·테두리 현)
+    expect(app.asked).toBe(2);
+    // Shift 잠금도 그 기준 방향
+    expect(app.v.setMeasureInferenceLock(true)).toBe(true);
+    const l = app.v.measureInferenceLock!;
+    expect(l.kind).toBe('parallel');
+    expect(Math.abs(l.direction[0] * E[0] + l.direction[1] * E[1] + l.direction[2] * E[2])).toBeGreaterThan(1 - 1e-9);
   });
 });

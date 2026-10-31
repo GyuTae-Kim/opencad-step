@@ -15,6 +15,8 @@
  *   첫 점(모서리 끝)에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 그 모서리 방향으로 잠그는 것은 코어 0.12.0이 판정한다(measureHoverLock).
  * - 끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs, 0.28.0 기준 선분 거르기): 커서가 앞서 지나간 곧은 B-rep 모서리만 기준으로 받는다
  *   (trackdir.ts straightEdgeFilter — 원·타원·B-스플라인을 나눈 현은 기준이 되지 않는다). 여기서는 이름만 가른다(isTrackDir).
+ *   첫 점의 "모서리와 나란히"(0.10.0)도 같은 거르기로 곧은 모서리만 기준이다(0.29.0 parallelEdge). 그 선이 다른 것과 만나는 점(0.29.0 meets)의 이름은
+ *   뷰어 조각(trackdir.ts trackDirMeetLabel)이 고르고 결과에는 그 글을 받아 쓴다(snapPair의 trackMeetA·trackMeetB).
  */
 import type { Mesh3d, Pick3d, SnapKind, SnapPoint } from 'opencad-viewer3d/types';
 import type { MeasureInferenceLock, MeasureSnapOptions, SnapAxis, SnapRefineFaceInput, SnapRefineInput, SnapSegment, Viewer3d } from 'opencad-viewer3d';
@@ -128,7 +130,10 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 곡선 가운데 점도 곡선 위 점으로 준다. 면 표가 있으면 축이 곡면을 뚫는 점과 붙잡지 않은 곡면 위 점도 그 곡면 위로(0.19.0·0.21.0 refineFace).
  * through(반투명 보기 — 부품 불투명도를 낮췄거나 나머지 흐리게 중)면 반투명 그물의 면을 지나 그 뒤 불투명 면에 붙는다(코어 0.23.0 throughTranslucent).
  * trackDirEdge(기준 선분 거르기 — 뷰어 조각의 trackdir.ts straightEdgeFilter, 모서리 표가 있을 때만)가 있으면 끌어온 점에서 곧은 모서리와 나란히·수직도 켠다
- * (코어 0.27.0 trackDirs, 0.28.0 { edge } — 원·B-스플라인을 나눈 현은 기준이 되지 않는다)
+ * (코어 0.27.0 trackDirs, 0.28.0 { edge } — 원·B-스플라인을 나눈 현은 기준이 되지 않는다). 같은 함수를 첫 점 나란함(0.10.0 "모서리와 나란히")의
+ * 기준 거르기에도 준다(0.29.0 parallelEdge — 곡선을 나눈 현을 지나도 앞서 지나간 곧은 모서리가 기준으로 남는다. 같은 선분은 코어가 한 번만 묻는다).
+ * 그 선이 첫 점 축·첫 점의 나란함·다른 끌어온 점의 축·모서리·면과 만나는 점에도 붙는다(0.29.0 trackDirs { meets } — 곡선 모서리·곡면과 만나는 점은
+ * 앱 refine 'axisEdge'·refineFace 'axisFace'가 축 이름 없는 안내 선으로 곡선·곡면 위로 다듬는다. 이름은 뷰어 조각의 trackdir.ts trackDirMeetLabel)
  */
 export function measureSnapOptions(
   meshes: readonly Mesh3d[],
@@ -143,7 +148,7 @@ export function measureSnapOptions(
   let last: SnapPoint[] | null = null;
   return {
     edges: true,
-    inference: trackDirEdge ? { ...MEASURE_INFERENCE, trackDirs: { edge: trackDirEdge } } : MEASURE_INFERENCE,
+    inference: trackDirEdge ? { ...MEASURE_INFERENCE, parallelEdge: trackDirEdge, trackDirs: { edge: trackDirEdge, meets: true } } : MEASURE_INFERENCE,
     ...(through ? { throughTranslucent: true } : {}),
     points: centers,
     pointsFor: (p) => {
@@ -336,7 +341,7 @@ export const TANGENT_LABEL = '접선 방향';
  * 축 붙잡기는 코어 0.9.1부터 결과에 실린 축(axisA·axisB)으로 "Y축 방향"처럼 쓴다. 둘째 점을 곡선 접선 잠금으로 찍었으면(tangentB) "접선 방향".
  * 붙잡지 않은 점을 곡선 위로 다듬어 찍었으면(refinedA·refinedB — 코어 measurePoints의 refined) "곡선 위 점", 곡면 위로 다듬었으면('face' — refinedKind) "곡면 위 점".
  * 잠근 선이 모서리와 만나는 점·면을 뚫는 점·끌어온 점의 축과 만나는 점으로 찍었으면(lockMeetB — 찍은 점의 lockMeet, 코어 0.19.0·0.21.0) "잠근 X축 · 모서리 위"·
- * "잠근 X축 · 끌어온 점 Y축 위"
+ * "잠근 X축 · 끌어온 점 Y축 위". 끌어온 점 안내 선이 만나는 점으로 찍었으면(trackMeetA·trackMeetB — 뷰어 조각이 고른 이름, 코어 0.29.0) 그 이름
  */
 export function snapPair(m: {
   snapA?: SnapKind | null;
@@ -349,13 +354,15 @@ export function snapPair(m: {
   refinedB?: Refined;
   trackA?: TrackMark | boolean;
   trackB?: TrackMark | boolean;
+  trackMeetA?: string;
+  trackMeetB?: string;
   lockMeetB?: LockMeet;
 }): [string, string] | null {
   if (m.snapA === undefined && m.snapB === undefined) return null;
   if (!m.snapA && !m.snapB && !m.refinedA && !m.refinedB) return null;
-  const a = snapLabel(m.snapA, m.axisA, m.refinedA ?? false, m.trackA ?? false);
+  const a = m.trackMeetA ?? snapLabel(m.snapA, m.axisA, m.refinedA ?? false, m.trackA ?? false);
   if (m.lockedB && m.lockMeetB) return [a, lockMeetLabel(m.snapB === 'axis' ? m.axisB : null, m.lockMeetB, !!m.tangentB)];
-  const b = m.tangentB ? TANGENT_LABEL : snapLabel(m.snapB, m.axisB, m.refinedB ?? false, m.trackB ?? false);
+  const b = m.tangentB ? TANGENT_LABEL : (m.trackMeetB ?? snapLabel(m.snapB, m.axisB, m.refinedB ?? false, m.trackB ?? false));
   return [a, m.lockedB ? `${b} · ${LOCKED_LABEL}` : b];
 }
 
