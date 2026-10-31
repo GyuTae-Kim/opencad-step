@@ -1,13 +1,13 @@
 /**
  * 부품 겉모습(순수, DOM 없음): 부품별 불투명도, 격리의 "나머지 흐리게", 부품 색 구분, 분해 보기를
- * 그물마다 코어 묶음 겉모습(Viewer3d.setItemOpacity·setItemColor, 행렬은 모아 setItemMatrices)으로 바꾼다.
+ * 그물마다 코어 묶음 겉모습(바뀐 묶음만 한 목록으로 Viewer3d.setItemLooks — 불투명도·고르기·색·행렬)으로 바꾼다.
  *
  * - 불투명도: 사용자가 정한 값(0~1). 흐리게 하는 중이면 초점 밖 항목은 DIM_ALPHA로 흐리게 하고 고르기에서 뺀다
  * - 부품 색: 같은 제품(이름·제품 번호)은 같은 색 — 골든 각으로 색상환을 돈다(조립의 같은 부품을 알아보게)
  * - 분해: 묶음마다 옮길 양을 받아 이동 행렬로 건다(양은 분해 조각 explode.ts가 조립 단계별·한꺼번에로 구한다 — 첫 화면 JS 밖)
  * 코어는 setScene마다 겉모습을 모두 풀므로 앱이 새 장면에 다시 건다(applyLooks — 바뀐 묶음만 putLooks로).
  */
-import type { Viewer3d } from 'opencad-viewer3d';
+import type { ItemLookInput, Viewer3d } from 'opencad-viewer3d';
 import type { LineSet3d, Mesh3d, PointSet3d, Rgba } from 'opencad-viewer3d/types';
 
 /** 겉모습을 거는 묶음(그물·선·점) */
@@ -40,6 +40,8 @@ export interface LookInput {
   moves?: ReadonlyMap<string, readonly [number, number, number]>;
   /** 부품 색·분해에서 빼는 묶음(표현 PMI — 불투명도·흐리게만 따른다) */
   fixed?: ReadonlySet<string>;
+  /** 부품 색 표를 미리 구했으면(partColorMap — LookSync가 묶음·나무가 같으면 다시 쓴다). partColors일 때만 본다 */
+  colors?: ReadonlyMap<string, Rgba>;
 }
 
 /** 색상환 i번째 부품 색(골든 각, 채도·밝기 고정) */
@@ -81,31 +83,46 @@ export function partPlacements(items: readonly Pick<LookItem, 'id'>[], products:
   return out;
 }
 
-/** 그물마다 겉모습(바꿀 것이 없는 그물은 빠진다) */
-export function desiredLooks(inp: LookInput): Map<string, Look> {
-  const out = new Map<string, Look>();
-  const parts = inp.fixed?.size ? inp.items.filter((x) => !inp.fixed!.has(x.id)) : inp.items;
-  const places = inp.partColors ? partPlacements(parts, inp.products) : [];
+/** 부품 색 표(묶음 id → 부품 색 — 같은 제품은 같은 색, 부품 색에서 빼는 묶음은 없다) */
+export function partColorMap(items: readonly Pick<LookItem, 'id'>[], products: readonly ProductNode[], fixed?: ReadonlySet<string>): Map<string, Rgba> {
   const colorOf = new Map<string, Rgba>();
-  if (inp.partColors) {
-    const productIndex = new Map<string, number>();
-    for (const pl of places) {
-      let i = productIndex.get(pl.product);
-      if (i === undefined) productIndex.set(pl.product, (i = productIndex.size));
-      const c = partColor(i);
-      for (const id of pl.ids) colorOf.set(id, c);
-    }
+  const productIndex = new Map<string, number>();
+  for (const pl of partPlacements(fixed?.size ? items.filter((x) => !fixed.has(x.id)) : items, products)) {
+    let i = productIndex.get(pl.product);
+    if (i === undefined) productIndex.set(pl.product, (i = productIndex.size));
+    const c = partColor(i);
+    for (const id of pl.ids) colorOf.set(id, c);
   }
+  return colorOf;
+}
+
+/** 앞 겉모습 p가 이 값들과 같은지(색은 성분마다, 행렬은 옮길 양 셋 — desiredLooks가 p를 그대로 다시 쓴다) */
+function sameLook(p: Look, alpha: number | null, pickable: boolean, color: Rgba | null, d: readonly [number, number, number] | undefined): boolean {
+  if (p.alpha !== alpha || p.pickable !== pickable) return false;
+  const c = p.color;
+  if (c !== color && (!c || !color || c[0] !== color[0] || c[1] !== color[1] || c[2] !== color[2] || c[3] !== color[3])) return false;
+  const m = p.matrix;
+  return d ? !!m && m[12] === d[0] && m[13] === d[1] && m[14] === d[2] : !m;
+}
+
+/**
+ * 그물마다 겉모습(바꿀 것이 없는 그물은 빠진다). prev(지난 결과)를 주면 값이 같은 묶음은 그 겉모습 객체를 그대로 넣는다 —
+ * 바뀐 묶음만 겉모습(행렬 배열)을 새로 만들고, putLooks는 같은 객체면 열쇠를 다시 셈하지 않는다(37차 — 끌기 한 번에 부품 하나만 바뀐다)
+ */
+export function desiredLooks(inp: LookInput, prev?: ReadonlyMap<string, Look> | null): Map<string, Look> {
+  const out = new Map<string, Look>();
+  const colorOf = inp.partColors ? (inp.colors ?? partColorMap(inp.items, inp.products, inp.fixed)) : null;
   for (const m of inp.items) {
     const id = m.id;
     const user = inp.opacity.get(id);
     const dimmed = !!inp.dim && !inp.dim.has(id);
     const alpha = dimmed ? Math.min(DIM_ALPHA, user ?? 1) : user !== undefined && user < 1 ? user : null;
-    const color = colorOf.get(id) ?? null;
+    const color = colorOf?.get(id) ?? null;
     const d = inp.fixed?.has(id) ? undefined : inp.moves?.get(id);
-    const matrix = d ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, d[0], d[1], d[2], 1] : null;
-    if (alpha === null && !color && !matrix) continue;
-    out.set(id, { alpha, pickable: !dimmed, color, matrix });
+    if (alpha === null && !color && !d) continue;
+    const pickable = !dimmed;
+    const p = prev?.get(id);
+    out.set(id, p && sameLook(p, alpha, pickable, color, d) ? p : { alpha, pickable, color, matrix: d ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, d[0], d[1], d[2], 1] : null });
   }
   return out;
 }
@@ -124,28 +141,82 @@ export function lookKey(l: Look): string {
   return `${l.alpha ?? ''}|${l.pickable ? 1 : 0}|${l.color ? l.color.map((x) => x.toFixed(4)).join(',') : ''}|${l.matrix ? l.matrix.slice(12, 15).map((x) => x.toPrecision(9)).join(',') : ''}`;
 }
 
+/** 코어에 건 겉모습(묶음 id → 건 겉모습 객체와 그 열쇠 — putLooks가 고친다) */
+export type AppliedLooks = Map<string, { look: Look; key: string }>;
+
 /**
- * 원하는 겉모습(want)을 코어에 건다 — 바뀐 묶음만(applied: 묶음 id → 건 겉모습 열쇠, 여기서 고친다). 불투명도·색은 묶음마다,
- * 분해 행렬은 모아 한 번에 건다(코어 0.32.0 setItemMatrices — 묶음마다 setItemMatrix를 부른 것과 같은 결과, 범위·고르기 목록은 한 번만 버린다).
- * want에 없는 묶음은 겉모습을 푼다. 건 묶음 수를 돌려준다
+ * 원하는 겉모습(want)을 코어에 건다 — 바뀐 묶음만(applied, 여기서 고친다) 한 목록으로(코어 0.33.0 setItemLooks —
+ * 묶음마다 setItemOpacity·setItemColor·setItemMatrix를 부른 것과 같은 결과, 그림자·고르기 목록은 한 번만 버리고 행렬을 바꾼 묶음만 범위를 다시 센다).
+ * 바뀌었는지는 겉모습 열쇠(lookKey)로 가른다 — 건 겉모습 객체 그대로면(desiredLooks의 prev) 열쇠를 셈하지 않는다.
+ * want에 없는 묶음은 불투명도·색·행렬을 되돌린다(필드 null — 앱이 걸지 않는 겉모습은 건드리지 않는다). 건 묶음 수를 돌려준다
  */
-export function putLooks(v: Pick<Viewer3d, 'setItemOpacity' | 'setItemColor' | 'setItemMatrices'>, applied: Map<string, string>, want: ReadonlyMap<string, Look>): number {
-  const mats: [string, number[] | null][] = [];
-  for (const id of [...applied.keys()])
+export function putLooks(v: Pick<Viewer3d, 'setItemLooks'>, applied: AppliedLooks, want: ReadonlyMap<string, Look>): number {
+  const list: [string, ItemLookInput][] = [];
+  for (const id of applied.keys())
     if (!want.has(id)) {
-      v.setItemOpacity(id, null);
-      v.setItemColor(id, null);
-      mats.push([id, null]);
+      list.push([id, { opacity: null, color: null, matrix: null }]);
       applied.delete(id);
     }
   for (const [id, l] of want) {
-    const k = lookKey(l);
-    if (applied.get(id) === k) continue;
-    v.setItemOpacity(id, l.alpha, { pickable: l.pickable });
-    v.setItemColor(id, l.color);
-    mats.push([id, l.matrix]);
-    applied.set(id, k);
+    const a = applied.get(id);
+    if (a?.look === l) continue;
+    const key = lookKey(l);
+    if (a?.key === key) {
+      a.look = l;
+      continue;
+    }
+    list.push([id, { opacity: l.alpha, pickable: l.pickable, color: l.color, matrix: l.matrix }]);
+    applied.set(id, { look: l, key });
   }
-  if (mats.length) v.setItemMatrices(mats);
-  return mats.length;
+  if (list.length) v.setItemLooks(list);
+  return list.length;
+}
+
+/** LookSync에 묶음·나무가 같은지(부품 색 표를 다시 쓸지 — 앱은 부를 때마다 묶음 목록을 새로 만든다) */
+function sameItems(a: readonly LookItem[], b: readonly LookItem[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * 앱 하나의 겉모습 걸기(37차): 지난 원하는 겉모습을 다시 써서(desiredLooks prev) 바뀐 묶음만 겉모습·열쇠를 새로 만들고 코어에 한 목록으로 건다.
+ * 부품 색 표는 묶음·나무·빼는 묶음이 같으면 다시 쓴다. 분해 이동 표(moves)는 물을 때 만든다. 코어가 겉모습을 모두 푸는 새 장면에서는 clear
+ */
+export class LookSync {
+  private readonly applied: AppliedLooks = new Map();
+  private want: ReadonlyMap<string, Look> = new Map();
+  private colors: { items: readonly LookItem[]; products: readonly ProductNode[]; fixed: ReadonlySet<string> | undefined; map: Map<string, Rgba> } | null = null;
+  private moveMap: Map<string, [number, number, number]> | null = null;
+
+  /** 건 것을 모두 잊는다(새 장면 — 코어가 이미 풀었다) */
+  clear(): void {
+    this.applied.clear();
+    this.want = new Map();
+    this.colors = null;
+    this.moveMap = null;
+  }
+
+  /** 원하는 겉모습을 구해 바뀐 묶음만 건다. 건 묶음 수 */
+  apply(v: Pick<Viewer3d, 'setItemLooks'>, inp: LookInput): number {
+    let colors: ReadonlyMap<string, Rgba> | undefined;
+    if (inp.partColors) {
+      const c = this.colors;
+      if (c && c.products === inp.products && c.fixed === inp.fixed && sameItems(c.items, inp.items)) colors = c.map;
+      else this.colors = { items: inp.items, products: inp.products, fixed: inp.fixed, map: (colors = partColorMap(inp.items, inp.products, inp.fixed)) };
+    }
+    this.want = desiredLooks(colors ? { ...inp, colors } : inp, this.want);
+    this.moveMap = null;
+    return putLooks(v, this.applied, this.want);
+  }
+
+  /** 분해로 옮긴 양(묶음 id → 세계 이동 — 행렬을 건 묶음만) */
+  moves(): ReadonlyMap<string, readonly [number, number, number]> {
+    if (!this.moveMap) {
+      this.moveMap = new Map();
+      for (const [id, l] of this.want) if (l.matrix) this.moveMap.set(id, [l.matrix[12]!, l.matrix[13]!, l.matrix[14]!]);
+    }
+    return this.moveMap;
+  }
 }

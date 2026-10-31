@@ -51,9 +51,59 @@ function axisStep(): Uint8Array {
   return w.bytes('axis.stp');
 }
 
+/**
+ * 37차 키 큰 원기둥(반지름 30, 높이 400 — 옆면 칸 하나가 바닥에서 꼭대기까지, 이음매 9°라 남쪽 칸이 −90°를 가운데에 둔다)과
+ * 기준 판(y = −80, 곧은 모서리 TA → TB가 (1, 0, −1) 방향)
+ */
+const TALL_R = 30;
+const TALL_H = 400;
+const TALL_Z = 200;
+const TALL_SEAM = (9 * Math.PI) / 180;
+const TA: V3 = [60, -80, 240];
+const TB: V3 = [80, -80, 220];
+const TC: V3 = [80, -80, 260];
+
+/** 원기둥(반지름 rad, 높이 h, 이음매 각 seam)과 세로 삼각 판(꼭짓점 셋 — 판 법선 n, 첫 변이 기준 곧은 모서리) */
+function cylPlateStep(rad: number, h: number, seam: number, p: P3[], n: P3): Uint8Array {
+  const w = new StepText();
+  const mm = w.context('mm');
+  const cyl = w.product('side-cylinder', [cylinderRim(w, rad, h, [Math.cos(seam), Math.sin(seam), 0])], mm);
+  const V = p.map((q) => w.vertex(q));
+  const es = p.map((q, i) => w.edge(V[i]!, V[(i + 1) % 3]!, w.line(q, p[(i + 1) % 3]!)));
+  const e0 = [p[1]![0] - p[0]![0], p[1]![1] - p[0]![1], p[1]![2] - p[0]![2]];
+  const l0 = Math.hypot(e0[0]!, e0[1]!, e0[2]!);
+  const face = w.face([w.bound(w.loop(es.map((e) => w.oe(e, true))))], w.plane(p[0]!, n, [e0[0]! / l0, e0[1]! / l0, e0[2]! / l0]));
+  const plate = w.product('side-plate', [w.add('FACE_BASED_SURFACE_MODEL', `'',(#${w.add('CONNECTED_FACE_SET', `'',(#${face})`)})`)], mm, 'SHAPE_REPRESENTATION');
+  const root = w.product('side', [w.ax2([0, 0, 0])], mm, 'SHAPE_REPRESENTATION');
+  w.place(root, cyl, w.ax2([0, 0, 0]), 'cyl-1');
+  w.place(root, plate, w.ax2([0, 0, 0]), 'plate-1');
+  return w.bytes('side.stp');
+}
+
+/**
+ * 37차 낮은 원기둥(반지름 30, 높이 60 — 앱이 50토막으로 나눈다, 이음매는 옆면 칸 하나가 기준 모서리에 수직인 각 φ를 가운데에 두게)과
+ * 기준 판(곧은 모서리 LA → LB가 수평). 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(코어 요청 재현)
+ */
+const LOW_R = 30;
+const LOW_H = 60;
+const LOW_Z = 5;
+// 기준 모서리는 정수 좌표(파일·float32에서 그대로 — 안내 선 방향이 정확하다): 방향 (18, 3, 0)/√333, 그 선의 법선 각 φ = atan2(3, 18) − 90°(약 −80.54°)
+const LA: V3 = [60, -80, 30];
+const LB: V3 = [78, -77, 30];
+const LC: V3 = [78, -77, 50];
+const LOW_E: V3 = [18 / Math.sqrt(333), 3 / Math.sqrt(333), 0];
+const LOW_PHI = Math.atan2(3, 18) - Math.PI / 2;
+// 앱이 50토막(7.2°)으로 나누므로 칸 [φ − 3.6°, φ + 3.6°]가 φ를 가운데에 두게
+const LOW_SEAM = LOW_PHI - (3.6 * Math.PI) / 180 + (12 * 7.2 * Math.PI) / 180;
+
 const scene = stepToScene(axisStep());
 const ex = stepEdgeIndex(scene)!;
 const fx = stepFaceIndex(scene);
+const BASE = { scene, ex, fx };
+const tallScene = stepToScene(cylPlateStep(TALL_R, TALL_H, TALL_SEAM, [TA, TB, TC], [0, -1, 0]));
+const TALL = { scene: tallScene, ex: stepEdgeIndex(tallScene)!, fx: stepFaceIndex(tallScene) };
+const lowScene = stepToScene(cylPlateStep(LOW_R, LOW_H, LOW_SEAM, [LA, LB, LC], [LOW_E[1], -LOW_E[0], 0]));
+const LOWCYL = { scene: lowScene, ex: stepEdgeIndex(lowScene)!, fx: stepFaceIndex(lowScene) };
 const dist = (p: readonly number[], q: readonly number[]): number => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!);
 
 interface View {
@@ -62,7 +112,7 @@ interface View {
 }
 
 /** app = 앱 그대로(36차 — { guides, open, openFaces }), guides = 35차 꼴({ guides: true }) */
-function view(meets: 'app' | 'guides'): View {
+function view(meets: 'app' | 'guides', { scene, ex, fx } = BASE): View {
   const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false, renderMode: 'shaded' });
   v.setScene(scene);
   v.setView('seIso', false);
@@ -90,16 +140,16 @@ const hoverAt = (w: View, p: readonly number[], dx = 0.37, dy = -0.29): void => 
   w.v.renderNow();
 };
 
-/** 윗 테두리 꺾은선의 꼭짓점 각(원 위 — 오름차순) */
-function rimAngles(): number[] {
+/** 윗 테두리 꺾은선의 꼭짓점 각(원 위 — 오름차순). 37차: 장면·높이·반지름을 받는다(키 큰 원기둥) */
+function rimAngles(sc = scene, h = RIM_H, rad = RIM_R): number[] {
   const angs = new Set<number>();
-  for (const m of scene.meshes) {
+  for (const m of sc.meshes) {
     const E = m.edges;
     if (!E) continue;
     const o = m.origin ?? [0, 0, 0];
     for (let i = 0; i + 2 < E.length; i += 3) {
       const x = E[i]! + o[0]!, y = E[i + 1]! + o[1]!, z = E[i + 2]! + o[2]!;
-      if (Math.abs(z - RIM_H) < 1e-4 && Math.abs(Math.hypot(x, y) - RIM_R) < 1e-4) angs.add(Math.round(Math.atan2(y, x) * 1e9) / 1e9);
+      if (Math.abs(z - h) < 1e-4 && Math.abs(Math.hypot(x, y) - rad) < 1e-4) angs.add(Math.round(Math.atan2(y, x) * 1e9) / 1e9);
     }
   }
   return [...angs].sort((a, b) => a - b);
@@ -191,8 +241,8 @@ function edgeCase(): { M: V3; P: V3; open: (m: 'app' | 'guides') => View; onGuid
 /**
  * 옆면 자리: 기운 곧은 모서리 TRI → LOW(방향 (1, 0, −1)/√2)와 나란한 안내 선 y = −d(남쪽 −90° 둘레 — 옆면 삼각형 각 [a, b] 안)가 원기둥을
  * x = ±R sin w에서 두 번 스치듯 뚫고 그 사이는 삼각형과 곡면 사이다. 두 교점이 그 토막을 나눈 두 삼각형에 하나씩 오게(대각선을 사이에 두게) w는 토막 안 여유의 ⅔.
- * 끌어온 점 P는 그 선 위 원기둥 밖 위쪽. 남쪽 바깥에서 거의 수평으로 가까이 본다(옆면 삼각형이 모두 눈앞 — 꼭짓점이 눈 뒤면 코어가 커서 둘레 삼각형으로 모으지 않는다,
- * 선과 삼각형 사이가 반 화소보다 넓게)
+ * 끌어온 점 P는 그 선 위 원기둥 밖 위쪽. 남쪽 바깥에서 거의 수평으로 가까이 본다(선과 삼각형 사이가 반 화소보다 넓게 — 37차 코어 0.33.0부터는 꼭짓점이 눈 뒤인
+ * 삼각형도 커서 둘레 삼각형으로 모으므로 옆면 삼각형이 모두 눈앞이어야 한다는 전제는 없다. 꼭짓점이 눈 뒤인 자리는 아래 tallCase)
  */
 function faceCase(): { M: V3; P: V3; open: (m: 'app' | 'guides') => View; onGuide: (X: readonly number[]) => number } {
   const angs = rimAngles();
@@ -220,6 +270,102 @@ function faceCase(): { M: V3; P: V3; open: (m: 'app' | 'guides') => View; onGuid
       expect(v.v.setMeasureTrackPoints([P])).toBe(1);
       const c = v.v.getCamera();
       v.v.setCamera({ ...c, target: [...M], distance: 4, yaw: 0.35, pitch: 0.2 });
+      v.v.renderNow();
+      return v;
+    },
+  };
+}
+
+/**
+ * 37차 키 큰 칸 자리(코어 0.33.0 — 원근으로 아주 가까이 확대해 꼭짓점이 눈 뒤인 삼각형도 커서 둘레 삼각형으로 모은다): 키 큰 원기둥의 남쪽(−90°) 옆면 칸 [lo, hi]를
+ * 기준 판 모서리 TA → TB(방향 (1, 0, −1)/√2)와 나란한 안내 선 y = −d가 높이 TALL_Z 둘레에서 x = ±R sin w로 두 번 스치듯 뚫는다(w는 칸 안 여유의 ⅔ — faceCase와 같은 꼴,
+ * 칸이 −90°를 가운데에 두어 두 교점에서 선과 칸 사이가 같다). 두 교점은 칸을 나눈 두 삼각형에 하나씩 든다.
+ * 남쪽 조금 동쪽 위에서 거리 22로 내려다보면 그 칸 삼각형의 위 꼭짓점(z 400)은 눈 뒤, 아래 꼭짓점(z 0)은 눈앞이다(0.32.0까지는 그 칸을 모으지 않아 붙지 않았다)
+ */
+function tallCase(): { M1: V3; M2: V3; P: V3; corners: V3[]; open: (m: 'app' | 'guides', target: V3) => View; onGuide: (X: readonly number[]) => number } {
+  const angs = rimAngles(tallScene, TALL_H, TALL_R);
+  const lo = Math.max(...angs.filter((t) => t < -Math.PI / 2));
+  const hi = Math.min(...angs.filter((t) => t > -Math.PI / 2));
+  expect(Math.abs(lo + hi + Math.PI), '남쪽 칸이 −90°를 가운데에').toBeLessThan(1e-6);
+  const w = (Math.min(-Math.PI / 2 - lo, hi + Math.PI / 2) * 2) / 3;
+  expect(w).toBeGreaterThan((0.8 * Math.PI) / 180);
+  const d = TALL_R * Math.cos(w);
+  const xi = TALL_R * Math.sin(w);
+  const E: V3 = [Math.SQRT1_2, 0, -Math.SQRT1_2];
+  const P: V3 = [-15 * E[0], -d, TALL_Z - 15 * E[2]];
+  const M1: V3 = [-xi, -d, TALL_Z + xi];
+  const M2: V3 = [xi, -d, TALL_Z - xi];
+  const onGuide = (X: readonly number[]): number => {
+    const k = (X[0]! - P[0]) * E[0] + (X[1]! - P[1]) * E[1] + (X[2]! - P[2]) * E[2];
+    return dist(X, [P[0] + E[0] * k, P[1] + E[1] * k, P[2] + E[2] * k]);
+  };
+  for (const M of [M1, M2]) expect(onGuide(M)).toBeLessThan(1e-12);
+  const corners = [lo, hi].flatMap((a): V3[] => [
+    [TALL_R * Math.cos(a), TALL_R * Math.sin(a), 0],
+    [TALL_R * Math.cos(a), TALL_R * Math.sin(a), TALL_H],
+  ]);
+  return {
+    M1,
+    M2,
+    P,
+    corners,
+    onGuide,
+    open: (m, target) => {
+      const v = view(m, TALL);
+      // 기준: 판의 기운 곧은 모서리 TA → TB(가운데 점을 비켜)
+      hoverAt(v, [TA[0] + 6, TA[1], TA[2] - 6]);
+      expect(v.v.setMeasureTrackPoints([P])).toBe(1);
+      v.v.setCamera({ ...v.v.getCamera(), target: [...target], distance: 22, yaw: 0.25, pitch: 0.29, projection: 'perspective' });
+      v.v.renderNow();
+      return v;
+    },
+  };
+}
+
+/**
+ * 37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(코어 0.33.0 README "STEP 선택 요청" 재현): 낮은 원기둥의 옆면 칸 [lo, hi](φ 가운데)를
+ * 기준 모서리 LA → LB와 나란한 수평 안내 선(칸의 현과 거의 나란 — 법선 각 φ, 중심 거리 d = R cos w)이 높이 LOW_Z에서 φ ± w로 두 번 스치듯 뚫는다(w는 칸 반각의 ½ —
+ * 선과 칸 사이가 반 화소보다 넓게). 칸 바닥 가까이라(높이 60 가운데 5) 두 교점이 칸을 나눈 한 삼각형(아래 변 전체를 가진 쪽)에 다 든다.
+ * 칸이 모두 눈앞이게(가까운 면 자르기와 섞이지 않게) 거리 15에서 본다
+ */
+function lowCase(): { Ms: [V3, V3]; P: V3; corners: V3[]; open: (target: V3) => View; onGuide: (X: readonly number[]) => number } {
+  const angs = rimAngles(lowScene, LOW_H, LOW_R);
+  const mid = LOW_PHI;
+  const lo = Math.max(...angs.filter((t) => t < mid));
+  const hi = Math.min(...angs.filter((t) => t > mid));
+  // 이음매 방향을 파일에 적으며 반올림하므로 가운데는 거의(두 교점이 칸 안 여유를 넉넉히 두면 된다)
+  expect(Math.abs(lo + hi - 2 * mid), '옆면 칸이 φ를 가운데에').toBeLessThan(1e-4);
+  const w = Math.min(mid - lo, hi - mid) / 2;
+  const d = LOW_R * Math.cos(w);
+  const xi = LOW_R * Math.sin(w);
+  const n: V3 = [Math.cos(mid), Math.sin(mid), 0];
+  const E = LOW_E;
+  const at0: V3 = [d * n[0], d * n[1], LOW_Z];
+  const Ms: [V3, V3] = [
+    [at0[0] - xi * E[0], at0[1] - xi * E[1], LOW_Z],
+    [at0[0] + xi * E[0], at0[1] + xi * E[1], LOW_Z],
+  ];
+  const P: V3 = [at0[0] - 15 * E[0], at0[1] - 15 * E[1], LOW_Z];
+  const onGuide = (X: readonly number[]): number => {
+    const k = (X[0]! - P[0]) * E[0] + (X[1]! - P[1]) * E[1] + (X[2]! - P[2]) * E[2];
+    return dist(X, [P[0] + E[0] * k, P[1] + E[1] * k, P[2] + E[2] * k]);
+  };
+  for (const M of Ms) expect(Math.abs(Math.hypot(M[0], M[1]) - LOW_R)).toBeLessThan(1e-9);
+  const corners = [lo, hi].flatMap((a): V3[] => [
+    [LOW_R * Math.cos(a), LOW_R * Math.sin(a), 0],
+    [LOW_R * Math.cos(a), LOW_R * Math.sin(a), LOW_H],
+  ]);
+  return {
+    Ms,
+    P,
+    corners,
+    onGuide,
+    open: (target) => {
+      const v = view('app', LOWCYL);
+      // 기준: 판의 수평 곧은 모서리 LA → LB(가운데 점을 비켜)
+      hoverAt(v, [LA[0] + 6 * E[0], LA[1] + 6 * E[1], LA[2]]);
+      expect(v.v.setMeasureTrackPoints([P])).toBe(1);
+      v.v.setCamera({ ...v.v.getCamera(), target: [...target], distance: 15, yaw: Math.PI / 18, pitch: 0.25, projection: 'perspective' });
       v.v.renderNow();
       return v;
     },
@@ -300,5 +446,139 @@ describe('안내 선의 열린 교차(코어 0.31.0 open·0.32.0 openFaces)', ()
       // 교점 둘레(붙잡기 거리 안)에서는 바뀐다
       expect(changed, name).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('37차 아주 가까이 확대한 키 큰 원기둥 옆면 칸(코어 0.33.0 — 꼭짓점이 눈 뒤인 삼각형도 모은다)', () => {
+  it('전제: 그 칸 삼각형의 위 꼭짓점(z 400)은 눈 뒤, 아래 꼭짓점(z 0)은 눈앞이고 두 교점은 화면 안, 칸을 나눈 두 삼각형에 하나씩이다', () => {
+    const g = tallCase();
+    const tris = new Set<number>();
+    for (const M of [g.M1, g.M2]) {
+      const w = g.open('app', M);
+      for (const c of g.corners) expect(w.v.project(c)!.behind, `${M[0]} ${c}`).toBe(c[2] > 0);
+      at(w, g.M1);
+      at(w, g.M2);
+      const q = at(w, M);
+      const p = w.v.pick(q.x + 0.37, q.y - 0.29);
+      expect(p?.kind, `${M[0]}`).toBe('mesh');
+      tris.add(p!.index);
+      w.v.dispose();
+    }
+    expect(tris.size).toBe(2);
+  });
+
+  it('두 교점 모두 원기둥 면 위 교점으로 다듬어 "끌어온 점에서 모서리와 나란히 · 면 위", 35차 꼴이면 만나는 점이 아니다', () => {
+    const g = tallCase();
+    for (const M of [g.M1, g.M2]) {
+      const res = (['app', 'guides'] as const).map((m) => {
+        const w = g.open(m, M);
+        hoverAt(w, M);
+        const h = w.v.measureHoverSnap;
+        w.v.dispose();
+        return h;
+      });
+      const h = res[0]!;
+      const k = `${M[0]}`;
+      expect(h.snap, k).toBe('parallel');
+      expect(h.trackFrom, k).toEqual(g.P);
+      expect(h.face, k).toBeDefined();
+      expect(h.refined, k).toBe(true);
+      expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - TALL_R), k).toBeLessThan(1e-9);
+      expect(g.onGuide(h.point), k).toBeLessThan(1e-9);
+      expect(dist(h.point, M), k).toBeLessThan(1e-6);
+      expect(trackDirMeet(h), k).toBe('face');
+      expect(trackDirMeetLabel(h), k).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
+      const o = res[1];
+      expect(o && trackDirMeet(o) === 'face' && o.refined, k).toBeFalsy();
+    }
+  });
+
+  it('두 교점 둘레 화면 격자(21 × 21, 1.37화소 칸 — 경계를 비킨 자리): 35차 꼴과 견주어 바뀐 자리는 모두 그 안내 선 위·원기둥 위 그 교점이다(엉뚱한 자리 0)', () => {
+    const g = tallCase();
+    for (const M of [g.M1, g.M2]) {
+      const on = g.open('app', M);
+      const off = g.open('guides', M);
+      const c = at(on, M);
+      let changed = 0;
+      for (let iy = -10; iy <= 10; iy++)
+        for (let ix = -10; ix <= 10; ix++) {
+          const x = c.x + ix * 1.37 + 0.211, y = c.y + iy * 1.37 - 0.173;
+          for (const w of [on, off]) {
+            ptr(w, 'pointermove', x, y, 0);
+            w.v.renderNow();
+          }
+          const a = on.v.measureHoverSnap, b = off.v.measureHoverSnap;
+          if (JSON.stringify(a) === JSON.stringify(b)) continue;
+          changed++;
+          const k = `${M[0]} ${ix},${iy}`;
+          expect(a, k).toBeTruthy();
+          expect(trackDirMeet(a!), k).toBe('face');
+          expect(a!.refined, k).toBe(true);
+          expect(a!.trackFrom, k).toEqual(g.P);
+          expect(Math.abs(Math.hypot(a!.point[0], a!.point[1]) - TALL_R), k).toBeLessThan(1e-9);
+          expect(g.onGuide(a!.point), k).toBeLessThan(1e-9);
+          expect(dist(a!.point, M), k).toBeLessThan(1e-6);
+        }
+      expect(changed, `${M[0]}`).toBeGreaterThan(20);
+      on.v.dispose();
+      off.v.dispose();
+    }
+  });
+});
+
+describe('37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(코어 요청 재현 — 코어 0.33.0은 무게중심 쪽 교점만)', () => {
+  it('두 교점이 한 삼각형에 다 들면 무게중심 쪽 교점만 원기둥 면 위로 붙고, 다른 교점은 만나는 점이 아니다(앱 refineFace는 그 둘레 힌트로 그 교점을 푼다)', () => {
+    const g = lowCase();
+    // 전제: 칸 꼭짓점이 모두 눈앞, 두 교점이 같은 삼각형
+    const tris: number[] = [];
+    let tri: [V3, V3, V3] | null = null;
+    for (const M of g.Ms) {
+      const w = g.open(M);
+      for (const c of g.corners) expect(w.v.project(c)!.behind, `${c}`).toBe(false);
+      const q = at(w, M);
+      const p = w.v.pick(q.x + 0.37, q.y - 0.29)!;
+      expect(p.kind).toBe('mesh');
+      tris.push(p.index);
+      const m = lowScene.meshes.find((x) => x.id === p.id)!;
+      const o = m.origin ?? [0, 0, 0];
+      tri = [0, 1, 2].map((k) => {
+        const i = m.indices![p.index * 3 + k]! * 3;
+        return [m.positions[i]! + o[0]!, m.positions[i + 1]! + o[1]!, m.positions[i + 2]! + o[2]!] as V3;
+      }) as [V3, V3, V3];
+      w.v.dispose();
+    }
+    expect(tris[0]).toBe(tris[1]);
+    // 그 삼각형은 칸의 아래 변 전체를 가진다(꼭짓점 둘이 바닥)
+    expect(tri!.filter((c) => Math.abs(c[2]) < 1e-6).length).toBe(2);
+    // 코어 힌트(무게중심을 선에 내린 발)에 가까운 교점이 붙는 쪽
+    const cen = [0, 1, 2].map((k) => (tri![0][k]! + tri![1][k]! + tri![2][k]!) / 3);
+    const s = (cen[0]! - g.P[0]) * LOW_E[0] + (cen[1]! - g.P[1]) * LOW_E[1] + (cen[2]! - g.P[2]) * LOW_E[2];
+    const foot: V3 = [g.P[0] + LOW_E[0] * s, g.P[1] + LOW_E[1] * s, g.P[2] + LOW_E[2] * s];
+    const [near, far] = dist(g.Ms[0], foot) < dist(g.Ms[1], foot) ? g.Ms : [g.Ms[1], g.Ms[0]];
+    const res = [near, far].map((M) => {
+      const w = g.open(M);
+      hoverAt(w, M);
+      const h = w.v.measureHoverSnap;
+      w.v.dispose();
+      return h;
+    });
+    const h = res[0]!;
+    expect(h.snap).toBe('parallel');
+    expect(h.trackFrom).toEqual(g.P);
+    expect(trackDirMeet(h)).toBe('face');
+    expect(h.refined).toBe(true);
+    expect(dist(h.point, near)).toBeLessThan(1e-6);
+    expect(g.onGuide(h.point)).toBeLessThan(1e-9);
+    // 다른 교점: 지금 코어는 둘째 힌트를 두지 않아 붙지 않는다(코어가 설계대로 둘째 힌트를 더하면 이 기대를 "붙는다"로 바꾼다)
+    const o = res[1]!;
+    expect(trackDirMeet(o) === 'face' && o.refined).toBe(false);
+    // 앱 refineFace는 그 교점 둘레 힌트로 그 교점을 정확히 푼다(앱 몫이 아니다)
+    const opt = measureSnapOptions(lowScene.meshes, LOWCYL.ex, circleCenters(lowScene.meshes, LOWCYL.ex), curveSnap(lowScene.meshes, LOWCYL.ex, LOWCYL.fx), false, straightEdgeFilter(LOWCYL.ex));
+    const m = lowScene.meshes.find((x) => x.id === h.face!.id)!;
+    expect(m).toBeDefined();
+    const hint: V3 = [far[0] + 0.2 * LOW_E[0], far[1] + 0.2 * LOW_E[1], far[2]];
+    const r = opt.refineFace!({ kind: 'axisFace', open: true, face: { id: h.face!.id, index: tris[0]!, normal: h.face!.normal }, point: hint, line: { origin: g.P, dir: LOW_E } } as never);
+    expect(r).not.toBeNull();
+    expect(dist(r!, far)).toBeLessThan(1e-9);
   });
 });
