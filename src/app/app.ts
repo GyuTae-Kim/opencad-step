@@ -1832,9 +1832,15 @@ export class StepApp {
           plan: (d) => this.explodeUi!.plan(d, this.explodeMode, this.explodeAxis, this.explodeView),
           redraw: () => this.redrawExplode(),
           looks: () => this.applyLooks(),
-          toast: (msg) => this.toast(msg),
+          toast: (msg, kind, ms) => void this.toast(msg, kind, ms),
           menu: (x, y) => void this.contextMenuAt(x, y),
           recent: this.recent,
+          deliver: (b, name) => this.deliver(b, name),
+          aim: (axis, view) => {
+            this.explodeAxis = axis;
+            if (view) this.explodeView = view;
+          },
+          fmt: () => this.fmt,
         }));
         this.explodeUi = new m.ExplodeControls(
           (k) => this.setExplodeMode(k),
@@ -1862,6 +1868,17 @@ export class StepApp {
     if (!this.explodeOpen && this.doc?.explode) this.setExplode(0);
     else if (this.explodeOpen && this.doc && !this.doc.explode) this.setExplode(0.5);
     this.syncExplode();
+  }
+
+  /** 끌어다 놓은 분해 손질 파일 받기: 분해 막대를 열고 받는다(받지 못하면 닫혀 있던 막대는 다시 닫는다) */
+  private async dropTweaks(f: File): Promise<void> {
+    const d = this.doc;
+    await this.loadExplode().catch(() => undefined);
+    const tool = this.tweakTool;
+    if (!d || this.doc !== d || !tool) return;
+    const was = this.explodeOpen;
+    if (!was) this.toggleExplode(true);
+    if (!(await tool.importFile(f, d)) && !was && this.doc === d) this.toggleExplode(false);
   }
 
   /** 측정·면 고르기를 켜면 분해를 접는다(제자리 형상으로 잰다) */
@@ -1941,6 +1958,13 @@ export class StepApp {
     items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
     if (d.opacity.size) items.push({ label: '불투명도 모두 되돌리기', run: () => this.resetOpacity() });
     if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
+    // 분해 막대가 열렸고 지금 방향에 되돌리거나 다시 할 손질이 있으면(손가락 기기에서도 길게 누르기 → 메뉴)
+    const tw = this.explodeOpen ? this.tweakTool : null;
+    const st = tw?.state(d, this.explodeAxis);
+    if (tw && (st?.undo || st?.redo)) {
+      items.push({ label: '손질 되돌리기', hint: 'Ctrl+Z', sep: true, disabled: !st.undo, run: () => tw.undo() });
+      items.push({ label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => tw.redo() });
+    }
     return items;
   }
 
@@ -2584,12 +2608,15 @@ export class StepApp {
       ...(kept < total ? [`고른 것이 많아 형상 ${fmtCount(total)}개 가운데 ${fmtCount(kept)}개만 담았습니다.`] : []),
       ...(tweakCut ? ['끌어 옮긴 부품이 많아 손질은 링크에 담지 못했습니다 — 받는 쪽은 손질 없이 벌립니다.'] : []),
     ];
+    // 손질을 담지 못했으면 손질 파일로 건네는 길(알림 단추 — 분해 조각의 손질 도구)
+    const act = tweakCut ? { label: '파일로 내보내기', run: () => void this.tweakTool?.exportFile(d) } : undefined;
+    const ms = tweakCut ? 9000 : cut.length ? 6000 : 3500;
     try {
       await navigator.clipboard.writeText(url);
-      this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것·분해 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', cut.length ? 6000 : 3500);
+      this.toast(['보기 링크를 복사했습니다(카메라·단면·고른 것·분해 — 파일은 담지 않으니 받는 사람도 같은 파일을 여십시오).', ...cut], cut.length ? 'warn' : 'info', ms, act);
     } catch {
       history.replaceState(history.state, '', url);
-      this.toast(['클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', ...cut], 'warn');
+      this.toast(['클립보드를 쓸 수 없어 주소 막대에 보기 링크를 넣었습니다.', ...cut], 'warn', ms, act);
     }
   }
 
@@ -2816,6 +2843,8 @@ export class StepApp {
       // 여러 개를 놓으면 이름으로 열 만한 첫 파일(없으면 첫 파일)
       const files = [...(e.dataTransfer?.files ?? [])];
       const f = files.find((x) => isOpenableName(x.name)) ?? files[0];
+      // 문서를 연 채 놓은 JSON은 분해 손질 파일로 받는다
+      if (f && this.doc && /\.json$/i.test(f.name)) return void this.dropTweaks(f);
       if (f) void this.openFile(f);
       if (files.length > 1) this.toast(`한 번에 파일 하나만 엽니다 — ${f?.name ?? ''}을(를) 엽니다.`);
     });
@@ -2876,6 +2905,10 @@ export class StepApp {
       case 'undo':
         // 분해 손질 한 단계(분해 막대가 열려 있고 되돌릴 것이 있을 때만 — 아니면 브라우저 기본 동작 그대로)
         if (!this.tweakTool?.undo()) return;
+        break;
+      case 'redo':
+        // 되돌린 분해 손질 다시 하기(Ctrl/⌘+Shift+Z·Ctrl+Y — 다시 할 것이 없으면 브라우저 기본 동작 그대로)
+        if (!this.tweakTool?.redo()) return;
         break;
       case 'escape':
         // 대화 상자·메뉴 닫기 → 해석 취소 → 측정 지우기(점이 있으면 코어가)·끄기 → 고르기 풀기

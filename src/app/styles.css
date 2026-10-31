@@ -1840,6 +1840,40 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .explode-tweak .seg-btn[hidden] {
   display: none;
 }
+/* 되돌리기를 숨기고 다시 하기만 보일 때 칸 왼쪽 선이 겹치지 않게 */
+.explode-tweak .seg-btn[hidden] + .seg-btn {
+  border-left: 0;
+}
+/* 다시 하기는 되돌리기 화살표를 좌우로 뒤집어 */
+.explode-redo .icon {
+  transform: scaleX(-1);
+}
+/* 끄는 동안 옮긴 거리(38차 — 커서 오른쪽 아래, 손가락은 손가락 위): 측정 글상자처럼 작은 카드, 누르기는 받지 않는다 */
+.explode-dist {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  padding: 3px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: 600 12px/1.35 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.explode-dist > div + div {
+  font-weight: 500;
+}
+.explode-dist-part + .explode-dist-part {
+  margin-left: 10px;
+}
+.explode-dist-key {
+  color: var(--text-dim);
+}
 /* 옮기기를 켠 동안 3D 보기 커서(부품을 끌면 옮기고, 빈 곳은 돌려 본다) */
 .viewer-host.explode-moving canvas {
   cursor: move;

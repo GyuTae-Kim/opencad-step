@@ -8,7 +8,8 @@
  *   방식(단계별·한꺼번에)을 바꿔도 같은 손질이다(100% 자리가 같다 — 시기만 그 방식대로). 분해를 끄거나 측정으로 접어도 문서에 남는다.
  * - 성분은 그 방향의 자유도만: 장면 축·화면 가로·세로는 그 축 위 거리 하나, 화면 평면은 계획 카메라의 오른쪽·위 두 성분, 사방은 세계 x·y·z.
  *   화면 방향은 계획 카메라 각(분해 방향을 정한 카메라) 기준이라 같은 단추를 다시 눌러 방향을 다시 맞추면 손질도 새 화면 방향으로 돈다.
- * - 되돌리기: 끌기 한 번(여러 단위를 함께 끌어도)·모두 지우기·링크로 바꾸기가 한 단계다. 방향마다 TWEAK_UNDO_MAX 단계까지.
+ * - 되돌리기: 끌기 한 번(여러 단위를 함께 끌어도)·모두 지우기·링크로 바꾸기·파일 불러오기가 한 단계다. 방향마다 TWEAK_UNDO_MAX 단계까지.
+ *   다시 하기(38차): 되돌린 단계를 방향마다 쌓아 두었다가 차례로 다시 걸고(다시 건 것은 되돌리기 단계로 돌아간다), 그 방향에서 새로 손질하면 비운다.
  * - 보기 링크(exm): `양자+낱말:정수[,정수…]+…`. 양자는 조립 대각선의 2⁻¹²(유효 숫자 3자리), 정수는 성분 ÷ 양자. 낱말은 나무 차례로 늘어놓고
  *   앞 낱말의 끝 k마디를 바꾼 것은 `/`를 k번 앞세워 줄인다(`0/3/12/4/7` 다음 `0/3/12/4/8`은 `/8`). TWEAK_LINK_MAX자를 넘으면 담지 않는다(null).
  * - 파일별 저장(최근 문서 항목에 같이 — recent.ts): { v: 1, axes: { 방향: [[낱말, 성분…], …] } }. 되돌리기 단계는 남기지 않는다.
@@ -28,8 +29,11 @@ export const TWEAK_LINK_MAX = 1500;
 export const DRAG_MIN_FRACTION = 0.05;
 /** 손질 낱말 꼴: 마디 경로, 바로 놓인 형상 덩어리는 끝에 .0 */
 const TOKEN = /^\d+(?:\/\d+)*(?:\.0)?$/;
-const AXES: readonly ExplodeAxis[] = ['free', 'x', 'y', 'z', 'sx', 'sy', 'sp'];
+/** 손질을 두는 방향(저장·파일 꼴의 차례) */
+export const TWEAK_AXES: readonly ExplodeAxis[] = ['free', 'x', 'y', 'z', 'sx', 'sy', 'sp'];
 const EMPTY: ReadonlyMap<string, Comps> = new Map();
+/** 손질 낱말 꼴인지 */
+export const isTweakToken = (k: unknown): k is string => typeof k === 'string' && TOKEN.test(k);
 
 const dot = (a: readonly number[], b: readonly number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
 
@@ -59,6 +63,68 @@ export function worldComps(axis: ExplodeAxis, view: ExplodeView | null | undefin
   if (axis === 'sx') return [dot(d, b.right)];
   if (axis === 'sy') return [dot(d, b.up)];
   return [dot(d, b.right), dot(d, b.up)];
+}
+
+/** 길이 수 꼴(앱 Fmt — 표시 단위·소수 자리·화면 언어): len은 단위 글까지, lenNum은 수만 */
+export interface LenFormat {
+  len(v: number): string;
+  lenNum(v: number): string;
+}
+
+/**
+ * 끄는 동안 옮긴 거리 글(38차 — 측정 글상자 measureLabelLines와 같은 꼴): 줄마다 [이름, 값] 조각. 이름은 번역층이 옮기는 낱말(거리·가로·세로)이나 ΔX 꼴.
+ * 장면 축은 그 축 성분 하나(ΔX −12.5 mm), 화면 가로·세로는 그 성분, 화면 평면은 거리와 가로·세로 두 성분, 사방은 거리와 ΔX·ΔY·ΔZ.
+ * d는 이번 끌기로 누른 점이 옮긴 세계 이동(끄는 길 위 — 지금 밀대에서 보이는 거리), 화면 방향 성분은 계획 카메라 각 view 기준
+ */
+export function dragDistanceLines(axis: ExplodeAxis, view: ExplodeView | null | undefined, d: readonly number[], f: LenFormat): [string, string][][] {
+  if (axis === 'x' || axis === 'y' || axis === 'z') return [[[`Δ${axis.toUpperCase()}`, f.len(d['xyz'.indexOf(axis)]!)]]];
+  const c = worldComps(axis, view, d);
+  if (axis === 'sx') return [[['가로', f.len(c[0]!)]]];
+  if (axis === 'sy') return [[['세로', f.len(c[0]!)]]];
+  const far: [string, string][] = [['거리', f.len(Math.hypot(...c))]];
+  if (axis === 'sp')
+    return [
+      far,
+      [
+        ['가로', f.lenNum(c[0]!)],
+        ['세로', f.lenNum(c[1]!)],
+      ],
+    ];
+  return [
+    far,
+    [
+      ['ΔX', f.lenNum(c[0]!)],
+      ['ΔY', f.lenNum(c[1]!)],
+      ['ΔZ', f.lenNum(c[2]!)],
+    ],
+  ];
+}
+
+/** 손가락 위로 띄우는 거리(화소 — 손가락 끝과 그 둘레를 비운다) */
+export const DRAG_LABEL_LIFT = 56;
+
+/**
+ * 거리 글의 자리(캔버스 기준 CSS 화소 left·top): 커서·손가락 점 (x, y), 글 크기 w×h, 캔버스 W×H.
+ * 마우스·펜은 커서 오른쪽 아래(넘치면 반대쪽), 손가락은 손가락 위 DRAG_LABEL_LIFT화소 너머 가운데(위에 자리가 없으면 손가락 왼쪽, 거기도 없으면 오른쪽 옆).
+ * 늘 캔버스 안 4화소 여백 안에 둔다
+ */
+export function dragLabelSpot(x: number, y: number, w: number, h: number, W: number, H: number, touch: boolean): { left: number; top: number } {
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const m = 4;
+  let left: number;
+  let top: number;
+  if (!touch) {
+    left = x + 16 + w > W - m ? x - 16 - w : x + 16;
+    top = y + 18 + h > H - m ? y - 18 - h : y + 18;
+  } else if (y - DRAG_LABEL_LIFT - h >= m) {
+    left = x - w / 2;
+    top = y - DRAG_LABEL_LIFT - h;
+  } else {
+    const side = DRAG_LABEL_LIFT * 0.8;
+    left = x - side - w >= m ? x - side - w : x + side;
+    top = y - h / 2;
+  }
+  return { left: clamp(left, m, Math.max(m, W - w - m)), top: clamp(top, m, Math.max(m, H - h - m)) };
 }
 
 /** 끄는 길: 선(단위 방향)이나 면(단위 법선) */
@@ -153,10 +219,27 @@ export function dragUnits(plan: ExplodePlan, t: number, pressed: string, sel: { 
   return m ? pack([m]) : [];
 }
 
+/** 되돌리기·다시 하기 한 단계: 바뀐 낱말에 걸 값(null = 없앤다) */
+type Step = Map<string, number[] | null>;
+
 interface TweakSet {
   moves: Map<string, number[]>;
   /** 되돌리기 단계: 바뀐 낱말의 앞 값(null = 없던 것) */
-  undo: Map<string, number[] | null>[];
+  undo: Step[];
+  /** 다시 하기 단계(끝이 마지막에 되돌린 것): 되돌리기 전 값 */
+  redo: Step[];
+}
+
+/** 한 단계를 걸고, 걸기 전 값을 담은 반대 단계를 돌려준다 */
+function applyStep(s: TweakSet, step: Step): Step {
+  const back: Step = new Map();
+  for (const [k, v] of step) {
+    const now = s.moves.get(k);
+    back.set(k, now ? [...now] : null);
+    if (v) s.moves.set(k, [...v]);
+    else s.moves.delete(k);
+  }
+  return back;
 }
 
 /** 파일별 저장 꼴 */
@@ -167,7 +250,8 @@ export interface StoredTweaks {
 
 const same = (a: Comps | null | undefined, b: Comps | null | undefined): boolean => (!a || !b ? !a && !b : a.length === b.length && a.every((v, i) => v === b[i]));
 const isZero = (c: Comps): boolean => c.every((v) => v === 0);
-const okComps = (c: readonly unknown[], dims: number): c is number[] => c.length === dims && c.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e15);
+/** 그 방향 성분 꼴인지(수 dims개, 유한하고 너무 크지 않음) — 저장·파일에서 받을 때 */
+export const okComps = (c: readonly unknown[], dims: number): c is number[] => c.length === dims && c.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e15);
 
 /** 문서 하나의 손질(방향마다 덧이동과 되돌리기 단계) */
 export class ExplodeTweaks {
@@ -177,7 +261,7 @@ export class ExplodeTweaks {
 
   private setOf(axis: ExplodeAxis): TweakSet {
     let s = this.sets.get(axis);
-    if (!s) this.sets.set(axis, (s = { moves: new Map(), undo: [] }));
+    if (!s) this.sets.set(axis, (s = { moves: new Map(), undo: [], redo: [] }));
     return s;
   }
 
@@ -196,6 +280,16 @@ export class ExplodeTweaks {
     return !!this.sets.get(axis)?.undo.length;
   }
 
+  /** 다시 할 단계가 있는지 */
+  canRedo(axis: ExplodeAxis): boolean {
+    return !!this.sets.get(axis)?.redo.length;
+  }
+
+  /** 손질이 있는 방향들(방향 차례) */
+  axes(): ExplodeAxis[] {
+    return TWEAK_AXES.filter((a) => this.count(a) > 0);
+  }
+
   /** 한 단계 시작(앞서 열린 단계는 닫는다) */
   begin(axis: ExplodeAxis): void {
     this.commit();
@@ -211,7 +305,7 @@ export class ExplodeTweaks {
     else st.set.moves.set(token, [...comps]);
   }
 
-  /** 열린 단계 닫기: 바뀐 것이 있으면 되돌리기 단계로 남기고 true */
+  /** 열린 단계 닫기: 바뀐 것이 있으면 되돌리기 단계로 남기고(그 방향의 다시 할 단계는 비운다) true */
   commit(): boolean {
     const st = this.open;
     this.open = null;
@@ -220,6 +314,7 @@ export class ExplodeTweaks {
     if (!st.prev.size) return false;
     st.set.undo.push(st.prev);
     if (st.set.undo.length > TWEAK_UNDO_MAX) st.set.undo.shift();
+    st.set.redo.length = 0;
     return true;
   }
 
@@ -238,15 +333,24 @@ export class ExplodeTweaks {
     return !!this.open;
   }
 
-  /** 한 단계 되돌리기 */
+  /** 한 단계 되돌리기(되돌린 것은 다시 할 단계로) */
   undo(axis: ExplodeAxis): boolean {
     this.commit();
     const s = this.sets.get(axis);
     const step = s?.undo.pop();
     if (!s || !step) return false;
-    for (const [k, v] of step)
-      if (v) s.moves.set(k, v);
-      else s.moves.delete(k);
+    s.redo.push(applyStep(s, step));
+    return true;
+  }
+
+  /** 되돌린 단계 하나 다시 하기(다시 건 것은 되돌리기 단계로 — 다시 할 단계는 그대로 둔다) */
+  redo(axis: ExplodeAxis): boolean {
+    this.commit();
+    const s = this.sets.get(axis);
+    const step = s?.redo.pop();
+    if (!s || !step) return false;
+    s.undo.push(applyStep(s, step));
+    if (s.undo.length > TWEAK_UNDO_MAX) s.undo.shift();
     return true;
   }
 
@@ -257,7 +361,7 @@ export class ExplodeTweaks {
     return this.commit();
   }
 
-  /** 그 방향의 손질을 통째로 바꾼다(보기 링크 — 한 단계) */
+  /** 그 방향의 손질을 통째로 바꾼다(보기 링크·파일 불러오기 — 한 단계) */
   replace(axis: ExplodeAxis, entries: readonly (readonly [string, Comps])[]): boolean {
     this.begin(axis);
     const keep = new Set(entries.map(([k]) => k));
@@ -288,17 +392,17 @@ export class ExplodeTweaks {
     return any ? { v: 1, axes } : null;
   }
 
-  /** 저장해 둔 손질 받기: 손질도 되돌리기 단계도 없는 방향만 채운다(링크로 이미 받았거나 끈 것은 그대로). 채웠으면 true */
+  /** 저장해 둔 손질 받기: 손질도 되돌리기·다시 하기 단계도 없는 방향만 채운다(링크로 이미 받았거나 끈 것은 그대로). 채웠으면 true */
   absorb(data: unknown): boolean {
     const axes = (data as { v?: unknown; axes?: unknown } | null)?.v === 1 ? (data as StoredTweaks).axes : null;
     if (!axes || typeof axes !== 'object') return false;
     let got = false;
-    for (const a of AXES) {
+    for (const a of TWEAK_AXES) {
       const list = (axes as Record<string, unknown>)[a];
-      if (!Array.isArray(list) || this.count(a) || this.canUndo(a)) continue;
+      if (!Array.isArray(list) || this.count(a) || this.canUndo(a) || this.canRedo(a)) continue;
       const s = this.setOf(a);
       for (const e of list) {
-        if (!Array.isArray(e) || typeof e[0] !== 'string' || !TOKEN.test(e[0])) continue;
+        if (!Array.isArray(e) || !isTweakToken(e[0])) continue;
         const c = e.slice(1);
         if (okComps(c, tweakDims(a)) && !isZero(c)) s.moves.set(e[0], c);
       }
@@ -322,7 +426,7 @@ export function canonicalTweaks(plan: ExplodePlan, entries: readonly (readonly [
 export const tweakQuantum = (size: number): number => Number((size / 4096).toPrecision(3));
 
 /** 낱말 나무 차례(마디 번호를 수로, 같은 마디면 바로 놓인 형상 덩어리 .0이 뒤) */
-function tokenOrder(a: string, b: string): number {
+export function tokenOrder(a: string, b: string): number {
   const x = a.split('/');
   const y = b.split('/');
   for (let i = 0; i < Math.min(x.length, y.length); i++) {
