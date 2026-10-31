@@ -249,6 +249,8 @@ export class StepApp {
   private ent: typeof import('./entpick') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
   private trackDirEdgeOf: typeof import('./trackdir').straightEdgeFilter | null = null;
+  /** 같은 조각의 끌어온 점 안내 선이 만나는 점 이름(trackdir.ts trackDirMeetLabel — 코어 0.29.0 trackDirs { meets }, 만나는 점이 아니면 null) */
+  private trackMeetLabelOf: typeof import('./trackdir').trackDirMeetLabel | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
@@ -903,6 +905,7 @@ export class StepApp {
     // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다). 끌어온 점 나란함·수직의 기준 선분 거르기도
     this.ent = core;
     this.trackDirEdgeOf = core.straightEdgeFilter;
+    this.trackMeetLabelOf = core.trackDirMeetLabel;
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
@@ -1239,6 +1242,9 @@ export class StepApp {
     // 끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs)으로 찍은 점도 결과에는 나란함·수직만 실리므로 찍은 점의 trackFrom으로 가른다(isTrackDir)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : isTrackDir(pts[0]);
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : isTrackDir(pts[1]);
+    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })으로 찍었으면 찍은 점의 axis·direction·trackOther·segment·face로 "… · X축 위" 같은 이름(뷰어 조각)
+    const mA = m ? (this.trackMeetLabelOf?.(pts[0]) ?? null) : null;
+    const mB = m ? (this.trackMeetLabelOf?.(pts[1]) ?? null) : null;
     // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0)·끌어온 점의 축과 만나는 점(0.21.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face·trackOther·trackFrom으로
     const meet = m?.lockedB ? lockMeet(pts[1]) : null;
     const rA = refinedKind(pts[0]);
@@ -1251,6 +1257,8 @@ export class StepApp {
           ...(rB ? { refinedB: rB } : {}),
           ...(tA ? { trackA: tA } : {}),
           ...(tB ? { trackB: tB } : {}),
+          ...(mA ? { trackMeetA: mA } : {}),
+          ...(mB ? { trackMeetB: mB } : {}),
           ...(meet ? { lockMeetB: meet } : {}),
         }
       : m;
@@ -2095,7 +2103,9 @@ export class StepApp {
     if (v && this.doc && !this.entMeasuring) this.tangents?.track(v);
     // Shift를 누르고 떼거나 이동의 shiftKey로 코어가 건·푼 잠금도 여기서 맞춘다
     this.refreshLock();
-    const text = v && this.doc && v.measureMode && !this.entMeasuring ? hoverSnapLabel(v.measureHoverSnap, !!this.tangents?.locked(v)) : null;
+    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })이면 만난 것을 덧붙인 이름(뷰어 조각의 trackdir.ts — "… · X축 위"·"… · 모서리 위")
+    const h = v?.measureHoverSnap;
+    const text = v && this.doc && v.measureMode && !this.entMeasuring ? (this.trackMeetLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v))) : null;
     if (text === this.hoverSnapText) return;
     this.hoverSnapText = text;
     for (const el of [this.statusSnap, this.measureHoverEl]) {
