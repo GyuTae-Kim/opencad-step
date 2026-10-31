@@ -119,6 +119,8 @@
   "Y축 위": "Auf Y-Achse",
   "Z축 위": "Auf Z-Achse",
   "시작점에서 나란한 선 위": "Auf Parallele vom Startpunkt",
+  "다른 끌어온 점에서 나란한 선 위": "Auf Parallele vom anderen verfolgten Punkt",
+  "다른 끌어온 점에서 수직인 선 위": "Auf Senkrechte vom anderen verfolgten Punkt",
   "끌어온 점과 나란히": "Ausgerichtet am verfolgten Punkt",
   "곡면 위 점": "Punkt auf gekrümmter Fläche",
   "createImageBitmap이 없습니다": "createImageBitmap existiert nicht",
