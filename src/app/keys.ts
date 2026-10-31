@@ -27,14 +27,16 @@ export function viewKeyOf(v: ViewName): string | undefined {
  * - grid: 격자(F7, 코어는 받지 않는 키)
  * - hide: 고른 것 숨기기(H), isolate: 고른 것만 보기·격리 풀기(I), home: 홈 뷰(Home)
  * - viewer: 뷰어 키일 수 있으니 `viewer.handleKey`에 넘긴다(F·1~7 등, 처리 여부는 코어가 정한다)
+ * - undo: 분해 손질 한 단계 되돌리기(Ctrl/⌘+Z — 되돌릴 것이 없으면 앱이 아무것도 하지 않는다)
  */
-export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'home' | 'viewer';
+export type KeyAction = 'open' | 'grid' | 'escape' | 'hide' | 'isolate' | 'home' | 'viewer' | 'undo';
 
 export interface KeyInput {
   key: string;
   ctrl?: boolean;
   meta?: boolean;
   alt?: boolean;
+  shift?: boolean;
   /** 글 입력 칸(input·textarea·select·contentEditable)에서 눌렀는지 */
   inText?: boolean;
   /** 초점이 있는 조작 칸(controlOf): 밀대는 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
@@ -50,6 +52,7 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);
   if (mod && !k.alt && (k.key === 'o' || k.key === 'O')) return 'open';
+  if (mod && !k.alt && !k.shift && k.hasDoc && (k.key === 'z' || k.key === 'Z')) return 'undo';
   if (mod || k.alt) return null;
   if (k.key === 'Escape') return 'escape';
   if (!k.hasDoc) return null;

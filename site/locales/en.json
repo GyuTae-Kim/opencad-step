@@ -951,5 +951,15 @@
   "점 형상 {0} 숨기기": "Hide Point shape {0}",
   "점 형상 {0} 보이기": "Show Point shape {0}",
   "그래픽 장치가 다시 시작되어 3D 화면을 잠시 그리지 못합니다 — 되찾으면 바로 다시 그립니다.": "The graphics device restarted, so the 3D view can't draw for a moment — it will redraw as soon as it's back.",
-  "3D 화면을 다시 그렸습니다.": "The 3D view has been redrawn."
+  "3D 화면을 다시 그렸습니다.": "The 3D view has been redrawn.",
+  "분해 손질": "Explode adjustments",
+  "옮기기": "Move",
+  "옮기기: 켜면 부품을 끌어 분해 자리를 손질합니다(손가락은 켜지 않아도 길게 누른 채 끕니다)": "Move: when on, drag parts to adjust their exploded positions (on touch screens you can also press and hold a part, then drag, without turning this on)",
+  "되돌리기": "Undo",
+  "손질 한 단계 되돌리기 (Ctrl+Z)": "Undo the last adjustment (Ctrl+Z)",
+  "모두 되돌리기": "Reset all",
+  "손질을 모두 지우고 계획 자리로": "Clear all adjustments and return the parts to their planned positions",
+  "끌어 옮기십시오 — 움직이지 않고 떼면 작업 메뉴입니다.": "Drag to move it — lift without moving to open the action menu.",
+  "부품을 끌어 분해 자리를 옮깁니다 — 빈 곳을 끌면 돌려 봅니다.": "Drag a part to move its exploded position — drag empty space to orbit.",
+  "끌어 옮긴 부품이 많아 손질은 링크에 담지 못했습니다 — 받는 쪽은 손질 없이 벌립니다.": "Too many parts were moved to fit the adjustments in the link — the recipient will see the explosion without them."
 }

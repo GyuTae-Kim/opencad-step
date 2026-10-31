@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { canRemember, newestFirst, overflowIds, RECENT_MAX, RECENT_MAX_SIZE, recentId, recentTimeLabel, RecentStore, type RecentBackend, type RecentEntry } from '../../src/app/recent';
+import { storedTweaks, storeTweaks } from '../../src/app/explodetool';
 
 /**
  * 시험용 메모리 저장소(IndexedDB 대신): 목록과 바이트를 따로 두고, 바이트를 읽은 횟수를 센다.
@@ -183,5 +184,35 @@ describe('RecentStore(바꿔 끼운 저장소)', () => {
     expect(await none.add('a.stp', blob(3))).toBe(false);
     expect(await none.list()).toEqual([]);
     expect(await none.read('a.stp:3')).toEqual({ kind: 'error' });
+    expect(await storeTweaks(none.backend, 'a.stp:3', { v: 1 })).toBe(false);
+    expect(await storeTweaks(broken.backend, 'a.stp:3', { v: 1 })).toBe(false);
+    expect(await storedTweaks(broken.backend, 'a.stp:3')).toBeNull();
+  });
+
+  it('분해 손질(35차 — 분해 조각 explodetool.ts가 읽고 씀): 남긴 파일 항목에만 두고, 같은 파일을 다시 남기거나 맨 앞으로 옮겨도 지키며, 항목을 지우면 함께 없어진다', async () => {
+    const { backend, st } = memoryBackend();
+    const store = new RecentStore(backend, clock());
+    const data = { v: 1, axes: { z: [['0/1', 2.5]] } };
+    // 항목이 없는 파일(예제·주소로 연 것, 60MB 넘는 것)에는 두지 않는다
+    expect(await storeTweaks(store.backend, 'a.stp:3', data)).toBe(false);
+    await store.add('a.stp', blob(3));
+    expect(await storeTweaks(store.backend, 'a.stp:3', data)).toBe(true);
+    expect(await storedTweaks(store.backend, 'a.stp:3')).toEqual(data);
+    // 바이트는 다시 쓰지 않는다(목록 항목만)
+    expect(st.bytes.size).toBe(1);
+    await store.add('a.stp', blob(3));
+    await store.touch('a.stp:3');
+    expect(await storedTweaks(store.backend, 'a.stp:3')).toEqual(data);
+    expect((await store.list())[0]!.explode).toEqual(data);
+    // 객체가 아닌 값은 손질로 치지 않는다, null이면 뺀다
+    await backend.touch({ ...(await backend.entries())[0]!, explode: 'bad' });
+    expect(await storedTweaks(store.backend, 'a.stp:3')).toBeNull();
+    await storeTweaks(store.backend, 'a.stp:3', data);
+    expect(await storeTweaks(store.backend, 'a.stp:3', null)).toBe(true);
+    expect(await storedTweaks(store.backend, 'a.stp:3')).toBeNull();
+    expect((await backend.entries())[0]).not.toHaveProperty('explode');
+    await storeTweaks(store.backend, 'a.stp:3', data);
+    await store.remove('a.stp:3');
+    expect(await storedTweaks(store.backend, 'a.stp:3')).toBeNull();
   });
 });

@@ -951,5 +951,15 @@
   "점 형상 {0} 숨기기": "Punktform {0} ausblenden",
   "점 형상 {0} 보이기": "Punktform {0} anzeigen",
   "그래픽 장치가 다시 시작되어 3D 화면을 잠시 그리지 못합니다 — 되찾으면 바로 다시 그립니다.": "Das Grafikgerät wurde neu gestartet, daher kann die 3D-Ansicht kurz nicht zeichnen – sobald es wieder bereit ist, wird sie neu gezeichnet.",
-  "3D 화면을 다시 그렸습니다.": "Die 3D-Ansicht wurde neu gezeichnet."
+  "3D 화면을 다시 그렸습니다.": "Die 3D-Ansicht wurde neu gezeichnet.",
+  "분해 손질": "Explosionsanpassungen",
+  "옮기기": "Verschieben",
+  "옮기기: 켜면 부품을 끌어 분해 자리를 손질합니다(손가락은 켜지 않아도 길게 누른 채 끕니다)": "Verschieben: wenn aktiv, Teile ziehen, um ihre Explosionsposition anzupassen (per Touch geht das auch ohne Aktivieren: Teil gedrückt halten und ziehen)",
+  "되돌리기": "Rückgängig",
+  "손질 한 단계 되돌리기 (Ctrl+Z)": "Letzte Anpassung rückgängig machen (Strg+Z)",
+  "모두 되돌리기": "Alle zurücksetzen",
+  "손질을 모두 지우고 계획 자리로": "Alle Anpassungen löschen und die Teile auf ihre geplanten Positionen zurücksetzen",
+  "끌어 옮기십시오 — 움직이지 않고 떼면 작업 메뉴입니다.": "Zum Verschieben ziehen – ohne Bewegung loslassen öffnet die Aktionen.",
+  "부품을 끌어 분해 자리를 옮깁니다 — 빈 곳을 끌면 돌려 봅니다.": "Ein Teil ziehen, um seine Explosionsposition zu verschieben – auf leerer Fläche ziehen dreht die Ansicht.",
+  "끌어 옮긴 부품이 많아 손질은 링크에 담지 못했습니다 — 받는 쪽은 손질 없이 벌립니다.": "Zu viele Teile verschoben – die Anpassungen passen nicht in den Link; beim Empfänger wird ohne sie auseinandergezogen."
 }

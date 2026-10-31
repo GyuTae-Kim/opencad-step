@@ -9,6 +9,7 @@ import type { StepEdgeTable, StepFaceTable, StepMeta, StepPmiPresentation, StepP
 import type { MeasureRecord } from './export';
 import type { InterferenceResult } from './interference';
 import type { EdgePick } from './edges';
+import type { ExplodeTweaks } from './explodetweak';
 import type { Picked, PickedMeasure } from './entpick';
 import type { FacePick } from './faces';
 import type { LockMeet, Refined, TrackMark } from './snap';
@@ -166,6 +167,10 @@ export interface StepDoc {
   opacity: Map<string, number>;
   /** 분해 보기 0~1(0 = 제자리) */
   explode: number;
+  /** 분해 손질(끌어 옮긴 부품의 덧이동 — 분해 조각 explodetweak.ts, 처음 끌거나 링크·저장에서 받을 때 만든다) */
+  tweaks?: ExplodeTweaks;
+  /** 최근 문서 항목 열쇠(파일 고르기·끌어다 놓기·최근 문서로 연 것 — 손질을 그 항목에 함께 남긴다) */
+  recentKey?: string;
   /** 홈 뷰(처음 맞춘 보기 또는 "지금 보기를 홈으로") */
   home?: CameraState;
   /** 측정 기록(거리·고른 면 — CSV 복사용) */
@@ -796,5 +801,8 @@ export function carryDocState(from: StepDoc, to: StepDoc): void {
   if (from.dim) to.dim = new Set([...from.dim].filter((id) => ids.has(id)));
   for (const [id, a] of from.opacity) if (ids.has(id)) to.opacity.set(id, a);
   to.explode = from.explode;
+  // 분해 손질은 나무 자리 낱말로 둔다 — 같은 나무라 그대로
+  if (from.tweaks) to.tweaks = from.tweaks;
+  if (from.recentKey) to.recentKey = from.recentKey;
 }
 
