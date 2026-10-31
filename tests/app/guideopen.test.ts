@@ -526,8 +526,8 @@ describe('37차 아주 가까이 확대한 키 큰 원기둥 옆면 칸(코어 0
   });
 });
 
-describe('37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(코어 요청 재현 — 코어 0.33.0은 무게중심 쪽 교점만)', () => {
-  it('두 교점이 한 삼각형에 다 들면 무게중심 쪽 교점만 원기둥 면 위로 붙고, 다른 교점은 만나는 점이 아니다(앱 refineFace는 그 둘레 힌트로 그 교점을 푼다)', () => {
+describe('37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(코어 요청 재현 — 0.33.0은 무게중심 쪽 교점만, 41차 코어 0.35.0부터 두 교점 다)', () => {
+  it('두 교점이 한 삼각형에 다 들면 무게중심 쪽 교점도, 다른 교점도 원기둥 면 위 정확한 교점으로 붙는다(0.35.0 칸 둘째 힌트 — 앱 refineFace가 그 둘레 힌트로 푼다)', () => {
     const g = lowCase();
     // 전제: 칸 꼭짓점이 모두 눈앞, 두 교점이 같은 삼각형
     const tris: number[] = [];
@@ -569,10 +569,22 @@ describe('37차 한 삼각형 위 곡면 조각을 두 번 스치는 안내 선(
     expect(h.refined).toBe(true);
     expect(dist(h.point, near)).toBeLessThan(1e-6);
     expect(g.onGuide(h.point)).toBeLessThan(1e-9);
-    // 다른 교점: 지금 코어는 둘째 힌트를 두지 않아 붙지 않는다(코어가 설계대로 둘째 힌트를 더하면 이 기대를 "붙는다"로 바꾼다)
+    expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - LOW_R)).toBeLessThan(1e-9);
+    // 다른 교점: 0.33.0은 둘째 힌트를 두지 않아 붙지 않았다. 0.35.0은 칸의 두 휘는 변으로 두 교점이 다 그 삼각형 위인 것을 어림해 둘째 힌트를 두고,
+    // 앱 refineFace가 그 힌트로 그 교점을 풀어 같은 "면 위" 만나는 점이 된다 — 원기둥 위(반지름 1e-9)·그 안내 선 위·그 교점 자리
     const o = res[1]!;
-    expect(trackDirMeet(o) === 'face' && o.refined).toBe(false);
-    // 앱 refineFace는 그 교점 둘레 힌트로 그 교점을 정확히 푼다(앱 몫이 아니다)
+    expect(o.snap).toBe('parallel');
+    expect(o.trackFrom).toEqual(g.P);
+    expect(trackDirMeet(o)).toBe('face');
+    expect(o.refined).toBe(true);
+    expect(o.face?.index).toBe(tris[0]);
+    expect(Math.abs(Math.hypot(o.point[0], o.point[1]) - LOW_R)).toBeLessThan(1e-9);
+    expect(Math.abs(o.point[2] - LOW_Z)).toBeLessThan(1e-9);
+    expect(g.onGuide(o.point)).toBeLessThan(1e-9);
+    expect(dist(o.point, far)).toBeLessThan(1e-6);
+    expect(dist(o.point, h.point)).toBeGreaterThan(0.1);
+    expect(trackDirMeetLabel(o)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
+    // 앱 refineFace는 그 교점 둘레 힌트로 그 교점을 정확히 푼다(코어가 둘째 힌트를 주면 이 함수가 그 점을 낸다)
     const opt = measureSnapOptions(lowScene.meshes, LOWCYL.ex, circleCenters(lowScene.meshes, LOWCYL.ex), curveSnap(lowScene.meshes, LOWCYL.ex, LOWCYL.fx), false, straightEdgeFilter(LOWCYL.ex));
     const m = lowScene.meshes.find((x) => x.id === h.face!.id)!;
     expect(m).toBeDefined();
