@@ -73,7 +73,7 @@ interface View {
   canvas: FakeElement;
 }
 
-/** meets: true = 앱 그대로(0.30.0 { guides: true }), 'plain' = 0.29.0 만나는 점만(meets: true), false = 만나는 점 없이 */
+/** meets: true = 앱 그대로(0.30.0 { guides: true } — 36차부터 0.31.0·0.32.0 열린 교차 open·openFaces도), 'plain' = 0.29.0 만나는 점만(meets: true), false = 만나는 점 없이 */
 function view(meets: boolean | 'plain' = true): View {
   const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false, renderMode: 'shaded' });
   v.setScene(scene);
@@ -85,7 +85,7 @@ function view(meets: boolean | 'plain' = true): View {
   const o = measureSnapOptions(scene.meshes, ex, circleCenters(scene.meshes, ex), curveSnap(scene.meshes, ex, fx), false, straightEdgeFilter(ex));
   const inf = o.inference as MeasureInference;
   const td = inf.trackDirs as MeasureTrackDirOptions;
-  expect(td.meets).toEqual({ guides: true });
+  expect(td.meets).toEqual({ guides: true, open: true, openFaces: true });
   v.setMeasureSnap(meets === true ? o : { ...o, inference: { ...inf, trackDirs: { ...td, meets: meets === 'plain' } } });
   return { v, canvas: v.canvas as unknown as FakeElement };
 }
