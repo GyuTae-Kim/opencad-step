@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { stepToScene } from '../../src/index';
 import { findInterference } from '../../src/app/interference';
-import { overlapVolume, overlapVolumes, type OverlapMesh } from '../../src/app/overlap';
+import { OverlapScratch, overlapVolume, overlapVolumes, type OverlapMesh } from '../../src/app/overlap';
 import { cube, cylinder, sphere, StepText } from '../stepText';
 
 type V3 = [number, number, number];
@@ -126,6 +126,37 @@ describe('간섭 쌍의 겹친 부피(광선 격자 표본)', () => {
     expect(coarse.rays).toBeLessThan(fine.rays);
     expect(Math.abs(fine.volume - mv)).toBeLessThan(Math.abs(coarse.volume - mv) + 1e-12);
     expect(Math.abs(coarse.volume - mv)).toBeLessThanOrEqual(coarse.err + 1e-9);
+  });
+
+  it('광선 칸마다 삼각형을 담아도(32차) 칸 여럿을 한 통으로 묶은 31차(4×4)·한 통에 모두와 값이 비트까지 같다', () => {
+    const scenes = [
+      assembly([
+        ['a', (w) => cube(w, 10, [-5, -5, -5]).solid, [[0, 0, 0]]],
+        ['b', (w) => cube(w, 10, [-5, -5, -5]).solid, [[0, 0, 0], [0, 0, 1], [c45, c45, 0]]],
+      ]),
+      assembly([
+        ['p', (w) => cylinder(w, 3, 10), [[1, 2, 3]]],
+        ['p2', (w) => cylinder(w, 3, 10), [[1, 2, 3]]],
+      ]),
+      assembly([
+        ['box', (w) => cube(w, 40).solid, [[0, 0, 0]]],
+        ['ball', (w) => sphere(w, 4), [[10, 30, 30]]],
+      ]),
+      assembly([
+        ['pin', (w) => cylinder(w, 2, 30), [[20, 20, -10], [0.3, 0.2, 1]]],
+        ['ball', (w) => sphere(w, 9), [[21, 19, 12]]],
+      ]),
+    ];
+    const fresh = scenes.map(([a, b]) => overlapVolume(a!, b!));
+    for (const [i, [a, b]] of scenes.entries()) {
+      const r = fresh[i]!;
+      expect(r.volume).toBeGreaterThan(0);
+      for (const binCells of [4, 3, 1000]) expect(overlapVolume(a!, b!, { binCells }), String(binCells)).toEqual(r);
+      expect(overlapVolume(a!, b!, { n: 37, binCells: 4 })).toEqual(overlapVolume(a!, b!, { n: 37 }));
+    }
+    // 쌍 사이에 배열 자리를 다시 써도(큰 쌍 뒤 작은 쌍, 거꾸로) 같은 값
+    const scratch = new OverlapScratch();
+    for (const k of [3, 0, 2, 1, 3, 0]) expect(overlapVolume(scenes[k]![0]!, scenes[k]![1]!, { scratch }), String(k)).toEqual(fresh[k]);
   });
 
   it('overlapVolumes: 닫힌 입체 쌍만 쌍에 싣고, 시간 한도를 넘기면 그 뒤 쌍은 시작하지 않는다(값은 시간과 무관)', () => {

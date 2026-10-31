@@ -10,6 +10,12 @@
  * 4. 어림 오차: 칸마다 두 광선의 차로 구한 층화 표본의 표준 오차 × 3. 홀짝이 맞지 않는 광선(조금 비켜 다시 쏴도)은 빼고
  *    그 칸에서 나올 수 있는 가장 큰 부피(칸 넓이 × 상자 깊이)를 어림 오차에 더한다.
  * 그물 삼각형이 곡면을 줄인 만큼(현 오차 — 원기둥은 조금 작다)은 이 값에 들지 않는다. 화면 그물끼리의 겹친 부피다.
+ *
+ * 빠르기(32차): 광선 칸마다 그 칸에 범위 상자가 걸친 삼각형만 담고(31차는 4×4칸을 한 통으로), 삼각형마다 투영 방향(반시계·시계)을
+ * 미리 구해 변 함수 하나가 음수면 나머지는 구하지 않으며, 깊이는 미리 잡은 자리에 모아 삽입 정렬한다. 판정하는 삼각형·셈은 그대로라
+ * 값이 31차와 비트까지 같고(로컬 큰 조립 다섯의 1,073쌍), 쌍마다 시간은 절반쯤이다. 투영 표·깊이 배열 자리는 쌍 사이에 다시 쓴다
+ * (OverlapScratch — 쌍마다 새 배열을 만들지 않는다). 걸린 시간의 대부분은 광선 판정이고 쌍마다 투영 표를 채우는 몫은 7~15%라
+ * 그물마다 표를 쌍 사이에 다시 쓰지는 않는다(겹친 상자·광선 방향이 쌍마다 달라, 다시 쓰려면 그물마다 축 셋의 투영 표를 들고 있어야 한다).
  */
 
 /** 겹친 부피를 잴 그물(간섭 검사 그물과 같은 꼴) */
@@ -60,19 +66,48 @@ function world(m: OverlapMesh): { p: Float64Array; box: Box; tris: number; idx: 
 }
 
 /**
- * 한 그물의 광선 판정 표: 투영 면(u, v)에서 겹친 상자에 걸친 삼각형(투영 넓이 0은 뺀다)의 투영 꼭짓점·깊이와,
- * 광선 칸 bs×bs개씩 묶은 통마다 걸친 삼각형 번호(CSR)
+ * 한 그물의 광선 판정 표: 투영 면(u, v)에서 겹친 상자에 걸친 삼각형(투영 넓이 0은 뺀다)의 투영 꼭짓점·깊이·투영 방향(반시계 +1, 시계 −1)과,
+ * 광선 칸마다 범위 상자가 걸친 삼각형 번호(CSR)
  */
 interface Caster {
   /** 삼각형마다 u0 v0 w0 u1 v1 w1 u2 v2 w2 */
   t: Float64Array;
+  /** 삼각형마다 투영 방향(+1·−1) */
+  s: Int8Array;
   start: Uint32Array;
   list: Uint32Array;
+  /** 한 칸에 든 삼각형 수의 최댓값(깊이를 모을 자리 크기) */
+  most: number;
 }
 
-function caster(g: ReturnType<typeof world>, ax: [number, number, number], lo: [number, number], hi: [number, number], bins: [number, number], bin: [number, number]): Caster {
+/**
+ * 쌍 사이에 다시 쓰는 배열 자리(투영 표·깊이 — 쌍마다 새 배열을 만들지 않게. overlapVolumes가 하나 만들어 쌍마다 넘긴다).
+ * 이름마다 모자라면 늘린 배열 하나를 두고 앞부분을 빌려 준다
+ */
+export class OverlapScratch {
+  private readonly f = new Map<string, Float64Array>();
+  private readonly u = new Map<string, Uint32Array>();
+  private readonly s = new Map<string, Int8Array>();
+  private static take<A extends Float64Array | Uint32Array | Int8Array>(m: Map<string, A>, k: string, n: number, make: (n: number) => A): A {
+    let a = m.get(k);
+    if (!a || a.length < n) m.set(k, (a = make(Math.max(n, Math.ceil((a?.length ?? 0) * 1.25)))));
+    return a.subarray(0, n) as A;
+  }
+  f64(k: string, n: number): Float64Array {
+    return OverlapScratch.take(this.f, k, n, (x) => new Float64Array(x));
+  }
+  u32(k: string, n: number): Uint32Array {
+    return OverlapScratch.take(this.u, k, n, (x) => new Uint32Array(x));
+  }
+  i8(k: string, n: number): Int8Array {
+    return OverlapScratch.take(this.s, k, n, (x) => new Int8Array(x));
+  }
+}
+
+function caster(g: ReturnType<typeof world>, ax: [number, number, number], lo: [number, number], hi: [number, number], bins: [number, number], bin: [number, number], pool: OverlapScratch, side: string): Caster {
   const [U, Vv, W] = ax;
-  const keep: number[] = [];
+  const keep = pool.u32(`${side}k`, g.tris);
+  let nk = 0;
   const P = g.p;
   const at = (t: number, c: number) => (g.idx ? g.idx[t * 3 + c]! : t * 3 + c) * 3;
   for (let t = 0; t < g.tris; t++) {
@@ -83,41 +118,53 @@ function caster(g: ReturnType<typeof world>, ax: [number, number, number], lo: [
     const v0 = P[a + Vv]!, v1 = P[b + Vv]!, v2 = P[c + Vv]!;
     if (Math.max(u0, u1, u2) < lo[0] || Math.min(u0, u1, u2) > hi[0] || Math.max(v0, v1, v2) < lo[1] || Math.min(v0, v1, v2) > hi[1]) continue;
     if ((u1 - u0) * (v2 - v0) - (v1 - v0) * (u2 - u0) === 0) continue;
-    keep.push(t);
+    keep[nk++] = t;
   }
-  const T = new Float64Array(keep.length * 9);
-  keep.forEach((t, k) => {
+  const T = pool.f64(`${side}t`, nk * 9);
+  const S = pool.i8(`${side}s`, nk);
+  for (let k = 0; k < nk; k++) {
+    const t = keep[k]!;
     for (let c = 0; c < 3; c++) {
       const i = at(t, c);
       T[k * 9 + c * 3] = P[i + U]!;
       T[k * 9 + c * 3 + 1] = P[i + Vv]!;
       T[k * 9 + c * 3 + 2] = P[i + W]!;
     }
-  });
-  const nb = bins[0] * bins[1];
-  const start = new Uint32Array(nb + 1);
-  const range = (k: number): [number, number, number, number] => {
     const o = k * 9;
-    const cl = (x: number, l: number, s: number, n: number) => Math.max(0, Math.min(n - 1, Math.floor((x - l) / s)));
-    return [
-      cl(Math.min(T[o]!, T[o + 3]!, T[o + 6]!), lo[0], bin[0], bins[0]),
-      cl(Math.max(T[o]!, T[o + 3]!, T[o + 6]!), lo[0], bin[0], bins[0]),
-      cl(Math.min(T[o + 1]!, T[o + 4]!, T[o + 7]!), lo[1], bin[1], bins[1]),
-      cl(Math.max(T[o + 1]!, T[o + 4]!, T[o + 7]!), lo[1], bin[1], bins[1]),
-    ];
+    S[k] = (T[o + 3]! - T[o]!) * (T[o + 7]! - T[o + 1]!) - (T[o + 4]! - T[o + 1]!) * (T[o + 6]! - T[o]!) > 0 ? 1 : -1;
+  }
+  const nb = bins[0] * bins[1];
+  const start = pool.u32(`${side}a`, nb + 1).fill(0);
+  // 칸 경계에서 나눗셈 반올림으로 이웃 칸을 놓치지 않게 범위를 칸 폭의 1e-6만큼 넓힌다(더 담는 것은 판정에 영향이 없다)
+  const rg = new Int32Array(4);
+  const cl = (x: number, l: number, s: number, n: number) => Math.max(0, Math.min(n - 1, Math.floor((x - l) / s)));
+  const pu = bin[0] * 1e-6;
+  const pv = bin[1] * 1e-6;
+  const range = (k: number): Int32Array => {
+    const o = k * 9;
+    rg[0] = cl(Math.min(T[o]!, T[o + 3]!, T[o + 6]!) - pu, lo[0], bin[0], bins[0]);
+    rg[1] = cl(Math.max(T[o]!, T[o + 3]!, T[o + 6]!) + pu, lo[0], bin[0], bins[0]);
+    rg[2] = cl(Math.min(T[o + 1]!, T[o + 4]!, T[o + 7]!) - pv, lo[1], bin[1], bins[1]);
+    rg[3] = cl(Math.max(T[o + 1]!, T[o + 4]!, T[o + 7]!) + pv, lo[1], bin[1], bins[1]);
+    return rg;
   };
-  for (let k = 0; k < keep.length; k++) {
-    const [i0, i1, j0, j1] = range(k);
-    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) start[i * bins[1] + j + 1]!++;
+  for (let k = 0; k < nk; k++) {
+    const r = range(k);
+    for (let i = r[0]!; i <= r[1]!; i++) for (let j = r[2]!; j <= r[3]!; j++) start[i * bins[1] + j + 1]!++;
   }
-  for (let c = 0; c < nb; c++) start[c + 1]! += start[c]!;
-  const fill = start.slice(0, nb);
-  const list = new Uint32Array(start[nb]!);
-  for (let k = 0; k < keep.length; k++) {
-    const [i0, i1, j0, j1] = range(k);
-    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) list[fill[i * bins[1] + j]!++] = k;
+  let most = 0;
+  for (let c = 0; c < nb; c++) {
+    if (start[c + 1]! > most) most = start[c + 1]!;
+    start[c + 1]! += start[c]!;
   }
-  return { t: T, start, list };
+  const fill = pool.u32(`${side}f`, nb);
+  fill.set(start.subarray(0, nb));
+  const list = pool.u32(`${side}l`, start[nb]!);
+  for (let k = 0; k < nk; k++) {
+    const r = range(k);
+    for (let i = r[0]!; i <= r[1]!; i++) for (let j = r[2]!; j <= r[3]!; j++) list[fill[i * bins[1] + j]!++] = k;
+  }
+  return { t: T, s: S, start, list, most };
 }
 
 /**
@@ -132,37 +179,55 @@ function edgeFn(au: number, av: number, bu: number, bv: number, pu: number, pv: 
 /** 변 함수가 0일 때(점이 변 위) 이 삼각형이 맡는지: 반시계로 맞춘 변 방향 (du, dv)마다 반대 방향과 정확히 하나만 참 */
 const owns = (du: number, dv: number): boolean => dv > 0 || (dv === 0 && du < 0);
 
-/** 광선 (pu, pv)가 c의 통 bi에서 지나는 깊이들을 out에 모은다(정렬은 부르는 쪽) */
-function depths(c: Caster, bi: number, pu: number, pv: number, out: number[]): void {
-  out.length = 0;
+/**
+ * 광선 (pu, pv)가 c의 칸 bi에서 지나는 깊이들을 out 앞자리에 모으고 그 수를 돌려준다(정렬은 부르는 쪽).
+ * 변 함수는 삼각형의 투영 방향으로 반시계로 맞추고, 하나라도 음수면 나머지 변은 구하지 않는다
+ * (31차는 세 변 함수의 합으로 방향을 정했다 — 넓이가 0이 아닌 삼각형에서는 같은 방향이라 판정이 같다)
+ */
+function depths(c: Caster, bi: number, pu: number, pv: number, out: Float64Array): number {
+  let n = 0;
   const T = c.t;
-  for (let k = c.start[bi]!; k < c.start[bi + 1]!; k++) {
-    const o = c.list[k]! * 9;
-    const u0 = T[o]!, v0 = T[o + 1]!, u1 = T[o + 3]!, v1 = T[o + 4]!, u2 = T[o + 6]!, v2 = T[o + 7]!;
-    let e0 = edgeFn(u1, v1, u2, v2, pu, pv);
-    let e1 = edgeFn(u2, v2, u0, v0, pu, pv);
-    let e2 = edgeFn(u0, v0, u1, v1, pu, pv);
-    const area = e0 + e1 + e2;
-    if (area === 0) continue;
-    // 반시계로 맞춘다(시계면 부호를 뒤집고 변 방향도 뒤집어 본다)
-    const s = area > 0 ? 1 : -1;
-    e0 *= s;
-    e1 *= s;
-    e2 *= s;
-    if (e0 < 0 || e1 < 0 || e2 < 0) continue;
+  const S = c.s;
+  const end = c.start[bi + 1]!;
+  for (let k = c.start[bi]!; k < end; k++) {
+    const t = c.list[k]!;
+    const o = t * 9;
+    const s = S[t]!;
+    const u1 = T[o + 3]!, v1 = T[o + 4]!, u2 = T[o + 6]!, v2 = T[o + 7]!;
+    const e0 = s * edgeFn(u1, v1, u2, v2, pu, pv);
+    if (e0 < 0) continue;
+    const u0 = T[o]!, v0 = T[o + 1]!;
+    const e1 = s * edgeFn(u2, v2, u0, v0, pu, pv);
+    if (e1 < 0) continue;
+    const e2 = s * edgeFn(u0, v0, u1, v1, pu, pv);
+    if (e2 < 0) continue;
     if (e0 === 0 && !owns(s * (u2 - u1), s * (v2 - v1))) continue;
     if (e1 === 0 && !owns(s * (u0 - u2), s * (v0 - v2))) continue;
     if (e2 === 0 && !owns(s * (u1 - u0), s * (v1 - v0))) continue;
-    out.push((e0 * T[o + 2]! + e1 * T[o + 5]! + e2 * T[o + 8]!) / (e0 + e1 + e2));
+    out[n++] = (e0 * T[o + 2]! + e1 * T[o + 5]! + e2 * T[o + 8]!) / (e0 + e1 + e2);
+  }
+  return n;
+}
+
+/** 앞 n자리 오름차순 정렬(삽입 — 광선마다 깊이는 몇 개뿐이다) */
+function sortHead(a: Float64Array, n: number): void {
+  for (let i = 1; i < n; i++) {
+    const x = a[i]!;
+    let j = i - 1;
+    while (j >= 0 && a[j]! > x) {
+      a[j + 1] = a[j]!;
+      j--;
+    }
+    a[j + 1] = x;
   }
 }
 
-/** 정렬한 깊이 둘의 짝(안쪽 구간)끼리 겹친 길이 */
-function overlapLength(a: number[], b: number[]): number {
+/** 정렬한 깊이 둘(앞 na·nb자리)의 짝(안쪽 구간)끼리 겹친 길이 */
+function overlapLength(a: Float64Array, na: number, b: Float64Array, nb: number): number {
   let i = 0;
   let j = 0;
   let len = 0;
-  while (i + 1 < a.length && j + 1 < b.length) {
+  while (i + 1 < na && j + 1 < nb) {
     const lo = Math.max(a[i]!, b[j]!);
     const hi = Math.min(a[i + 1]!, b[j + 1]!);
     if (hi > lo) len += hi - lo;
@@ -172,13 +237,19 @@ function overlapLength(a: number[], b: number[]): number {
   return len;
 }
 
-const byNum = (x: number, y: number) => x - y;
-
 /**
  * 닫힌 그물 두 개의 겹친 부피(광선 격자 표본). n = 투영 면의 긴 변을 나눈 칸 수(기본 128 — 칸마다 광선 둘, 많아야 32,768개).
  * 범위 상자가 겹치지 않으면 0. cache를 주면 그물마다 세계 좌표를 한 번만 구한다(쌍 여럿에 같은 그물이 들 때)
  */
-export function overlapVolume(a: OverlapMesh, b: OverlapMesh, opts: { n?: number; cache?: Map<OverlapMesh, ReturnType<typeof world>> } = {}): OverlapVolume {
+export function overlapVolume(
+  a: OverlapMesh,
+  b: OverlapMesh,
+  /**
+   * scratch: 쌍 사이에 다시 쓰는 배열 자리(없으면 이 쌍만 쓸 것을 만든다).
+   * binCells: 시험용 — 광선 칸 몇 개(한 변)를 한 통으로 묶어 삼각형을 담을지(기본 1, 31차는 4). 값은 이것과 상관없이 같다
+   */
+  opts: { n?: number; cache?: Map<OverlapMesh, ReturnType<typeof world>>; scratch?: OverlapScratch; binCells?: number } = {},
+): OverlapVolume {
   const of = (m: OverlapMesh) => {
     let w = opts.cache?.get(m);
     if (!w) {
@@ -206,27 +277,30 @@ export function overlapVolume(a: OverlapMesh, b: OverlapMesh, opts: { n?: number
   const nv = Math.max(2, Math.round((n * ext[V]!) / L));
   const hu = ext[U]! / nu;
   const hv = ext[V]! / nv;
-  // 광선 칸 BS×BS개를 한 통으로 묶어 삼각형을 담는다
-  const BS = 4;
+  // 광선 칸마다 그 칸에 걸친 삼각형을 담는다(31차는 4×4칸을 한 통으로 — 광선마다 훑는 삼각형이 많았다)
+  const BS = Math.max(1, Math.floor(opts.binCells ?? 1));
   const bins: [number, number] = [Math.ceil(nu / BS), Math.ceil(nv / BS)];
   const bin: [number, number] = [hu * BS, hv * BS];
   const plo: [number, number] = [lo[U]!, lo[V]!];
   const phi: [number, number] = [hi[U]!, hi[V]!];
-  const ca = caster(A, [U, V, W], plo, phi, bins, bin);
-  const cb = caster(B, [U, V, W], plo, phi, bins, bin);
-  const da: number[] = [];
-  const db: number[] = [];
+  // 배열 자리는 삼각형이 많은 쪽 그물이 늘 같은 이름을 쓴다(쌍마다 큰 그물이 a·b를 번갈아 차지해 두 자리가 모두 커지지 않게)
+  const pool = opts.scratch ?? new OverlapScratch();
+  const big = A.tris >= B.tris;
+  const ca = caster(A, [U, V, W], plo, phi, bins, bin, pool, big ? 'a' : 'b');
+  const cb = caster(B, [U, V, W], plo, phi, bins, bin, pool, big ? 'b' : 'a');
+  const da = pool.f64('da', Math.max(1, ca.most));
+  const db = pool.f64('db', Math.max(1, cb.most));
   /** 광선 (pu, pv)에서 두 입체가 겹친 길이(홀짝이 안 맞으면 NaN) */
   const cast = (bi: number, pu: number, pv: number): number => {
-    depths(ca, bi, pu, pv, da);
-    if (da.length % 2) return NaN;
-    if (!da.length) return 0;
-    depths(cb, bi, pu, pv, db);
-    if (db.length % 2) return NaN;
-    if (!db.length) return 0;
-    da.sort(byNum);
-    db.sort(byNum);
-    return overlapLength(da, db);
+    const na = depths(ca, bi, pu, pv, da);
+    if (na % 2) return NaN;
+    if (!na) return 0;
+    const nb = depths(cb, bi, pu, pv, db);
+    if (nb % 2) return NaN;
+    if (!nb) return 0;
+    sortHead(da, na);
+    sortHead(db, nb);
+    return overlapLength(da, na, db, nb);
   };
   let sum = 0;
   let varSum = 0;
@@ -296,10 +370,11 @@ export function overlapVolumes(
   const todo = pairs.filter((p) => byId.get(p.a)?.closed && byId.get(p.b)?.closed);
   let done = 0;
   const cache = new Map<OverlapMesh, ReturnType<typeof world>>();
+  const scratch = new OverlapScratch();
   for (const p of todo) {
     if (now() - t0 > budget) break;
     opts.onProgress?.(done, todo.length);
-    const r = overlapVolume(byId.get(p.a)!, byId.get(p.b)!, { n: opts.n, cache });
+    const r = overlapVolume(byId.get(p.a)!, byId.get(p.b)!, { n: opts.n, cache, scratch });
     p.volume = r.volume;
     p.volumeErr = r.err;
     done++;
