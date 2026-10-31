@@ -13,6 +13,7 @@ import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, type ExplodeAxis, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeTweakTool, storedTweaks, type TweakHost } from '../../src/app/explodetool';
 import { dragDistanceLines } from '../../src/app/explodetweak';
+import { TWEAK_FILE_MAX_BYTES } from '../../src/app/explodefile';
 import { RecentStore, type RecentBackend, type RecentEntry } from '../../src/app/recent';
 
 const box = (id: string, c: [number, number, number]): Mesh3d => ({
@@ -58,13 +59,28 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
   const plans = new Map<string, ExplodePlan>();
   const planOf = (d: StepDoc): ExplodePlan => {
     const k = `${d.id}:${axis}`;
-    if (!plans.has(k)) plans.set(k, explodePlan(meshes, d.products, 'all', axis));
+    if (!plans.has(k)) plans.set(k, explodePlan((d as unknown as { testItems?: Mesh3d[] }).testItems ?? meshes, d.products, 'all', axis));
     return plans.get(k)!;
   };
   /** 지금 b가 그려진 자리의 한 점(누른 점) */
   const shownB = (d = doc) => add([3.5, -1, 0.5], explodeMoves(planOf(d), d.explode, EXPLODE_SCALE, d.tweaks?.resolve(planOf(d), axis, undefined)).get('b') ?? [0, 0, 0]);
-  const newDoc = (id: number, recentKey?: string, name = 'f.stp', size = 10, tree = products()): StepDoc =>
-    ({ id, name, size, scene: { units: 'mm' }, products: tree, vis: { pmiIds: new Set() }, explode: 0.5, selKey: null, items: null, pick: null, body: null, ...(recentKey ? { recentKey } : {}) }) as unknown as StepDoc;
+  /** 시험 문서(testItems를 주면 그 문서의 계획은 그 그물로 — 지문이 다른 문서) */
+  const newDoc = (id: number, recentKey?: string, name = 'f.stp', size = 10, tree = products(), testItems?: Mesh3d[]): StepDoc =>
+    ({
+      id,
+      name,
+      size,
+      scene: { units: 'mm' },
+      products: tree,
+      vis: { pmiIds: new Set() },
+      explode: 0.5,
+      selKey: null,
+      items: null,
+      pick: null,
+      body: null,
+      ...(recentKey ? { recentKey } : {}),
+      ...(testItems ? { testItems } : {}),
+    }) as unknown as StepDoc;
   /** 건넨 파일(내보내기)·알림(종류와 함께)·방향 바꾸기(파일을 불러온 뒤) */
   let delivered: { blob: Blob; name: string }[];
   let toasts: { m: string | string[]; kind: string }[];
@@ -332,10 +348,11 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     const text = await read(delivered[0]!.blob);
     expect(JSON.parse(text)).toEqual({
       format: 'opencad-step-explode',
-      v: 1,
+      v: 2,
       doc: { name: 'f.stp', size: 10, units: 'mm' },
       axis: 'x',
-      axes: { free: [['0/1', 'b', ...mine.free]], x: [['0/1', 'b', ...mine.x]] },
+      // 39차 판 2: 줄마다 부품 지문(묶음 수·범위 상자 크기)
+      axes: { free: [['0/1', 'b', [1, 2, 2, 2], ...mine.free]], x: [['0/1', 'b', [1, 2, 2, 2], ...mine.x]] },
     });
     // 같은 파일(이름·크기)을 다시 연 문서에 받는다: 사방에서 받아도 내보낸 방향(X)으로 바꿔 보인다
     axis = 'free';
@@ -358,7 +375,7 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     // 파일 고르기(불러오기)의 글 읽기 길
     const third = newDoc(7);
     doc = third;
-    expect(await tool.importFile({ text: async () => text } as Blob)).toBe(true);
+    expect(await tool.importFile({ size: text.length, text: async () => text } as Blob)).toBe(true);
     expect(third.tweaks!.count('free')).toBe(1);
   });
 
@@ -373,27 +390,70 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     expect(tool.importText(renamed, text)).toBe(true);
     expect(renamed.tweaks!.count('free')).toBe(1);
     expect(toasts.at(-1)).toEqual({
-      m: ['다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품 이름이 맞는 것만 받았습니다.', '분해 손질을 불러왔습니다(방향 1개 · 손질 1개).'],
+      m: ['다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.', '분해 손질을 불러왔습니다(방향 1개 · 손질 1개).'],
       kind: 'warn',
     });
     // 같은 자리에 다른 부품(이름이 다름) — 받지 않는다
+    const nope = '다른 문서에서 내보낸 손질이라 이 문서에 맞는 부품이 없습니다 — 불러오지 않았습니다.';
     const other = newDoc(9, undefined, 'h.stp', 99, [N('R', [], [N('a', ['a']), N('c', ['b'])])]);
     doc = other;
     toasts = [];
     expect(tool.importText(other, text)).toBe(false);
     expect(other.tweaks?.count('free') ?? 0).toBe(0);
-    expect(toasts).toEqual([{ m: '다른 문서에서 내보낸 손질이라 이 문서에 맞는 부품이 없습니다 — 불러오지 않았습니다.', kind: 'warn' }]);
-    // 망가진 파일·다른 판
+    expect(toasts).toEqual([{ m: [nope], kind: 'warn' }]);
+    // 39차: 같은 자리·같은 이름인데 묶음 수가 다른 부품(지문이 다름) — 받지 않는다. 38차 꼴(판 1) 파일은 지문이 없어 이름으로 받는다
+    const twin = newDoc(10, undefined, 'k.stp', 77, [N('R', [], [N('a', ['a']), N('b', ['b', 'b2'])])], [...meshes, box('b2', [3, 2, 0])]);
+    doc = twin;
+    toasts = [];
+    expect(tool.importText(twin, text)).toBe(false);
+    expect(toasts).toEqual([{ m: [nope], kind: 'warn' }]);
+    const old = JSON.parse(text) as { v: number; axes: Record<string, unknown[][]> };
+    old.v = 1;
+    for (const l of Object.values(old.axes)) for (const e of l) e.splice(2, 1);
+    expect(tool.importText(twin, JSON.stringify(old))).toBe(true);
+    expect(toasts.at(-1)!.m[0]).toBe('다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품 이름이 맞는 것만 받았습니다.');
+    // 망가진 파일·다른 판·줄이 너무 많은 파일
     for (const [bad, msg] of [
       ['{ not json', '손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.'],
       [JSON.stringify({ ...JSON.parse(text), format: 'x' }), '손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.'],
-      [JSON.stringify({ ...JSON.parse(text), v: 3 }), '판 3의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 1을 읽습니다.'],
+      [JSON.stringify({ ...JSON.parse(text), v: 3 }), '판 3의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 2까지 읽습니다.'],
+      [JSON.stringify({ ...JSON.parse(text), axes: { x: Array(4097).fill(['0/1', 'b', [1, 2, 2, 2], 1]) } }), '손질 줄이 너무 많은 파일이라 불러오지 않았습니다(한도 28,672개).'],
     ]) {
       toasts = [];
       expect(tool.importText(other, bad!)).toBe(false);
       expect(toasts).toEqual([{ m: msg, kind: 'warn' }]);
     }
     expect(other.tweaks?.canUndo('free') ?? false).toBe(false);
+  });
+
+  it('손질 파일 안전(39차): 크기 한도를 넘는 파일은 읽지 않고 알린다, 값이 범위를 벗어난 줄은 건너뛰고 알린다, 내보내기도 줄 한도를 넘으면 하지 않는다', async () => {
+    const big = '손질 파일이 너무 커서 읽지 않았습니다(한도 약 24 MB).';
+    let reads = 0;
+    const huge = { size: TWEAK_FILE_MAX_BYTES + 1, text: async () => (reads++, '') } as unknown as Blob;
+    expect(await tool.importFile(huge)).toBe(false);
+    expect([reads, toasts.at(-1)]).toEqual([0, { m: big, kind: 'warn' }]);
+    // 한도와 같으면 읽는다(꼴이 틀려 알린다)
+    const edge = { size: TWEAK_FILE_MAX_BYTES, text: async () => (reads++, '{') } as unknown as Blob;
+    expect(await tool.importFile(edge)).toBe(false);
+    expect([reads, toasts.at(-1)!.m]).toEqual([1, '손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.']);
+    // 이상값: 조립 대각선 1만 배 넘는 성분·무한(1e400)은 건너뛰고 나머지는 받는다
+    const reach = 1e4 * planOf(doc).size;
+    const text = JSON.stringify({ format: 'opencad-step-explode', v: 2, doc: { name: 'f.stp', size: 10, units: 'mm' }, axis: 'free', axes: { free: [['0/1', 'b', [1, 2, 2, 2], 1, 2, 3]], x: [['0/1', 'b', [1, 2, 2, 2], reach * 2]] } }).replace(
+      '"x":',
+      '"y":[["0/1","b",[1,2,2,2],1e400]],"x":',
+    );
+    expect(tool.importText(doc, text)).toBe(true);
+    expect(doc.tweaks!.moves('free').get('0/1')).toEqual([1, 2, 3]);
+    expect([doc.tweaks!.count('x'), doc.tweaks!.count('y')]).toEqual([0, 0]);
+    expect(toasts.at(-1)).toEqual({ m: ['분해 손질을 불러왔습니다(방향 1개 · 손질 1개).', '값이 범위를 벗어난 손질 2개는 건너뛰었습니다.'], kind: 'warn' });
+    // 모두 이상값이면 받지 않는다
+    expect(tool.importText(doc, text.replace('[1,2,2,2],1,2,3]', '[1,2,2,2],1e400,0,0]'))).toBe(false);
+    expect(toasts.at(-1)).toEqual({ m: ['이 파일에는 이 문서에 걸 손질이 없습니다 — 불러오지 않았습니다.', '값이 범위를 벗어난 손질 3개는 건너뛰었습니다.'], kind: 'warn' });
+    // 내보내기: 방향 하나에 4,096개 넘게 손질했으면(받는 쪽이 읽지 못할 파일) 내보내지 않는다
+    doc.tweaks!.replace('z', Array.from({ length: 4097 }, (_, i) => [`0/${i}`, [1]] as const));
+    delivered = [];
+    expect(await tool.exportFile()).toBe(false);
+    expect([delivered.length, toasts.at(-1)]).toEqual([0, { m: '손질이 너무 많아 파일로 내보내지 못했습니다(한도 28,672개).', kind: 'warn' }]);
   });
 
   it('끄는 동안 옮긴 거리 글(38차): 캔버스 부모에 측정 글상자 꼴(사방은 거리·ΔX·ΔY·ΔZ)로 보이고 떼면 사라진다, X로만이면 ΔX 하나', () => {

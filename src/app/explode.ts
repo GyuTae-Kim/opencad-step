@@ -66,12 +66,16 @@ type V3 = [number, number, number];
 /** 화면 방향 분해인지(카메라 각으로 방향을 정한다) */
 export const isScreenAxis = (a: ExplodeAxis | undefined): a is ScreenAxis => a === 'sx' || a === 'sy' || a === 'sp';
 
-/** 분해 단위(손질을 거는 쪽에서 보는 것): 나무 자리 낱말, 움직이는 묶음 id, 벌어지는 단계(0이면 손질하지 않는다), 부모 단위 */
+/**
+ * 분해 단위(손질을 거는 쪽에서 보는 것): 나무 자리 낱말, 움직이는 묶음 id, 벌어지는 단계(0이면 손질하지 않는다), 부모 단위,
+ * 제자리(벌리기 전) 범위 상자(39차 — 손질 파일의 부품 지문 explodefile.ts가 읽는다)
+ */
 export interface PlanUnit {
   readonly token?: string;
   readonly ids: readonly string[];
   readonly level?: number;
   readonly parent?: PlanUnit;
+  readonly box?: Box3;
 }
 
 /** 분해 계획: 단계 수와 묶음마다 [단계(1부터), dx, dy, dz]를 이은 것(100%·배율 1 기준) */

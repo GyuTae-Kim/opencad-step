@@ -974,12 +974,17 @@
   "내보낼 분해 손질이 없습니다.": "Es gibt keine Explosionsanpassungen zum Exportieren.",
   "분해 손질 파일을 공유했습니다(방향 {0}개 · 손질 {1}개).": "Datei mit Explosionsanpassungen geteilt (Richtungen: {0} · Anpassungen: {1}).",
   "분해 손질을 파일로 내보냈습니다(방향 {0}개 · 손질 {1}개).": "Explosionsanpassungen als Datei exportiert (Richtungen: {0} · Anpassungen: {1}).",
-  "판 {0}의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 1을 읽습니다.": "Die Anpassungsdatei hat Version {0} und wurde nicht geladen – diese App liest Version 1.",
+  "판 {0}의 손질 파일이라 불러오지 않았습니다 — 이 앱은 판 2까지 읽습니다.": "Die Anpassungsdatei hat Version {0} und wurde nicht geladen – diese App liest bis Version 2.",
   "손질 파일을 읽지 못했습니다 — 이 앱에서 내보낸 분해 손질 JSON이 아닙니다.": "Die Anpassungsdatei konnte nicht gelesen werden – sie ist keine von dieser App exportierte JSON-Datei mit Explosionsanpassungen.",
   "이 파일에는 이 문서에 걸 손질이 없습니다 — 불러오지 않았습니다.": "Diese Datei enthält keine Anpassungen für dieses Dokument – nichts wurde geladen.",
   "다른 문서에서 내보낸 손질이라 이 문서에 맞는 부품이 없습니다 — 불러오지 않았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument, und kein Teil passt zu diesem – nichts wurde geladen.",
   "분해 손질을 불러왔습니다(방향 {0}개 · 손질 {1}개).": "Explosionsanpassungen geladen (Richtungen: {0} · Anpassungen: {1}).",
   "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품 이름이 맞는 것만 받았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument (anderer Name oder andere Größe), daher wurden nur Teile mit passender Position und passendem Namen übernommen.",
   "이 문서 나무에 없는 손질 {0}개는 건너뛰었습니다.": "{0} Anpassungen für Teile, die nicht im Produktbaum dieses Dokuments sind, wurden übersprungen.",
-  "맞지 않는 손질 {0}개는 건너뛰었습니다.": "{0} nicht passende Anpassungen wurden übersprungen."
+  "맞지 않는 손질 {0}개는 건너뛰었습니다.": "{0} nicht passende Anpassungen wurden übersprungen.",
+  "손질 파일이 너무 커서 읽지 않았습니다(한도 약 {0} MB).": "Die Anpassungsdatei ist zu groß und wurde nicht gelesen (Grenze etwa {0} MB).",
+  "손질 줄이 너무 많은 파일이라 불러오지 않았습니다(한도 {0}개).": "Die Datei enthält zu viele Anpassungszeilen und wurde nicht geladen (Grenze {0}).",
+  "손질이 너무 많아 파일로 내보내지 못했습니다(한도 {0}개).": "Zu viele Anpassungen – sie konnten nicht als Datei exportiert werden (Grenze {0}).",
+  "값이 범위를 벗어난 손질 {0}개는 건너뛰었습니다.": "{0} Anpassungen mit Werten außerhalb des zulässigen Bereichs wurden übersprungen.",
+  "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument (anderer Name oder andere Größe), daher wurden nur Teile übernommen, deren Position und Teil (Name, Anzahl der Körper, Größe) passen."
 }
