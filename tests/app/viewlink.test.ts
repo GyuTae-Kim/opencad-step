@@ -115,4 +115,25 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
     // 다른 열쇠와 함께
     expect(decodeViewLink('#view=cam:1,2,3,50,0.5,-0.25,p;sel:0/2;exp:80,all,y')).toMatchObject({ sel: ['0/2'], exp: { t: 0.8, mode: 'all', axis: 'y' } });
   });
+
+  it('화면 방향(sx·sy·sp): 셋째 값 뒤에 방향을 정한 카메라 각(yaw·pitch, 유효 숫자 7자리)을 담고 되읽는다, 각이 없거나 틀리면 방향만', () => {
+    const view = { yaw: Math.PI / 4, pitch: Math.PI / 6 };
+    expect(encodeViewLink({ exp: { t: 0.6, mode: 'step', axis: 'sx', view } })).toBe('view=exp:60,step,sx,0.7853982,0.5235988');
+    for (const axis of ['sx', 'sy', 'sp'] as const) {
+      const back = decodeViewLink(`#${encodeViewLink({ exp: { t: 0.5, mode: 'all', axis, view } })}`)!;
+      expect(back.exp!.axis).toBe(axis);
+      expect(back.exp!.view!.yaw).toBeCloseTo(view.yaw, 6);
+      expect(back.exp!.view!.pitch).toBeCloseTo(view.pitch, 6);
+    }
+    // 장면 축에는 각을 담지 않고(받아도 버린다), 화면 방향이라도 각을 모르면 방향만(받는 쪽이 링크의 카메라로 정한다)
+    expect(encodeViewLink({ exp: { t: 0.6, mode: 'step', axis: 'z', view } })).toBe('view=exp:60,step,z');
+    expect(decodeViewLink('#view=exp:60,step,z,0.1,0.2')).toEqual({ exp: { t: 0.6, mode: 'step', axis: 'z' } });
+    expect(encodeViewLink({ exp: { t: 0.6, mode: 'step', axis: 'sy' } })).toBe('view=exp:60,step,sy');
+    for (const odd of ['exp:60,step,sy', 'exp:60,step,sy,0.5', 'exp:60,step,sy,a,0.5', 'exp:60,step,sy,,0.5']) {
+      const r = decodeViewLink(`#view=${odd}`)!;
+      expect(r.exp, odd).toEqual({ t: 0.6, mode: 'step', axis: 'sy' });
+    }
+    // 카메라와 함께(카메라를 돌린 뒤 복사한 링크도 분해 방향은 담긴 각 그대로)
+    expect(decodeViewLink('#view=cam:1,2,3,50,1,0.2,p;exp:70,step,sp,-0.5,0.25')).toMatchObject({ cam: { yaw: 1, pitch: 0.2 }, exp: { t: 0.7, mode: 'step', axis: 'sp', view: { yaw: -0.5, pitch: 0.25 } } });
+  });
 });
