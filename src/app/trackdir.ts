@@ -1,11 +1,12 @@
 /**
  * 끌어온 점 나란함·수직의 기준 선분 거르기와 그 선이 만나는 점의 이름(순수, DOM 없음).
  * - 기준 선분 거르기(코어 0.28.0 inference.trackDirs { edge }, 0.29.0 첫 점 나란함 parallelEdge에도 같은 함수)
- * - 끌어온 점의 나란함·수직 선이 만나는 점(코어 0.29.0 trackDirs { meets })의 이름: 상태 막대·측정 띠·결과에 "끌어온 점에서 모서리와 나란히 · X축 위"처럼
+ * - 끌어온 점의 나란함·수직 선이 만나는 점(코어 0.29.0 trackDirs { meets }, 0.30.0 { guides: true } — 두 끌어온 점의 안내 선끼리)의 이름:
+ *   상태 막대·측정 띠·결과에 "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 다른 끌어온 점에서 수직인 선 위"처럼
  * 측정 붙잡기 계산이라 뷰어 조각(viewerkit.ts — 첫 화면 JS 밖)에 들어 있고, 앱은 뷰어를 만들 때 이 함수들을 쥐어
  * 측정 붙잡기 선택(snap.ts measureSnapOptions)에 넘기고 붙잡을 점·찍은 점의 이름을 고른다.
  */
-import type { SnapAxis, SnapSegment } from 'opencad-viewer3d';
+import type { SnapAxis, SnapSegment, TrackDirKind } from 'opencad-viewer3d';
 import type { SnapKind } from 'opencad-viewer3d/types';
 import { edgeAt } from './edges';
 import { isTrackDir, type SnapEdgeIndex, TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL } from './snap';
@@ -30,10 +31,11 @@ export function straightEdgeFilter(ex: SnapEdgeIndex): (seg: SnapSegment) => boo
 
 /**
  * 끌어온 점의 나란함·수직 선이 만난 것(코어 0.29.0 trackDirs { meets } — 코어 README의 가르는 법): 'x'·'y'·'z' = 첫 점을 지나는 그 축(axis·direction),
- * 'parallel' = 첫 점의 "모서리와 나란히" 선(direction만), 'track-x'… = 다른 끌어온 점의 그 축(trackOther), 'edge' = 선분·윤곽선(segment), 'face' = 그물 면(face).
+ * 'parallel' = 첫 점의 "모서리와 나란히" 선(direction만), 'track-x'… = 다른 끌어온 점의 그 축(trackOther), 'edge' = 선분·윤곽선(segment), 'face' = 그물 면(face),
+ * 'guide-parallel'·'guide-perpendicular' = 다른 끌어온 점의 나란한 선·수직인 선(0.30.0 meets { guides: true } — trackGuide, 같은 기준 모서리에 대한 안내).
  * 끌어온 점 안내(isTrackDir — trackFrom이 있고 잠그지 않은 나란함·수직)가 아니거나 만난 것이 없으면(그 선 위 점 — 0.27.0) null
  */
-export type TrackDirMeet = SnapAxis | 'parallel' | 'edge' | 'face' | `track-${SnapAxis}`;
+export type TrackDirMeet = SnapAxis | 'parallel' | 'edge' | 'face' | `track-${SnapAxis}` | `guide-${TrackDirKind}`;
 
 /** 붙잡을 점·찍은 점(measureHoverSnap·measurePoints)에서 읽는 것 */
 export interface TrackDirMeetInput {
@@ -45,10 +47,13 @@ export interface TrackDirMeetInput {
   trackOther?: { axis: SnapAxis };
   segment?: unknown;
   face?: unknown;
+  /** 코어 0.30.0: 두 끌어온 점의 안내 선끼리 만나는 점이면 둘째 끌어온 점의 선(그 종류만 본다) */
+  trackGuide?: { kind: TrackDirKind };
 }
 
 export function trackDirMeet(p: TrackDirMeetInput | null | undefined): TrackDirMeet | null {
   if (!p || !isTrackDir(p)) return null;
+  if (p.trackGuide) return `guide-${p.trackGuide.kind}`;
   if (p.axis) return p.axis;
   if (p.direction) return 'parallel';
   if (p.trackOther) return `track-${p.trackOther.axis}`;
@@ -56,8 +61,13 @@ export function trackDirMeet(p: TrackDirMeetInput | null | undefined): TrackDirM
   return p.face ? 'face' : null;
 }
 
-/** 만난 것의 이름(" · " 뒤 조각 — 사전에 따로 있다): "X축 위"(첫 점의 축), "시작점에서 나란한 선 위", "끌어온 점 Y축 위", "모서리 위", "면 위" */
+/**
+ * 만난 것의 이름(" · " 뒤 조각 — 사전에 따로 있다): "X축 위"(첫 점의 축), "시작점에서 나란한 선 위", "끌어온 점 Y축 위", "모서리 위", "면 위",
+ * "다른 끌어온 점에서 나란한 선 위"·"다른 끌어온 점에서 수직인 선 위"
+ */
 export function trackDirMeetPlace(m: TrackDirMeet): string {
+  if (m === 'guide-parallel') return '다른 끌어온 점에서 나란한 선 위';
+  if (m === 'guide-perpendicular') return '다른 끌어온 점에서 수직인 선 위';
   if (m === 'parallel') return '시작점에서 나란한 선 위';
   if (m === 'edge') return '모서리 위';
   if (m === 'face') return '면 위';

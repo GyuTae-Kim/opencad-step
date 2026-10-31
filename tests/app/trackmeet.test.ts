@@ -10,6 +10,9 @@
  *   앱 refine('axisEdge' — 축 이름 없는 안내 선)이 원 위 교점으로 다듬는다(현 위 점이 아니다) — "끌어온 점에서 모서리에 수직 · 모서리 위"
  * - 곡면: 판의 다른 기운 모서리 (20, −4, 10)→(26, −4, 16)을 지난 뒤 P = (22, 2, 24)에서 그 모서리와 나란한 선이 원기둥 옆면을 뚫는 점:
  *   앱 refineFace('axisFace')가 원기둥 면 위 교점으로 다듬는다 — "… · 면 위"
+ * - 두 끌어온 점의 안내 선끼리(34차 — 코어 0.30.0 meets { guides: true }): 기운 모서리 (20, −4, 10)→(26, −4, 4)를 지난 뒤 판 위 허공의 두 끌어온 점
+ *   P = (14, −4, 30)·Q = (3.3, −4, 27.1)에서, P의 나란한 선과 Q의 수직인 선이 만나는 (10.1, −4, 33.9)와 P의 수직인 선과 Q의 나란한 선이 만나는 (7.2, −4, 23.2)
+ *   (같은 평면 y = −4의 기운 사각형 구석) — "… · 다른 끌어온 점에서 수직인 선 위"·"… · 다른 끌어온 점에서 나란한 선 위", 잠글 방향이 없고 다듬지 않는다
  * 만나는 점 둘레를 크게 보아(카메라를 당겨) 다른 후보가 붙잡기 거리 밖이게 하고, 화면 좌표로 가리킬 때는 그물·선의 경계를 정확히 가리키지 않게 조금 비킨다.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -70,7 +73,8 @@ interface View {
   canvas: FakeElement;
 }
 
-function view(meets = true): View {
+/** meets: true = 앱 그대로(0.30.0 { guides: true }), 'plain' = 0.29.0 만나는 점만(meets: true), false = 만나는 점 없이 */
+function view(meets: boolean | 'plain' = true): View {
   const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false, renderMode: 'shaded' });
   v.setScene(scene);
   v.setView('seIso', false);
@@ -81,8 +85,8 @@ function view(meets = true): View {
   const o = measureSnapOptions(scene.meshes, ex, circleCenters(scene.meshes, ex), curveSnap(scene.meshes, ex, fx), false, straightEdgeFilter(ex));
   const inf = o.inference as MeasureInference;
   const td = inf.trackDirs as MeasureTrackDirOptions;
-  expect(td.meets).toBe(true);
-  v.setMeasureSnap(meets ? o : { ...o, inference: { ...inf, trackDirs: { ...td, meets: false } } });
+  expect(td.meets).toEqual({ guides: true });
+  v.setMeasureSnap(meets === true ? o : { ...o, inference: { ...inf, trackDirs: { ...td, meets: meets === 'plain' } } });
   return { v, canvas: v.canvas as unknown as FakeElement };
 }
 
@@ -268,5 +272,103 @@ describe('끌어온 점 나란함·수직 선이 만나는 점(코어 0.29.0 tra
       for (const snap of [TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL])
         for (const place of places) expect(translate(`${snap} · ${place}`, code), `${code}: ${snap} · ${place}`).not.toMatch(hangul);
     expect(translate(`${TRACK_PERPENDICULAR_LABEL} · 시작점에서 나란한 선 위`, 'en')).toBe('Perpendicular to edge from tracked point · On parallel from start point');
+    // 34차: 두 끌어온 점의 안내 선끼리(trackGuide — 다른 만난 것보다 먼저 가른다)
+    expect(trackDirMeet({ ...base, trackGuide: { kind: 'perpendicular' } })).toBe('guide-perpendicular');
+    expect(trackDirMeet({ ...base, snap: 'perpendicular', trackGuide: { kind: 'parallel' } })).toBe('guide-parallel');
+    expect(trackDirMeet({ snap: 'parallel', trackGuide: { kind: 'parallel' } })).toBeNull();
+    for (const { code } of languages.filter((l) => l.code !== 'ko'))
+      for (const snap of [TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL])
+        for (const place of (['guide-parallel', 'guide-perpendicular'] as const).map(trackDirMeetPlace))
+          expect(translate(`${snap} · ${place}`, code), `${code}: ${snap} · ${place}`).not.toMatch(hangul);
+  });
+});
+
+describe('두 끌어온 점의 안내 선끼리 만나는 점(34차 — 코어 0.30.0 trackDirs { meets: { guides: true } })', () => {
+  const P: V3 = [14, -4, 30];
+  const Q: V3 = [3.3, -4, 27.1];
+  // P + a·E_LOW = Q + b·E_HIGH(같은 평면 y = −4): P의 나란한 선과 Q의 수직인 선(Q에서 그 모서리 직선으로 내린 수직 — E_HIGH 방향)
+  const M1: V3 = [10.1, -4, 33.9];
+  // P의 수직인 선과 Q의 나란한 선
+  const M2: V3 = [7.2, -4, 23.2];
+  const near = (d: readonly number[] | undefined, e: V3): boolean => !!d && Math.abs(Math.abs(d[0]! * e[0] + d[1]! * e[1] + d[2]! * e[2]) - 1) < 1e-9;
+  /**
+   * 구석 둘레를 크게, 등각이 아닌 카메라로 본다: 남동 등각에서는 E_HIGH가 보는 방향과 Y축이 이루는 평면 안이라 Q + t·E_HIGH가 Q의 Y축과 화면에서 겹쳐
+   * (끌어온 축이 먼저 — 다른 3D 점) 구석을 가리키는지 알 수 없다
+   */
+  const aim = (w: View, p: V3): void => {
+    const c = w.v.getCamera();
+    w.v.setCamera({ ...c, target: [...p], distance: c.distance * 0.3, yaw: 0.5, pitch: 0.45 });
+    w.v.renderNow();
+  };
+  const setup = (meets: boolean | 'plain'): View => {
+    const w = view(meets);
+    // 기준: 기운 곧은 모서리 TRI → LOW(가운데 점을 비켜)
+    hoverAt(w, along(TRI, E_LOW, Math.hypot(6, 6) / 3));
+    // 앞(더 최근)이 P
+    expect(w.v.setMeasureTrackPoints([P, Q])).toBe(2);
+    return w;
+  };
+
+  it('P의 나란한 선과 Q의 수직인 선이 만나는 구석: 켜면 그 점에 붙고 "끌어온 점에서 모서리와 나란히 · 다른 끌어온 점에서 수직인 선 위", 0.29.0 만나는 점만이면 한 안내 선 위 점', () => {
+    const on = setup(true);
+    const plain = setup('plain');
+    for (const w of [on, plain]) {
+      aim(w, M1);
+      hoverAt(w, M1, 2.37, -1.29);
+    }
+    const h = on.v.measureHoverSnap!;
+    expect(h.snap).toBe('parallel');
+    expect(h.trackFrom).toEqual(P);
+    expect(h.trackGuide?.from).toEqual(Q);
+    expect(h.trackGuide?.kind).toBe('perpendicular');
+    expect(near(h.trackGuide?.dir, E_HIGH)).toBe(true);
+    expect(sameSeg(h.edge, TRI, LOW), `기준 ${JSON.stringify(h.edge)}`).toBe(true);
+    // 정확한 직선끼리라 다듬지 않고, 첫 점을 지나는 선이 아니라 잠글 방향이 없다
+    expect(h.refined).toBeFalsy();
+    expect(h.direction).toBeUndefined();
+    expect(h.axis).toBeUndefined();
+    expect(dist(h.point, M1)).toBeLessThan(1e-9);
+    expect(isTrackDir(h)).toBe(true);
+    expect(trackDirMeet(h)).toBe('guide-perpendicular');
+    const label = trackDirMeetLabel(h);
+    expect(label).toBe(`${TRACK_PARALLEL_LABEL} · 다른 끌어온 점에서 수직인 선 위`);
+    expect(translate(label!, 'en')).toBe('Parallel to edge from tracked point · On perpendicular from other tracked point');
+    expect(translate(label!, 'ja')).toBe('追跡点からエッジに平行 · 別の追跡点からの垂線上');
+    expect(translate(label!, 'zh-CN')).toBe('从追踪点平行于边 · 在另一追踪点的垂线上');
+    expect(translate(label!, 'de')).toBe('Parallel zur Kante vom verfolgten Punkt · Auf Senkrechte vom anderen verfolgten Punkt');
+    // 0.29.0 만나는 점만(guides 없이)이면 커서 둘레 안내 선 위 점(구석이 아니다) — 이름도 안내 이름 그대로
+    const g = plain.v.measureHoverSnap!;
+    expect(g.trackGuide).toBeUndefined();
+    expect(isTrackDir(g)).toBe(true);
+    expect(dist(g.point, M1)).toBeGreaterThan(1e-6);
+    expect(trackDirMeetLabel(g)).toBeNull();
+  });
+
+  it('P의 수직인 선과 Q의 나란한 선이 만나는 구석을 둘째 점으로 찍으면 결과 이름도 "끌어온 점에서 모서리에 수직 · 다른 끌어온 점에서 나란한 선 위"', () => {
+    const w = setup(true);
+    // 첫 점: 원기둥 윗면 가운데 둘레(구석들과 먼 자리)
+    clickAt(w, [0.5, 0.3, RIM_H]);
+    expect(w.v.measurePointCount).toBe(1);
+    hoverAt(w, along(TRI, E_LOW, Math.hypot(6, 6) / 3));
+    w.v.setMeasureTrackPoints([P, Q]);
+    aim(w, M2);
+    hoverAt(w, M2, 2.37, -1.29);
+    const h = w.v.measureHoverSnap!;
+    expect(h.snap).toBe('perpendicular');
+    expect(h.trackFrom).toEqual(P);
+    expect(h.trackGuide?.kind).toBe('parallel');
+    expect(near(h.trackGuide?.dir, E_LOW)).toBe(true);
+    expect(dist(h.point, M2)).toBeLessThan(1e-9);
+    const got: MeasureResult[] = [];
+    w.v.onMeasure((m) => m && got.push(m));
+    clickAt(w, M2, 2.37, -1.29);
+    expect(got).toHaveLength(1);
+    const pts = w.v.measurePoints;
+    expect(dist(pts[1]!.point, M2)).toBeLessThan(1e-9);
+    expect(pts[1]!.trackGuide?.kind).toBe('parallel');
+    const mB = trackDirMeetLabel(pts[1]);
+    expect(mB).toBe(`${TRACK_PERPENDICULAR_LABEL} · 다른 끌어온 점에서 나란한 선 위`);
+    expect(snapPair({ ...got[0]!, trackB: isTrackDir(pts[1]), ...(mB ? { trackMeetB: mB } : {}) })![1]).toBe(mB);
+    expect(got[0]!.distance).toBeCloseTo(dist(pts[0]!.point, M2), 9);
   });
 });

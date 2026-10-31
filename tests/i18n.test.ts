@@ -60,7 +60,30 @@ describe('language URLs and UI presentation', () => {
         expect(value, `${code}: ${key}`).not.toMatch(/译员|Dolmetsch|Grill|grill|グリル|烤架|Justification/);
         // 재다(measure)를 재고(stock)로, 나무(tree)를 목재로, 머리(header)를 머리(head)로 옮긴 말
         expect(value, `${code}: ${key}`).not.toMatch(/ストック|製品木|頭の情報/);
+        // 34차: 면(face)을 솜·얼굴로, 고른(selected)을 고른(even)으로, 단면(section)을 한 면(single-sided)으로, 머리(header)를 머리(head)로,
+        // 평면도(flatness)를 평면도(plan view)로, 흔들림(runout)을 떨림으로, 데이텀(datum)을 날짜로, 나무(tree)를 나무(trees)로, "다룹니다"를 1인칭으로 옮긴 말
+        expect(value, `${code}: ${key}`).not.toMatch(/綿|面部|Gesicht|偶数|相等 PMI|Single-sided|Einseitig|頭がありません|頭部|头部|\bhead\b|Plan view|平面视图|平面図|Jitter|Wackeln|摆动|符文|树木|\bI work\b|Ich arbeite/);
+        // 독일어 Datum은 날짜다(데이텀은 Bezug), Draufsicht(위에서 본 모습)는 윗면 보기에만, Abschnitt(토막)는 구간에만(단면은 Schnitt)
+        if (code === 'de') expect(value, `${code}: ${key}`).not.toMatch(/\bDatum\b/);
+        if (code === 'de' && /Draufsicht/.test(value)) expect(key, value).toBe('윗면 보기');
+        if (code === 'de' && /Abschnitt/.test(value)) expect(key, value).toMatch(/구간/);
       }
+    // 기하 공차 이름(PMI 표·말풍선) — 표준 용어
+    const gdt: [string, string[]][] = [
+      ['평면도 ⏥', ['Flatness ⏥', '平面度 ⏥', '平面度 ⏥', 'Ebenheit ⏥']],
+      ['원통도 ⌭', ['Cylindricity ⌭', '円筒度 ⌭', '圆柱度 ⌭', 'Zylinderform ⌭']],
+      ['선의 윤곽도 ⌒', ['Profile of a line ⌒', '線の輪郭度 ⌒', '线轮廓度 ⌒', 'Linienform ⌒']],
+      ['면의 윤곽도 ⌓', ['Profile of a surface ⌓', '面の輪郭度 ⌓', '面轮廓度 ⌓', 'Flächenform ⌓']],
+      ['직각도 ⟂', ['Perpendicularity ⟂', '直角度 ⟂', '垂直度 ⟂', 'Rechtwinkligkeit ⟂']],
+      ['경사도 ∠', ['Angularity ∠', '傾斜度 ∠', '倾斜度 ∠', 'Neigung ∠']],
+      ['위치도 ⌖', ['Position ⌖', '位置度 ⌖', '位置度 ⌖', 'Position ⌖']],
+      ['대칭도 ⌯', ['Symmetry ⌯', '対称度 ⌯', '对称度 ⌯', 'Symmetrie ⌯']],
+      ['원주 흔들림 ↗', ['Circular runout ↗', '円周振れ ↗', '圆跳动 ↗', 'Rundlauf ↗']],
+      ['온 흔들림 ⌰', ['Total runout ⌰', '全振れ ⌰', '全跳动 ⌰', 'Gesamtrundlauf ⌰']],
+      ['데이텀', ['Datum', 'データム', '基准', 'Bezug']],
+    ];
+    for (const [ko, want] of gdt) expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate(ko, code)), ko).toEqual(want);
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('고른 면', code))).toEqual(['Selected faces', '選んだ面', '所选面', 'Ausgewählte Flächen']);
     // 거리(distance)를 거리(street)로 옮긴 말 — 측정 거리 글상자·CSV·개체 측정 이름에 쓰인다
     expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('거리', code))).toEqual(['Distance', '距離', '距离', 'Entfernung']);
     expect(translate('삼각화 못 한 면', 'en')).toBe('Faces that could not be triangulated');
