@@ -85,28 +85,19 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     expect(menu.getAttribute('aria-label')).toBe('보기 설정');
     expect(more.getAttribute('aria-expanded')).toBe('true');
     const items = [...menu.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    // 51차: 그리기 모드(여섯 모드와 그리기 선택 넷)는 "그리기 모드…" 하나로(고르면 같은 자리에 그리기 모드 메뉴) — 열여덟 항목 → 아홉
     expect(items.map((b) => [b.querySelector('.menu-label')!.textContent, b.getAttribute('role'), b.getAttribute('aria-checked'), b.disabled])).toEqual([
       ['고른 부품 보기', 'menuitem', null, true],
       ['원근 투영', 'menuitemradio', 'true', false],
       ['평행 투영', 'menuitemradio', 'false', false],
-      ['음영', 'menuitemradio', 'false', false],
-      ['음영 + 모서리', 'menuitemradio', 'true', false],
-      ['와이어프레임', 'menuitemradio', 'false', false],
-      ['X-ray', 'menuitemradio', 'false', false],
-      ['숨은선 제거', 'menuitemradio', 'false', false],
-      ['단색', 'menuitemradio', 'false', false],
-      // 숨은 모서리 점선은 숨은선 모드에서만
-      ['숨은 모서리 점선', 'menuitemcheckbox', 'false', true],
-      ['외곽선 강조', 'menuitemcheckbox', 'false', false],
-      ['부품 색 구분', 'menuitemcheckbox', 'false', false],
-      ['분해 보기', 'menuitemcheckbox', 'false', false],
+      ['그리기 모드…', 'menuitem', null, false],
       ['격자', 'menuitemcheckbox', 'true', false],
       ['뷰 큐브', 'menuitemcheckbox', 'false', false],
       ['좌표축', 'menuitemcheckbox', 'true', false],
       ['PNG 저장', 'menuitem', null, false],
       ['내보내기…', 'menuitem', null, false],
     ]);
-    expect(menu.querySelectorAll('.menu-sep[role=separator]')).toHaveLength(6);
+    expect(menu.querySelectorAll('.menu-sep[role=separator]')).toHaveLength(4);
     // 첫 초점은 고른 항목(쓸 수 없는 것은 건너뛴다)
     expect(document.activeElement?.textContent).toContain('원근 투영');
 
@@ -124,6 +115,40 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.textContent?.includes('평행 투영'))!.click();
     expect(h.calls).toEqual(['cube', 'proj orthographic']);
     expect(document.querySelector('.menu')).toBeNull();
+  });
+
+  it('보기 설정의 "그리기 모드…": 같은 단추 자리에 그리기 모드 메뉴(넓은 화면 단추와 같은 열 항목)를 다시 열고, 고르면 닫는다', () => {
+    const h = { ...host(), renderMode: 'hiddenLine' as const };
+    const tb = new Toolbar(h);
+    document.body.append(tb.el);
+    const more = button(tb, '보기 설정');
+    more.focus();
+    more.click();
+    const item = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.textContent === '그리기 모드…')!;
+    item.focus();
+    item.click();
+    const menu = document.querySelector<HTMLElement>('.menu')!;
+    expect(menu.getAttribute('aria-label')).toBe('그리기 모드');
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(items.map((b) => [b.querySelector('.menu-label')!.textContent, b.getAttribute('aria-checked'), b.disabled])).toEqual([
+      ['음영', 'false', false],
+      ['음영 + 모서리', 'false', false],
+      ['와이어프레임', 'false', false],
+      ['X-ray', 'false', false],
+      ['숨은선 제거', 'true', false],
+      ['단색', 'false', false],
+      ['숨은 모서리 점선', 'false', false],
+      ['외곽선 강조', 'true', true],
+      ['부품 색 구분', 'false', false],
+      ['분해 보기', 'false', false],
+    ]);
+    // 키보드로 열었으면 초점은 새 메뉴의 고른 항목(숨은선 제거)
+    expect(document.activeElement?.textContent).toContain('숨은선 제거');
+    items[9]!.click();
+    expect(h.calls).toEqual(['explode']);
+    expect(document.querySelector('.menu')).toBeNull();
+    expect(more.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('화살표 키는 쓸 수 없는 항목을 건너뛴다', () => {

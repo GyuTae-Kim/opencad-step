@@ -94,3 +94,67 @@ describe('메뉴 자리: 번역 뒤 폭으로 다시 놓기', () => {
     expect(document.querySelector('.menu')).toBeNull();
   });
 });
+
+/**
+ * 51차: 아래에 다 들어가지 않으면 더 넓은 쪽으로 펴고, 그 쪽도 모자라면 그 높이까지 펴고 메뉴 안에서 굴린다(가장자리 8px, 기준과 4px).
+ * 전에는 위아래 모두 모자라면 위쪽이 더 넓어도 아래로 폈다(320×568에서 3D 보기 아래쪽을 길게 눌러 연 작업 메뉴가 다섯 줄쯤만 보임)
+ */
+describe('메뉴 자리: 위아래 고르기', () => {
+  let mh = 100;
+  const savedH = Object.getOwnPropertyDescriptor(window, 'innerHeight');
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => mh });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 568 });
+  });
+  afterAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 100 });
+    if (savedH) Object.defineProperty(window, 'innerHeight', savedH);
+  });
+  /** 화면 점(client 좌표)의 작업 메뉴: 보이지 않는 기준점의 자리는 그 style 값 */
+  function at(y: number, h: number): { top: number; maxH: string } {
+    mh = h;
+    const rect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (!(this instanceof HTMLElement) || !this.classList.contains('menu-point')) return rect.call(this);
+      const x = parseFloat(this.style.left), top = parseFloat(this.style.top);
+      return { left: x, right: x + 1, top, bottom: top + 1, width: 1, height: 1, x, y: top, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      openMenuAt(100, y, [{ label: '맞춰 보기', run: () => {} }], '작업 메뉴');
+      return { top: parseFloat(menuEl().style.top), maxH: menuEl().style.maxHeight };
+    } finally {
+      closeMenu();
+      Element.prototype.getBoundingClientRect = rect;
+    }
+  }
+
+  it('아래에 다 들어가면 아래(위가 더 넓어도)', () => {
+    // 누른 자리 300: 아래 568 − 301 − 12 = 255, 위 288
+    expect(at(300, 200)).toEqual({ top: 305, maxH: '' });
+  });
+
+  it('아래가 모자라고 위에 다 들어가면 위', () => {
+    expect(at(300, 280)).toEqual({ top: 300 - 4 - 280, maxH: '' });
+  });
+
+  it('위아래 모두 모자라면 더 넓은 쪽 — 위가 넓으면 위로 펴고 위 가장자리 8px까지(메뉴 안에서 굴림)', () => {
+    // 519px 메뉴(11줄), 누른 자리 322(320×568 3D 보기 가운데쯤): 위 310 > 아래 233 → 위로 310px
+    expect(at(322, 519)).toEqual({ top: 8, maxH: '310px' });
+  });
+
+  it('위아래 모두 모자라고 아래가 넓으면 아래로 펴고 아래 가장자리 8px까지', () => {
+    // 누른 자리 200: 위 188, 아래 568 − 201 − 12 = 355
+    expect(at(200, 519)).toEqual({ top: 205, maxH: '355px' });
+  });
+
+  it('단추 아래 메뉴도 같은 규칙(화면 아래쪽 단추 — 분해 막대 등)', () => {
+    mh = 300;
+    const a = document.createElement('button');
+    a.getBoundingClientRect = () => ({ left: 10, right: 54, top: 470, bottom: 514, width: 44, height: 44, x: 10, y: 470, toJSON: () => ({}) }) as DOMRect;
+    document.body.append(a);
+    openMenu(a, [{ label: '사방', run: () => {} }], '분해 방향');
+    expect([menuEl().style.top, menuEl().style.maxHeight]).toEqual([`${470 - 4 - 300}px`, '']);
+    closeMenu();
+    a.remove();
+  });
+});
