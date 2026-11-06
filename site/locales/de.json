@@ -150,6 +150,7 @@
   "{0}분 {1}초": "{0} Minuten {1} Sekunden",
   "{0}워커 전체 {1} · 화면까지 {2}": "{0}Worker gesamt {1} · Bis zur Anzeige {2}",
   "{0}을(를) 클립보드에 복사했습니다.": "{0} in die Zwischenablage kopiert.",
+  "{0}을(를) 열었습니다.": "{0} geöffnet.",
   "{0}줄 가운데 처음 {1}줄만 보입니다. 더 보거나, 접거나, 위 칸에서 이름으로 거르십시오.": "Unter den {0}-Zeilen ist nur die erste {1}-Zeile sichtbar. Weitere Informationen anzeigen, ausblenden oder nach Namen im Feld oben filtern.",
   "{0}줄 더 보기": "{0} weitere Zeilen",
   "{0}초": "{0} Sekunden",

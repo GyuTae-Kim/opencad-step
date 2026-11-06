@@ -266,6 +266,10 @@ export class StepApp {
   private readonly surfDocs = new WeakSet<StepDoc>();
   private readonly faceSurfs = new WeakMap<StepDoc, FaceSurfaceLookup | 0 | null>();
   private barMode: 'measure' | 'face' | 'select' | 'multi' | null = null;
+  /** 측정 띠 글 칸에 마지막으로 넣은 글(번역 전 HTML) */
+  private barSrc = '';
+  /** 화면 읽기 프로그램에만 알리는 칸(문서를 다 열었을 때 — 53차) */
+  private readonly sayEl = h('div', { class: 'sr-only', role: 'status' });
   private readonly aimLayer: HTMLElement;
   // ── 격리 띠(이것만 보기·나머지 흐리게 중) ──
   private readonly isoBar: HTMLElement;
@@ -370,14 +374,16 @@ export class StepApp {
     this.startError = h('div', { class: 'start-error', role: 'alert', hidden: true });
     this.startEl = this.buildStart();
     this.busyName = h('div', { class: 'busy-name' });
-    this.busyStage = h('div', { class: 'busy-stage' });
+    // 화면 읽기 프로그램에는 단계가 바뀔 때만 알린다(53차 — 전에는 진행 카드 전체가 status라 백분율이 바뀔 때마다 파일 이름·백분율·"취소"까지 다시 읽었다.
+    // 진행률은 progressbar의 aria-valuenow로 물어볼 수 있다)
+    this.busyStage = h('div', { class: 'busy-stage', role: 'status' });
     this.busyBar = h('div', { class: 'busy-fill' });
     this.busyPct = h('span', { class: 'busy-pct' });
     const cancel = h('button', { type: 'button', class: 'btn' }, '취소');
     cancel.addEventListener('click', () => this.cancel());
     this.busyEl = h(
       'div',
-      { class: 'busy', hidden: true, role: 'status', 'aria-live': 'polite' },
+      { class: 'busy', hidden: true },
       h(
         'div',
         { class: 'busy-card' },
@@ -453,7 +459,8 @@ export class StepApp {
       else if (this.clearSelection()) this.selectionChanged();
     });
     this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 붙잡을 점', hidden: true });
-    this.measureBar = h('div', { class: 'measure-bar', role: 'status', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureLock, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
+    // 알림은 글 칸(mb-text)만(53차 — 전에는 띠 전체도 status라 겹친 알림 영역이 되고 단추 이름까지 읽혔다)
+    this.measureBar = h('div', { class: 'measure-bar', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureLock, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
@@ -488,7 +495,7 @@ export class StepApp {
     this.statusDoc = h('div', { class: 'status-doc' });
     this.statusSel = h('div', { class: 'status-sel' });
     this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 붙잡을 점', hidden: true });
-    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel);
+    const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel, this.sayEl);
 
     const workspace = h('main', { class: 'workspace' }, this.viewEl, this.panel.el);
     this.resizer = new PanelResizer(root, this.panel.el, workspace, this.narrow, safeLocalStorage());
@@ -779,6 +786,8 @@ export class StepApp {
       doc.openMs = performance.now() - t0;
       this.lastError = null;
       this.updateAll();
+      // 다 열었음을 화면 읽기 프로그램에 알린다(53차 — 단계 알림 뒤 끝을 알리지 않았다. 문장 하나라 번역 사전의 "{0}을(를) 열었습니다."로 옮긴다)
+      this.sayEl.replaceChildren(`${name}을(를) 열었습니다.`);
       this.startProps(doc);
       const w = res.scene.warnings?.length ?? 0;
       if (res.scene.warnings?.includes(TRUNCATED_WARNING)) this.toast('파일이 중간에 끊긴 것 같습니다 — 읽은 데까지만 보입니다. 파일을 다시 받아 여십시오.', 'warn', 6000);
@@ -963,6 +972,8 @@ export class StepApp {
     v.onCameraChange(() => this.sectionBar.place());
     // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고, 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
     core.watchGraphicsContext(v, (msg, kind, ms) => this.toast(msg, kind, ms));
+    // 키보드 길잡이(53차 — keynav.ts): 패널 탭·라디오 묶음·도구 막대 화살표, 띠·막대·패널을 닫을 때 초점 돌려주기
+    core.installKeyNav(this.root);
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
     // 측정·면 고르기가 아니면 길게 눌러 작업 메뉴(오른쪽 누르기와 같다) — 분해 중 부품이면 잡아서 끌고, 그대로 떼면 작업 메뉴
     this.aim = new core.TouchAim(v.canvas, {
@@ -974,7 +985,9 @@ export class StepApp {
     });
     // 오른쪽 누르기(끌어 이동하지 않았을 때)로 작업 메뉴. 코어는 캔버스의 기본 메뉴만 막는다
     let rightDown: { x: number; y: number } | null = null;
+    let downAt = -1e9;
     this.hostEl.addEventListener('pointerdown', (e) => {
+      downAt = e.timeStamp;
       if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY };
     });
     this.hostEl.addEventListener('contextmenu', (e) => {
@@ -982,7 +995,18 @@ export class StepApp {
       const d = rightDown;
       rightDown = null;
       // 터치 길게 누르기의 contextmenu는 TouchAim이 이미 다뤘다
-      if ((e as PointerEvent).pointerType === 'touch' || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
+      if ((e as PointerEvent).pointerType === 'touch') return;
+      // 누르기 없이 온 것(3D 보기에 초점이 있을 때 메뉴 글쇠·Shift+F10 — 53차, 전에는 버렸다): 고른 것(없으면 빈 자리)의 작업 메뉴를 3D 보기 가운데에.
+      // 3D 보기 안의 점을 글쇠로 가리킬 길은 없어 그 자리를 고르지는 않는다(고르기는 제품 나무에서)
+      if (e.timeStamp - downAt > 1000 && document.activeElement === v.canvas) {
+        if (this.doc && !this.loading && !v.measureMode && !this.entMeasuring) {
+          const r = v.canvas.getBoundingClientRect();
+          this.ctxFace = null;
+          this.openContextMenu(r.left + r.width / 2, r.top + r.height / 2);
+        }
+        return;
+      }
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
       this.contextMenuAt(e.clientX, e.clientY);
     });
     // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
@@ -2949,11 +2973,15 @@ export class StepApp {
       this.busyName.textContent = l.name;
       // Keep stage messages separate from punctuation so every progress stage
       // uses its catalog entry, including worker-provided stage names.
-      this.busyStage.replaceChildren(document.createTextNode(l.stage), document.createTextNode('…'));
+      // 알림 칸이므로 단계가 바뀔 때만 바꾼다(진행할 때마다 같은 글을 다시 넣으면 다시 읽는다)
+      if (this.busyStage.dataset.stage !== l.stage) {
+        this.busyStage.dataset.stage = l.stage;
+        this.busyStage.replaceChildren(document.createTextNode(l.stage), document.createTextNode('…'));
+      }
       this.busyPct.textContent = fmtPercent(l.fraction);
       this.busyBar.style.width = `${Math.round(Math.max(0.02, l.fraction) * 1000) / 10}%`;
       this.busyBar.parentElement?.setAttribute('aria-valuenow', String(Math.round(l.fraction * 100)));
-    }
+    } else delete this.busyStage.dataset.stage;
     this.updateStatus();
   }
 
@@ -2985,9 +3013,12 @@ export class StepApp {
 
   private updateAll(): void {
     const d = this.doc;
+    // 시작 화면의 단추(파일 열기·예제 열기·최근 문서)로 열었으면 초점을 3D 보기로 넘긴다(53차 — 시작 화면이 숨으며 초점이 body로 날아갔다)
+    const fromStart = !!d && !this.startEl.hidden && this.startEl.contains(document.activeElement);
     this.startEl.hidden = !!d;
     // 문서가 없을 때 시작 화면 뒤에 미리 만든 캔버스로 초점이 가지 않게
     this.hostEl.inert = !d;
+    if (fromStart) this.viewer?.canvas.focus({ preventScroll: true });
     this.startError.hidden = !this.lastError || !!d;
     this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : []));
     this.docNameEl.textContent = d ? d.name : '';
@@ -3044,6 +3075,7 @@ export class StepApp {
     }
     if (mode !== this.barMode) {
       this.barMode = mode;
+      this.barSrc = '';
       const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : mode === 'multi' ? '여러 개 고르기 끝내기' : '측정 끝내기';
       this.measureClose.title = close;
       this.measureClose.setAttribute('aria-label', close);
@@ -3063,10 +3095,11 @@ export class StepApp {
     const faceOk = mode === 'face' && !!d?.face && !!(d.face.normal || d.face.axis);
     this.faceLook.hidden = !faceOk;
     this.faceCut.hidden = !faceOk;
+    // 띠가 보이는 동안 측정 결과·고른 것은 띠 글 칸이 알리고 패널 아래 띠는 알리지 않는다(53차 — 둘 다 알려 같은 결과를 두세 번 읽었다)
+    this.panel.footLive(!mode);
     if (!mode || !d || !v) return;
     const fm = this.fmt;
-    const t = this.measureText;
-    t.replaceChildren();
+    const t = h('div');
     if (mode === 'measure' && this.entMeasuring) {
       this.measureLock.hidden = true;
       this.entityBarText(d, t);
@@ -3105,6 +3138,12 @@ export class StepApp {
         t.append(
           h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '크기'), ` ≈ ${fm.lenNum(size[0])} × ${fm.lenNum(size[1])} × ${fm.lenNum(size[2])}${fm.unit ? ` ${fm.unit}` : ''}`),
         );
+    }
+    // 글 칸은 알림 영역이라 만든 글(번역 전)이 그대로면 바꾸지 않는다(53차 — 띠를 맞출 때마다 같은 결과를 다시 넣어 두 번 읽었다). 띠 종류가 바뀌면 다시 넣는다
+    const src = t.innerHTML;
+    if (src !== this.barSrc) {
+      this.barSrc = src;
+      this.measureText.replaceChildren(...t.childNodes);
     }
   }
 

@@ -139,6 +139,9 @@ const row = (k: string, v: string, title?: string): HTMLElement =>
 const propRow = (r: PropRow): HTMLElement =>
   h('div', { class: 'prop-row' }, h('span', { class: 'k', translate: r.kData ? 'no' : null }, r.k), h('span', { class: 'v', title: r.v, translate: r.vData ? 'no' : null }, r.v));
 
+/** 본문을 다시 그린 뒤 초점을 돌려줄 칸 */
+const FOCUSABLE = 'button, input, select, a[href]';
+
 const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
 
@@ -175,7 +178,7 @@ export class Panel {
     const close = h('button', { type: 'button', class: 'icon-btn', title: '패널 닫기', 'aria-label': '패널 닫기' });
     close.append(icon('close', 16));
     close.addEventListener('click', () => this.host.togglePanel(false));
-    this.body = h('div', { class: 'panel-body', role: 'tabpanel' });
+    this.body = h('div', { class: 'panel-body', role: 'tabpanel', id: 'panel-body' });
     this.foot = h('div', { class: 'panel-foot', 'aria-live': 'polite', hidden: true });
     this.el = h('aside', { class: 'panel', 'aria-label': '제품·정보 패널', hidden: true }, h('div', { class: 'panel-head' }, this.tabsEl, close), this.body, this.foot);
   }
@@ -305,6 +308,8 @@ export class Panel {
 
   private render(): void {
     const d = this.doc;
+    // 탭에 초점이 있었으면(키보드로 탭을 고름 — Enter·Space, 화살표는 keynav.ts) 새로 만든 고른 탭으로 돌려준다(전에는 body로 날아가 Tab이 문서 처음부터 다시 돌았다)
+    const refocus = this.tabsEl.contains(document.activeElement);
     this.tabsEl.innerHTML = '';
     if (!d) {
       this.dropLists();
@@ -321,15 +326,20 @@ export class Panel {
     if (d.pmi.presentations.length || d.pmi.semantic.length || d.pmi.views.length) tabs.push(['pmi', 'PMI']);
     tabs.push(['info', `정보${d.scene.warnings?.length ? ` (경고 ${d.scene.warnings.length})` : ''}`]);
     if (!tabs.some(([k]) => k === d.panelTab)) d.panelTab = 'tree';
+    // APG Tabs: Tab 멈춤은 고른 탭 하나(나머지는 ←·→·Home·End — keynav.ts), 탭은 본문을 aria-controls로 가리킨다
     for (const [k, label] of tabs) {
       const on = k === d.panelTab;
-      const b = h('button', { type: 'button', class: `tab${on ? ' active' : ''}`, role: 'tab', 'aria-selected': String(on), id: `tab-${k}` }, label);
+      const b = h('button', { type: 'button', class: `tab${on ? ' active' : ''}`, role: 'tab', 'aria-selected': String(on), 'aria-controls': 'panel-body', tabindex: on ? '0' : '-1', id: `tab-${k}` }, label);
       b.addEventListener('click', () => this.setTab(k));
       this.tabsEl.append(b);
+      if (on && refocus) b.focus({ preventScroll: true });
     }
     // 다른 언어 화면은 번역층(문서 변화 관찰 — 마이크로태스크, 붙일 때 이미 줄을 섰다)이 탭 글을 바꾼 뒤의 폭으로
     queueMicrotask(() => this.showTab());
     this.body.setAttribute('aria-labelledby', `tab-${d.panelTab}`);
+    // 본문이 글로 시작하는 탭(속성·정보)은 본문 자체가 Tab 멈춤(APG Tabs — 탭 다음 Tab이 본문으로 와 화면 읽기 프로그램이 읽기 시작한다)
+    if (d.panelTab === 'props' || d.panelTab === 'info') this.body.tabIndex = 0;
+    else this.body.removeAttribute('tabindex');
     this.renderBody();
     this.renderFoot();
   }
@@ -342,6 +352,8 @@ export class Panel {
     const active = document.activeElement as HTMLInputElement | null;
     const refocus = active?.classList?.contains('tree-filter') ? { start: active.selectionStart, end: active.selectionEnd } : null;
     const rowKey = this.body.contains(active) ? active?.closest<HTMLElement>('.tree-row')?.dataset.key : undefined;
+    // 그 밖의 칸(레이어·PMI 보이기 상자, 나무 도구 단추 등)은 같은 차례의 새 칸으로(53차 — 상자를 Space로 바꾸면 다시 그리며 초점이 body로 날아갔다)
+    const at = !refocus && !rowKey && this.body.contains(active) ? [...this.body.querySelectorAll(FOCUSABLE)].indexOf(active!) : -1;
     this.dropLists();
     this.body.innerHTML = '';
     this.drawnExpanded = null;
@@ -361,6 +373,12 @@ export class Panel {
         inp.setSelectionRange(refocus.start, refocus.end);
       }
     } else if (rowKey) this.tree?.focusKey(rowKey, !!active?.classList.contains('eye'));
+    else if (at >= 0) this.body.querySelectorAll<HTMLElement>(FOCUSABLE)[at]?.focus({ preventScroll: true });
+  }
+
+  /** 아래 띠(고른 것·측정 결과)가 바뀐 글을 알릴지: 3D 보기 위 측정 띠가 보이는 동안은 띠가 알린다(앱이 맞춘다 — 53차) */
+  footLive(on: boolean): void {
+    this.foot.setAttribute('aria-live', on ? 'polite' : 'off');
   }
 
   /** 앞서 그린 가상 목록을 놓는다(스크롤 듣기를 뗀다) */
