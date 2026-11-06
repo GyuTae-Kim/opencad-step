@@ -789,8 +789,16 @@ select {
   .measure-bar.measuring .mb-acts {
     margin-left: auto;
   }
+  /*
+   * 52차: 둘째 줄의 결과는 거리와 dx·dy·dz(개체 측정은 값과 두 개체 이름)를 한 줄에, 들어가지 않으면 줄을 바꿔 다 보인다 — 전에는 결과가 늘 세 줄이라
+   * 320×568 띠가 118px(3D 보기의 26%)였다
+   */
   .measure-bar.measuring .mb-text {
     flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
     order: 3;
   }
   /* 커서 아래 붙잡을 점의 이름이 띠보다 길면(만나는 점 "… · 끌어온 점 Y축 위"의 영어·독일어 등) 띠 안에서 줄을 바꾼다 */
@@ -804,13 +812,26 @@ select {
   }
 }
 @media (max-width: 479.98px) {
-  /* 좁은 휴대폰의 고른 부품·면 카드: 단추는 아이콘만(이름은 title·aria-label) — 영어처럼 긴 단추 이름에 부품 이름·크기 글이 눌리지 않게 */
-  .measure-bar:not(.measuring) .mb-btn > span {
+  /*
+   * 좁은 휴대폰의 고른 부품·면 카드: 단추는 아이콘만(이름은 title·aria-label) — 영어처럼 긴 단추 이름에 부품 이름·크기 글이 눌리지 않게.
+   * 52차: 측정 띠의 "다시 재기"도 — 첫 점 뒤 방향 잠금 단추가 나오면 첫 줄 단추(잠금·다시 재기·끝내기)가 측정 종류 옆에 들어가지 않아
+   * 따로 한 줄을 더 써 320×568 띠가 134px(3D 보기의 30%)였다
+   */
+  .measure-bar .mb-btn > span {
     display: none;
   }
-  .measure-bar:not(.measuring) .mb-btn {
+  .measure-bar .mb-btn {
     min-width: 38px;
     padding: 0;
+  }
+}
+/*
+ * 52차: 좁은 손가락 휴대폰에서 정밀 조준하는 동안(십자선이 보일 때)은 측정 종류(두 점·개체 — 한 손가락으로 조준하는 동안 누를 수 없다) 자리에
+ * 붙잡을 점 이름을 둔다. 전에는 그 이름이 첫 줄에 들어가지 않아 한 줄을 더 썼다
+ */
+@media (pointer: coarse) and (max-width: 479.98px) {
+  .view:has(.aim-reticle:not([hidden])) .measure-bar > .mb-kind {
+    display: none;
   }
 }
 
@@ -1756,7 +1777,7 @@ table.grid td.mono {
   .mb-btn.icon {
     width: 44px;
   }
-  .measure-bar:not(.measuring) .mb-btn {
+  .measure-bar .mb-btn {
     min-width: 44px;
   }
   /* 최근 문서: 줄과 ✕·모두 지우기를 손가락 크기(44px)로 */

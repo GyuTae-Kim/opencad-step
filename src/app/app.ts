@@ -393,7 +393,8 @@ export class StepApp {
     this.sectionBar = new SectionBar(this);
     // ── 측정 띠(좁은 화면·터치에서 측정·면 고르기 중): 안내·결과를 크게 보이고, Esc 대신 다시 재기·끝내기 단추 ──
     this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
-    this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기' }, icon('reset', 16), h('span', {}, '다시 재기'));
+    // 좁은 휴대폰은 아이콘만(52차 — 이름은 aria-label)
+    this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기', 'aria-label': '다시 재기' }, icon('reset', 16), h('span', {}, '다시 재기'));
     this.measureClear.addEventListener('click', () => {
       if (this.entMeasuring) this.clearEntities();
       else this.viewer?.clearMeasure();

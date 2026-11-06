@@ -69,7 +69,7 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.mb-btn', 'height', null],
       ['.mb-kind .seg-btn', 'height', null],
       ['.mb-btn.icon', 'height', 'width'],
-      ['.measure-bar:not(.measuring) .mb-btn', 'height', 'min-width'],
+      ['.measure-bar .mb-btn', 'height', 'min-width'],
       ['.section-slider', 'height', null],
       ['.section-num', 'height', null],
       ['.explode-slider', 'height', null],
@@ -169,6 +169,27 @@ describe('손가락 기기 규칙(styles.css)', () => {
     const plain = [...el.sheet!.cssRules].find((r): r is CSSStyleRule => r instanceof CSSStyleRule && r.selectorText === '.tree-more-btn');
     el.remove();
     expect(plain?.style.getPropertyValue('display')).toBe('none');
+  });
+
+  it('52차: 좁은 휴대폰 측정 띠 — "다시 재기"도 아이콘만(44px), 결과는 한 줄로 흐르고, 정밀 조준 중에는 측정 종류를 숨긴다', () => {
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const rules: { media: string; sel: string; style: CSSStyleDeclaration }[] = [];
+    for (const r of [...el.sheet!.cssRules])
+      if (r instanceof CSSMediaRule) for (const s of [...r.cssRules]) if (s instanceof CSSStyleRule) rules.push({ media: r.media.mediaText, sel: s.selectorText, style: s.style });
+    el.remove();
+    const find = (sel: string, media: RegExp) => rules.find((x) => x.sel === sel && media.test(x.media))?.style;
+    // 479.98px 이하: 측정 중이든 아니든 띠 단추 이름 글은 숨긴다(이름은 aria-label·title)
+    expect(find('.measure-bar .mb-btn > span', /^\(max-width:\s*479\.98px\)$/)?.getPropertyValue('display')).toBe('none');
+    expect(px(last.get('.measure-bar .mb-btn')?.['min-width'])).toBe(44);
+    const text = find('.measure-bar.measuring .mb-text', /^\(max-width:\s*759\.98px\)$/)!;
+    expect([text.getPropertyValue('flex-direction'), text.getPropertyValue('flex-wrap'), text.getPropertyValue('flex-basis')]).toEqual(['row', 'wrap', '100%']);
+    const aim = rules.find((x) => /aim-reticle/.test(x.sel))!;
+    expect(aim.media).toMatch(/pointer:\s*coarse/);
+    expect(aim.media).toMatch(/max-width:\s*479\.98px/);
+    expect(aim.sel).toBe('.view:has(.aim-reticle:not([hidden])) .measure-bar > .mb-kind');
+    expect(aim.style.getPropertyValue('display')).toBe('none');
   });
 
   it('51차: 375~389px 일본어·중국어 제목 막대는 아이콘을 빼고 앱 이름 전체를 보인다', () => {
