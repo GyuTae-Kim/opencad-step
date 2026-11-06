@@ -21,6 +21,12 @@ import { faceDetails } from './faces';
 
 type V3 = [number, number, number];
 
+/**
+ * 붙잡기 거리(화소): 마우스·펜 10, 손가락 14 — 코어 측정 붙잡기 규칙(pointer.ts pickTolerance — SNAP_PX, max(SNAP_PX, TOUCH_PICK_TOLERANCE_PX))과 같다(시험이 본다).
+ * 코어 pointer 모듈을 분해 조각에서 가져오면 번들러가 그것을 따로 떼어 첫 화면 JS가 커지므로 수만 둔다
+ */
+export const snapPx = (touch: boolean): number => (touch ? 14 : 10);
+
 /** 끄는 축과 나란한 법선으로 보는 한도: 1 − |n·a| (각 0.0057° 안 — 내보낸 프로그램의 반올림 찌꺼기만) */
 export const SNAP_PAR = 5e-9;
 /** 모으는 평면 면 수 한도(끄는 쪽·다른 쪽 합) */

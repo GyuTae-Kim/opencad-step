@@ -1,8 +1,15 @@
 // 분해 끌기의 붙잡기(47차 — explodesnap.ts): 끄는 축에 수직인 평면 모으기, 닿음(마주 보고 넓이를 갖고 겹침)·같은 높이, 화면 붙잡기 거리,
 // 닿음이 먼저, 경계만 맞닿은 면·구멍 안의 면은 닿음이 아님, 숨긴 그물·끌기 한도, 분해 이동, 큰 좌표, 안내 선
 import { describe, expect, it } from 'vitest';
-import { perpBasis, snapAlong, snapGuide, snapIndex, SNAP_PAR, type SnapIndex } from '../../src/app/explodesnap';
+import { PICK_TOLERANCE_PX, pickTolerance, TOUCH_PICK_TOLERANCE_PX } from 'opencad-viewer3d/pointer';
+import { perpBasis, snapAlong, snapGuide, snapIndex, snapPx, SNAP_PAR, type SnapIndex } from '../../src/app/explodesnap';
 import { boxMesh, faceIndexOf, ringMesh } from './snapscene';
+
+it('붙잡기 거리는 코어 측정 붙잡기 규칙(pickTolerance)과 같다 — 마우스·펜 10, 손가락 14화소', () => {
+  expect(snapPx(false)).toBe(pickTolerance('mouse', PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX).snap);
+  expect(snapPx(true)).toBe(pickTolerance('touch', PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX).snap);
+  expect([snapPx(false), snapPx(true)]).toEqual([10, 14]);
+});
 
 const X = [1, 0, 0];
 /** 평행 투영: 축 위 1이 k화소 */

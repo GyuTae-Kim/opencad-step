@@ -195,6 +195,19 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     expect(2 + moveB()).toBe(-4.25);
   });
 
+  it('Alt로 고른 면 강조(같은 선분 강조)가 있으면 안내 선은 그리지 않고 거리 글 아래 줄만', () => {
+    (doc as { face: unknown }).face = { meshId: 'b', boundary: new Float32Array(6) };
+    const p0 = shownB();
+    const s = at(p0, 0);
+    const c = at(p0, -8.3);
+    fire('pointerdown', s[0], s[1]);
+    fire('pointermove', c[0], c[1]);
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    expect(snapRow()[0]).toBe('면에 닿음');
+    fire('pointerup', c[0], c[1]);
+    expect(guides).toEqual([]);
+  });
+
   it('사방(면 위로 끄는 길)과 면 표가 없는 문서는 붙잡지 않는다', () => {
     axis = 'free';
     const p0 = shownB();

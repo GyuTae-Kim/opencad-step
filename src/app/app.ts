@@ -30,7 +30,7 @@ import { closeDialog, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
-import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, selectionOutline, type FacePick } from './faces';
+import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
@@ -81,6 +81,8 @@ const NARROW_CUBE = 76;
 /** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
 const BIG_TRIANGLES = 400_000;
 const BIG_MESHES = 3000;
+/** 고른 면 경계 색(청록) */
+const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
 /** 화면 방향 분해(가로·세로·평면 — 카메라 각으로 방향을 정한다. explode.ts isScreenAxis와 같다: 첫 화면에 분해 조각을 들이지 않게 따로 둔다) */
 const screenAxis = (a: ExplodeAxis): boolean => a === 'sx' || a === 'sy' || a === 'sp';
 
@@ -1059,9 +1061,16 @@ export class StepApp {
   private showFace(face: FacePick | null, edge: EdgePick | null = null): void {
     const v = this.viewer;
     if (!v) return;
-    v.highlightRanges(face ? { [face.meshId]: [{ start: face.triStart, count: face.triangles }] } : edge ? { [edge.meshId]: { edges: [{ start: edge.segStart, count: edge.segCount }] } } : null);
-    const o = selectionOutline(face, edge);
-    v.setHighlightSegments(o?.segs ?? null, o ?? {});
+    if (face) {
+      v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
+      v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
+    } else if (edge) {
+      v.highlightRanges({ [edge.meshId]: { edges: [{ start: edge.segStart, count: edge.segCount }] } });
+      v.setHighlightSegments(edge.segs, { width: 4, hidden: 0.3, color: FACE_EDGE, origin: edge.segOrigin });
+    } else {
+      v.highlightRanges(null);
+      v.setHighlightSegments(null);
+    }
   }
 
   /** 누른 윤곽선 선분의 B-rep 모서리(모서리 표가 없거나 못 찾으면 null) */

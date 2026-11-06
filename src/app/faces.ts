@@ -229,21 +229,6 @@ export function faceDetails(mesh: Mesh3d, table: StepFaceTable, face: number, ki
   return out;
 }
 
-/** 고른 면 경계 색(청록) */
-const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
-
-/**
- * 고른 면·모서리의 강조 선분과 그 선택(Viewer3d.setHighlightSegments에 넘긴다 — 앱의 면 강조, 47차 분해 끌기의 붙잡기 안내 선을 거둔 뒤 되돌리기).
- * 면은 경계 모서리, 모서리는 그 선. 둘 다 없으면 null
- */
-export function selectionOutline(
-  face: Pick<FacePick, 'boundary' | 'boundaryOrigin'> | null,
-  edge: { segs: Float32Array; segOrigin: readonly number[] } | null,
-): { segs: Float32Array; width: number; hidden: number; color: typeof FACE_EDGE; origin?: readonly number[] } | null {
-  if (face) return { segs: face.boundary, width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) };
-  return edge ? { segs: edge.segs, width: 4, hidden: 0.3, color: FACE_EDGE, origin: edge.segOrigin } : null;
-}
-
 /** 면 종류 → 한국어 이름 */
 export function faceKindLabel(kind: string): string {
   return FACE_LABELS[kind] ?? kind;

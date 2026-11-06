@@ -27,20 +27,19 @@
  * 다른 부품에 붙잡기(47차 — SketchUp 이동 도구가 다른 형상에 맞춰 붙는 것, SOLIDWORKS 부품 옮기기의 "닿으면 멈춤"처럼): 끄는 길이 선(축 하나·화면 가로·세로)이면
  * 끌기를 시작할 때 끄는 부품과 다른 보이는 부품의 축에 수직인 평면을 모으고(explodesnap.ts snapIndex — 지금 분해 자리), 움직일 때마다 커서가 정한 축 위 이동량
  * 둘레에서 끄는 면이 다른 면에 닿거나(마주 보고 겹친다) 같은 높이가 되는 자리가 화면에서 붙잡기 거리 안이면 그 자리로 옮긴다(snapAlong — 닿음이 먼저).
- * 붙은 동안 두 면 경계를 안내 선으로 강조하고(코어 setHighlightSegments — 떼거나 풀리면 고른 면·모서리 강조로 되돌린다) 거리 글 아래 줄에 "면에 닿음"·"면과 같은 높이"를 적는다.
+ * 붙은 동안 두 면 경계를 안내 선으로 강조하고(코어 setHighlightSegments — 떼거나 풀리면 거둔다. Alt로 고른 면·모서리 강조가 있으면 덮지 않게 그리지 않는다)
+ * 거리 글 아래 줄에 "면에 닿음"·"면과 같은 높이"를 적는다.
  * Alt(⌥)를 누르고 있는 동안은 붙잡지 않는다(Rhino의 "끄는 동안 Alt를 누르고 있으면 개체 스냅을 잠시 끈다"와 같은 글쇠 — 누르고 떼면 그 자리에서 바로 다시 본다).
  * 쳐 넣은 거리는 붙잡지 않고 그 거리 그대로다.
  */
 import type { Pick3d, Viewer3d } from 'opencad-viewer3d';
-import { PICK_TOLERANCE_PX, pickTolerance, TOUCH_PICK_TOLERANCE_PX } from 'opencad-viewer3d/pointer';
 import { sceneMm } from './display';
 import { selectionItemIds, type StepDoc } from './doc';
 import { h } from './dom';
 import { EXPLODE_SCALE, explodeMoves, type ExplodeAxis, type ExplodeMode, type ExplodePlan, type ExplodeView } from './explode';
 import type { DistField, DistState, TweakHandlers, TweakState } from './explodebar';
 import { ExplodeDrag } from './explodedrag';
-import { lineScreen, snapAlong, snapGuide, snapIndex, type SnapHit, type SnapIndex } from './explodesnap';
-import { selectionOutline } from './faces';
+import { lineScreen, snapAlong, snapGuide, snapIndex, snapPx, type SnapHit, type SnapIndex } from './explodesnap';
 import {
   importedAxis,
   importedView,
@@ -687,7 +686,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     let hit: SnapHit | null = null;
     if (g.snap && !this.alt && 'line' in g.path) {
       const a = g.path.line;
-      hit = snapAlong(g.snap, dd[0] * a[0] + dd[1] * a[1] + dd[2] * a[2], lineScreen(cam, r.width, r.height, g.p0, a), pickTolerance(g.touch ? 'touch' : 'mouse', PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX).snap, g.limit);
+      hit = snapAlong(g.snap, dd[0] * a[0] + dd[1] * a[1] + dd[2] * a[2], lineScreen(cam, r.width, r.height, g.p0, a), snapPx(g.touch), g.limit);
       if (hit) dd = [a[0] * hit.s, a[1] * hit.s, a[2] * hit.s];
     }
     g.hit = hit;
@@ -740,22 +739,19 @@ export class ExplodeTweakTool implements TweakHandlers {
     if (at) this.moveTo(at[0], at[1]);
   }
 
-  /** 붙은 두 면의 안내 선(붙지 않았으면 그렸던 것을 거두고 고른 면·모서리 강조로 되돌린다) */
+  /**
+   * 붙은 두 면의 안내 선(코어 선분 강조 — 붙지 않았으면 그렸던 것을 거둔다). 고른 면·모서리 강조(Alt로 고른 면 — 같은 선분 강조를 쓴다)가 있으면
+   * 그것을 덮지 않게 안내 선은 그리지 않는다(거리 글 아래 줄은 그대로)
+   */
   private guide(v: Viewer3d, g: NonNullable<ExplodeTweakTool['g']>): void {
-    const gd = g.hit && g.snap ? snapGuide(g.snap, g.hit) : null;
+    const gd = g.hit && g.snap && !g.doc.face && !g.doc.edge ? snapGuide(g.snap, g.hit) : null;
     if (gd) {
       v.setHighlightSegments(gd.segs, { width: 3, hidden: 0.35, origin: gd.origin });
       g.guided = v;
     } else if (g.guided) {
       g.guided = null;
-      this.unguide(v, g.doc);
+      v.setHighlightSegments(null);
     }
-  }
-
-  /** 안내 선을 거두고 고른 면·모서리 강조(앱 showFace와 같은 선)로 되돌린다 */
-  private unguide(v: Viewer3d, d: StepDoc): void {
-    const o = selectionOutline(d.face, d.edge);
-    v.setHighlightSegments(o?.segs ?? null, o ?? {});
   }
 
   /** 끌기 끝: commit이면 되돌리기 한 단계로 남기고(최근 문서 항목에도 — 그 단계는 쳐 넣은 거리로 고칠 수 있다), 아니면 앞 자리로 */
@@ -769,7 +765,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     this.unkeys = null;
     this.alt = false;
     // 안내 선을 거둔다(그사이 다른 문서를 열었으면 코어가 장면과 함께 이미 풀었다)
-    if (g?.guided && this.host.opened() === g.doc) this.unguide(g.guided, g.doc);
+    if (g?.guided && this.host.opened() === g.doc) g.guided.setHighlightSegments(null);
     const t = g?.doc.tweaks;
     if (!g || !t) return;
     if (!commit) t.cancel();
