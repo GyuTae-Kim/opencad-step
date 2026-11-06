@@ -76,11 +76,20 @@ export function readStyles(f: StepFile): StyleInfo {
   };
   // 표현 양식 하나에서 면 색·투명도
   type StyleOut = { rgb: [number, number, number] | null; alpha: number; curve: [number, number, number] | null };
+  /**
+   * 양식 개체 → 결과(한 번만 구한다). 구하는 중인 개체는 빈 결과로 먼저 적어 두어 순환 참조를 끊는다 — 깨진 파일에서
+   * 양식 목록이 서로를 가리키면 깊이 8까지 목록 길이의 거듭제곱만큼 되풀이해 멈췄다(57차 퍼징). 실제 파일의 양식 사슬은 순환이 없고
+   * 깊이 8 안이라 결과가 같다
+   */
+  const styleMemo = new Map<number, StyleOut>();
   const surfaceStyle = (id: number, depth = 0): StyleOut => {
+    const hit = styleMemo.get(id);
+    if (hit) return hit;
     const out: StyleOut = { rgb: null, alpha: 1, curve: null };
     if (depth > 8) return out;
     const e = f.get(id);
     if (!e) return out;
+    styleMemo.set(id, { rgb: null, alpha: 1, curve: null });
     const merge = (o: StyleOut) => {
       if (o.rgb && !out.rgb) out.rgb = o.rgb;
       if (o.alpha < 1) out.alpha = Math.min(out.alpha, o.alpha);
@@ -123,6 +132,7 @@ export function readStyles(f: StepFile): StyleInfo {
       default:
         break;
     }
+    styleMemo.set(id, out);
     return out;
   };
   const styleOf = (styleIds: readonly number[]) => {
@@ -189,6 +199,7 @@ export function readStyles(f: StepFile): StyleInfo {
   return { colors, hidden, curveColors, curveColorOf, contextColors };
 }
 
+/** 0~1로 자른다(수가 아니면 0 — 깨진 파일의 색이 NaN으로 화면까지 가지 않게) */
 function clamp01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
+  return !(x > 0) ? 0 : x > 1 ? 1 : x;
 }
