@@ -1,7 +1,8 @@
 /**
  * 나무 조각(49차 — 뷰어 조각 viewerkit.ts에 든다, 첫 화면 JS 밖): 제품 나무와 "부품별 보이기" 표를 화면에 보이는 줄만 만드는 가상 목록(VList)으로 그린다.
  * 부품이 수천 개인 큰 조립에서 문서를 열 때·거를 때·펼칠 때 줄을 모두 만들지 않게(48차 프로필 — 나무 3,000줄 그리기 170~265 ms, 표 2,000줄과 함께 다시 그리기 0.3~0.9초).
- * - 패널 본문(스크롤 상자) 안의 목록 높이를 줄 수 × 줄 높이로 두고, 보이는 줄과 앞뒤 여유 줄만 absolute로 놓는다. 줄 높이는 그린 줄에서 잰다(손가락 기기 36px).
+ * - 패널 본문(스크롤 상자) 안의 목록 높이를 줄 수 × 줄 높이로 두고, 보이는 줄과 앞뒤 여유 줄만 absolute로 놓는다. 줄 높이는 그린 줄에서 잰다(손가락 기기 44px —
+ *   55차부터 잰 줄의 크기가 바뀌면 다시 잰다).
  * - 나무는 WAI-ARIA tree: 줄마다 aria-level·aria-setsize·aria-posinset(형제 수·차례 — 화면 밖 줄이 없어도 스크린 리더가 구조를 읽는다), 탭 멈춤은 한 줄(roving tabindex).
  *   ↑↓로 앞뒤 줄, →로 펼치기·첫 자식, ←로 접기·부모, Home·End로 처음·끝 — 화면 밖 줄이면 스크롤해 만든 뒤 초점을 옮긴다. 초점이 든 줄은 화면 밖으로 스크롤해도 남긴다.
  * - 표는 ARIA table(aria-rowcount·aria-rowindex). 칸의 고르기 상자에 초점이 들면 앞뒤 줄을 만들어 두어 Tab이 끊기지 않는다.
@@ -27,6 +28,8 @@ export class VList {
   private raf = 0;
   private measured = false;
   private readonly ro: ResizeObserver | null = null;
+  /** 줄 높이를 잰 줄(크기가 바뀌면 다시 잰다) */
+  private watched: HTMLElement | null = null;
 
   constructor(
     readonly list: HTMLElement,
@@ -40,8 +43,9 @@ export class VList {
     list.classList.add('vlist');
     list.style.height = `${count * rowH}px`;
     scroller.addEventListener('scroll', this.onScroll, { passive: true });
-    // 패널을 열거나(숨김 → 보임) 크기가 바뀌면 다시 센다
-    if (typeof ResizeObserver === 'function') (this.ro = new ResizeObserver(this.onScroll)).observe(scroller);
+    // 패널을 열거나(숨김 → 보임) 크기가 바뀌면 다시 센다. 줄 높이를 잰 줄도 지켜봐, 글자 크기가 바뀌면(55차 — 브라우저의 글자만 확대를
+    // 문서를 연 뒤 바꿀 때) 줄 높이를 다시 재 줄이 겹치지 않게 한다(잰 줄이 화면 밖으로 빠지면 다음에 그린 줄로 다시 잰다)
+    if (typeof ResizeObserver === 'function') (this.ro = new ResizeObserver(this.onResize)).observe(scroller);
     // 줄 안에 초점이 들면 앞뒤 줄도 만들어 둔다(Tab·Shift+Tab이 화면 밖 다음 줄로 이어지게)
     list.addEventListener('focusin', (ev) => {
       const i = this.indexOf(ev.target as Element);
@@ -60,6 +64,11 @@ export class VList {
       this.raf = 0;
       if (this.list.isConnected) this.update();
     });
+  };
+
+  private readonly onResize = (): void => {
+    this.measured = false;
+    this.onScroll();
   };
 
   /** 요소가 든 줄의 차례(이 목록의 줄이 아니면 -1) */
@@ -90,7 +99,11 @@ export class VList {
     const add: number[] = [];
     for (let i = a; i <= b; i++) if (!this.shown.has(i)) add.push(i);
     for (const i of more) if (!this.shown.has(i) && !add.includes(i)) add.push(i);
-    if (!add.length) return;
+    if (!add.length) {
+      // 더할 줄이 없어도 줄 높이를 다시 재야 하면(잰 줄의 크기가 바뀜) 잰다
+      if (!this.measured) this.measure();
+      return;
+    }
     add.sort((x, y) => x - y);
     const have = [...this.shown.keys()].sort((x, y) => x - y);
     let k = 0;
@@ -107,9 +120,14 @@ export class VList {
 
   /** 처음 그린 줄의 높이로 줄 높이를 맞춘다(CSS — 손가락 기기·글자 크기) */
   private measure(): void {
-    const hh = this.shown.values().next().value?.getBoundingClientRect().height ?? 0;
+    const first = this.shown.values().next().value;
+    const hh = first?.getBoundingClientRect().height ?? 0;
     if (!hh) return;
     this.measured = true;
+    if (this.ro && first !== this.watched) {
+      if (this.watched) this.ro.unobserve(this.watched);
+      this.ro.observe((this.watched = first!));
+    }
     if (Math.abs(hh - this.rowH) < 0.25) return;
     this.rowH = hh;
     this.list.style.height = `${this.count * hh}px`;
