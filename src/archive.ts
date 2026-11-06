@@ -8,6 +8,7 @@
  * - 58차: 풀린 크기를 미리 알 수 있으면(ZIP 목록의 크기·gzip 끝 ISIZE) 믿지 않고 deflate가 낼 수 있는 크기인지 본 뒤 그만큼 한 번에 잡아 그 안에 푼다
  *   (덩이를 모은 뒤 잇느라 최고 메모리가 풀린 크기의 두 배가 되던 것을 한 배로). ZIP 목록의 크기가 상한을 넘으면 풀기 전에 거절한다.
  *   앞 64 KiB를 풀었을 때 STEP·gzip·ZIP이 아니면(0바이트 폭탄 등) 더 풀지 않는다 — 앞 64 KiB만으로 거절이 정해지므로 알림 글은 같다.
+ *   압축 바이트는 64 KiB씩 넣는다(브라우저 DecompressionStream이 넣은 조각 하나를 한꺼번에 풀어 줄 세우므로 — 폭탄이면 1 MiB가 1 GB).
  */
 
 /** 파일 앞부분으로 가린 종류 */
@@ -221,7 +222,10 @@ export async function inflate(data: Uint8Array, format: 'gzip' | 'deflate-raw', 
       readError = e;
     }
   })();
-  const CHUNK = 1 << 20;
+  // 압축 바이트를 64 KiB씩 넣는다: 브라우저의 DecompressionStream은 넣은 조각 하나를 다 풀어 덩이들을 한꺼번에 줄 세우므로(받는 쪽이 읽기 전에),
+  // 압축 폭탄(약 1000:1)이면 1 MiB 조각 하나가 1 GB 덩이가 되어 최고 메모리가 그만큼 늘었다(58차 헤드리스 Chrome — 앞 64 KiB에서 멈춰도 1.2 GB).
+  // 64 KiB면 한 번에 66 MB 안쪽
+  const CHUNK = 64 * 1024;
   let writeError: unknown = null;
   try {
     for (let off = 0; off < data.length && !overLimit && !stoppedHead && !readError; off += CHUNK) {
