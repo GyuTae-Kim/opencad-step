@@ -112,7 +112,17 @@ describe('지수로 불어나는 조립(같은 하위 조립을 층마다 두 �
     const [s, ms] = timed(() => stepToScene(dag(31), { faceTable: false, props: false }));
     expect(ms).toBeLessThan(20_000);
     expect(s.meshes.length).toBeLessThan(MAX_PLACEMENTS);
-    expect(s.meshes.length).toBeGreaterThan(MAX_PLACEMENTS / 4);
+    // 자리는 제품 나무 마디·표현·그물을 함께 센다 — 부품 하나에 셋쯤
+    expect(s.meshes.length).toBeGreaterThan(MAX_PLACEMENTS / 10);
+    expect(s.warnings).toContain(`조립 자리가 ${MAX_PLACEMENTS}개를 넘어 나머지는 놓지 않았다(같은 하위 조립을 층마다 거듭 쓴 파일일 수 있음)`);
+  });
+
+  it('끝의 형상을 읽지 못해 그물이 생기지 않는 깨진 깊이 31 조립도 따라가는 표현을 세어 멈춘다(퍼징 둘째 판: 20초 넘게 멈춤)', () => {
+    // 맨 아래 정육면체의 닫힌 껍질을 지워 그물이 하나도 생기지 않게 한다
+    const t = new TextDecoder().decode(dag(31)).replace(/#\d+=CLOSED_SHELL\([^;]*;\n/, '');
+    const [s, ms] = timed(() => stepToScene(enc(t), { faceTable: false, props: false }));
+    expect(ms).toBeLessThan(20_000);
+    expect(s.meshes).toHaveLength(0);
     expect(s.warnings).toContain(`조립 자리가 ${MAX_PLACEMENTS}개를 넘어 나머지는 놓지 않았다(같은 하위 조립을 층마다 거듭 쓴 파일일 수 있음)`);
   });
 });
@@ -163,6 +173,28 @@ describe('극값 숫자·터무니없는 크기', () => {
   it('차수는 1~MAX_DEGREE만 읽는다', () => {
     expect(stepToScene(bspline('1', '(2,2)')).lines).toHaveLength(1);
     expect(stepToScene(bspline(String(MAX_DEGREE + 1), '(2,2)')).lines).toHaveLength(0);
+  });
+
+  it('좌표 100만 개짜리 DIRECTION도 앞 셋만 읽는다(퍼징 둘째 판: 좌표틀마다 통째로 옮겨 13초)', () => {
+    const t = cubeText().replace("DIRECTION('',(0.,0.,1.))", `DIRECTION('',(0.,0.,1.,${Array.from({ length: 1_000_000 }, () => '0.').join(',')}))`);
+    expect(t.length).toBeGreaterThan(3_000_000);
+    const [s, ms] = timed(() => stepToScene(enc(t)));
+    expect(ms).toBeLessThan(3000);
+    expect(stats(s).failedFaces).toBe(0);
+  });
+
+  it('좌표 9e15인 꼭짓점: T자 이음 고치기의 칸 고리가 끝난다(퍼징 둘째 판: 칸 번호가 2^53을 넘어 칸++가 그대로 — 멈춤)', () => {
+    const t = cubeText().replace("CARTESIAN_POINT('',(10.,10.,10.))", "CARTESIAN_POINT('',(10.,9007199254740993.,10.))");
+    expect(t).toContain('9007199254740993');
+    const [s, ms] = timed(() => stepToScene(enc(t)));
+    expect(ms).toBeLessThan(2000);
+    expect(finite(s)).toBe(true);
+  });
+
+  it('번호가 2^32를 넘는 문장은 문법 오류로 건너뛴다(32비트 색인에서 다른 번호로 접히지 않게)', () => {
+    const s = stepToScene(enc(cubeText().replace(/#(\d+)=/g, (_, d) => `#${BigInt(d) + 4294967296n}=`)));
+    expect(s.warnings?.[0]).toMatch(/^문법 오류로 건너뛴 문장 \d+개$/);
+    expect(s.meshes).toHaveLength(0);
   });
 
   it('꼭짓점 좌표 1E300: 그 꼭짓점만 읽지 못하고 화면으로 가는 좌표는 모두 유한하다(전: float32 무한 → 경계 상자·카메라가 깨짐)', () => {
