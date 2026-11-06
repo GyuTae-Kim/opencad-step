@@ -746,7 +746,8 @@ export class ExplodeTweakTool implements TweakHandlers {
   private guide(v: Viewer3d, g: NonNullable<ExplodeTweakTool['g']>): void {
     const gd = g.hit && g.snap && !g.doc.face && !g.doc.edge ? snapGuide(g.snap, g.hit) : null;
     if (gd) {
-      v.setHighlightSegments(gd.segs, { width: 3, hidden: 0.35, origin: gd.origin });
+      // 면 경계 청록(앱의 고른 면 경계와 같은 색 — 부품 강조색과 갈린다)
+      v.setHighlightSegments(gd.segs, { width: 3, hidden: 0.35, color: [0.05, 0.8, 0.95, 1], origin: gd.origin });
       g.guided = v;
     } else if (g.guided) {
       g.guided = null;
