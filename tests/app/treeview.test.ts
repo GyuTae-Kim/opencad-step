@@ -15,7 +15,9 @@ import { Fmt } from '../../src/app/display';
 const VIEW = 280;
 const TREE_TOP = 120;
 const GRID_TOP = 300;
-const viewOf = (_body: Element) => VIEW;
+/** 아래 띠(고른 것)가 보이면 본문이 그만큼 줄어든다 */
+const FOOT = 58;
+const viewOf = (body: Element) => (body.parentElement?.querySelector<HTMLElement>('.panel-foot')?.hidden === false ? VIEW - FOOT : VIEW);
 
 /** 뿌리 → 모듈 mods개 → 모듈마다 부품 per개(자리 이름 p1…) */
 function bigDoc(mods = 40, per = 100): StepDoc {
@@ -201,22 +203,24 @@ describe('제품 나무 가상 목록', () => {
     expect(calls).toEqual([]);
   });
 
-  it('3D에서 고른 줄이 화면 밖이면 그 줄로 스크롤해 만든다(펼침이 그대로면 다시 그리지 않음)', () => {
+  it('3D에서 고른 줄이 화면 밖이면 그 줄로 스크롤해 만든다(펼침이 그대로면 다시 그리지 않음, 처음 나타나는 아래 띠 뒤에 숨지 않게)', () => {
     const d = bigDoc();
     const { panel, body, row } = mount(d);
     const top = row('0');
+    expect(panel.el.querySelector<HTMLElement>('.panel-foot')!.hidden).toBe(true);
     d.selKey = '0/30/50';
     panel.onSelection(true);
     expect(row('0')).toBe(top);
     const sel = row('0/30/50')!;
     expect(sel.classList.contains('sel')).toBe(true);
     expect(sel.getAttribute('aria-selected')).toBe('true');
-    // 차례 1 + 30 × 101 + 1 + 50 = 3,082 — 그 줄 아래가 화면 아래 끝
-    expect(body.scrollTop).toBe(TREE_TOP + 3082 * 28 + 28 - VIEW);
+    // 차례 1 + 30 × 101 + 1 + 50 = 3,082 — 그 줄 아래가 (아래 띠가 나타나 줄어든) 화면 아래 끝
+    expect(panel.el.querySelector<HTMLElement>('.panel-foot')!.hidden).toBe(false);
+    expect(body.scrollTop).toBe(TREE_TOP + 3082 * 28 + 28 - (VIEW - FOOT));
     // 이미 보이면 그대로
     d.selKey = '0/30/49';
     panel.onSelection(true);
-    expect(body.scrollTop).toBe(TREE_TOP + 3082 * 28 + 28 - VIEW);
+    expect(body.scrollTop).toBe(TREE_TOP + 3082 * 28 + 28 - (VIEW - FOOT));
   });
 
   it('이름 거르기: 맞는 마디와 조상만 줄로(형제 수도 거른 줄로), ↓로 첫 줄', async () => {

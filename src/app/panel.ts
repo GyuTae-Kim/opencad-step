@@ -198,9 +198,10 @@ export class Panel {
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
     } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
+    // 아래 띠를 먼저 고친다(처음 고르면 띠가 나타나 본문이 줄어든다 — 그 뒤에 재야 고른 줄이 띠 뒤에 숨지 않는다)
+    this.renderFoot();
     // 고른 줄(몸체 줄이 있으면 그 줄 — 부품 줄의 일부 고름 표시보다 먼저)이 화면 밖이면 스크롤해 만든다
     if (reveal && d.panelTab === 'tree') this.tree?.reveal();
-    this.renderFoot();
   }
 
   onMeasure(): void {
