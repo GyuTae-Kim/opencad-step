@@ -243,6 +243,41 @@ describe('제품 나무 가상 목록', () => {
     expect((document.activeElement as HTMLElement).dataset.key).toBe('0');
   });
 
+  it('Ctrl·⌘+F(50차): 나무가 보이면 거르기 칸으로(글 고름), 칸에서 한 번 더 누르면 브라우저 찾기, 패널이 닫혔거나 다른 탭·Shift·Alt면 가로채지 않음', () => {
+    const d = bigDoc();
+    const { panel, row } = mount(d);
+    const find = (target: Element, o: KeyboardEventInit = { ctrlKey: true }) => {
+      const ev = new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true, ...o });
+      target.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const input = () => panel.el.querySelector<HTMLInputElement>('.tree-filter')!;
+    // 칸에 단축키를 알린다(화면 읽기 프로그램·말풍선)
+    expect(input().getAttribute('aria-keyshortcuts')).toBe('Control+F Meta+F');
+    expect(input().title).toContain('Ctrl·⌘+F');
+    // 패널이 닫혀 있으면(휴대폰 시트를 닫음 등) 브라우저 찾기 그대로
+    panel.setOpen(false);
+    expect(find(document.body)).toBe(false);
+    panel.setOpen(true);
+    input().value = 'p7';
+    // 나무 줄에 초점이 있어도, 문서 어디서나: 거르기 칸으로 옮기고 글을 고른다
+    row('0/0/1')!.focus();
+    expect(find(document.activeElement!)).toBe(true);
+    expect(document.activeElement).toBe(input());
+    expect([input().selectionStart, input().selectionEnd]).toEqual([0, 2]);
+    // 칸에서 한 번 더: 가로채지 않는다(브라우저 찾기)
+    expect(find(input())).toBe(false);
+    // ⌘+F(맥)도, Shift·Alt가 붙으면(다른 찾기 단축키) 건드리지 않는다
+    expect(find(document.body, { metaKey: true })).toBe(true);
+    expect(find(document.body, { ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(find(document.body, { ctrlKey: true, altKey: true })).toBe(false);
+    expect(find(document.body, {})).toBe(false);
+    // 다른 탭으로 바꾸면(거르기 칸이 DOM에서 빠짐) 브라우저 찾기 그대로
+    panel.setTab('info');
+    expect(input()).toBeNull();
+    expect(find(document.body)).toBe(false);
+  });
+
   it('눈 단추로 숨기면(다시 그림) 초점이 새 줄의 눈 단추로 돌아온다', () => {
     const d = bigDoc();
     const { panel, row, calls } = mount(d);

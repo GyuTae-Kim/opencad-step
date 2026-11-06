@@ -399,6 +399,7 @@ export class Panel {
         this.renderBody();
       }, 160);
     });
+    // Esc는 거르기를 지운다(↓로 첫 줄, Ctrl·⌘+F로 이 칸에 오기는 나무 조각 — treeview.ts)
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && input.value) {
         ev.preventDefault();
@@ -406,9 +407,6 @@ export class Panel {
         input.value = '';
         d.treeFilter = '';
         this.renderBody();
-      } else if (ev.key === 'ArrowDown') {
-        ev.preventDefault();
-        this.tree?.focusAt(0);
       }
     });
     const search = h('label', { class: 'tree-search' }, icon('search', 15), input);
@@ -441,7 +439,7 @@ export class Panel {
           host: this.host,
           scroller: this.body,
           redraw: () => this.renderBody(),
-          toFilter: () => input.focus(),
+          filter: input,
         })
       : null;
     let more: HTMLElement | null = null;

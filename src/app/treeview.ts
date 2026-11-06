@@ -137,8 +137,27 @@ export interface TreeOpts {
   scroller: HTMLElement;
   /** 펼침이 바뀜: 패널 본문을 다시 그린다(초점이 든 줄은 패널이 되돌린다) */
   redraw(): void;
-  /** ↑로 첫 줄 위: 이름 거르기 칸으로 */
-  toFilter(): void;
+  /** 나무 위 이름 거르기 칸: 첫 줄에서 ↑, 그리고 Ctrl·⌘+F(findToFilter)가 이 칸으로 */
+  filter: HTMLInputElement;
+}
+
+/** Ctrl·⌘+F가 옮겨 갈 거르기 칸(가장 최근에 그린 나무의 것 — 탭을 바꾸거나 다시 그리면 DOM에서 빠진다) */
+let findFilter: HTMLInputElement | null = null;
+let findBound = false;
+
+/**
+ * Ctrl·⌘+F → 나무 위 이름 거르기 칸(50차). 가상 목록은 화면 밖 줄이 DOM에 없어 브라우저의 페이지 안 찾기가 그 줄을 찾지 못하므로,
+ * 나무가 보이는 동안(패널이 열리고 제품 탭) 첫 Ctrl·⌘+F는 거르기 칸에 초점을 주고 글을 고른다. 그 칸에서 한 번 더 누르면 가로채지 않아
+ * 브라우저 찾기가 열린다(GitHub 코드 보기와 같은 꼴 — GitHub Projects도 Ctrl·⌘+F가 거르기 칸으로 간다). 패널이 닫혔거나 다른 탭이면 브라우저 찾기 그대로.
+ * Shift·Alt가 붙은 조합(브라우저·운영 체제의 다른 찾기)은 건드리지 않는다
+ */
+export function findToFilter(ev: KeyboardEvent, f: HTMLInputElement | null = findFilter): boolean {
+  if (!f || ev.defaultPrevented || ev.altKey || ev.shiftKey || !(ev.ctrlKey || ev.metaKey) || (ev.key !== 'f' && ev.key !== 'F')) return false;
+  if (ev.target === f || !f.isConnected || f.closest('[hidden]')) return false;
+  ev.preventDefault();
+  f.focus();
+  f.select();
+  return true;
 }
 
 export interface TreeView {
@@ -208,6 +227,20 @@ export function treeView(o: TreeOpts): TreeView {
   // 고른 항목(여러 개 고르기 묶음 등 — 줄을 만들 때마다 집합을 다시 만들지 않게, 고르기가 바뀌면 patch가 고친다)
   let picked = treePicked(d);
   const el = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
+  // Ctrl·⌘+F: 이 나무의 거르기 칸으로(창 글쇠는 처음 한 번만 듣는다). 칸에 단축키를 알린다(화면 읽기 프로그램·말풍선)
+  findFilter = o.filter;
+  o.filter.setAttribute('aria-keyshortcuts', 'Control+F Meta+F');
+  o.filter.title = 'Ctrl·⌘+F로 이 칸에 옵니다 — 칸에서 한 번 더 누르면 브라우저 찾기(화면 밖 나무 줄은 브라우저 찾기에 걸리지 않습니다)';
+  if (!findBound) {
+    findBound = true;
+    window.addEventListener('keydown', (ev) => void findToFilter(ev));
+  }
+  // 거르기 칸에서 ↓: 첫 줄로(거른 줄이 없으면 그대로)
+  o.filter.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowDown') return;
+    ev.preventDefault();
+    focusAt(0);
+  });
   // 탭 멈춤 줄(roving tabindex): 고른 줄, 없으면 첫 줄 — 늘 DOM에 남긴다(Tab으로 들어오면 그 줄로)
   let active = Math.max(0, rows.findIndex((r) => d.selKey === r.key));
   const setActive = (i: number) => {
@@ -331,7 +364,7 @@ export function treeView(o: TreeOpts): TreeView {
       else if (k === 'ArrowRight' && r.hasChildren) (r.open ? focusAt(i + 1) : toggle(r));
       else if (k === 'ArrowLeft' && (r.open || parent[i]! >= 0)) (r.open ? toggle(r) : focusAt(parent[i]!));
       else if (k === 'ArrowDown') focusAt(i + 1);
-      else if (k === 'ArrowUp') (i ? focusAt(i - 1) : o.toFilter());
+      else if (k === 'ArrowUp') (i ? focusAt(i - 1) : o.filter.focus());
       else if (k === 'Home' || k === 'End') focusAt(k === 'Home' ? 0 : rows.length - 1);
       else return;
       ev.preventDefault();
