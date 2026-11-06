@@ -16,7 +16,7 @@
  * - 나머지 면 짝(K_in·K_out로 갈리지 않는 것)은 차례로 하나라도 서면 된다(모두 하한 ≥ ρout − ρin):
  *   ① 참 면을 품는 두 상자 사이 ② H 둘레 원통 좌표로 두 면의 ρ 범위 틈과 축 방향 범위 틈(√(Δρ² + Δh²))
  *   ③ 평면 법선으로 비춘 두 볼록 집합의 틈(원기둥·원뿔은 두 끝 원, 구·원환은 닫힌 꼴, 평면은 꼭짓점과 경계 현의 그 방향 처짐)
- *   ④ 두 면 삼각형 사이 최소 거리(코어 closestBetween) − 두 면 처짐
+ *   ④ 두 면 삼각형 사이 최소 거리(삼각형 상자로 거른 뒤 삼각형끼리 — 코어 조각과 나눠 받지 않게 여기서 잰다) − 두 면 처짐
  * - 면 처짐(참 면이 그 면 삼각형에서 떨어질 수 있는 한도): 곡면 처짐(원기둥·원뿔·원환은 삼각형이 축 둘레로 덮는 각, 구는 삼각형 평면과 중심 사이 —
  *   닫힌 꼴)의 두 배 + 경계 현의 모서리 처짐 + float32 반올림. 평면은 경계 현의 모서리 처짐뿐이다.
  *   모서리 처짐(모서리 표 곡선 정의): 직선 0, 원은 화살 높이, 타원은 가장 작은 곡률 반지름의 화살 높이(호는 곡선 평면 안 — 그 법선 쪽으로는 0),
@@ -25,8 +25,6 @@
  * 이웃 면은 경계 현(그 면 삼각형에서 한 번만 쓰인 변)의 두 끝 좌표(float32 그대로)가 같은 다른 면, 현의 모서리는 그물 윤곽선 토막(같은 좌표)으로 찾는다.
  * 시간 한도를 넘으면 받지 않는다.
  */
-import { buildBvh } from 'opencad-viewer3d/bvh';
-import { closestBetween, type ClosestShape } from 'opencad-viewer3d/closest';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import type { BsplineDef } from '../edgecurve';
 import type { StepFaceTable } from '../scene';
@@ -139,7 +137,8 @@ interface FaceData {
   es?: number;
   /** 원기둥·원뿔: 참 면을 품는 두 끝 원(중심·반지름 — 축은 ax) */
   ends?: [[V3, number], [V3, number]];
-  shape?: ClosestShape | null;
+  /** 삼각형(처음 쓸 때 만든다 — ④) */
+  tris?: Tri[];
 }
 
 /** 축 a에 수직인 반지름 r 원(중심 c)을 품는 상자 */
@@ -716,29 +715,110 @@ export function certifyConcave(
     if (!Number.isFinite(need)) return false;
     if (gap >= need) return true;
     tested++;
-    const sa = (a.shape ??= faceShape(pi!, a));
-    const sb = (b.shape ??= faceShape(po!, b));
-    if (!sa || !sb) return false;
-    const r = closestBetween(sa, sb, { maxDistance: need });
-    if (r) gap = r.distance;
-    return !r || r.distance >= need;
+    const ta = (a.tris ??= faceTris(pi!, a));
+    const tb = (b.tris ??= faceTris(po!, b));
+    let k = 0;
+    for (const x of ta)
+      for (const y of tb) {
+        if (++k % 4096 === 0 && performance.now() > deadline) return false;
+        if (boxesGap(x.box, y.box) >= need) continue;
+        const dd = triTri(x.p, y.p);
+        if (dd < need) {
+          gap = dd;
+          return false;
+        }
+      }
+    return true;
   }
 }
 
-/** 면 삼각형 모양(세계 — 첫 꼭짓점 기준 float32, 코어 closestBetween) */
-function faceShape(p: PartData, fd: FaceData): ClosestShape | null {
+/** 면 삼각형(세계 꼭짓점 셋과 상자) */
+interface Tri {
+  p: [V3, V3, V3];
+  box: [V3, V3];
+}
+
+function faceTris(p: PartData, fd: FaceData): Tri[] {
   const I = p.mesh.indices!;
-  const n = fd.t1 - fd.t0;
-  if (n <= 0) return null;
-  const c = I[fd.t0 * 3]!;
-  const o: V3 = [p.W[c * 3]!, p.W[c * 3 + 1]!, p.W[c * 3 + 2]!];
-  const pos = new Float32Array(n * 9);
-  for (let t = 0; t < n; t++)
-    for (let k = 0; k < 3; k++) {
-      const i = I[(fd.t0 + t) * 3 + k]!;
-      for (let q = 0; q < 3; q++) pos[t * 9 + k * 3 + q] = p.W[i * 3 + q]! - o[q]!;
+  const at = (i: number): V3 => [p.W[i * 3]!, p.W[i * 3 + 1]!, p.W[i * 3 + 2]!];
+  const out: Tri[] = [];
+  for (let t = fd.t0; t < fd.t1; t++) {
+    const q: [V3, V3, V3] = [at(I[t * 3]!), at(I[t * 3 + 1]!), at(I[t * 3 + 2]!)];
+    out.push({
+      p: q,
+      box: [
+        [Math.min(q[0][0], q[1][0], q[2][0]), Math.min(q[0][1], q[1][1], q[2][1]), Math.min(q[0][2], q[1][2], q[2][2])],
+        [Math.max(q[0][0], q[1][0], q[2][0]), Math.max(q[0][1], q[1][1], q[2][1]), Math.max(q[0][2], q[1][2], q[2][2])],
+      ],
+    });
+  }
+  return out;
+}
+
+/** 두 삼각형 사이 거리: 서로 뚫으면 0, 아니면 꼭짓점–삼각형 여섯과 변–변 아홉 가운데 최소 */
+function triTri(A: readonly [V3, V3, V3], B: readonly [V3, V3, V3]): number {
+  for (let i = 0; i < 3; i++) if (segHitsTri(A[i]!, A[(i + 1) % 3]!, B) || segHitsTri(B[i]!, B[(i + 1) % 3]!, A)) return 0;
+  let m = Infinity;
+  for (let i = 0; i < 3; i++) {
+    m = Math.min(m, pointTri(A[i]!, B[0], B[1], B[2]), pointTri(B[i]!, A[0], A[1], A[2]));
+    for (let j = 0; j < 3; j++) m = Math.min(m, segSeg(A[i]!, A[(i + 1) % 3]!, B[j]!, B[(j + 1) % 3]!));
+  }
+  return m;
+}
+
+/** 선분 pq가 삼각형 T를 지나는지(묄러–트럼보어, 경계 포함) */
+function segHitsTri(p: V3, q: V3, T: readonly [V3, V3, V3]): boolean {
+  const d = sub(q, p);
+  const e1 = sub(T[1], T[0]);
+  const e2 = sub(T[2], T[0]);
+  const h = cross(d, e2);
+  const det = dot(e1, h);
+  if (Math.abs(det) < 1e-300) return false;
+  const s = sub(p, T[0]);
+  const u = dot(s, h) / det;
+  if (u < 0 || u > 1) return false;
+  const qv = cross(s, e1);
+  const v = dot(d, qv) / det;
+  if (v < 0 || u + v > 1) return false;
+  const t = dot(e2, qv) / det;
+  return t >= 0 && t <= 1;
+}
+
+/** 두 선분 p1q1·p2q2 사이 거리(Ericson 5.1.9) */
+function segSeg(p1: V3, q1: V3, p2: V3, q2: V3): number {
+  const d1 = sub(q1, p1);
+  const d2 = sub(q2, p2);
+  const r = sub(p1, p2);
+  const a = dot(d1, d1);
+  const e = dot(d2, d2);
+  const f = dot(d2, r);
+  const cl = (x: number) => Math.min(1, Math.max(0, x));
+  let s: number;
+  let t: number;
+  if (a <= 1e-300 && e <= 1e-300) return norm(r);
+  if (a <= 1e-300) {
+    s = 0;
+    t = cl(f / e);
+  } else {
+    const c = dot(d1, r);
+    if (e <= 1e-300) {
+      t = 0;
+      s = cl(-c / a);
+    } else {
+      const b = dot(d1, d2);
+      const den = a * e - b * b;
+      s = den > 0 ? cl((b * f - c * e) / den) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) {
+        t = 0;
+        s = cl(-c / a);
+      } else if (t > 1) {
+        t = 1;
+        s = cl((b - c) / a);
+      }
     }
-  return { kind: 'triangle', positions: pos, bvh: buildBvh('triangle', pos), model: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, o[0], o[1], o[2], 1] };
+  }
+  return norm(sub([p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s], [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t]));
 }
 
 /**
