@@ -13,7 +13,7 @@
 import type { Box3, LineSet3d, Mesh3d, PointSet3d, Rgba, Scene3d } from 'opencad-viewer3d/types';
 import { BrepMesher, EDGE_KINDS, EDGE_PARAMS, type EdgeTableData, FACE_KINDS, FACE_PARAMS, type FaceTableData, isMeshableType, isTessellatedType, type ItemMesh, needsOrigin, relativeFloat32 } from './brep';
 import { scaleCurveRecords } from './edgecurve';
-import { Geometry } from './geometry';
+import { Geometry, MAX_COORD } from './geometry';
 import { readLayers } from './layers';
 import { TRUNCATED_WARNING } from './messages';
 import { frameMatrix, identity, invert, isIdentity, makeFrame, type M4, mul, normalize, transformPoint, type V3 } from './math';
@@ -38,6 +38,16 @@ export type StepEdgeTable = EdgeTableData;
 export { EDGE_KINDS, EDGE_PARAMS, EDGE_TANGENTS, FACE_KINDS, FACE_PARAMS } from './brep';
 export { scaleProps } from './massprops';
 export { MassPropsJob, type PropsResult } from './propsjob';
+
+/**
+ * 장면에 놓는 자리(제품 나무 마디·그물 자리·선 형상 자리) 상한. 같은 하위 조립(또는 사상 항목)을 층마다 두 번씩 쓰면 자리가 층 수의
+ * 거듭제곱이 된다(깊이 상한 32면 40억) — 57차 퍼징의 합성 조립은 깊이 20(자리 약 200만)에서 해석기만 2.5 GB를 넘었다.
+ * 25만 자리는 해석기에서 수백 MB·수 초이고, 로컬 실제 표본 1,765쌍에서 그물 자리가 가장 많은 파일도 31개다. 넘으면 더 놓지 않고 경고를 남긴다
+ */
+export const MAX_PLACEMENTS = 250_000;
+
+/** 시험·퍼징용: 덧붙은 부분을 읽다가 잡은 예외를 알린다(앱은 쓰지 않는다 — 경고 "읽지 못해 뺀 부분"만 남는다) */
+export const partErrorHook: { onError?: (e: unknown) => void } = {};
 
 export interface StepOptions {
   /** 장면 이름(기본: 파일 머리의 FILE_NAME 또는 'STEP') */
@@ -264,7 +274,21 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
   const warnings: string[] = [];
   if (f.truncated) warnings.push(TRUNCATED_WARNING);
   if (f.skipped) warnings.push(`문법 오류로 건너뛴 문장 ${f.skipped}개`);
-  const styles = readStyles(f);
+  /**
+   * 덧붙은 부분(색·레이어·제품 속성·PMI·형상 항목 하나·선 형상 하나)을 읽다가 오류가 나면 그 부분만 빼고 나머지는 연다.
+   * 깨진 파일에서 한 곳의 예외가 파일 전체를 못 열게 했다(57차 퍼징) — 뺀 곳 수는 경고로 남긴다
+   */
+  let partErrors = 0;
+  const guard = <T>(fallback: T, fn: () => T): T => {
+    try {
+      return fn();
+    } catch (e) {
+      partErrors++;
+      partErrorHook.onError?.(e);
+      return fallback;
+    }
+  };
+  const styles = guard<ReturnType<typeof readStyles>>({ colors: new Map(), hidden: new Set(), curveColors: new Map(), curveColorOf: () => undefined, contextColors: [] }, () => readStyles(f));
   const geom = new Geometry(f);
   const mesher = new BrepMesher(f, geom, (id) => styles.colors.get(id), {
     relTol: opts.tolerance ?? 0.001,
@@ -284,7 +308,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     angle: ((opts.angleTolerance ?? 20) * Math.PI) / 180,
   });
   // ── 레이어 ──
-  const layerIdx = readLayers(f);
+  const layerIdx = guard<ReturnType<typeof readLayers>>({ layers: [], layerOf: new Map() }, () => readLayers(f));
   const layerOf = layerIdx.layerOf;
   const hasLayers = layerIdx.layers.length > 0;
   const layerMeshes: string[][] = layerIdx.layers.map(() => []);
@@ -567,8 +591,13 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     let m = meshCache.get(item);
     if (m === undefined) {
       geom.angleFactor = units.angleRad;
-      m = mesher.meshItem(item, onFace);
+      m = guard(null, () => mesher.meshItem(item, onFace));
       geom.trim();
+      // 좌표가 수가 아니거나 화면 float32를 넘는 그물(깨진 파일)은 그리지 않는다 — 경계 상자·카메라가 무한·NaN이 되어 문서 전체가 안 보인다
+      if (m && !finiteCoords(m.positions, m.origin)) {
+        m = null;
+        partErrors++;
+      }
       meshCache.set(item, m);
       if (m) {
         solids++;
@@ -599,6 +628,14 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     return sm;
   };
   let meshSeq = 0;
+  /** 장면에 놓은 자리(제품 나무 마디·그물·선 형상) 수 — MAX_PLACEMENTS를 넘으면 더 따라가지 않는다 */
+  let placed = 0;
+  let capped = false;
+  const full = (): boolean => {
+    if (placed < MAX_PLACEMENTS) return false;
+    capped = true;
+    return true;
+  };
   const faceTables: FaceTableData[] = [];
   const faceTableOf = new Map<FaceTableData, number>();
   const meshFaceTable: number[] = [];
@@ -609,6 +646,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     if (styles.hidden.has(item)) return;
     const m = getMesh(item, r.units);
     if (!m) return;
+    placed++;
     const id = `step-${++meshSeq}`;
     const itemName = text(f.get(item)?.args[0]);
     // 자리별 덮어쓰기(이 항목 또는 따라온 표현): 파일 색보다 앞선다
@@ -675,9 +713,14 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     let w = wireCache.get(key);
     if (w === undefined) {
       geom.angleFactor = units.angleRad;
-      const base = wire.sample(item);
+      const base = guard(null, () => wire.sample(item));
       w = base && k !== 1 ? { segs: base.segs.map((x) => x * k), points: base.points.map((x) => x * k) } : base;
       geom.trim();
+      // 좌표가 수가 아니거나 너무 큰 선 형상(잘림 매개변수 1E30짜리 직선 등 — 깨진 파일)은 그리지 않는다
+      if (w && !(finiteCoords(w.segs) && finiteCoords(w.points))) {
+        w = null;
+        partErrors++;
+      }
       wireCache.set(key, w);
     }
     return w;
@@ -691,6 +734,11 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
   /** 표현 하나를 따라가는 동안 모은 선(색·레이어별) → 선 묶음으로 */
   const flushWire = (aggs: Map<string, WireAgg>, name: string, node: StepProductNode) => {
     for (const a of aggs.values()) {
+      // 자리 변환을 거쳐 좌표가 너무 커진 것(깨진 파일의 배율 등)은 뺀다
+      if (!finiteCoords(a.segs) || !finiteCoords(a.pts)) {
+        partErrors++;
+        continue;
+      }
       if (a.segs.length) {
         const id = `step-line-${++lineSeq}`;
         const o = originOf(a.segs);
@@ -717,6 +765,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     if (styles.hidden.has(item)) return;
     const w = wireOf(item, r.units);
     if (!w) return;
+    placed++;
     pickUnits(r.units);
     const color = styles.curveColors.get(item);
     const layer = itemLayer(item);
@@ -729,10 +778,13 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
 
   const visitedReps = new Set<number>();
   const consumedNauo = new Set<number>();
+  /** 지금 따라가는 길의 표현(사상 항목이 자기·조상 표현을 비추는 순환 — 깨진 파일 — 을 끊는다) */
+  const repPath = new Set<number>();
   /** 표현 하나의 항목들 */
   const visitRep = (repId: number, matrix: M4, node: StepProductNode, pd: number, depth: number, color: Rgba | undefined) => {
     const r = rep(repId);
-    if (!r || depth > 32) return;
+    if (!r || depth > 32 || repPath.has(repId) || full()) return;
+    repPath.add(repId);
     visitedReps.add(repId);
     const prevLayer = curLayer;
     const rl = hasLayers ? layerOf.get(repId) : undefined;
@@ -745,6 +797,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
       return isMeshableType(t) && !isTessellatedType(t);
     });
     for (const it of r.items) {
+      if (full()) break;
       const t = f.typeOf(it);
       if (isMeshableType(t)) {
         // B-rep과 같은 표현에 함께 있는 삼각형 근사(geometric_link 있음)는 겹치므로 건너뛴다
@@ -787,9 +840,11 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     if (wires) flushWire(wires, text(f.get(repId)?.args[0]) || node.name, node);
     curLayer = prevLayer;
     curOverride = prevOverride;
+    repPath.delete(repId);
   };
-  const productProps = readProductProps(f);
+  const productProps = guard(new Map<number, StepProductProps>(), () => readProductProps(f));
   const makeNode = (pd: number, instanceName?: string): StepProductNode => {
+    placed++;
     const pn = productName(pd);
     productCount.set(pd, (productCount.get(pd) ?? 0) + 1);
     const n: StepProductNode = { name: pn.name, productId: pn.id, meshIds: [], children: [] };
@@ -809,6 +864,7 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     for (const r of repsOfPd(pd)) visitRep(r, matrix, node, pd, depth, color);
     for (const use of children.get(pd) ?? []) {
       if (consumedNauo.has(use.nauo)) continue;
+      if (full()) break;
       const T = nauoTransform(use.nauo, pd, use.child);
       const child = makeNode(use.child, use.name);
       node.children.push(child);
@@ -892,9 +948,9 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
   let pmiMeta: StepPmi | undefined;
   let pmiText = 0;
   if (wantPmi) {
-    const anns = findAnnotations(f, (id) => rep(id)?.items ?? null);
-    const semantic = semanticPmi(f);
-    const rawViews = readSavedViews(f, geom);
+    const anns = guard([], () => findAnnotations(f, (id) => rep(id)?.items ?? null));
+    const semantic = guard([], () => semanticPmi(f));
+    const rawViews = guard([], () => readSavedViews(f, geom));
     if (anns.length || semantic.length || rawViews.length) {
       pmiMeta = { presentations: [], semantic };
       // 제도 모형 → 놓을 자리(그 모형이 딸린 제품의 첫 자리)와 단위
@@ -963,15 +1019,18 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
           }
           pd = dmia.get(model) ?? 0;
         }
-        p = { m: (pd && pdWorld.get(pd)) || identity(), k: u ? u.lengthMm / sceneMm : 1, angle: u ? u.angleRad : 1, name: model ? text(f.get(model)?.args[0]) || text(partOf(f.get(model)!, 'REPRESENTATION')?.args[0]) : '' };
+        // 제도 모형 개체가 없을 수 있다(깨진 파일 — 57차 퍼징의 TypeError)
+        const me = model ? f.get(model) : undefined;
+        p = { m: (pd && pdWorld.get(pd)) || identity(), k: u ? u.lengthMm / sceneMm : 1, angle: u ? u.angleRad : 1, name: me ? text(me.args[0]) || text(partOf(me, 'REPRESENTATION')?.args[0]) : '' };
         placeOf.set(model, p);
         return p;
       };
       let pmiSeq = 0;
       /** 제도 모형 → 그 모형에 든 표현 PMI 선 묶음 id(저장된 보기용) */
       const modelPmi = new Map<number, string[]>();
-      for (const a of anns) {
-        if (styles.hidden.has(a.id)) continue;
+      // 주석 하나를 읽다가 오류가 나면 그 주석만 뺀다(guard)
+      const addAnnotation = (a: (typeof anns)[number]): void => {
+        if (styles.hidden.has(a.id)) return;
         const pl = place(a.model);
         geom.angleFactor = pl.angle;
         const w = a.item ? wire.sample(a.item) : null;
@@ -982,10 +1041,14 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
         const raw = [...(w?.segs ?? []), ...(txt?.segs ?? [])];
         if (!raw.length) {
           if (!lits.length && (a.type === 'ANNOTATION_TEXT_OCCURRENCE' || (a.item && f.typeOf(a.item).startsWith('TEXT_LITERAL')))) pmiText++;
-          continue;
+          return;
         }
         const segs: number[] = [];
         appendWorld(segs, pl.k === 1 ? raw : raw.map((x) => x * pl.k), pl.m);
+        if (!finiteCoords(segs)) {
+          partErrors++;
+          return;
+        }
         const id = `step-pmi-${++pmiSeq}`;
         const o = originOf(segs);
         const ls: LineSet3d = { id, name: a.name || 'PMI', positions: relativeFloat32(segs, o) };
@@ -1000,22 +1063,30 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
         const pres: StepPmiPresentation = { id, name: a.name, type: a.type, stepId: a.id };
         if (a.plane) pres.plane = a.plane;
         if (pl.name) pres.model = pl.name;
-        pmiMeta.presentations.push(pres);
+        pmiMeta!.presentations.push(pres);
         (modelPmi.get(a.model) ?? modelPmi.set(a.model, []).get(a.model)!).push(id);
-      }
+      };
+      for (const a of anns) guard(undefined, () => addAnnotation(a));
       // 저장된 보기: 카메라가 든 제도 모형 자리·단위로 옮기고, 그 모형의 표현 PMI를 함께
       if (rawViews.length) {
         const views: StepSavedView[] = [];
         for (const rv of rawViews) {
-          const pl = place(rv.model);
-          const k = pl.k;
-          const m = pl.m;
-          const pt = (p: V3): V3 => transformPoint(m, [p[0] * k, p[1] * k, p[2] * k]);
-          const dv = (d: V3): V3 => normalize([m[0]! * d[0] + m[4]! * d[1] + m[8]! * d[2], m[1]! * d[0] + m[5]! * d[1] + m[9]! * d[2], m[2]! * d[0] + m[6]! * d[1] + m[10]! * d[2]]);
-          const v: StepSavedView = { id: rv.id, name: rv.name, target: pt(rv.target), dir: dv(rv.dir), up: dv(rv.up), distance: rv.distance * k, projection: rv.projection, height: rv.height * k };
-          const ids = modelPmi.get(rv.model);
-          if (ids?.length) v.pmiIds = ids;
-          views.push(v);
+          guard(undefined, () => {
+            const pl = place(rv.model);
+            const k = pl.k;
+            const m = pl.m;
+            const pt = (p: V3): V3 => transformPoint(m, [p[0] * k, p[1] * k, p[2] * k]);
+            const dv = (d: V3): V3 => normalize([m[0]! * d[0] + m[4]! * d[1] + m[8]! * d[2], m[1]! * d[0] + m[5]! * d[1] + m[9]! * d[2], m[2]! * d[0] + m[6]! * d[1] + m[10]! * d[2]]);
+            const v: StepSavedView = { id: rv.id, name: rv.name, target: pt(rv.target), dir: dv(rv.dir), up: dv(rv.up), distance: rv.distance * k, projection: rv.projection, height: rv.height * k };
+            // 카메라 값이 수가 아니면(깨진 파일) 그 보기는 뺀다 — 화면 카메라가 NaN이 된다
+            if (!finiteCoords([...v.target, ...v.dir, ...v.up, v.distance, v.height])) {
+              partErrors++;
+              return;
+            }
+            const ids = modelPmi.get(rv.model);
+            if (ids?.length) v.pmiIds = ids;
+            views.push(v);
+          });
         }
         pmiMeta.views = views;
       }
@@ -1039,6 +1110,8 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
   const skippedSurf = wire.skipped.get('곡면') ?? 0;
   if (skippedSurf) warnings.push(`선 형상 묶음 안의 곡면 ${skippedSurf}개는 그리지 않았다(경계가 없는 곡면)`);
   if (pmiText) warnings.push(`PMI 글자(ANNOTATION_TEXT 등) ${pmiText}개는 그리지 못했다(글이 비었거나 배치가 없음)`);
+  if (capped) warnings.push(`조립 자리가 ${MAX_PLACEMENTS}개를 넘어 나머지는 놓지 않았다(같은 하위 조립을 층마다 거듭 쓴 파일일 수 있음)`);
+  if (partErrors) warnings.push(`읽지 못해 뺀 부분 ${partErrors}곳(형상·선·PMI·색·레이어·속성 — 읽다가 오류가 났거나 좌표가 잘못됨)`);
   if (!meshes.length && !lines.length && !points.length) warnings.push('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)');
 
   // 경계 상자
@@ -1153,6 +1226,13 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
 function baseName(path: string): string {
   const b = path.split(/[\\/]/).pop() ?? '';
   return b.replace(/\.(stp|step|p21)$/i, '');
+}
+
+/** 좌표(와 원점)가 모두 수이고 절댓값이 MAX_COORD 안인지 — 화면은 float32 좌표·경계 상자를 쓰므로 하나라도 넘으면 문서 전체가 안 보인다 */
+function finiteCoords(a: ArrayLike<number>, origin?: readonly number[]): boolean {
+  for (let i = 0; i < a.length; i++) if (!(Math.abs(a[i]!) <= MAX_COORD)) return false;
+  if (origin) for (const v of origin) if (!(Math.abs(v) <= MAX_COORD)) return false;
+  return true;
 }
 
 /** 선·점 묶음(세계 좌표 xyz…)이 큰 좌표면 묶음 원점(상자 가운데), 아니면 undefined — 기준은 brep.ts needsOrigin */
