@@ -191,6 +191,17 @@ export class Panel {
   /** 열고 닫기(문서가 없으면 늘 닫힘) */
   setOpen(on: boolean): void {
     this.el.hidden = !on || !this.doc;
+    this.showTab();
+  }
+
+  /**
+   * 고른 탭이 탭 줄 밖이면 줄을 굴려 보이게(52차). 탭을 누르면 줄을 새로 만들어 굴린 자리가 0으로 돌아가, 좁은 화면에서 넘치는 탭 줄의 끝 탭(정보)을 누르면
+   * 그 탭이 줄 밖으로 사라졌다. 닫혀 있으면 아무것도 하지 않는다(열 때 다시)
+   */
+  private showTab(): void {
+    const s = this.tabsEl;
+    const t = s.querySelector<HTMLElement>('.active');
+    if (t && !this.el.hidden) s.scrollLeft = Math.max(0, t.offsetLeft - s.offsetLeft + t.offsetWidth - s.clientWidth);
   }
 
   get open(): boolean {
@@ -316,6 +327,8 @@ export class Panel {
       b.addEventListener('click', () => this.setTab(k));
       this.tabsEl.append(b);
     }
+    // 다른 언어 화면은 번역층(문서 변화 관찰 — 마이크로태스크, 붙일 때 이미 줄을 섰다)이 탭 글을 바꾼 뒤의 폭으로
+    queueMicrotask(() => this.showTab());
     this.body.setAttribute('aria-labelledby', `tab-${d.panelTab}`);
     this.renderBody();
     this.renderFoot();
