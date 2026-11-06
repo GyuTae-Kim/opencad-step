@@ -790,28 +790,29 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     add(shift('b'), s0.map((v) => -v)).forEach((v, i) => expect(v).toBeCloseTo(3 * bb.right[i]! - 4 * bb.up[i]!, 9));
   });
 
-  it('작업 메뉴(손가락 기기는 길게 누르기): 고른 것을 옮길 수 있으면 "거리로 옮기기…"(Enter) — 고르면 빈 칸을 열고 들어간다, 되돌릴 것이 있으면 되돌리기·다시 하기', () => {
+  it('작업 메뉴(손가락 기기는 길게 누르기): 고른 것을 옮길 수 있으면 맨 위에 "거리로 옮기기…"(Enter) — 고르면 빈 칸을 열고 들어간다, 되돌릴 것이 있으면 끝에 되돌리기·다시 하기', () => {
     const f = fakeField();
     tool.bind(f.field);
-    const labels = () => tool.menuItems(doc, axis).map((i) => [i.label, i.hint ?? '', !!i.sep, !!i.disabled]);
+    const lab = (i: { label: string; hint?: string; sep?: boolean; disabled?: boolean }) => [i.label, i.hint ?? '', !!i.sep, !!i.disabled];
+    const labels = () => [...(tool.moveItem(doc) ? [lab(tool.moveItem(doc)!)] : []), ...tool.menuItems(doc, axis).map(lab)];
     expect(labels()).toEqual([]);
     doc.selKey = '0/1';
-    expect(labels()).toEqual([['거리로 옮기기…', 'Enter', true, false]]);
+    expect(labels()).toEqual([['거리로 옮기기…', 'Enter', false, false]]);
     // 측정 중(손질할 때가 아님)에는 없다
     measuring = true;
     expect(labels()).toEqual([]);
     measuring = false;
-    tool.menuItems(doc, axis)[0]!.run();
+    tool.moveItem(doc)!.run();
     expect(f.focused).toBe(1);
     expect(f.shown.at(-1)).toMatchObject({ value: '', fresh: true, axis: 'free' });
     expect(tool.typed('0; 0; 6')).toBe(true);
     expect(labels()).toEqual([
-      ['거리로 옮기기…', 'Enter', true, false],
-      ['손질 되돌리기', 'Ctrl+Z', false, false],
+      ['거리로 옮기기…', 'Enter', false, false],
+      ['손질 되돌리기', 'Ctrl+Z', true, false],
       ['손질 다시 하기', 'Ctrl+Shift+Z', false, true],
     ]);
     tool.undo();
-    // 고른 것이 없어도 다시 할 손질이 있으면 그 항목만(구분선은 첫 항목에)
+    // 고른 것이 없어도 다시 할 손질이 있으면 그 항목만
     doc.selKey = null;
     expect(labels()).toEqual([
       ['손질 되돌리기', 'Ctrl+Z', true, true],

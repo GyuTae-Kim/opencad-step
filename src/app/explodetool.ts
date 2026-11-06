@@ -262,18 +262,22 @@ export class ExplodeTweakTool implements TweakHandlers {
   }
 
   /**
-   * 작업 메뉴에 덧붙일 분해 손질 항목(앱이 분해 막대가 열렸을 때 부른다 — 손가락 기기는 길게 눌러 연다): 고른 것을 옮길 수 있으면 "거리로 옮기기…"(45차),
-   * 지금 방향에 되돌리거나 다시 할 손질이 있으면 되돌리기·다시 하기
+   * 작업 메뉴 맨 위에 둘 "거리로 옮기기…"(45차 — 고른 것을 옮길 수 있거나 막 끈 끌기를 고칠 수 있을 때, 아니면 null). 손가락 기기에서 길게 눌러 연 긴 메뉴에서도
+   * 스크롤하지 않고 닿게 맨 위에 둔다
    */
+  moveItem(d: StepDoc): MenuItem | null {
+    return !this.g && (this.amendable() || this.selRec()) && this.host.live()?.doc === d ? { label: '거리로 옮기기…', hint: 'Enter', run: () => void this.enterDistance() } : null;
+  }
+
+  /** 작업 메뉴 끝에 덧붙일 손질 항목(앱이 분해 막대가 열렸을 때 부른다): 지금 방향에 되돌리거나 다시 할 손질이 있으면 되돌리기·다시 하기 */
   menuItems(d: StepDoc, axis: ExplodeAxis): MenuItem[] {
-    const out: MenuItem[] = [];
-    if (!this.g && (this.amendable() || this.selRec()) && this.host.live()?.doc === d) out.push({ label: '거리로 옮기기…', hint: 'Enter', sep: true, run: () => void this.enterDistance() });
     const st = this.state(d, axis);
-    if (st.undo || st.redo) {
-      out.push({ label: '손질 되돌리기', hint: 'Ctrl+Z', sep: !out.length, disabled: !st.undo, run: () => this.undo() });
-      out.push({ label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => this.redo() });
-    }
-    return out;
+    return st.undo || st.redo
+      ? [
+          { label: '손질 되돌리기', hint: 'Ctrl+Z', sep: true, disabled: !st.undo, run: () => this.undo() },
+          { label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => this.redo() },
+        ]
+      : [];
   }
 
   /** 고른 것을 옮길 기록(45차 — 끌지 않고 쳐 넣기): 고른 것 가운데 계획에 든 첫 묶음으로 끌 단위(dragUnits — 고른 마디·여러 개 고르기 그대로), 끈 이동 0. 없으면 null */
