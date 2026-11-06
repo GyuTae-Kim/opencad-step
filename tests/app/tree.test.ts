@@ -127,3 +127,113 @@ describe('몸체 줄(한 부품 안에 입체가 여럿)', () => {
     expect(filterRows(tree, 'nut', new Set(), 3000).matches).toBe(0);
   });
 });
+
+/** 57차까지의 이름 거르기(경로 열쇠 글로 표를 적던 판) — 58차 판과 같은 줄을 내는지 견준다 */
+function filterRowsOld(roots: readonly ProductNode[], query: string, expanded: ReadonlySet<string>, limit: number, bodyName?: (n: ProductNode, i: number) => string) {
+  const nodeMatches = (n: ProductNode) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return n.name.toLowerCase().includes(q) || (n.instance ?? '').toLowerCase().includes(q) || n.productId.toLowerCase().includes(q);
+  };
+  const items = (n: ProductNode) => (n.lineIds?.length ? [...n.meshIds, ...n.lineIds] : n.meshIds);
+  const bodies = (n: ProductNode) => n.meshIds.length + (n.lineIds?.length ?? 0) > 1;
+  const expandable = (n: ProductNode) => n.children.length > 0 || bodies(n);
+  const sub = (n: ProductNode, out: string[] = []): string[] => {
+    out.push(...n.meshIds);
+    for (const c of n.children) sub(c, out);
+    return out;
+  };
+  const rows: { key: string; open: boolean; match: boolean; depth: number; meshIds: string[] }[] = [];
+  let truncated = false;
+  let total = 0;
+  let matches = 0;
+  const q = query.trim().toLowerCase();
+  const bodyHit = (n: ProductNode, i: number) => !!q && !!bodyName?.(n, i).toLowerCase().includes(q);
+  const hit = new Map<string, boolean>();
+  const bodyHits = new Set<string>();
+  const mark = (nodes: readonly ProductNode[], prefix: string): boolean => {
+    let any = false;
+    nodes.forEach((n, i) => {
+      const key = prefix ? `${prefix}/${i}` : String(i);
+      const self = nodeMatches(n);
+      if (self) matches++;
+      if (bodies(n) && bodyName)
+        items(n).forEach((_, j) => {
+          if (!bodyHit(n, j)) return;
+          matches++;
+          bodyHits.add(key);
+        });
+      const below = mark(n.children, key) || bodyHits.has(key);
+      hit.set(key, self || below);
+      if (self || below) any = true;
+    });
+    return any;
+  };
+  mark(roots, '');
+  const push = (r: (typeof rows)[number]) => {
+    total++;
+    if (rows.length < limit) rows.push(r);
+    else truncated = true;
+  };
+  const walk = (nodes: readonly ProductNode[], prefix: string, depth: number, all: boolean): void => {
+    nodes.forEach((n, i) => {
+      const key = prefix ? `${prefix}/${i}` : String(i);
+      if (!all && !hit.get(key)) return;
+      const self = nodeMatches(n);
+      const childHit = bodyHits.has(key) || n.children.some((_, j) => hit.get(`${key}/${j}`));
+      const kids = expandable(n);
+      const open = kids && (all || self ? expanded.has(key) || (!all && childHit) : childHit);
+      push({ key, open, match: self && !all, depth, meshIds: sub(n) });
+      if (!open) return;
+      const s = all || (self && !childHit);
+      if (bodies(n))
+        items(n).forEach((id, j) => {
+          const m = s ? undefined : bodyHit(n, j);
+          if (m === false) return;
+          push({ key: `${key}.${j + 1}`, open: false, match: !!m, depth: depth + 1, meshIds: j < n.meshIds.length ? [id] : [] });
+        });
+      walk(n.children, key, depth + 1, s);
+    });
+  };
+  walk(roots, '', 0, false);
+  return { rows, truncated, total, matches };
+}
+
+describe('이름 거르기: 마디 객체 표(58차)', () => {
+  it('무작위 나무·거르기 글·펼침·몸체 이름에서 예전 열쇠 글 판과 같은 줄·수', () => {
+    let seed = 58;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+    const words = ['plate', 'Bolt', 'nut', 'asm', 'p7', 'p77', 'Frame'];
+    let mid = 0;
+    const make = (depth: number): ProductNode => {
+      const kids = depth < 4 && rnd() < 0.6 ? Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => make(depth + 1)) : [];
+      const meshes = Array.from({ length: Math.floor(rnd() * 3) }, () => `m${++mid}`);
+      const n: ProductNode = { name: words[Math.floor(rnd() * words.length)]!, productId: `P${Math.floor(rnd() * 100)}`, meshIds: meshes, children: kids };
+      if (rnd() < 0.5) n.instance = `p${Math.floor(rnd() * 100)}`;
+      if (rnd() < 0.2) n.lineIds = [`l${++mid}`];
+      return n;
+    };
+    for (let t = 0; t < 60; t++) {
+      const shared = make(2);
+      const roots = [make(0), make(1)];
+      // 같은 마디 객체가 두 자리에 있어도(아래만 보는 값이라) 같아야 한다
+      roots[0]!.children.push(shared);
+      roots[1]!.children.push(shared);
+      const expanded = new Set<string>();
+      const walk = (ns: readonly ProductNode[], prefix: string) =>
+        ns.forEach((n, i) => {
+          const key = prefix ? `${prefix}/${i}` : String(i);
+          if (rnd() < 0.5) expanded.add(key);
+          walk(n.children, key);
+        });
+      walk(roots, '');
+      const q = [...words, 'P1', 'x', ' ', 'BOLT', 'body'][t % 12]!;
+      const body = t % 3 ? (n: ProductNode, i: number) => (i % 2 ? `body ${n.name}` : '') : undefined;
+      const limit = t % 5 ? 3000 : 7;
+      const a = filterRows(roots, q, expanded, limit, body);
+      const b = filterRowsOld(roots, q, expanded, limit, body);
+      expect(a.rows.map((r) => [r.key, r.open, !!r.match, r.depth, r.meshIds.join(',')])).toEqual(b.rows.map((r) => [r.key, r.open, r.match, r.depth, r.meshIds.join(',')]));
+      expect([a.truncated, a.total, a.matches]).toEqual([b.truncated, b.total, b.matches]);
+    }
+  });
+});

@@ -95,28 +95,35 @@ export function filterRows(
   let matches = 0;
   const q = query.trim().toLowerCase();
   const bodyHit = (n: ProductNode, i: number) => !!q && !!bodyName?.(n, i).toLowerCase().includes(q);
-  // 1) 아래에 맞는 마디가 있는지(열쇠별), 맞은 몸체가 있는 부품
-  const hit = new Map<string, boolean>();
-  const bodyHits = new Set<string>();
-  const mark = (nodes: readonly ProductNode[], prefix: string): boolean => {
+  // 1) 마디마다 스스로 맞는지(SELF)·아래에 맞는 것이 있는지(HIT)·맞은 몸체가 있는지(BODY). 마디 객체로 적고 열쇠 글은 줄을 만들 마디에만 만든다
+  //    (58차 — 같은 부품 8만 자리에서 마디마다 열쇠 글을 두 번 만들고 Map에 넣으며 이름을 두 번 견주던 것. 같은 객체가 두 자리에 있어도 아래만 보는 값이라 같다)
+  const SELF = 1;
+  const HIT = 2;
+  const BODY = 4;
+  const flags = new Map<ProductNode, number>();
+  const mark = (nodes: readonly ProductNode[]): boolean => {
     let any = false;
-    nodes.forEach((n, i) => {
-      const key = prefix ? `${prefix}/${i}` : String(i);
-      const self = nodeMatches(n, query);
-      if (self) matches++;
-      if (hasBodies(n) && bodyName)
-        nodeItems(n).forEach((_, j) => {
-          if (!bodyHit(n, j)) return;
+    for (const n of nodes) {
+      let f = !q || n.name.toLowerCase().includes(q) || (n.instance ?? '').toLowerCase().includes(q) || n.productId.toLowerCase().includes(q) ? SELF : 0;
+      if (f) matches++;
+      if (hasBodies(n) && bodyName) {
+        const items = nodeItems(n);
+        for (let j = 0; j < items.length; j++) {
+          if (!bodyHit(n, j)) continue;
           matches++;
-          bodyHits.add(key);
-        });
-      const below = mark(n.children, key) || bodyHits.has(key);
-      hit.set(key, self || below);
-      if (self || below) any = true;
-    });
+          f |= BODY;
+        }
+      }
+      if (mark(n.children) || f) {
+        f |= HIT;
+        any = true;
+      }
+      flags.set(n, f);
+    }
     return any;
   };
-  mark(roots, '');
+  mark(roots);
+  const hit = (n: ProductNode): boolean => ((flags.get(n) ?? 0) & HIT) !== 0;
   // 2) 줄
   const push = (r: TreeRow) => {
     total++;
@@ -125,10 +132,11 @@ export function filterRows(
   };
   const walk = (nodes: readonly ProductNode[], prefix: string, depth: number, all: boolean): void => {
     nodes.forEach((n, i) => {
+      if (!all && !hit(n)) return;
       const key = prefix ? `${prefix}/${i}` : String(i);
-      if (!all && !hit.get(key)) return;
-      const self = nodeMatches(n, query);
-      const childHit = bodyHits.has(key) || n.children.some((_, j) => hit.get(`${key}/${j}`));
+      const f = flags.get(n) ?? 0;
+      const self = (f & SELF) !== 0;
+      const childHit = (f & BODY) !== 0 || n.children.some(hit);
       const kids = expandable(n);
       // 맞은 마디 아래는 보통 나무처럼(펼친 것만), 조상은 맞은 쪽으로 펼친다
       const open = kids && (all || self ? expanded.has(key) || (!all && childHit) : childHit);
