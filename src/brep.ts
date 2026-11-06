@@ -202,6 +202,23 @@ interface FaceOut {
 const MAX_REFINE_PASS = 2;
 
 /**
+ * ORIENTED_EDGE 안의 ORIENTED_EDGE, 방향 껍질 안의 방향 껍질을 벗기는 최대 겹 수(실제 파일은 한두 겹 — 선 형상 wire.ts와 같은 8).
+ * 깨진 파일의 자기·순환 참조가 끝없는 고리·재귀가 되지 않게 한다
+ */
+const ORIENTED_HOPS = 8;
+
+/** ORIENTED_EDGE를 벗겨 안쪽 모서리 번호와 방향(fwd — 겹마다 곱한다) */
+function unwrapEdge(f: StepFile, eid: number, fwd: boolean): { eid: number; fwd: boolean } {
+  let inner = f.get(eid);
+  for (let hop = 0; inner && inner.type === 'ORIENTED_EDGE' && hop < ORIENTED_HOPS; hop++) {
+    fwd = fwd === bool(inner.args[4], true);
+    eid = refId(inner.args[3]);
+    inner = f.get(eid);
+  }
+  return { eid, fwd };
+}
+
+/**
  * 면 삼각형 [t0, t1) 가운데 접힌 것(삼각형 법선이 세 정점 법선의 합과 반대이고 넓이가 무시할 만큼 작지 않은 것)의 수.
  * 정점 법선은 곡면 법선(면 방향 반영)이라 곡면 위 삼각형은 같은 쪽을 본다
  */
@@ -427,11 +444,12 @@ export class BrepMesher {
     const faces: FaceRef[] = [];
     let closed = false;
     const inherited = new Map<number, Rgba>(); // 면 → 껍질·입체에서 물려받은 색
-    const addShell = (sid: number, reversed: boolean, parentColor: Rgba | undefined) => {
+    const addShell = (sid: number, reversed: boolean, parentColor: Rgba | undefined, depth = 0) => {
       const s = this.f.get(sid);
       if (!s) return;
       if (s.type === 'ORIENTED_CLOSED_SHELL' || s.type === 'ORIENTED_OPEN_SHELL') {
-        addShell(refId(s.args[2]), reversed !== !bool(s.args[3], true), this.colorOf(sid) ?? parentColor);
+        // 방향 껍질 안의 방향 껍질은 몇 겹까지만(깨진 파일의 자기 참조가 끝없는 재귀가 되지 않게)
+        if (depth < ORIENTED_HOPS) addShell(refId(s.args[2]), reversed !== !bool(s.args[3], true), this.colorOf(sid) ?? parentColor, depth + 1);
         return;
       }
       if (!SHELL_TYPES.has(s.type)) {
@@ -816,12 +834,7 @@ export class BrepMesher {
         const loop = this.f.get(refId(this.f.get(bid)?.args[1]));
         if (!loop || loop.type !== 'EDGE_LOOP') continue;
         for (const oid of refList(loop.args[1])) {
-          let eid = refId(this.f.get(oid)?.args[3]);
-          let inner = this.f.get(eid);
-          while (inner && inner.type === 'ORIENTED_EDGE') {
-            eid = refId(inner.args[3]);
-            inner = this.f.get(eid);
-          }
+          const { eid } = unwrapEdge(this.f, refId(this.f.get(oid)?.args[3]), true);
           if (eid) edges.add(eid);
         }
       }
@@ -945,12 +958,7 @@ export class BrepMesher {
       const loop = this.f.get(refId(this.f.get(bid)?.args[1]));
       if (!loop || loop.type !== 'EDGE_LOOP') continue;
       for (const oid of refList(loop.args[1])) {
-        let eid = refId(this.f.get(oid)?.args[3]);
-        let inner = this.f.get(eid);
-        while (inner && inner.type === 'ORIENTED_EDGE') {
-          eid = refId(inner.args[3]);
-          inner = this.f.get(eid);
-        }
+        const { eid } = unwrapEdge(this.f, refId(this.f.get(oid)?.args[3]), true);
         if (eid) out.push(eid);
       }
     }
@@ -988,13 +996,14 @@ export class BrepMesher {
   }
 
   /** 모서리 다각선(시작 꼭짓점 → 끝 꼭짓점) */
-  edgePolyline(edgeId: number): V3[] | null {
+  edgePolyline(edgeId: number, depth = 0): V3[] | null {
     const hit = this.edgeCache.get(edgeId);
     if (hit) return hit;
     const e = this.f.get(edgeId);
     if (!e) return null;
     if (e.type === 'ORIENTED_EDGE') {
-      const inner = this.edgePolyline(refId(e.args[3]));
+      if (depth >= ORIENTED_HOPS) return null;
+      const inner = this.edgePolyline(refId(e.args[3]), depth + 1);
       return inner ? (bool(e.args[4], true) ? inner : inner.slice().reverse()) : null;
     }
     if (e.type !== 'EDGE_CURVE' && e.type !== 'SUBEDGE') {
@@ -1100,6 +1109,10 @@ export class BrepMesher {
     const loopOuter: boolean[] = [];
     /** 고리마다 FACE_BOUND 방향(질량 속성의 틈 메우기 방향) */
     const loopOrient: boolean[] = [];
+    /** 읽지 못한 경계 모서리(개체가 없거나 꼭짓점이 없음 — 끊긴 파일 등) 수 */
+    let gaps = 0;
+    /** 같은 모서리를 두 번 넘게 쓴 고리가 있다 */
+    let overused = false;
     for (const bid of refList(fe.args[1])) {
       const bnd = this.f.get(bid);
       if (!bnd) continue;
@@ -1111,19 +1124,25 @@ export class BrepMesher {
       if (loop.type === 'EDGE_LOOP') {
         for (const oid of refList(loop.args[1])) {
           const oe = this.f.get(oid);
-          if (!oe) continue;
-          let eid = refId(oe.args[3]);
-          let fwd = bool(oe.args[4], true);
-          // 중첩된 ORIENTED_EDGE
-          let inner = this.f.get(eid);
-          while (inner && inner.type === 'ORIENTED_EDGE') {
-            fwd = fwd === bool(inner.args[4], true);
-            eid = refId(inner.args[3]);
-            inner = this.f.get(eid);
+          if (!oe) {
+            gaps++;
+            continue;
           }
+          // 중첩된 ORIENTED_EDGE
+          const { eid, fwd } = unwrapEdge(this.f, refId(oe.args[3]), bool(oe.args[4], true));
           const pl = this.edgePolyline(eid);
-          if (!pl) continue;
-          inFace.set(eid, (inFace.get(eid) ?? 0) + 1);
+          if (!pl) {
+            gaps++;
+            continue;
+          }
+          const uses = (inFace.get(eid) ?? 0) + 1;
+          inFace.set(eid, uses);
+          if (uses > 2) {
+            // 모서리는 한 면에서 많아야 두 번(이음선) 쓰인다. 더 쓴 고리는 깨진 것이다 — 같은 모서리 수천 번을 다각형 하나로
+            // 삼각화하느라 수십 초 멈췄다(57차 퍼징)
+            overused = true;
+            break;
+          }
           edges.push({ eid, poly: pl, dir: fwd ? 1 : -1 });
           const seq = fwd ? pl : pl.slice().reverse();
           for (let i = 0; i < seq.length - 1; i++) pts.push(seq[i]!);
@@ -1160,6 +1179,10 @@ export class BrepMesher {
       for (const l of loops) l.reverse();
     }
     if (info) surfaceInfo(surf, sameSense, poly, info);
+    // 경계 고리에서 읽지 못한 모서리가 있으면 고리가 끊겨 면 모양을 알 수 없다 — 남은 모서리를 곧게 이어 그리면 틀린 모양이 된다
+    // (57차 퍼징 — 중간에 끊긴 파일). 실제 파일의 모서리는 늘 읽힌다(지원하지 않는 곡선도 두 꼭짓점을 잇는 선분으로 읽는다)
+    if (gaps) return '경계 모서리를 읽지 못함(가리키는 개체가 없거나 값이 잘못됨)';
+    if (overused) return '경계 고리가 같은 모서리를 두 번 넘게 지남';
     const triStart = b.indices.length;
     if (!surf || poly) {
       // 평면 다각형으로(곡면을 모르거나 다각 고리)
@@ -1237,7 +1260,7 @@ export class BrepMesher {
       const sums = loopEdges.map((l) => Math.abs(l.reduce((s, e) => s + e.dir * this.edgeGreen(e.eid, e.poly, fr.o, fr.x, fr.y), 0)));
       if (sums.length) {
         let outer = loopOuter.indexOf(true);
-        if (outer < 0 || loopOuter.indexOf(true, outer + 1) >= 0) outer = sums.indexOf(Math.max(...sums));
+        if (outer < 0 || loopOuter.indexOf(true, outer + 1) >= 0) outer = sums.indexOf(sums.reduce((m, s) => Math.max(m, s), -Infinity));
         area = sums.reduce((s, a, i) => (i === outer ? s + a : s - a), 0);
         areaExact = perimExact;
       }
@@ -1302,7 +1325,7 @@ export class BrepMesher {
           const s = numList(fan);
           for (let i = 1; i + 1 < s.length; i++) tris.push(s[0]!, s[i]!, s[i + 1]!);
         }
-      } else for (const t of list(e.args[k + 1])) tris.push(...numList(t));
+      } else for (const t of list(e.args[k + 1])) for (const v of numList(t)) tris.push(v);
       addTriangles(b, coords, normals, pnindex, tris, lo, hi);
     };
     visit(itemId, 0, undefined);
