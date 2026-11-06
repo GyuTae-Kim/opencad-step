@@ -114,7 +114,7 @@ describe('코어 나눠 받기', () => {
     // 거리 글상자가 앱 화면 요소를 비켜 그리기(labelavoid.ts — 접선 조각)도 첫 화면 밖
     // 개체 측정 최소 거리를 곡면·곡선 정의로 다듬기(exactdist.ts — 40차, 접선 조각)도 첫 화면 밖
     for (const m of ['src/app/facesnap.ts', 'src/facesurf.ts', 'src/app/labelavoid.ts', 'src/app/exactdist.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
-    expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/export \{ exactPicked, partsLater \} from '\.\/exactdist'/);
+    expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/export \{ entRefine \} from '\.\/exactdist'/);
     expect(dynamic.some((d) => d.spec.endsWith('facesurf'))).toBe(false);
     expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/=> import\('\.\.\/facesurf'\)/);
   });

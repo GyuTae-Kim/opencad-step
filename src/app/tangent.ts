@@ -47,9 +47,9 @@ export { curveSnap, MeasureFirst } from './curvesnap';
 export { LabelAvoid } from './labelavoid';
 /**
  * 개체 측정 최소 거리를 B-rep 곡면·곡선 정의로 다듬기(exactdist.ts — 40차, 측정에서만 쓰므로 이 조각에).
- * 부품 사이 최소 거리는 오목한 자리 받기를 시간 조각으로 돌리는 partsLater(46차)
+ * 46차: 앱은 다듬기 선택째(entRefine — 부품 사이 최소 거리는 오목한 자리 받기를 시간 조각으로 돌리는 partsLater) 받는다
  */
-export { exactPicked, partsLater } from './exactdist';
+export { entRefine } from './exactdist';
 
 /** 곡면 조각(facesurf.ts — 면 표에 식이 없는 곡면 정의 되살리기와 곡면 계산)을 받는다(import()를 첫 화면 밖 이 조각에 둔다) */
 export const loadFaceSurfaces = (): Promise<typeof import('../facesurf')> => import('../facesurf');

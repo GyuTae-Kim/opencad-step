@@ -11,7 +11,7 @@ import { closestBetween, type ClosestShape } from 'opencad-viewer3d/closest';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { stepToSceneDeferred } from '../../src/scene';
 import { createDoc } from '../../src/app/doc';
-import { exactParts, exactPartsSliced, partsLater, type ExactScene } from '../../src/app/exactdist';
+import { entRefine, exactParts, exactPartsSliced, partsLater, type ExactScene } from '../../src/app/exactdist';
 import { bsplineCtrlFor, rho, segRho, sliced } from '../../src/app/exactbound';
 import { sampleStepBytes } from '../../src/app/sample';
 import { cylinder, plateWithHole, r, StepText, type P3 } from '../stepText';
@@ -259,6 +259,13 @@ describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { time
       partsLater(other, pin.id, plate.id, triP, s, 30, later4);
       await vi.waitFor(() => expect(later4).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
       expect(later3).not.toHaveBeenCalled();
+      // 앱이 받는 다듬기 선택(entRefine): refineParts는 partsLater와 같다
+      const app = { ent: {}, scene: { meshes: [...s.meshes.values()] }, faces: s.faces, edges: s.edges };
+      const later6 = vi.fn();
+      const R = entRefine(app, 30, null, later6);
+      expect(R.refineParts(pin.id, plate.id, triP)).toBeNull();
+      await vi.waitFor(() => expect(later6).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
+      expect(Math.abs(entRefine(app, 30, null, later6).refineParts(pin.id, plate.id, triP)!.distance - 0.4)).toBeLessThan(1e-9);
       // 받았을 때 그 문서의 측정 짝이 바뀌었으면(셋째 개체를 누름 등) later를 부르지 않는다
       const later5 = vi.fn();
       doc.ent = {};

@@ -741,6 +741,27 @@ export function partsLater(
   return null;
 }
 
+/**
+ * 앱 개체 측정(entpick measurePicked)의 다듬기 선택: 고른 두 개체 최소 거리는 exactPicked, 부품 사이 최소 거리는 partsLater(받으면 later — 앱이 다시 잰다).
+ * d는 앱 문서(장면 그물·면 표·모서리 표, ent — 지금 측정 짝), size는 장면 크기, surfaces는 면 표에 식이 없는 곡면 정의(받기 전이면 undefined를 돌려줌).
+ * 46차 — 이 선택을 앱(첫 화면 JS)에서 이 조각으로 옮겼다
+ */
+export function entRefine(
+  d: { readonly ent: object; readonly scene: { readonly meshes: readonly Mesh3d[] }; readonly faces: SnapFaceIndex | null; readonly edges: SnapEdgeIndex | null },
+  size: number,
+  surfaces: FaceSurfaceLookup | null,
+  later: () => void,
+): {
+  refine: (a: ExactPick, b: ExactPick, c: { a: readonly number[]; b: readonly number[]; distance: number }) => ExactClosest | null;
+  refineParts: (idA: string, idB: string, r: { a: readonly number[]; b: readonly number[]; distance: number }) => ExactClosest | null;
+} {
+  const s: ExactScene = { meshes: new Map(d.scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces };
+  return {
+    refine: (a, b, c) => exactPicked(a, b, c, s, size),
+    refineParts: (x, y, r) => partsLater(d, x, y, r, s, size, later),
+  };
+}
+
 /** partsLater가 기억하는 받기 하나(key — 앱의 측정 짝, id — 두 부품·삼각형 답, again — 기다리는 동안 다시 재려 했음) */
 interface PartsJob {
   key: object;

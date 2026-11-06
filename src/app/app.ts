@@ -257,7 +257,7 @@ export class StepApp {
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 같은 조각의 개체 측정 최소 거리 다듬기(exactdist.ts — 받기 전·못 받으면 null이라 삼각형 값 ≈ 그대로) */
-  private exactOf: Pick<typeof import('./tangent'), 'exactPicked' | 'partsLater'> | null = null;
+  private exactOf: Pick<typeof import('./tangent'), 'entRefine'> | null = null;
   /** 같은 조각의 거리 글상자 비키기(labelavoid.ts — 받기 전에는 정밀 조준 자리만 코어에 바로) */
   private labelAvoid: InstanceType<typeof import('./tangent').LabelAvoid> | null = null;
   /** 문서마다 곡선 붙잡기(곡선 위로 다듬기·곡선 가운데 점) */
@@ -2394,14 +2394,12 @@ export class StepApp {
     const [a, b] = d.ent.picks as [Picked, Picked];
     const diag = this.sceneDiag(d);
     const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
-    const X = this.exactOf;
-    const s = X && { meshes: new Map(d.scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces: this.surfDocs.has(d) ? (t: number, f: number) => this.faceSurfaceAt(d, t, f) : null };
     d.ent.result = E.measurePicked(a, b, {
       size: E.armSize(a, b, diag),
       closest: (x, y) => E.pickedClosest(x, y, meshOf),
       parts: (x, y) => v.closestPoints(x, y),
-      // 부품 사이 최소 거리의 오목한 자리 받기는 시간 조각으로(46차 — 먼저 "≈", 받으면 다시 잰다)
-      ...(X && s ? { refine: (x, y, c) => X.exactPicked(x, y, c, s, diag), refineParts: (x, y, r) => X.partsLater(d, x, y, r, s, diag, () => this.doc === d && this.measureEntityPair(d)) } : {}),
+      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다)
+      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, () => this.doc === d && this.measureEntityPair(d)),
     });
     // 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
     const rows = this.entLogged.get(d.ent);
