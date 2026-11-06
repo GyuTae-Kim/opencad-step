@@ -844,14 +844,20 @@ export class BrepMesher {
     }
     if (verts.length < 3) return;
     const tol = Math.max(this.eps * 2, this.tol.chord * 1e-3);
-    // 격자 해시
+    // 격자 해시: 칸 번호 x → y → z 겹 Map(49차 — 토막마다 훑는 칸의 글 열쇠를 만들지 않고, 점이 없는 줄은 건너뛴다.
+    // 훑는 칸·칸 안 점의 차례와 계산은 예전 글 열쇠 판과 같다 — 큰 조립 해석에서 이 함수가 자기 시간 1위였다)
     const cell = Math.max(this.tol.chord * 20, tol * 100);
-    const grid = new Map<string, V3[]>();
-    const key = (x: number, y: number, z: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+    const grid = new Map<number, Map<number, Map<number, V3[]>>>();
     for (const p of verts) {
-      const k = key(p[0], p[1], p[2]);
-      let l = grid.get(k);
-      if (!l) grid.set(k, (l = []));
+      const gx = Math.floor(p[0] / cell);
+      const gy = Math.floor(p[1] / cell);
+      const gz = Math.floor(p[2] / cell);
+      let mx = grid.get(gx);
+      if (!mx) grid.set(gx, (mx = new Map()));
+      let my = mx.get(gy);
+      if (!my) mx.set(gy, (my = new Map()));
+      let l = my.get(gz);
+      if (!l) my.set(gz, (l = []));
       l.push(p);
     }
     for (const [eid, pl] of polys) {
@@ -864,20 +870,32 @@ export class BrepMesher {
         const l2 = dot(d, d);
         const ins: [number, V3][] = [];
         if (l2 > tol * tol) {
-          const lo = [Math.min(a[0], c[0]) - tol, Math.min(a[1], c[1]) - tol, Math.min(a[2], c[2]) - tol];
-          const hi = [Math.max(a[0], c[0]) + tol, Math.max(a[1], c[1]) + tol, Math.max(a[2], c[2]) + tol];
-          const n = [0, 1, 2].map((k) => Math.floor(hi[k]! / cell) - Math.floor(lo[k]! / cell) + 1);
-          if (n[0]! * n[1]! * n[2]! <= 4096) {
-            for (let gx = Math.floor(lo[0]! / cell); gx <= Math.floor(hi[0]! / cell); gx++)
-              for (let gy = Math.floor(lo[1]! / cell); gy <= Math.floor(hi[1]! / cell); gy++)
-                for (let gz = Math.floor(lo[2]! / cell); gz <= Math.floor(hi[2]! / cell); gz++) {
-                  for (const p of grid.get(`${gx},${gy},${gz}`) ?? []) {
-                    const t = dot(sub(p, a), d) / l2;
-                    if (t <= 1e-6 || t >= 1 - 1e-6) continue;
-                    const q: V3 = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t];
-                    if (dist(q, p) <= tol && dist(p, a) > tol && dist(p, c) > tol) ins.push([t, p]);
-                  }
+          const x0 = Math.floor((Math.min(a[0], c[0]) - tol) / cell);
+          const y0 = Math.floor((Math.min(a[1], c[1]) - tol) / cell);
+          const z0 = Math.floor((Math.min(a[2], c[2]) - tol) / cell);
+          const x1 = Math.floor((Math.max(a[0], c[0]) + tol) / cell);
+          const y1 = Math.floor((Math.max(a[1], c[1]) + tol) / cell);
+          const z1 = Math.floor((Math.max(a[2], c[2]) + tol) / cell);
+          if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= 4096) {
+            for (let gx = x0; gx <= x1; gx++) {
+              const mx = grid.get(gx);
+              if (mx)
+                for (let gy = y0; gy <= y1; gy++) {
+                  const my = mx.get(gy);
+                  if (my)
+                    for (let gz = z0; gz <= z1; gz++) {
+                      const l = my.get(gz);
+                      if (l)
+                        for (const p of l) {
+                          // dot(sub(p, a), d) / l2와 같은 셈(같은 차례 — 배열만 만들지 않는다)
+                          const t = ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / l2;
+                          if (t <= 1e-6 || t >= 1 - 1e-6) continue;
+                          const q: V3 = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t];
+                          if (dist(q, p) <= tol && dist(p, a) > tol && dist(p, c) > tol) ins.push([t, p]);
+                        }
+                    }
                 }
+            }
           }
         }
         if (ins.length) {
