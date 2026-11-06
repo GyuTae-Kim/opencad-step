@@ -6,6 +6,8 @@
  * 손질 칸(35차): "옮기기"(켜면 부품을 바로 끌어 분해 자리를 손질 — 손가락은 켜지 않아도 길게 눌러 끈다), 손질이 있으면 "되돌리기"(한 단계)·"모두 되돌리기".
  * 38차: 되돌린 것이 있으면 "다시 하기"(Ctrl/⌘+Shift+Z·Ctrl+Y), 옮기기 옆 "…"(손질 파일) 메뉴에 손질 내보내기(JSON)·불러오기.
  * 되돌리기·다시 하기 칸과 모두 되돌리기 칸은 따로 묶어 좁은 막대에서는 차례로 다음 줄로 내려간다.
+ * 43차: 끄는 동안과 막 끈 뒤에는 거리 칸("거리 [ ] mm" — 그 끌기로 옮긴 거리, 쳐 넣고 Enter·칸을 떠나면 그 거리로 맞춘다)을 손질 칸 끝에 둔다
+ * (좁은 막대에서는 다음 줄로 — 손가락 기기는 이 칸을 눌러 쳐 넣는다).
  * 손질 도구(explodetool.ts — 손질 계산 explodetweak.ts·끌기 손짓 explodedrag.ts·손질 파일 explodefile.ts를 품는다)도 이 조각으로 받는다(앱은 이 모듈에서 꺼내 쓴다 — 첫 화면 JS 밖).
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
@@ -20,7 +22,25 @@ export { ExplodeTweakTool } from './explodetool';
 /** 화면 방향을 정한 카메라 각의 열쇠(같은 각이면 같은 계획) */
 const viewKey = (v: ExplodeView | null | undefined) => (v ? `${v.yaw},${v.pitch}` : '0,0');
 
-/** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·다시 하기·모두 되돌리기, 손질 파일 내보내기·불러오기) */
+/** 거리 칸 상태(43차): 그 끌기로 옮긴 거리(표시 단위, 점 소수), 단위 글, 분해 방향(받는 꼴 설명), 끄는 중인지 */
+export interface DistState {
+  value: string;
+  unit: string;
+  axis: ExplodeAxis;
+  live: boolean;
+}
+
+/**
+ * 손질 도구가 거리 칸에 부르는 것: 상태 보이기(null = 숨기기), 그 글자로 쳐 넣기 시작(끄는 동안 숫자 글쇠), 칸에 들어가기(막 끈 뒤 Enter).
+ * seed·focus는 칸이 보여 들어갔으면 true
+ */
+export interface DistField {
+  show(s: DistState | null): void;
+  seed(ch: string): boolean;
+  focus(): boolean;
+}
+
+/** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·다시 하기·모두 되돌리기, 손질 파일 내보내기·불러오기, 쳐 넣은 거리·거리 칸 달기) */
 export interface TweakHandlers {
   move: (on: boolean) => void;
   undo: () => void;
@@ -28,6 +48,10 @@ export interface TweakHandlers {
   reset: () => void;
   exportFile: () => void;
   pickFile: () => void;
+  /** 쳐 넣은 거리로 이번 끌기를 맞춘다(맞췄으면 true) */
+  typed: (text: string) => boolean;
+  /** 거리 칸을 단다 */
+  bind: (f: DistField) => void;
 }
 
 /** 손질 칸 상태 */
@@ -42,7 +66,16 @@ export interface TweakState {
   redo?: boolean;
   /** 어느 방향에든 손질이 있는지(손질 파일로 내보낼 것) */
   any?: boolean;
+  /** 거리 칸(끄는 동안·막 끈 뒤에만 — 없으면 숨긴다) */
+  dist?: DistState | null;
 }
+
+/** 거리 칸 설명(방향마다 받는 꼴) */
+const DIST_TITLES = {
+  line: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(음수는 반대쪽)',
+  sp: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(가로; 세로 두 수도 됩니다)',
+  free: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(ΔX; ΔY; ΔZ 세 수도 됩니다)',
+} as const;
 
 /** 네 방향 화살표(옮기기) */
 function moveIcon(): SVGSVGElement {
@@ -64,6 +97,12 @@ export class ExplodeControls {
   private readonly resetBtn: HTMLButtonElement;
   private readonly undoSeg: HTMLElement;
   private readonly resetSeg: HTMLElement;
+  /** 거리 칸(43차): 칸 묶음·숫자 칸·단위 글, 마지막으로 보인 값과 마지막으로 건 글(칸을 떠날 때 두 번 걸지 않게) */
+  private readonly distSeg: HTMLElement;
+  private readonly distInput: HTMLInputElement;
+  private readonly distUnit: HTMLElement;
+  private distShown = '';
+  private distSent: string | null = null;
   /** 어느 방향에든 손질이 있는지(손질 파일 메뉴의 내보내기) — 마지막 sync 것 */
   private anyTweak = false;
   /** 장면·방식·방향마다 계획(묶음 범위를 한 번만 잰다 — 밀대를 움직일 때는 곱하기만). 화면 방향은 마지막 카메라 각 것만 둔다 */
@@ -133,8 +172,87 @@ export class ExplodeControls {
     // 옮기기·되돌리기·모두 되돌리기 칸은 따로 묶어 좁은 막대에서는 다음 줄로 내려간다(긴 번역 — 독일어 등)
     this.undoSeg = h('div', { class: 'seg', hidden: true }, this.undoBtn, this.redoBtn);
     this.resetSeg = h('div', { class: 'seg', hidden: true }, this.resetBtn);
-    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn, fileBtn), this.undoSeg, this.resetSeg);
+    // 거리 칸(끄는 동안·막 끈 뒤): 점 소수 숫자(언어와 상관없이 — 쉼표 소수 언어는 쉼표도 받는다), 손가락 기기는 숫자 자판
+    this.distInput = h('input', {
+      type: 'text',
+      class: 'explode-num',
+      inputmode: 'decimal',
+      enterkeyhint: 'done',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      'aria-label': '옮긴 거리(숫자)',
+      title: DIST_TITLES.free,
+    });
+    this.distUnit = h('span', { class: 'explode-unit' });
+    this.distSeg = h('label', { class: 'explode-distance', hidden: true }, h('span', { class: 'explode-distance-key' }, '거리'), this.distInput, this.distUnit);
+    const send = (): void => {
+      const text = this.distInput.value;
+      if (text === this.distShown || text === this.distSent) return;
+      this.distSent = text;
+      if (tweak.typed?.(text)) {
+        this.distInput.blur();
+        this.distInput.value = this.distShown;
+      } else if (document.activeElement === this.distInput) this.distInput.select();
+      else this.distInput.value = this.distShown;
+    };
+    this.distInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.distSent = null;
+        send();
+      }
+      // 칸의 Esc는 칸만(쳐 넣던 것을 버리고 나온다 — 끄는 중이면 끌기는 그대로, 한 번 더 누르면 끌기 취소)
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.distInput.value = this.distShown;
+        this.distInput.blur();
+      }
+    });
+    // 칸을 떠나면 바뀐 글을 건다(손가락 기기의 숫자 자판에는 Enter가 없다). 걸지 못한 글은 떠난 뒤 보일 값으로 되돌린다
+    this.distInput.addEventListener('change', send);
+    this.distInput.addEventListener('focus', () => (this.distSent = null));
+    this.distInput.addEventListener('blur', () => {
+      if (this.distInput.value !== this.distShown) this.distInput.value = this.distShown;
+    });
+    const field: DistField = {
+      show: (s) => this.showDistance(s),
+      seed: (ch) => {
+        if (this.distSeg.hidden) return false;
+        this.distInput.value = ch;
+        this.distInput.focus();
+        try {
+          this.distInput.setSelectionRange(ch.length, ch.length);
+        } catch {
+          /* 선택을 못 하는 칸 */
+        }
+        return true;
+      },
+      focus: () => {
+        if (this.distSeg.hidden) return false;
+        this.distInput.focus();
+        this.distInput.select();
+        return true;
+      },
+    };
+    tweak.bind?.(field);
+    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn, fileBtn), this.undoSeg, this.resetSeg, this.distSeg);
     this.els = [seg, axes, this.stage, tw];
+  }
+
+  /** 거리 칸 맞추기(null = 숨기기). 쳐 넣는 중(칸에 초점)이면 글은 그대로 두고 보일 값만 기억한다 */
+  private showDistance(s: DistState | null): void {
+    this.distSeg.hidden = !s;
+    if (!s) {
+      this.distShown = '';
+      return;
+    }
+    this.distShown = s.value;
+    if (document.activeElement !== this.distInput) this.distInput.value = s.value;
+    this.distUnit.textContent = s.unit;
+    this.distUnit.hidden = !s.unit;
+    const title = DIST_TITLES[s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line'];
+    if (this.distInput.title !== title) this.distInput.title = title;
   }
 
   /** 문서·방식·방향의 분해 계획(표현 PMI는 제자리). 화면 방향은 view(카메라 각)로 */
@@ -180,6 +298,7 @@ export class ExplodeControls {
     this.undoSeg.hidden = !tw.undo && !tw.redo;
     this.resetSeg.hidden = !tw.count;
     this.anyTweak = !!tw.any;
+    this.showDistance(open ? (tw.dist ?? null) : null);
     for (const [k, b] of this.btns) {
       b.classList.toggle('on', k === mode);
       b.setAttribute('aria-checked', String(k === mode));

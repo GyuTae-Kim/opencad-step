@@ -1848,6 +1848,32 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .explode-redo .icon {
   transform: scaleX(-1);
 }
+/* 거리 칸(43차 — 끄는 동안·막 끈 뒤): "거리 [숫자] mm", 좁은 막대에서는 손질 칸의 다음 줄로 */
+.explode-distance {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.explode-distance[hidden],
+.explode-unit[hidden] {
+  display: none;
+}
+.explode-num {
+  width: 76px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
 /* 끄는 동안 옮긴 거리(38차 — 커서 오른쪽 아래, 손가락은 손가락 위): 측정 글상자처럼 작은 카드, 누르기는 받지 않는다 */
 .explode-dist {
   position: absolute;
@@ -1892,6 +1918,11 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   .explode-bar > .icon-btn {
     width: 38px;
     height: 38px;
+  }
+  /* 거리 칸: 손가락 높이, 16px 글(휴대폰 브라우저가 칸에 들어갈 때 확대하지 않게) */
+  .explode-num {
+    height: 38px;
+    font-size: 16px;
   }
 }
 .iso-bar {

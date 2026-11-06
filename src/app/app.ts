@@ -2837,11 +2837,17 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
-    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에)
+    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에).
+    // 분해 손질 거리(43차)도: 끄는 동안 숫자 글쇠는 막대의 거리 칸으로(코어의 1~7 표준 뷰 키보다 먼저), 막 끈 뒤 Enter는 그 칸으로
     window.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.key === 'Shift' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isTextTarget(ev.target)) this.tangentShift(true);
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key === 'Shift' && !ev.repeat && !isTextTarget(ev.target)) this.tangentShift(true);
+        else if (this.tweakTool?.key(ev.key, ev.target)) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
       },
       true,
     );
