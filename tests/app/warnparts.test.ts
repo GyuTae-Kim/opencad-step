@@ -43,7 +43,8 @@ describe('해석기 경고 안의 까닭 조각', () => {
       expect(out).toContain('OFFSET_SURFACE 3');
       expect(out).toContain('FACE_SURFACE 2');
     }
-    expect(pieceTranslate('삼각화하지 못한 면 3개 / 10개 (경계 고리 없음 3)', 'en')).toBe('Untriangulated faces 3 / 10 (No border ring 3)');
+    // 56차: 경계 고리(B-rep 면의 경계 loop)를 "border ring"으로 옮긴 것을 고침
+    expect(pieceTranslate('삼각화하지 못한 면 3개 / 10개 (경계 고리 없음 3)', 'en')).toBe('Untriangulated faces 3 / 10 (No boundary loop 3)');
   });
 
   it('실제 해석 경고(곡면을 읽지 못해 실패한 면)도 조각마다 옮겨진다', () => {
