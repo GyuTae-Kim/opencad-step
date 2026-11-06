@@ -236,7 +236,7 @@ export class Geometry {
         if (basis.period > 0) {
           const P = basis.period;
           if (Math.abs(t1 - basis.t0) > 16 * P || Math.abs(t2 - t1) > 16 * P) {
-            // 주기의 열 배 넘게 먼 매개변수(깨진 파일)는 한 주기 안으로 당긴다 — 그대로 두면 정밀도를 잃고 매듭·나눔 고리가 끝나지 않는다
+            // 주기의 16배 넘게 먼 매개변수(깨진 파일)는 한 주기 안으로 당긴다 — 그대로 두면 정밀도를 잃고 매듭·나눔 고리가 끝나지 않는다
             const d = (t2 - t1) % P;
             t1 = basis.wrap(t1);
             t2 = t1 + d;
