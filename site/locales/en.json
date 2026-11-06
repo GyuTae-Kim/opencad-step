@@ -85,7 +85,7 @@
   "ZIP 압축 방식 {0}(AES 암호)은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.": "ZIP compression method {0} (AES encryption) is not supported (only stored and deflate). Open the extracted .stp file.",
   "ZIP 항목 {0}의 머리가 손상되었습니다.": "The header of ZIP entry {0} is damaged.",
   "ZIP 항목 {0}이(가) 손상되었습니다(CRC 불일치).": "ZIP entry {0} is corrupt (CRC mismatch).",
-  "ZIP 항목 {0}이(가) 잘렸습니다.": "ZIP item {0} has been truncated.",
+  "ZIP 항목 {0}이(가) 잘렸습니다.": "ZIP entry {0} is truncated.",
   "Z축 방향": "Along Z axis",
   "끌어온 점에서 X축": "X axis from tracked point",
   "끌어온 점에서 Y축": "Y axis from tracked point",
