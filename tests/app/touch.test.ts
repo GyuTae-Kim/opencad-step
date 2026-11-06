@@ -140,9 +140,51 @@ describe('손가락 기기 규칙(styles.css)', () => {
     expect(brand!.style.getPropertyValue('clip')).toMatch(/rect/);
   });
 
+  it('51차: 메뉴의 단축키 글은 손가락 기기에서 숨기고, 구분선 위아래 틈은 2px', () => {
+    expect(last.get('.menu kbd')?.display).toBe('none');
+    expect(last.get('.menu-sep')?.margin).toBe('2px 6px');
+    // 마우스 화면 규칙(매체 조건 없음)은 그대로 단축키 글을 보인다
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const plain = [...el.sheet!.cssRules].filter((r): r is CSSStyleRule => r instanceof CSSStyleRule && r.selectorText === '.menu kbd');
+    el.remove();
+    expect(plain).toHaveLength(1);
+    expect(plain[0]!.style.getPropertyValue('display')).toBe('');
+  });
+
+  it('51차: 휴대폰 시트의 나무 도구 줄은 "⋯" 단추가 있을 때만 그 단추 하나로(거르기 칸 오른쪽 칸), 넓은 화면은 "⋯"를 숨긴다', () => {
+    const sheet = all.filter((x) => /max-width:\s*759\.98px/.test(x.media));
+    const get = (sel: string) => sheet.find((x) => x.sel === sel)?.style;
+    expect(get('.tree-tools:has(> .tree-more-btn) > .btn:not(.tree-more-btn)')?.getPropertyValue('display')).toBe('none');
+    expect(get('.tree-tools > .tree-more-btn')?.getPropertyValue('display')).toBe('inline-flex');
+    expect(get('.prop-group:has(> .tree-tools > .tree-more-btn) > .tree-search')?.getPropertyValue('grid-column')).toBe('1');
+    const tools = get('.prop-group:has(> .tree-tools > .tree-more-btn) > .tree-tools');
+    expect([tools?.getPropertyValue('grid-column'), tools?.getPropertyValue('grid-row')]).toEqual(['2', '2']);
+    // 간섭 검사 묶음의 .tree-tools("⋯" 없음)는 건드리지 않는다 — 규칙마다 "⋯"가 있을 때만
+    for (const x of sheet) if (/tree-tools/.test(x.sel) && x.sel !== '.tree-tools > .tree-more-btn') expect(x.sel).toMatch(/:has\(> (\.tree-tools > )?\.tree-more-btn\)/);
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const plain = [...el.sheet!.cssRules].find((r): r is CSSStyleRule => r instanceof CSSStyleRule && r.selectorText === '.tree-more-btn');
+    el.remove();
+    expect(plain?.style.getPropertyValue('display')).toBe('none');
+  });
+
+  it('51차: 375~389px 일본어·중국어 제목 막대는 아이콘을 빼고 앱 이름 전체를 보인다', () => {
+    const r = all.filter((x) => /min-width:\s*375px/.test(x.media) && /max-width:\s*389\.98px/.test(x.media));
+    expect(r.map((x) => x.sel).sort()).toEqual([':lang(ja) .brand-icon', ':lang(zh) .brand-icon']);
+    for (const x of r) expect(x.style.getPropertyValue('display')).toBe('none');
+  });
+
   it('휴대폰 시트 처음 높이는 손가락 기기에서 50%(끌어 바꾼 높이는 앱 뿌리의 --sheet-h가 덮는다)', () => {
     const r = all.find((x) => x.sel === ':root' && /max-width:\s*759\.98px/.test(x.media));
     expect(r!.style.getPropertyValue('--sheet-h').trim()).toBe('50%');
+    // 51차: 높이 640px 이하(320×568·360×640)는 60% — 고른 것 띠까지 있으면 반 높이로는 나무 줄이 하나도 안 보였다
+    const short = all.filter((x) => x.sel === ':root' && /max-height:\s*640px/.test(x.media));
+    expect(short).toHaveLength(1);
+    expect(short[0]!.media).toMatch(/max-width:\s*759\.98px/);
+    expect(short[0]!.style.getPropertyValue('--sheet-h').trim()).toBe('60%');
   });
 });
 

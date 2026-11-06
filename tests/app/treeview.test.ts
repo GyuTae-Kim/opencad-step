@@ -317,6 +317,30 @@ describe('제품 나무 가상 목록', () => {
     expect(find(document.body)).toBe(true);
   });
 
+  it('나무 도구 "⋯" 메뉴(51차): 도구 줄 끝에 단추를 두고, 항목을 고르면 그 도구 단추를 누른 것으로 친다(휴대폰 시트에서만 보임 — styles.css)', () => {
+    const d = bigDoc(3, 2);
+    const { panel, calls } = mount(d);
+    const tools = panel.el.querySelector<HTMLElement>('.tree-tools')!;
+    const more = tools.querySelector<HTMLButtonElement>('.tree-more-btn')!;
+    expect(tools.lastElementChild).toBe(more);
+    expect([more.getAttribute('aria-label'), more.getAttribute('aria-haspopup'), more.getAttribute('aria-expanded')]).toEqual(['나무 도구', 'menu', 'false']);
+    more.click();
+    const menu = document.querySelector<HTMLElement>('.menu')!;
+    expect(menu.getAttribute('aria-label')).toBe('나무 도구');
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(items.map((b) => b.textContent)).toEqual(['모두 펼치기', '모두 접기', '모두 보이기']);
+    items[2]!.click();
+    expect(calls).toContain('showAll');
+    expect(document.querySelector('.menu')).toBeNull();
+    // 모두 접기 → 나무를 다시 그려도 새 도구 줄에 "⋯"는 하나
+    panel.el.querySelector<HTMLButtonElement>('.tree-more-btn')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][1]!.click();
+    expect(d.expanded.size).toBe(0);
+    expect(panel.el.querySelectorAll('.tree-more-btn')).toHaveLength(1);
+    expect(more.isConnected).toBe(false);
+  });
+
   it('눈 단추로 숨기면(다시 그림) 초점이 새 줄의 눈 단추로 돌아온다', () => {
     const d = bigDoc();
     const { panel, row, calls } = mount(d);

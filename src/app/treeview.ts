@@ -11,6 +11,7 @@ import { h, icon } from './dom';
 import { bodyName, instanceCounts, itemById, nodeItems, selectedBody, wireLabel, type StepDoc } from './doc';
 import { fmtCount } from './format';
 import { isTextTarget } from './keys';
+import { openMenu, type MenuItem } from './menu';
 import type { PanelHost } from './panel';
 import { nodeInstances, nodeLabel, nodeVisible, toggleKey, type TreeRow } from './tree';
 
@@ -140,6 +141,27 @@ export interface TreeOpts {
   redraw(): void;
   /** 나무 위 이름 거르기 칸: 첫 줄에서 ↑, 그리고 Ctrl·⌘+F(findToFilter)가 이 칸으로 */
   filter: HTMLInputElement;
+  /** 나무 도구 단추 줄(모두 펼치기·접기·보이기·간섭 검사): 휴대폰 시트에서 접을 "⋯" 메뉴 단추를 끝에 붙인다(51차) */
+  tools?: HTMLElement;
+}
+
+/**
+ * 나무 도구 "⋯" 메뉴 단추(51차): 좁은 손가락 기기(휴대폰 시트 — styles.css)에서는 나무 도구 단추 줄을 숨기고 이 단추 하나를 거르기 칸 오른쪽에 둔다.
+ * 고르면 같은 단추를 누른 것으로 친다(이름은 화면 언어로 바뀐 단추 글 그대로). 320×568에서 시트를 처음 열면 거르기 칸·도구 줄 아래 나무 줄이 하나도
+ * 보이지 않던 것(독일어·영어는 도구 줄이 두 줄이라 375px에서도 줄었다) — 시트에서 나무 줄이 먼저 보이게(Apple HIG 시트: 중간 높이에 가장 쓸모 있는 것을).
+ * 넓은 화면·마우스 화면에서는 이 단추를 숨기고 도구 줄 그대로
+ */
+export function treeToolsMenu(tools: HTMLElement): HTMLButtonElement {
+  const b = h('button', { type: 'button', class: 'btn icon-btn tree-more-btn', title: '나무 도구', 'aria-label': '나무 도구', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('more'));
+  b.addEventListener('click', () =>
+    openMenu(
+      b,
+      [...tools.querySelectorAll<HTMLButtonElement>('button:not(.tree-more-btn)')].map((t): MenuItem => ({ label: t.textContent ?? '', run: () => t.click() })),
+      '나무 도구',
+    ),
+  );
+  tools.append(b);
+  return b;
 }
 
 /** Ctrl·⌘+F가 옮겨 갈 거르기 칸(가장 최근에 그린 나무의 것 — 탭을 바꾸거나 다시 그리면 DOM에서 빠진다) */
@@ -240,6 +262,7 @@ export function treeView(o: TreeOpts): TreeView {
     findBound = true;
     window.addEventListener('keydown', (ev) => void findToFilter(ev));
   }
+  if (o.tools) treeToolsMenu(o.tools);
   // 거르기 칸에서 ↓: 첫 줄로(거른 줄이 없으면 그대로)
   o.filter.addEventListener('keydown', (ev) => {
     if (ev.key !== 'ArrowDown') return;

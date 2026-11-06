@@ -440,6 +440,7 @@ export class Panel {
           scroller: this.body,
           redraw: () => this.renderBody(),
           filter: input,
+          tools,
         })
       : null;
     let more: HTMLElement | null = null;
