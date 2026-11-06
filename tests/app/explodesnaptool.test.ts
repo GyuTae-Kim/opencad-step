@@ -256,6 +256,33 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     btn.click();
     c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
     expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([false, 'true']);
+    // 손가락으로 끄는 동안 둘째 손가락(isPrimary 아님)으로 누름: 뗄 때 바로 바뀌고 그 자리에서 다시 본다, 뒤따르는 click은 한 번 거른다
+    const p0 = shownB();
+    const s = at(p0, 0);
+    const cc = at(p0, -8.3);
+    fire('pointerdown', s[0], s[1], 'touch');
+    expect(tool.grab(s[0], s[1], 1)).toBe(true);
+    fire('pointermove', cc[0], cc[1], 'touch');
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    const second = (type: string, primary: boolean, pointerType = 'touch') => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(e, { pointerId: { value: 2 }, pointerType: { value: pointerType }, isPrimary: { value: primary } });
+      btn.dispatchEvent(e);
+    };
+    second('pointerdown', false);
+    second('pointerup', false);
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([true, 'false']);
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.3, 6);
+    btn.click();
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([true, 'false']);
+    // 첫 손가락·마우스의 pointerup은 바꾸지 않고(click이 바꾼다), 거른 뒤 click은 다시 바꾼다
+    second('pointerup', true);
+    second('pointerup', false, 'mouse');
+    expect(tool.snapOff).toBe(true);
+    btn.click();
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([false, 'true']);
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    fire('pointerup', cc[0], cc[1], 'touch');
   });
 
   it('Alt로 고른 면 강조(같은 선분 강조)가 있으면 안내 선은 그리지 않고 거리 글 아래 줄만', () => {

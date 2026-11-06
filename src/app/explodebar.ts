@@ -171,10 +171,21 @@ export class ExplodeControls {
     this.moveBtn.addEventListener('click', () => tweak.move?.(this.moveBtn.getAttribute('aria-pressed') !== 'true'));
     this.snapBtn = h('button', { type: 'button', class: 'seg-btn explode-snap on', 'aria-pressed': 'true', title: SNAP_TITLES.on }, lineIcon(SNAP_PATH), h('span', {}, '붙잡기'));
     // 누르면 단추도 바로 맞춘다(막대 sync는 끄는 동안 부르지 않는다 — 다른 손가락으로 누른 때)
-    this.snapBtn.addEventListener('click', () => {
+    const toggle = (): void => {
       const off = this.snapBtn.getAttribute('aria-pressed') === 'true';
       tweak.snap?.(!off);
       this.showSnap(off);
+    };
+    // 첫 손가락으로 끄는 동안 둘째 손가락으로 누르면 브라우저가 누르기(click)를 내지 않아(두 손가락 몸짓) 뗄 때 바로 바꾸고, 뒤따르는 click이 있으면 한 번 거른다
+    let touched = -1;
+    this.snapBtn.addEventListener('pointerup', (e) => {
+      if (e.pointerType !== 'touch' || e.isPrimary) return;
+      touched = e.timeStamp;
+      toggle();
+    });
+    this.snapBtn.addEventListener('click', (e) => {
+      if (touched >= 0 && e.timeStamp - touched < 800) touched = -1;
+      else toggle();
     });
     // 손질 파일(…): 내보내기(JSON — 손질이 있을 때)·불러오기 메뉴
     const fileBtn = h(
