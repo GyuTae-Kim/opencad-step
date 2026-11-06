@@ -45,6 +45,28 @@ describe('collectTransfers', () => {
     expect(blocks[0]!.positions).toBe(blocks[1]!.positions);
     expect(scene.meshes[0]!.positions.length).toBe(0); // 원본은 비워짐(이전됨)
   });
+
+  it('한도(max)를 넘으면 큰 버퍼부터 max개만 — 나머지는 복사돼도 값과 버퍼 공유가 같다', () => {
+    const shared = new Float32Array([1, 2, 3]);
+    const meshes = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, positions: i % 3 ? new Float32Array(4 + i).fill(i) : shared, tri: new Uint32Array([i, i + 1]) }));
+    const value = { meshes, big: new Float64Array(64).fill(7) };
+    expect(collectTransfers(value)).toHaveLength(1 + 1 + 8 + 12);
+    const t = collectTransfers(value, 5);
+    expect(t).toHaveLength(5);
+    // 큰 것부터(같은 크기는 모은 차례 — 안정 정렬)
+    expect(t[0]).toBe(value.big.buffer);
+    expect(t.map((b) => b.byteLength)).toEqual([512, 60, 56, 48, 44]);
+    expect(collectTransfers(value, 22)).toEqual(collectTransfers(value));
+    const before = JSON.stringify(value, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as Float32Array) : v));
+    const copy = structuredClone(value, { transfer: t });
+    expect(JSON.stringify(copy, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as Float32Array) : v))).toBe(before);
+    expect(copy.meshes[0]!.positions).toBe(copy.meshes[3]!.positions);
+    expect(copy.meshes[0]!.positions).not.toBe(shared);
+    // 옮긴 것은 원본이 비고, 복사한 것은 원본이 그대로
+    expect(value.big.length).toBe(0);
+    expect(shared.length).toBe(3);
+    expect(meshes[1]!.tri.length).toBe(2);
+  });
 });
 
 describe('sceneHasGeometry', () => {

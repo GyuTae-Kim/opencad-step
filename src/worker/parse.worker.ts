@@ -1,6 +1,7 @@
 /**
  * STEP 해석 워커: 파일 바이트를 화면 밖에서 해석해 Scene3d로 돌려준다(일은 src/app/job.ts — 압축 STEP 풀기 포함).
- * 진행률(onProgress)은 60ms에 한 번 이하로 알리고, 결과의 형식 배열은 이전 가능한 버퍼로 넘긴다(protocol.ts collectTransfers).
+ * 진행률(onProgress)은 60ms에 한 번 이하로 알리고, 결과의 형식 배열은 이전 가능한 버퍼로 넘긴다(protocol.ts collectTransfers —
+ * 버퍼가 TRANSFER_MAX개를 넘는 큰 조립은 큰 것부터 그만큼만 옮기고 나머지는 복사한다: 이전 목록이 길면 postMessage가 개수의 제곱으로 느려진다).
  * 그물 법선은 넘기기 전에 Int8 정점 4값으로 줄인다(normals.ts — 해석기 stepToScene은 Float32 그대로).
  *
  * 닫힌 입체의 질량 속성(곡면 적분)은 해석 결과에 넣지 않고 적분 거리만 남긴다. 화면이 문서를 보인 뒤 'props'를 보내면
@@ -11,7 +12,7 @@
 /// <reference lib="webworker" />
 import { parseStepFile } from '../app/job';
 import { packSceneNormals } from '../app/normals';
-import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest, type SurfacesRequest } from '../app/protocol';
+import { collectTransfers, errorText, type ParseRequest, type ParseResponse, type ParseResult, type PropsRequest, type SurfacesRequest, TRANSFER_MAX } from '../app/protocol';
 import { dropFaceSurfaceCaches, type FaceSurfacePayload, packFaceSurfaces } from '../facesurf';
 import type { FaceSurfaceSet, MassPropsJob } from '../scene';
 
@@ -73,7 +74,7 @@ async function integrate(entry: NonNullable<typeof props>): Promise<void> {
     }
     const results = job.take();
     const msg: ParseResponse = { id, type: 'props', results, done: job.done, total: job.total, finished, timedOut: job.timedOut, ms: Math.round(job.ms) };
-    post(msg, collectTransfers(results));
+    post(msg, collectTransfers(results, TRANSFER_MAX));
     if (finished) {
       if (props === entry) props = null;
       // 적분이 끝났으니 들고 있는 곡면 정의의 되짚기 캐시를 버린다(화면에 보낼 때·다시 쓸 때 같은 값으로 다시 만든다)
@@ -120,7 +121,7 @@ ctx.onmessage = async (ev: MessageEvent<ParseRequest | PropsRequest | SurfacesRe
   // 법선은 Int8 정점 4값으로 줄여 넘긴다(옮기는 버퍼·화면 쪽 메모리·GPU 버퍼 — normals.ts)
   packSceneNormals(result.scene);
   try {
-    post({ id: req.id, type: 'done', result }, collectTransfers(result));
+    post({ id: req.id, type: 'done', result }, collectTransfers(result, TRANSFER_MAX));
   } catch {
     // 이전이 막히면(드문 경우) 복사로 보낸다
     post({ id: req.id, type: 'done', result });
