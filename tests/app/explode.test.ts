@@ -259,14 +259,16 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
       },
     );
     const tw = c.els[3]!;
-    const [move, file, undo, redo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
+    const [move, snap, file, undo, redo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
     expect(tw.getAttribute('aria-label')).toBe('분해 손질');
-    expect([move!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '되돌리기', '다시 하기', '모두 되돌리기']);
+    expect([move!.textContent, snap!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '붙잡기', '되돌리기', '다시 하기', '모두 되돌리기']);
     expect([file!.getAttribute('aria-label'), file!.getAttribute('aria-haspopup')]).toEqual(['손질 파일', 'menu']);
     const d = doc(1);
     c.sync(d, 'step', true);
-    // 옮기기·손질 파일 | 되돌리기·다시 하기 | 모두 되돌리기는 따로 묶은 칸(좁으면 차례로 다음 줄로) — 할 것이 없으면 칸째 숨긴다
+    // 옮기기·붙잡기(48차)·손질 파일 | 되돌리기·다시 하기 | 모두 되돌리기는 따로 묶은 칸(좁으면 차례로 다음 줄로) — 할 것이 없으면 칸째 숨긴다
     expect(file!.parentElement).toBe(move!.parentElement);
+    expect(snap!.parentElement).toBe(move!.parentElement);
+    expect(snap!.getAttribute('aria-pressed')).toBe('true');
     expect(undo!.parentElement).toBe(redo!.parentElement);
     expect(undo!.parentElement).not.toBe(move!.parentElement);
     expect(reset!.parentElement).not.toBe(undo!.parentElement);

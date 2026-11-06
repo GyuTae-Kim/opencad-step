@@ -1003,5 +1003,8 @@
   "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument (anderer Name oder andere Größe), daher wurden nur Teile übernommen, deren Position und Teil (Name, Anzahl der Körper, Größe) passen.",
   "면에 닿음": "Berührt Fläche",
   "면과 같은 높이": "Bündig mit Fläche",
-  "Alt/⌥로 풀기": "Alt/⌥ zum Lösen"
+  "Alt/⌥로 풀기": "Alt/⌥ zum Lösen",
+  "붙잡기": "Einrasten",
+  "붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)": "Einrasten an: Ein gezogenes Bauteil rastet dort ein, wo es eine Fläche eines anderen Bauteils berührt oder mit ihr bündig ist – zum Ausschalten drücken (mit der Maus beim Ziehen Alt/⌥ gedrückt halten, um es kurz zu lösen)",
+  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Einrasten aus: Ein gezogenes Bauteil rastet nicht an Flächen anderer Bauteile ein – zum Einschalten drücken"
 }

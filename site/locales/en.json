@@ -1003,5 +1003,8 @@
   "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.": "These adjustments were exported from a different document (different name or size), so only those whose position and part (name, number of bodies, size) match were loaded.",
   "면에 닿음": "Touching face",
   "면과 같은 높이": "Level with face",
-  "Alt/⌥로 풀기": "Alt/⌥ to release"
+  "Alt/⌥로 풀기": "Alt/⌥ to release",
+  "붙잡기": "Snap",
+  "붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)": "Snap on: a dragged part snaps where it touches or is level with a face of another part — press to turn off (with a mouse, hold Alt/⌥ while dragging to release it for a moment)",
+  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Snap off: a dragged part does not snap to faces of other parts — press to turn on"
 }
