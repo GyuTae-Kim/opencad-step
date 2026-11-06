@@ -32,8 +32,8 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
     // Keep spacing around split text nodes and inline elements.
     return { source, rendered: rendered === source ? source : (source.match(/^\s*/)?.[0] ?? '') + rendered + (source.match(/\s*$/)?.[0] ?? '') };
   }
+  // Callers (update) have already checked that el and its ancestors are outside SKIP or el is a skipped form field outside translate="no"
   function element(el: Element): void {
-    if ((el.matches(SKIP) && !el.matches('input, textarea, canvas, [contenteditable]')) || el.closest('[translate="no"], [data-i18n-skip]')) return;
     const records = attributes.get(el) ?? new Map<string, RecordValue>(); attributes.set(el, records);
     for (const name of ['title','aria-label','aria-description','placeholder','alt']) {
       if (!el.hasAttribute(name)) continue;
@@ -47,17 +47,19 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
       records.set('href',{source,rendered}); if (el.getAttribute('href') !== rendered) el.setAttribute('href',rendered);
     }
   }
-  function update(node: Node): void {
+  // inside: the parent was walked here and is outside SKIP, so the ancestor lookup (closest per node — slow for a 3,000-row tree) is skipped
+  function update(node: Node, inside?: boolean): void {
+    if (!inside && node.parentElement?.closest(SKIP)) return;
     if (node.nodeType === Node.TEXT_NODE) {
-      if (!node.parentElement || node.parentElement.closest(SKIP)) return;
+      if (!node.parentElement) return;
       const record = value(node.nodeValue ?? '', texts.get(node)); texts.set(node, record);
       if (node.nodeValue !== record.rendered) node.nodeValue = record.rendered;
       return;
     }
-    if (!(node instanceof Element) || node.parentElement?.closest(SKIP)) return;
-    if (node.matches(SKIP)) { if (node.matches('input, textarea, canvas, [contenteditable]')) element(node); return; }
+    if (!(node instanceof Element)) return;
+    if (node.matches(SKIP)) { if (node.matches('input, textarea, canvas, [contenteditable]') && !node.closest('[translate="no"], [data-i18n-skip]')) element(node); return; }
     element(node);
-    for (const child of Array.from(node.childNodes)) update(child);
+    for (const child of [...node.childNodes]) update(child, true);
   }
   function mountSelector(): void {
     // The shared widget preserves native language names with translate="no".

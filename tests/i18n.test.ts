@@ -191,5 +191,46 @@ describe('language URLs and UI presentation', () => {
     }
     dispose();dispose=undefined;dom.window.close();
   });
+  it('walks a large inserted subtree once, still honouring skipped regions at any depth and later attribute changes', async () => {
+    const dom = new JSDOM('<!doctype html><html><head><title>OpenCAD</title></head><body><div id="app"><header class="titlebar"></header><div id="body"></div></div></body></html>', {url:languageUrl(metadataForLanguage('ko').url,'en')});
+    for (const name of ['window','document','Node','Element','HTMLAnchorElement','MutationObserver','location','history','localStorage','CustomEvent']) vi.stubGlobal(name,(dom.window as unknown as Record<string,unknown>)[name]);
+    const root = document.getElementById('app')!;
+    dispose = await installLocalization(root);
+    // Like the product tree: one section with many rows appended at once (the observer sees a single added node)
+    const section = document.createElement('section');
+    section.innerHTML = '<h3>제품 나무</h3><div class="tree">'
+      + Array.from({length:40},(_,i)=>`<div class="tree-row" title="숨기기" data-key="${i}"><button class="eye" aria-label="열기"><svg><title>닫기</title></svg></button><span class="tree-name">열기 ${i}</span><span class="tree-name-gen">닫기</span></div>`).join('')
+      + '</div><div data-i18n-skip><p title="닫기">닫기<input placeholder="열기"></p></div>'
+      + '<div><div translate="no"><span title="열기">열기</span></div><span title="닫기">닫기</span><input placeholder="열기"><input translate="no" placeholder="열기"></div>';
+    document.getElementById('body')!.append(section);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(section.querySelector('h3')!.textContent).toBe('Product Tree');
+    const rows = section.querySelectorAll('.tree-row');
+    expect(rows).toHaveLength(40);
+    for (const row of rows) {
+      expect(row.getAttribute('title')).toBe('Hide');
+      expect(row.querySelector('.eye')!.getAttribute('aria-label')).toBe('Open');
+      expect(row.querySelector('svg title')!.textContent).toBe('닫기');
+      expect(row.querySelector('.tree-name')!.textContent).toMatch(/^열기 \d+$/);
+      expect(row.querySelector('.tree-name-gen')!.textContent).toBe('Close');
+    }
+    const skipped = section.querySelector('[data-i18n-skip] p')!;
+    expect([skipped.getAttribute('title'), skipped.firstChild!.nodeValue, skipped.querySelector('input')!.placeholder]).toEqual(['닫기','닫기','열기']);
+    const keep = section.querySelector('[translate="no"] span')!;
+    expect([keep.getAttribute('title'), keep.textContent]).toEqual(['열기','열기']);
+    const free = section.querySelector('[translate="no"] + span')!;
+    expect([free.getAttribute('title'), free.textContent]).toEqual(['Close','Close']);
+    const inputs = section.querySelectorAll<HTMLInputElement>(':scope > div:last-child > input');
+    expect([inputs[0]!.placeholder, inputs[1]!.placeholder]).toEqual(['Open','열기']);
+    // Later attribute and text changes deep inside walked and skipped regions
+    rows[3]!.setAttribute('title','보이기');
+    skipped.setAttribute('title','보이기');
+    keep.textContent='보이기';
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(rows[3]!.getAttribute('title')).toBe('Show');
+    expect(skipped.getAttribute('title')).toBe('보이기');
+    expect(keep.textContent).toBe('보이기');
+    dispose();dispose=undefined;dom.window.close();
+  });
 
 });
