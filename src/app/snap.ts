@@ -9,6 +9,8 @@
  * - 곡선 위로 다듬기(코어 0.14.0 refine — curve.refine): 곡선 모서리 토막 위의 수직 발·모서리 위 점을 정확한 곡선 위로 옮긴다(받기 전에는 주지 않는다).
  *   0.15.0부터 코어가 열린 후보(첫 점에서 꺾은선 토막에 내린 발이 토막 밖인 수직 발, 조금 비켜 지나가는 두 토막의 교차점)와 교차점도 넘기면
  *   멀리서 내린 곡선 위 발과 두 모서리 곡선의 3D 교차점을 준다.
+ * - 접점(43차 — AutoCAD 접점 붙잡기): 첫 점을 찍은 뒤 고른 곡선 모서리에 첫 점에서 그은 접선이 닿는 점(curve.tangents)을 앱 점(kind 'point' — "접점")으로 더한다.
+ *   첫 점마다 세대를 두어(TangentFirst — curvesnap.ts MeasureFirst) 코어가 같은 고르기에서 다시 쓴 앞 첫 점의 접점은 붙잡기 한도로 거른다.
  * - 추론 붙잡기(코어 0.9.0 inference): 교차점·수직 발·축 방향은 코어가 찾고, 여기서는 종류 이름(상태 막대·측정 띠·결과)만 만든다.
  * - 추론 잠금과 모서리와 나란히(코어 0.10.0, SketchUp의 추론 잠금): Shift를 누르는 동안 지금 방향 추론(축·모서리와 나란히·수직)을 잠그고,
  *   화살표 →·←·↑는 X·Y·Z축, ↓는 지금 방향을 잠근다(같은 키로 풀기). 손가락 기기는 측정 띠의 잠금 단추. 여기서는 잠금 이름·안내·키 판단만 한다.
@@ -42,6 +44,11 @@ export interface CurveSnap {
   refine(c: SnapRefineInput): readonly number[] | null;
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
   mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
+  /**
+   * 43차: 측정 첫 점(first.point — 세계)에서 모서리 e 곡선에 그은 접선의 접점 붙잡기 점(kind 'point', 차례 값 first.order — curvesnap.ts tangentSnapPoints).
+   * known(그 모서리의 끝점·가운데 점·중심)과 겹치는 접점은 뺀다. 곡선 정의가 없으면 빈 목록
+   */
+  tangents?(mesh: Mesh3d, table: StepEdgeTable, e: number, first: { point: readonly number[]; order: number }, known: readonly SnapPoint[]): SnapPoint[];
   /** 코어 0.19.0 refineFace: 축이 면을 뚫는 점 → 축 직선과 그 B-rep 곡면의 교점(facesnap.ts — 면 표가 있을 때만, 평면·모르면 null) */
   refineFace?(c: SnapRefineFaceInput): readonly number[] | null;
 }
@@ -99,11 +106,28 @@ export function circleCenters(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | nul
 }
 
 /**
+ * 측정 첫 점과 그 세대(43차 — 접점 붙잡기, curvesnap.ts MeasureFirst — 접선 조각): 첫 점만 찍었으면 그 점, 접점에 달 차례 값(−세대).
+ * 코어가 같은 고르기에서 다시 쓴 앞 첫 점의 접점은 세대 한도로 거른다
+ */
+export interface TangentFirst {
+  point(): readonly number[] | null;
+  readonly order: number;
+}
+
+/**
  * 고른 윤곽선(Pick3d kind 'edge')의 B-rep 모서리에서 붙잡을 점: 원호·곡선은 끝점·곡선 길이 가운데 점, 원·타원은 중심.
  * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null.
- * curve가 있으면 곡선 모서리의 가운데 점은 곡선 정의로 잰 곡선 위 점(없거나 못 구하면 꺾은선 길이로 잰 점)
+ * curve가 있으면 곡선 모서리의 가운데 점은 곡선 정의로 잰 곡선 위 점(없거나 못 구하면 꺾은선 길이로 잰 점).
+ * first(측정 첫 점과 그 세대 차례 값 — 43차)가 있고 곡선 모서리면 첫 점에서 그은 접선의 접점(kind 'point', 이름 "접점")을 끝에 더한다 —
+ * 끝점·가운데 점과 겹치는 접점은 빼서(그 점 붙잡기가 맡는다) 예전 점의 차례와 결과가 그대로다
  */
-export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[], ex: SnapEdgeIndex | null, curve: CurveSnap | null = null): SnapPoint[] | null {
+export function edgeSnapPoints(
+  pick: Pick3d,
+  meshes: ReadonlyMap<string, Mesh3d> | readonly Mesh3d[],
+  ex: SnapEdgeIndex | null,
+  curve: CurveSnap | null = null,
+  first: { point: readonly number[]; order: number } | null = null,
+): SnapPoint[] | null {
   if (pick.kind !== 'edge' || !ex) return null;
   const ti = ex.tableOf.get(pick.id);
   const table = ti === undefined ? undefined : ex.tables[ti];
@@ -119,6 +143,7 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
     out.push({ point: (d.kind !== 'line' && curve?.mid(mesh, table, e)) || d.mid, kind: 'midpoint', id: mesh.id });
   }
   if (d.center) out.push({ point: d.center, kind: 'center', id: mesh.id });
+  if (first && d.kind !== 'line' && curve?.tangents) out.push(...curve.tangents(mesh, table, e, first, out));
   return out;
 }
 
@@ -137,7 +162,8 @@ export function edgeSnapPoints(pick: Pick3d, meshes: ReadonlyMap<string, Mesh3d>
  * 앱 refine 'axisEdge'·refineFace 'axisFace'가 축 이름 없는 안내 선으로 곡선·곡면 위로 다듬는다. 이름은 뷰어 조각의 trackdir.ts trackDirMeetLabel),
  * 두 끌어온 점의 안내 선끼리 만나는 점(같은 기준 모서리에 대해 한 점의 나란한 선과 다른 점의 수직인 선이 만나는 기운 사각형의 구석 —
  * 0.30.0 meets { guides: true }, 정확한 직선끼리라 다듬지 않는다)에도 붙는다. 그 선이 곡선 모서리 꺾은선의 활꼴만 지나 현과 만나지 않는 자리(0.31.0 open)와
- * 곡면을 나눈 삼각형을 비켜 가며 곡면만 뚫는 자리(0.32.0 openFaces)도 앱 refine·refineFace가 곡선·곡면과의 정확한 교차로 풀어 붙는다
+ * 곡면을 나눈 삼각형을 비켜 가며 곡면만 뚫는 자리(0.32.0 openFaces)도 앱 refine·refineFace가 곡선·곡면과의 정확한 교차로 풀어 붙는다.
+ * first(43차 — 측정 첫 점, curvesnap.ts MeasureFirst)가 있으면 첫 점을 찍은 뒤 고른 곡선 모서리에 첫 점에서 그은 접선의 접점도 더한다(curve.tangents — 코어 기존 앱 점 길)
  */
 export function measureSnapOptions(
   meshes: readonly Mesh3d[],
@@ -146,6 +172,7 @@ export function measureSnapOptions(
   curve: CurveSnap | null = null,
   through = false,
   trackDirEdge: ((seg: SnapSegment) => boolean) | null = null,
+  first: TangentFirst | null = null,
 ): MeasureSnapOptions {
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
   let lastKey = '';
@@ -157,10 +184,12 @@ export function measureSnapOptions(
     points: centers,
     pointsFor: (p) => {
       if (p.kind !== 'edge') return null;
-      const key = `${p.id}:${p.raw ?? p.index}`;
+      // 접점은 첫 점과 그 세대로 정해진다(같은 모서리를 이어 가리키는 동안은 한 번만 구한다)
+      const F = curve?.tangents ? (first?.point() ?? null) : null;
+      const key = `${p.id}:${p.raw ?? p.index}${F ? `:${first!.order}:${F.join(',')}` : ''}`;
       if (key !== lastKey) {
         lastKey = key;
-        last = edgeSnapPoints(p, byId, ex, curve);
+        last = edgeSnapPoints(p, byId, ex, curve, F ? { point: F, order: first!.order } : null);
       }
       return last;
     },
@@ -296,7 +325,8 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'center':
       return '중심';
     case 'point':
-      return '붙잡은 점';
+      // STEP이 주는 그 밖의 앱 점은 접점뿐이다(43차 — 첫 점에서 곡선에 그은 접선이 닿는 점, edgeSnapPoints)
+      return TANGENT_POINT_LABEL;
     case 'intersection':
       return '교차점';
     case 'perpendicular':
@@ -309,6 +339,9 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
       return refined === 'face' ? SURFACE_POINT_LABEL : refined ? CURVE_POINT_LABEL : '면 위 점';
   }
 }
+
+/** 첫 점에서 곡선 모서리에 그은 접선이 닿는 점(43차 — 앱 점 kind 'point')의 이름 */
+export const TANGENT_POINT_LABEL = '접점';
 
 /** 끌어온 점에서 기준 모서리와 나란한 선 위 점(코어 0.27.0 trackDirs 'parallel')의 이름 */
 export const TRACK_PARALLEL_LABEL = '끌어온 점에서 모서리와 나란히';

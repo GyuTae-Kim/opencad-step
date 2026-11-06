@@ -102,6 +102,17 @@ export class ExplodeDrag {
     this.opts.end(false);
   }
 
+  /**
+   * 끌기를 지금 자리로 마친다(43차 — 끄는 동안 쳐 넣은 거리를 Enter로 건 뒤): 떼기처럼 남기고, 그 포인터는 뗄 때까지 코어에 넘기지 않는다
+   * (움직임은 더 받지 않고, 움직이지 않고 떼도 작업 메뉴를 열지 않는다)
+   */
+  finish(): void {
+    const a = this.active;
+    if (!a?.live) return;
+    a.live = false;
+    this.opts.end(true);
+  }
+
   dispose(): void {
     this.drop();
     this.viewer.setPointerClaim(null);

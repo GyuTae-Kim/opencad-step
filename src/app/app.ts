@@ -246,6 +246,8 @@ export class StepApp {
   private lockFailClose: (() => void) | null = null;
   /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
   private tangents: TangentLock | null = null;
+  /** 측정 첫 점(43차 — 접점 붙잡기의 첫 점과 그 세대, 뷰어마다 — 접선 조각을 받으면) */
+  private measureFirst: InstanceType<typeof import('./tangent').MeasureFirst> | null = null;
   /** 개체 측정 계산(entpick.ts — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다) */
   private ent: typeof import('./entpick') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
@@ -945,7 +947,11 @@ export class StepApp {
     };
     this.pickThrough = translucentView(this.doc);
     v.onPick(this.pickCb, { throughTranslucent: this.pickThrough });
-    v.onMeasure((m) => this.onMeasure(m));
+    // 찍은 점이 바뀌면(둘째 점·지우기·새 측정) 앞 첫 점의 접점을 거른다(43차 — 접선 조각의 MeasureFirst)
+    v.onMeasure((m) => {
+      this.measureFirst?.changed();
+      this.onMeasure(m);
+    });
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
     v.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
@@ -999,6 +1005,8 @@ export class StepApp {
         // 거리 글상자가 측정 띠·위 띠·단면 막대·뷰 큐브를 비켜 그리게(휴대폰에서 띠·큐브 밑으로 들어가던 것)
         this.labelAvoid ??= new m.LabelAvoid(v, this.viewEl);
         this.exactOf ??= m;
+        // 측정 첫 점과 그 세대(43차 — 접점 붙잡기, 이 조각의 curvesnap.ts): 붙잡기 선택을 다시 줄 때 접점 계산과 함께 넘긴다
+        this.measureFirst ??= new m.MeasureFirst(v);
         if (this.curveSnapOf) return;
         this.curveSnapOf = m.curveSnap;
         this.syncMeasureSnap();
@@ -2117,7 +2125,7 @@ export class StepApp {
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
     // 기준 선분 거르기는 모서리 표가 있을 때만(붙잡기 선택을 다시 줄 때마다 새로 — 코어도 그때 받은 기준을 잊는다)
     const edge = d.edges && this.trackDirEdgeOf ? this.trackDirEdgeOf(d.edges) : null;
-    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge));
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge, this.measureFirst));
   }
 
   /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */
@@ -2837,11 +2845,17 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
-    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에)
+    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에).
+    // 분해 손질 거리(43차)도: 끄는 동안 숫자 글쇠는 막대의 거리 칸으로(코어의 1~7 표준 뷰 키보다 먼저), 막 끈 뒤 Enter는 그 칸으로
     window.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.key === 'Shift' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isTextTarget(ev.target)) this.tangentShift(true);
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key === 'Shift' && !ev.repeat && !isTextTarget(ev.target)) this.tangentShift(true);
+        else if (this.tweakTool?.key(ev.key, ev.target)) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
       },
       true,
     );

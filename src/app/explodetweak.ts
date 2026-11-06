@@ -13,6 +13,8 @@
  * - 보기 링크(exm): `양자+낱말:정수[,정수…]+…`. 양자는 조립 대각선의 2⁻¹²(유효 숫자 3자리), 정수는 성분 ÷ 양자. 낱말은 나무 차례로 늘어놓고
  *   앞 낱말의 끝 k마디를 바꾼 것은 `/`를 k번 앞세워 줄인다(`0/3/12/4/7` 다음 `0/3/12/4/8`은 `/8`). TWEAK_LINK_MAX자를 넘으면 담지 않는다(null).
  * - 파일별 저장(최근 문서 항목에 같이 — recent.ts): { v: 1, axes: { 방향: [[낱말, 성분…], …] } }. 되돌리기 단계는 남기지 않는다.
+ * - 쳐 넣은 거리(43차 — SketchUp 값 상자처럼 끄는 동안이나 막 끈 뒤): parseTypedLengths가 글을 장면 단위 수로 읽고, typedDelta가 이번 끌기로
+ *   누른 점이 옮길 세계 이동(밀대에서 보이는 거리 — 끄는 동안 거리 글과 같은 뜻)으로 바꾼다. 막 끈 것은 amend로 같은 되돌리기 단계를 고친다.
  */
 import { basisFromAngles, cameraBasis, computeFrame, screenRay, type CameraState } from 'opencad-viewer3d/camera';
 import { unitFraction, type ExplodeAxis, type ExplodePlan, type ExplodeView, type PlanTweak, type PlanUnit } from './explode';
@@ -65,10 +67,93 @@ export function worldComps(axis: ExplodeAxis, view: ExplodeView | null | undefin
   return [dot(d, b.right), dot(d, b.up)];
 }
 
-/** 길이 수 꼴(앱 Fmt — 표시 단위·소수 자리·화면 언어): len은 단위 글까지, lenNum은 수만 */
+/**
+ * 길이 수 꼴(앱 Fmt — 표시 단위·소수 자리·화면 언어): len은 단위 글까지, lenNum은 수만.
+ * 거리 칸(43차)은 factor(장면 단위 1 → 표시 단위 몇)·decimals·unit(표시 단위 글)·sep(좌표 구분 — 소수점이 쉼표인 언어는 "; ")도 읽는다(없으면 1·3·''·', ')
+ */
 export interface LenFormat {
   len(v: number): string;
   lenNum(v: number): string;
+  readonly factor?: number;
+  readonly decimals?: number;
+  readonly unit?: string;
+  readonly sep?: string;
+}
+
+/** 단위 글 → mm(쳐 넣은 거리 뒤에 붙일 수 있는 것 — SketchUp 값 상자처럼 그 단위가 표시 단위보다 먼저) */
+const TYPED_UNITS: Readonly<Record<string, number>> = Object.freeze({ mm: 1, cm: 10, m: 1000, in: 25.4, '"': 25.4, '″': 25.4, ft: 304.8, "'": 304.8, '′': 304.8 });
+const TYPED_NUM = /^([+\-−]?)\s*(\d+(?:\.\d*)?|\.\d+)\s*(mm|cm|m|in|ft|"|″|'|′)?$/i;
+
+/**
+ * 쳐 넣은 거리 글 → 장면 단위 수 목록(43차 — 분해 손질 거리 칸). 수 하나는 앞에 부호(+·-·−), 뒤에 단위(mm·cm·m·in·"·ft·') 하나까지 붙는다 —
+ * 단위가 없으면 표시 단위(factor: 장면 단위 1 → 표시 단위 몇), 있으면 그 단위(sceneMm: 장면 단위 1이 몇 mm — 모르면 'unit').
+ * 목록은 쌍반점(;)으로 가르고, 소수점이 점인 언어(comma = false)는 쉼표도 목록 구분이다. 소수점이 쉼표인 언어는 쉼표·점 둘 다 소수점이다.
+ * 둘레의 <>(SketchUp의 상대 좌표 꼴)는 뗀다. 꼴이 틀리면(빈 글·[] 절대 좌표·글자) null
+ */
+export function parseTypedLengths(s: string, o: { comma: boolean; factor: number; sceneMm: number }): number[] | 'unit' | null {
+  let t = s.trim();
+  if (t.startsWith('<') && t.endsWith('>')) t = t.slice(1, -1).trim();
+  if (!t || /[[\]<>]/.test(t)) return null;
+  const parts = t.split(o.comma ? /;/ : /[;,]/);
+  const out: number[] = [];
+  for (const raw of parts) {
+    const p = (o.comma ? raw.replace(',', '.') : raw).trim();
+    const m = TYPED_NUM.exec(p);
+    if (!m) return null;
+    const v = Number(m[2]) * (m[1] === '-' || m[1] === '−' ? -1 : 1);
+    if (!Number.isFinite(v)) return null;
+    if (m[3]) {
+      if (!(o.sceneMm > 0)) return 'unit';
+      out.push((v * TYPED_UNITS[m[3].toLowerCase()]!) / o.sceneMm);
+    } else out.push(v / (o.factor > 0 ? o.factor : 1));
+  }
+  return out;
+}
+
+/**
+ * 쳐 넣은 수(장면 단위) → 이번 끌기로 누른 점이 옮길 세계 이동(끄는 길 위 — 지금 밀대에서 보이는 거리, 끄는 동안 거리 글과 같은 뜻).
+ * - 수 하나: 끈 방향으로 그 거리(음수는 반대쪽 — SketchUp 이동 값 상자의 거리처럼). 축 하나·화면 가로·세로는 그 축 위에서 지금 끈 쪽(아직 끌지 않았으면 +쪽),
+ *   화면 평면·사방은 지금 끈 방향(아직 움직이지 않았으면 'dir')
+ * - 수 둘: 화면 평면(sp)만 — 계획 카메라의 가로·세로 성분(거리 글 둘째 줄과 같은 차례)
+ * - 수 셋: 사방(free)만 — 세계 ΔX·ΔY·ΔZ(거리 글 둘째 줄과 같다)
+ * 그 밖의 개수는 'count', limit(끌기 한도 — 조립 대각선의 20배)보다 멀면 'far'
+ */
+export function typedDelta(
+  axis: ExplodeAxis,
+  view: ExplodeView | null | undefined,
+  path: DragConstraint,
+  cur: readonly number[],
+  vals: readonly number[],
+  limit = Infinity,
+): V3 | 'count' | 'dir' | 'far' {
+  let d: V3;
+  if (vals.length === 1) {
+    const L = vals[0]!;
+    if ('line' in path) {
+      const a = path.line;
+      const s = dot(cur, a) < 0 ? -L : L;
+      d = [a[0] * s, a[1] * s, a[2] * s];
+    } else {
+      // 제자리로 돌아온 끌기의 반올림 찌꺼기(끌기 한도의 1e-12배 안)는 방향이 아니다
+      const len = Math.hypot(cur[0]!, cur[1]!, cur[2]!);
+      if (!(len > (Number.isFinite(limit) ? limit : 1) * 1e-12) || !Number.isFinite(len)) return 'dir';
+      const k = L / len;
+      d = [cur[0]! * k, cur[1]! * k, cur[2]! * k];
+    }
+  } else if (vals.length === 2 && axis === 'sp') {
+    const b = basisFromAngles(view?.yaw ?? 0, view?.pitch ?? 0);
+    const [r, u] = vals as [number, number];
+    d = [r * b.right[0] + u * b.up[0], r * b.right[1] + u * b.up[1], r * b.right[2] + u * b.up[2]];
+  } else if (vals.length === 3 && axis === 'free') d = [vals[0]!, vals[1]!, vals[2]!];
+  else return 'count';
+  // −0은 0으로(손질·링크·파일에 −0이 남지 않게)
+  return Math.hypot(d[0], d[1], d[2]) > limit ? 'far' : [d[0] + 0, d[1] + 0, d[2] + 0];
+}
+
+/** 거리 칸 수(표시 단위, 언어와 상관없이 점 소수 — 단면 위치 칸과 같다): 장면 단위 길이 v */
+export function plainLength(v: number, f: Pick<LenFormat, 'factor' | 'decimals'>): string {
+  const r = Number((v * (f.factor ?? 1)).toFixed(Math.max(0, Math.min(6, f.decimals ?? 3))));
+  return String(r === 0 ? 0 : r);
 }
 
 /**
@@ -331,6 +416,37 @@ export class ExplodeTweaks {
   /** 끄는 중인지(열린 단계가 있는지) */
   get editing(): boolean {
     return !!this.open;
+  }
+
+  /**
+   * 그 방향의 마지막 되돌리기 단계 표지(43차 — 쳐 넣은 거리로 고칠 수 있는 막 끈 단계): 열린 단계·다시 할 단계가 없을 때만, 아니면 null.
+   * 표지는 그 단계 객체라 되돌리기·새 손질·모두 지우기·바꾸기가 끼면 달라진다
+   */
+  lastStep(axis: ExplodeAxis): object | null {
+    const s = this.sets.get(axis);
+    return !s || this.open || s.redo.length ? null : (s.undo[s.undo.length - 1] ?? null);
+  }
+
+  /**
+   * 마지막 되돌리기 단계 고치기(43차 — 쳐 넣은 거리): 표지 mark가 아직 그 방향의 lastStep이면 낱말마다 덧이동을 바꾸고 같은 단계에 둔다
+   * (되돌리면 그 단계 앞 값 — 단계에 없던 낱말은 고치기 전 값을 단계에 더한다). 단계 앞 값과 같아진 낱말은 단계에서 빼고,
+   * 모두 같아지면 단계를 지운다(commit과 같은 규칙 — 바뀐 것이 없으면 단계가 없다). 고쳤으면 true
+   */
+  amend(axis: ExplodeAxis, mark: object, entries: readonly (readonly [string, Comps | null])[]): boolean {
+    const s = this.sets.get(axis);
+    if (!s || this.lastStep(axis) !== mark) return false;
+    const step = mark as Step;
+    for (const [k, c] of entries) {
+      if (!step.has(k)) {
+        const now = s.moves.get(k);
+        step.set(k, now ? [...now] : null);
+      }
+      if (!c || isZero(c)) s.moves.delete(k);
+      else s.moves.set(k, [...c]);
+    }
+    for (const [k, v] of [...step]) if (same(v, s.moves.get(k))) step.delete(k);
+    if (!step.size) s.undo.pop();
+    return true;
   }
 
   /** 한 단계 되돌리기(되돌린 것은 다시 할 단계로) */

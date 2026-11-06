@@ -42,7 +42,7 @@ import { curveDistance, dirToWorld, edgeHit, toLocal, toWorld } from './curvesna
 import { edgeAt } from './edges';
 import type { SnapEdgeIndex } from './snap';
 
-export { curveSnap } from './curvesnap';
+export { curveSnap, MeasureFirst } from './curvesnap';
 /** 거리 글상자가 3D 보기 위 앱 요소를 비켜 그리기(labelavoid.ts — 측정에서만 쓰므로 이 조각에) */
 export { LabelAvoid } from './labelavoid';
 /** 개체 측정 최소 거리를 B-rep 곡면·곡선 정의로 다듬기(exactdist.ts — 40차, 측정에서만 쓰므로 이 조각에) */
