@@ -23,14 +23,24 @@
  * 고른 것)를 지금 분해 방향으로 그 거리만큼 옮기는 새 되돌리기 단계를 남긴다(typedDelta의 끈 이동 0 — 축 하나·화면 가로·세로는 수 하나로 +쪽·음수는 반대쪽,
  * 화면 평면은 가로; 세로, 사방은 ΔX; ΔY; ΔZ). 남긴 단계는 막 끈 끌기처럼 다시 쳐 넣어 고친다. 연 칸은 고른 것·밀대·방향·방식이 바뀌거나 끌기를 시작하면 닫힌다
  * (끄는 동안에는 칸이 없다 — 막대 줄이 끄는 동안 바뀌지 않는 43차 규칙 그대로).
+ *
+ * 다른 부품에 붙잡기(47차 — SketchUp 이동 도구가 다른 형상에 맞춰 붙는 것, SOLIDWORKS 부품 옮기기의 "닿으면 멈춤"처럼): 끄는 길이 선(축 하나·화면 가로·세로)이면
+ * 끌기를 시작할 때 끄는 부품과 다른 보이는 부품의 축에 수직인 평면을 모으고(explodesnap.ts snapIndex — 지금 분해 자리), 움직일 때마다 커서가 정한 축 위 이동량
+ * 둘레에서 끄는 면이 다른 면에 닿거나(마주 보고 겹친다) 같은 높이가 되는 자리가 화면에서 붙잡기 거리 안이면 그 자리로 옮긴다(snapAlong — 닿음이 먼저).
+ * 붙은 동안 두 면 경계를 안내 선으로 강조하고(코어 setHighlightSegments — 떼거나 풀리면 고른 면·모서리 강조로 되돌린다) 거리 글 아래 줄에 "면에 닿음"·"면과 같은 높이"를 적는다.
+ * Alt(⌥)를 누르고 있는 동안은 붙잡지 않는다(Rhino의 "끄는 동안 Alt를 누르고 있으면 개체 스냅을 잠시 끈다"와 같은 글쇠 — 누르고 떼면 그 자리에서 바로 다시 본다).
+ * 쳐 넣은 거리는 붙잡지 않고 그 거리 그대로다.
  */
 import type { Pick3d, Viewer3d } from 'opencad-viewer3d';
+import { PICK_TOLERANCE_PX, pickTolerance, TOUCH_PICK_TOLERANCE_PX } from 'opencad-viewer3d/pointer';
 import { sceneMm } from './display';
 import { selectionItemIds, type StepDoc } from './doc';
 import { h } from './dom';
-import type { ExplodeAxis, ExplodeMode, ExplodePlan, ExplodeView } from './explode';
+import { EXPLODE_SCALE, explodeMoves, type ExplodeAxis, type ExplodeMode, type ExplodePlan, type ExplodeView } from './explode';
 import type { DistField, DistState, TweakHandlers, TweakState } from './explodebar';
 import { ExplodeDrag } from './explodedrag';
+import { lineScreen, snapAlong, snapGuide, snapIndex, type SnapHit, type SnapIndex } from './explodesnap';
+import { selectionOutline } from './faces';
 import {
   importedAxis,
   importedView,
@@ -61,6 +71,7 @@ import {
   typedDelta,
   worldComps,
   type DragConstraint,
+  type DragUnit,
   type LenFormat,
 } from './explodetweak';
 import { stemName } from './files';
@@ -165,8 +176,15 @@ export class ExplodeTweakTool implements TweakHandlers {
   /** 옮기기(부품 바로 끌기 — 손가락은 꺼도 길게 눌러 끈다), 이 창에서 마지막에 고른 것 */
   on = false;
   private drag: ExplodeDrag | null = null;
-  /** 끄는 중(누른 점 — 세계, 손가락인지 — 거리 글 자리) */
-  private g: (DragRec & { p0: number[]; touch: boolean }) | null = null;
+  /**
+   * 끄는 중(누른 점 — 세계, 손가락인지 — 거리 글 자리·붙잡기 거리). 47차: 붙잡기 자료(끄는 길이 선이고 끄는 쪽에 평면이 있을 때), 붙은 자리,
+   * 마지막 포인터 자리(Alt를 누르고 뗄 때 다시 본다), 안내 선을 그린 뷰어
+   */
+  private g: (DragRec & { p0: number[]; touch: boolean; snap: SnapIndex | null; hit: SnapHit | null; at: [number, number] | null; guided: Viewer3d | null }) | null = null;
+  /** 끄는 동안 Alt(⌥)를 누르고 있는지(47차 — 붙잡지 않기) */
+  private alt = false;
+  /** 끄는 동안 Alt 글쇠 듣기 떼기 */
+  private unkeys: (() => void) | null = null;
   /** 막 끈 끌기(43차 — 쳐 넣은 거리로 고칠 수 있는 것): 그 끌기의 되돌리기 단계 표지(ExplodeTweaks.lastStep) */
   private last: (DragRec & { mark: object }) | null = null;
   /** 끌지 않고 고른 것을 옮기려고 연 거리 칸(45차): 연 때의 문서·방향·방식·밀대 자리·화면 방향·고른 것 */
@@ -189,7 +207,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     this.drag ??= new ExplodeDrag(viewer, {
       direct: () => this.on && !!this.host.live(),
       start: (x, y, type) => this.start(x, y, type),
-      move: (x, y) => this.moveTo(x, y),
+      move: (x, y, alt) => this.moveTo(x, y, alt),
       end: (commit) => this.end(commit),
       tap: (x, y) => this.host.menu(x, y),
     });
@@ -611,6 +629,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     const view = plan.view ?? null;
     const t = this.of(d);
     const zero = new Array<number>(tweakDims(axis)).fill(0);
+    const path = dragConstraint(axis, view, v.getCamera());
+    // 붙잡기 자료(47차): 손질 단계를 열기 전 지금 분해 자리로
+    const snap = 'line' in path ? this.snapOf(d, v, plan, axis, units, path.line) : null;
     t.begin(axis);
     // 새 끌기를 시작하면 막 끈 끌기는 더 고치지 않고 고른 것 옮기기 칸도 닫는다(거리 칸은 쳐 넣기 시작하거나 뗄 때까지 숨긴다)
     this.last = this.fresh = null;
@@ -621,7 +642,7 @@ export class ExplodeTweakTool implements TweakHandlers {
       view,
       p0: [...p.point],
       units: units.map((u) => ({ token: u.token, f: u.f, start: [...(t.moves(axis).get(u.token) ?? zero)] })),
-      path: dragConstraint(axis, view, v.getCamera()),
+      path,
       // 조립 대각선의 20배 넘게는 끌지 않는다(비스듬히 본 축·면에서 튀지 않게)
       limit: plan.size * 20,
       d: [0, 0, 0],
@@ -630,7 +651,13 @@ export class ExplodeTweakTool implements TweakHandlers {
       // 누른 것을 고른 뒤의 고른 것(막 끈 끌기는 이것이 바뀌면 끝난다)
       sel: selSig(d),
       touch: pointerType === 'touch',
+      snap,
+      hit: null,
+      at: null,
+      guided: null,
     };
+    this.alt = false;
+    if (snap) this.listenAlt();
     if (pointerType === 'touch' && !this.hinted) {
       this.hinted = true;
       this.host.toast('끌어 옮기십시오 — 움직이지 않고 떼면 작업 메뉴입니다.');
@@ -639,8 +666,11 @@ export class ExplodeTweakTool implements TweakHandlers {
     return true;
   }
 
-  /** 끄는 동안(캔버스 좌표): 누른 점에서 끄는 길 위로 옮긴 만큼을 단위마다 그 진행으로 나눠 담고 다시 건다 */
-  private moveTo(x: number, y: number): void {
+  /**
+   * 끄는 동안(캔버스 좌표, 그 사건의 Alt): 누른 점에서 끄는 길 위로 옮긴 만큼을 단위마다 그 진행으로 나눠 담고 다시 건다.
+   * 47차: 끄는 길이 선이고 Alt를 누르지 않았으면 다른 부품 면에 닿거나 같은 높이가 되는 자리가 붙잡기 거리 안일 때 그 자리로(안내 선·글)
+   */
+  private moveTo(x: number, y: number, alt?: boolean): void {
     const g = this.g;
     const l = this.host.live();
     // 그사이 분해를 접었거나 문서·방향이 바뀌었으면 그만둔다
@@ -648,15 +678,84 @@ export class ExplodeTweakTool implements TweakHandlers {
       if (g) this.cancel();
       return;
     }
+    if (alt !== undefined) this.alt = alt;
+    g.at = [x, y];
     const r = l.viewer.canvas.getBoundingClientRect();
-    const dd = dragDelta(l.viewer.getCamera(), r.width, r.height, g.path, g.p0, x, y, g.limit);
+    const cam = l.viewer.getCamera();
+    let dd = dragDelta(cam, r.width, r.height, g.path, g.p0, x, y, g.limit);
     if (!dd) return;
+    let hit: SnapHit | null = null;
+    if (g.snap && !this.alt && 'line' in g.path) {
+      const a = g.path.line;
+      hit = snapAlong(g.snap, dd[0] * a[0] + dd[1] * a[1] + dd[2] * a[2], lineScreen(cam, r.width, r.height, g.p0, a), pickTolerance(g.touch ? 'touch' : 'mouse', PICK_TOLERANCE_PX, TOUCH_PICK_TOLERANCE_PX).snap, g.limit);
+      if (hit) dd = [a[0] * hit.s, a[1] * hit.s, a[2] * hit.s];
+    }
+    g.hit = hit;
     const c = worldComps(g.axis, g.view, dd);
     for (const u of g.units) g.doc.tweaks.put(u.token, u.start.map((s, i) => s + c[i]! / u.f));
     g.d = [...dd];
     this.host.looks();
+    this.guide(l.viewer, g);
     this.distance(l.viewer.canvas, x, y, dd);
     this.emit();
+  }
+
+  /**
+   * 붙잡기 자료(47차): 끄는 단위의 그물(moving)과 그 밖의 보이고 흐리게 하지 않은 그물(표현 PMI 빼고)의 끄는 축 a에 수직인 평면을 지금 분해 자리로 모은다.
+   * 면 표가 없거나 끄는 쪽에 그런 평면이 없으면 null
+   */
+  private snapOf(d: StepDoc, v: Viewer3d, plan: ExplodePlan, axis: ExplodeAxis, units: readonly DragUnit[], a: readonly number[]): SnapIndex | null {
+    const meshes = d.scene.meshes;
+    if (!d.faces || !meshes?.length) return null;
+    const tw = d.tweaks;
+    const off = explodeMoves(plan, d.explode, EXPLODE_SCALE, tw?.count(axis) ? tw.resolve(plan, axis, plan.view) : undefined);
+    const moving = new Set(units.flatMap((u) => u.unit.ids));
+    const seen = (id: string): boolean => (typeof v.isVisible === 'function' ? v.isVisible(id) : true);
+    return snapIndex(meshes, d.faces, a, moving, (id) => !d.vis.pmiIds.has(id) && !(d.dim && !d.dim.has(id)) && seen(id), off, plan.size);
+  }
+
+  /** 끄는 동안 Alt(⌥) 글쇠를 듣는다(누르고 떼면 마지막 포인터 자리에서 다시 본다 — 메뉴 막대가 뜨지 않게 기본 동작을 막는다). 창이 흐려지면 뗀 것으로 */
+  private listenAlt(): void {
+    this.unkeys?.();
+    const key = (ev: KeyboardEvent): void => {
+      if (ev.key !== 'Alt' || !this.g) return;
+      ev.preventDefault();
+      this.altTo(ev.type === 'keydown');
+    };
+    const blur = (): void => this.altTo(false);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('keyup', key, true);
+    window.addEventListener('blur', blur);
+    this.unkeys = () => {
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('keyup', key, true);
+      window.removeEventListener('blur', blur);
+    };
+  }
+
+  private altTo(down: boolean): void {
+    const at = this.g?.at;
+    if (down === this.alt) return;
+    this.alt = down;
+    if (at) this.moveTo(at[0], at[1]);
+  }
+
+  /** 붙은 두 면의 안내 선(붙지 않았으면 그렸던 것을 거두고 고른 면·모서리 강조로 되돌린다) */
+  private guide(v: Viewer3d, g: NonNullable<ExplodeTweakTool['g']>): void {
+    const gd = g.hit && g.snap ? snapGuide(g.snap, g.hit) : null;
+    if (gd) {
+      v.setHighlightSegments(gd.segs, { width: 3, hidden: 0.35, origin: gd.origin });
+      g.guided = v;
+    } else if (g.guided) {
+      g.guided = null;
+      this.unguide(v, g.doc);
+    }
+  }
+
+  /** 안내 선을 거두고 고른 면·모서리 강조(앱 showFace와 같은 선)로 되돌린다 */
+  private unguide(v: Viewer3d, d: StepDoc): void {
+    const o = selectionOutline(d.face, d.edge);
+    v.setHighlightSegments(o?.segs ?? null, o ?? {});
   }
 
   /** 끌기 끝: commit이면 되돌리기 한 단계로 남기고(최근 문서 항목에도 — 그 단계는 쳐 넣은 거리로 고칠 수 있다), 아니면 앞 자리로 */
@@ -666,6 +765,11 @@ export class ExplodeTweakTool implements TweakHandlers {
     this.typing = false;
     this.label?.el.remove();
     this.label = null;
+    this.unkeys?.();
+    this.unkeys = null;
+    this.alt = false;
+    // 안내 선을 거둔다(그사이 다른 문서를 열었으면 코어가 장면과 함께 이미 풀었다)
+    if (g?.guided && this.host.opened() === g.doc) this.unguide(g.guided, g.doc);
     const t = g?.doc.tweaks;
     if (!g || !t) return;
     if (!commit) t.cancel();
@@ -684,7 +788,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     const parent = canvas.parentElement;
     if (!g || !parent) return;
     const lines = dragDistanceLines(g.axis, g.view, d, this.host.fmt());
-    const key = lines.map((l) => l.map(([w]) => w).join(' ')).join('|');
+    // 붙은 동안 아래 줄(47차): 붙은 종류와(마우스·펜) 푸는 글쇠
+    const snap = g.hit ? (g.hit.kind === 'touch' ? '면에 닿음' : '면과 같은 높이') : '';
+    const key = `${lines.map((l) => l.map(([w]) => w).join(' ')).join('|')}|${snap}`;
     let lb = this.label;
     if (!lb || lb.key !== key || !lb.el.isConnected) {
       lb?.el.remove();
@@ -699,7 +805,8 @@ export class ExplodeTweakTool implements TweakHandlers {
             return h('span', { class: 'explode-dist-part' }, h('span', { class: 'explode-dist-key' }, w), ' ', t);
           }),
         );
-      const el = h('div', { class: 'explode-dist', 'aria-hidden': 'true' }, ...lines.map(row));
+      const tip = snap ? [h('div', { class: 'explode-dist-snap' }, h('span', {}, snap), ...(g.touch ? [] : [h('span', { class: 'explode-dist-key' }, 'Alt/⌥로 풀기')]))] : [];
+      const el = h('div', { class: `explode-dist${snap ? ' snapped' : ''}`, 'aria-hidden': 'true' }, ...lines.map(row), ...tip);
       parent.append(el);
       lb = this.label = { el, vals, key };
     } else lines.flat().forEach(([, v], i) => (lb!.vals[i]!.nodeValue = v));

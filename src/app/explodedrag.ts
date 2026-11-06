@@ -25,8 +25,8 @@ export interface ExplodeDragOptions {
   direct: () => boolean;
   /** 끌기 시작: 누른 자리(캔버스 좌표)의 부품을 끌 수 있으면 앱이 손질을 열고 true */
   start: (x: number, y: number, pointerType: string) => boolean;
-  /** 끄는 동안 포인터 자리(캔버스 좌표) */
-  move: (x: number, y: number) => void;
+  /** 끄는 동안 포인터 자리(캔버스 좌표)와 그 사건에서 Alt(⌥)를 누르고 있었는지(47차 — 붙잡지 않기) */
+  move: (x: number, y: number, alt?: boolean) => void;
   /** 끌기 끝: commit이면 남기고, 아니면 앞 자리로 */
   end: (commit: boolean) => void;
   /** 길게 눌러 잡은 손가락을 움직이지 않고 뗐을 때(화면 좌표 — 앱은 작업 메뉴) */
@@ -59,7 +59,7 @@ export class ExplodeDrag {
     claim: (q) => this.claim(q),
     move: (p) => {
       const a = this.active;
-      if (a && !a.hold && a.live && p.pointerId === a.id) this.opts.move(p.x, p.y);
+      if (a && !a.hold && a.live && p.pointerId === a.id) this.opts.move(p.x, p.y, !!p.event?.altKey);
     },
     end: (p, why) => this.released(p, why),
   };
@@ -132,7 +132,7 @@ export class ExplodeDrag {
     if (a || q.pointers !== 1 || (q.pointerType !== 'touch' && q.button !== 0) || !this.opts.direct() || !this.opts.start(q.x, q.y, q.pointerType)) return false;
     this.active = { id: q.pointerId, hold: false, x0: q.x, y0: q.y, sx: 0, sy: 0, moved: true, live: true };
     // 맡은 그 사건에는 코어가 move를 부르지 않는다 — 그 자리는 물음의 at
-    this.opts.move(q.at.x, q.at.y);
+    this.opts.move(q.at.x, q.at.y, !!q.event?.altKey);
     return true;
   }
 
@@ -179,7 +179,7 @@ export class ExplodeDrag {
       if (Math.hypot(x - a.x0, y - a.y0) < TOUCH_DRAG_PX) return;
       a.moved = true;
     }
-    this.opts.move(x, y);
+    this.opts.move(x, y, e.altKey);
   }
 
   private heldUp(e: PointerEvent, cancel: boolean): void {
