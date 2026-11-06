@@ -18,6 +18,10 @@ export interface SweepRecord {
   failedFaces?: number;
   warnings?: string[];
   failReasons?: Record<string, number>;
+  /** 경고 "읽지 못해 뺀 부분 N곳"의 N(58차 — 옛 결과에는 없다) */
+  dropped?: number;
+  /** 뺀 부분을 읽다 잡은 예외 코드 → 수(58차) */
+  dropErrors?: Record<string, number>;
   q?: Record<string, number>;
   /** 워커 → 화면 전송량(metrics.ts TransferStats — 옛 결과에는 없다) */
   x?: { xfer: number; edges: number; curves: number; curved: number; exact: number };
@@ -34,6 +38,8 @@ export interface QualitySummary {
   errors: Record<string, number>;
   warnings: Record<string, number>;
   failReasons: Record<string, number>;
+  /** 뺀 부분을 읽다 잡은 예외 코드 → 수(58차) */
+  dropErrors: Record<string, number>;
   time: { totalMs: number; p50: number; p90: number; p99: number; max: number };
   /** 연 뒤 질량 속성 적분 시간(기록에 propsMs가 있을 때만) */
   propsTime?: { files: number; totalMs: number; p50: number; p90: number; p99: number; max: number };

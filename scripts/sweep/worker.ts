@@ -10,8 +10,8 @@ import { createInterface } from 'node:readline';
 import { headSchemas, sceneHasGeometry, type ParseOptions } from '../../src/app/protocol';
 import { sniffContainer } from '../../src/archive';
 import { parseStepFile } from '../../src/app/job';
-import { applyProps, type MassPropsJob } from '../../src/scene';
-import { errorCode, failReasons, sceneClass, schemaLabel, warningCode, type SweepClass } from './classify';
+import { applyProps, partErrorHook, type MassPropsJob } from '../../src/scene';
+import { droppedParts, dropErrorCode, errorCode, failReasons, sceneClass, schemaLabel, warningCode, type SweepClass } from './classify';
 import { qualityOptions } from './quality';
 import { massPropsStats, sceneQuality, transferStats, type MassPropsStats, type SceneQuality, type TransferStats } from './metrics';
 
@@ -41,6 +41,10 @@ export interface WorkerRecord {
   warnings?: string[];
   /** 실패 면 이유 → 면 수 */
   failReasons?: Record<string, number>;
+  /** 경고 "읽지 못해 뺀 부분 N곳"의 N(58차 — 없으면 0). 멀쩡한 파일에서 0이 아니면 해석기 버그 후보 */
+  dropped?: number;
+  /** 뺀 부분을 읽다 잡은 예외(scene.ts partErrorHook) 코드 → 수 */
+  dropErrors?: Record<string, number>;
   /** 품질 지표 */
   q?: SceneQuality;
   /** 닫힌 입체의 질량 속성(곡면 적분) 지표 */
@@ -59,6 +63,13 @@ function schemaNames(list: readonly string[]): string[] {
 export async function sweepOne(path: string, quality: string, options: ParseOptions): Promise<WorkerRecord> {
   const t0 = performance.now();
   let raw: Uint8Array | undefined;
+  // 덧붙은 부분을 읽다 잡은 예외(앱에서는 경고 "읽지 못해 뺀 부분"만 남는다 — 해석기 버그를 덮지 않게 코드로 센다)
+  const dropErrors: Record<string, number> = {};
+  const prevHook = partErrorHook.onError;
+  partErrorHook.onError = (e) => {
+    const k = dropErrorCode(e);
+    dropErrors[k] = (dropErrors[k] ?? 0) + 1;
+  };
   try {
     raw = new Uint8Array(readFileSync(path));
     let job: MassPropsJob | null = null;
@@ -97,12 +108,14 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
       failedFaces: meta.stats.failedFaces,
       instances: meta.stats.instances,
       warnings: codes,
+      dropped: droppedParts(warnings),
       q: sceneQuality(s),
       mp: massPropsStats(s),
       x,
     };
     const why = failReasons(warnings);
     if (Object.keys(why).length) rec.failReasons = why;
+    if (Object.keys(dropErrors).length) rec.dropErrors = dropErrors;
     return rec;
   } catch (e) {
     const message = String((e as Error)?.message ?? e);
@@ -120,6 +133,8 @@ export async function sweepOne(path: string, quality: string, options: ParseOpti
       error: code,
       message: message.slice(0, 300),
     };
+  } finally {
+    partErrorHook.onError = prevHook;
   }
 }
 

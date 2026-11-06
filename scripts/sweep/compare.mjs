@@ -31,6 +31,8 @@ export const METRICS = {
   propsTriangles: (r) => r.mp?.triangles,
   propsTimeout: (r) => r.mp?.timeout,
   propsSig: (r) => r.mp?.sig,
+  // 58차: 경고 "읽지 못해 뺀 부분"의 곳 수(옛 결과에는 없다 — 그때는 비교하지 않는다)
+  dropped: (r) => r.dropped,
 };
 /** 순위를 매길 때 무게(분류·예외 다음) */
 const WEIGHT = {
@@ -45,6 +47,7 @@ const WEIGHT = {
   propsTriangles: 20,
   propsTimeout: 10,
   propsSig: 15,
+  dropped: 30,
   windingEdges: 10,
   foldedMaxRatio: 10,
   foldedTriangles: 5,
@@ -65,6 +68,8 @@ const SUMMARY_KEYS = [
   'openShells',
   'areaMismatchFaces',
   'nonFiniteFiles',
+  'droppedFiles',
+  'droppedParts',
   'triangles',
 ];
 
