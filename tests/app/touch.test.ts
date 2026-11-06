@@ -17,6 +17,20 @@ import { pmiView } from '../../src/app/pmiview';
 // TOUCH_CSS: 다른 판의 스타일시트로 같은 시험을 돌려 볼 때(앞 판에서 실패하는지 확인용)
 const css = readFileSync(process.env.TOUCH_CSS || join(__dirname, '../../src/app/styles.css'), 'utf8');
 
+/** 매체 조건 글이 이 꼴인 규칙(선택자·매체·선언) */
+function mediaRules(media: RegExp): { sel: string; media: string; style: CSSStyleDeclaration }[] {
+  const el = document.createElement('style');
+  el.textContent = css;
+  document.head.append(el);
+  const out: { sel: string; media: string; style: CSSStyleDeclaration }[] = [];
+  for (const r of [...el.sheet!.cssRules]) {
+    if (!(r instanceof CSSMediaRule) || !media.test(r.media.mediaText)) continue;
+    for (const s of [...r.cssRules]) if (s instanceof CSSStyleRule) for (const sel of s.selectorText.split(',').map((x) => x.trim())) out.push({ sel, media: r.media.mediaText, style: s.style });
+  }
+  el.remove();
+  return out;
+}
+
 /** 매체 조건이 손가락 기기(pointer: coarse — not 빼고)를 고르는 규칙의 선택자 → 선언(뒤 규칙이 앞을 덮는다) */
 function coarseRules(): { all: { sel: string; media: string; style: CSSStyleDeclaration }[]; last: Map<string, Record<string, string>> } {
   const el = document.createElement('style');
@@ -59,7 +73,8 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.btn.small', 'height', null],
       ['.btn.large', 'height', null],
       ['.icon-btn', 'height', 'width'],
-      ['.seg-btn', 'height', 'min-width'],
+      // 갈래 단추는 최소 높이(55차 — 글만 키우면 단추가 따라 커진다)
+      ['.seg-btn', 'min-height', 'min-width'],
       ['.tab', 'height', null],
       ['.tree-row', 'min-height', null],
       ['.twisty', 'height', 'width'],
@@ -69,13 +84,13 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.cb-hit', 'min-height', 'min-width'],
       ['label.check', 'min-height', null],
       ['.mb-btn', 'height', null],
-      ['.mb-kind .seg-btn', 'height', null],
+      ['.mb-kind .seg-btn', 'min-height', null],
       ['.mb-btn.icon', 'height', 'width'],
       ['.measure-bar .mb-btn', 'height', 'min-width'],
       ['.section-slider', 'height', null],
       ['.section-num', 'height', null],
       ['.explode-slider', 'height', null],
-      ['.explode-bar .seg-btn', 'height', 'min-width'],
+      ['.explode-bar .seg-btn', 'min-height', 'min-width'],
       ['.explode-bar > .icon-btn', 'height', 'width'],
       ['.explode-num', 'height', null],
       ['.dlg-select', 'min-height', null],
@@ -132,13 +147,14 @@ describe('손가락 기기 규칙(styles.css)', () => {
   });
 
   it('320px 휴대폰: 도구 막대 일곱 단추(44px)가 틈·구분선 없이 한 줄(양옆 2px)', () => {
-    const r = all.filter((x) => /max-width:\s*359\.98px/.test(x.media));
+    // 55차부터 이 두 규칙은 마우스 기기에도(400% 확대한 320px 창 — WCAG 1.4.10) 들어 손가락 기기 조건 없이 폭 조건만이다
+    const r = [...all, ...mediaRules(/^\(max-width:\s*(359|374)\.98px\)$/)].filter((x) => /max-width:\s*359\.98px/.test(x.media));
     const bar = r.find((x) => x.sel === '.toolbar')!;
     expect(parseFloat(bar.style.getPropertyValue('gap'))).toBe(0);
     expect(7 * 44 + 2 * px(bar.style.getPropertyValue('padding-inline'))).toBeLessThanOrEqual(320);
     expect(r.find((x) => x.sel === '.toolbar .tool-sep')!.style.getPropertyValue('display')).toBe('none');
     // 375px보다 좁으면 제목 막대 앱 이름 글은 화면 읽기용으로만(아이콘만 보임)
-    const brand = all.find((x) => x.sel === '.brand > span' && /max-width:\s*374\.98px/.test(x.media));
+    const brand = [...all, ...mediaRules(/^\(max-width:\s*374\.98px\)$/)].find((x) => x.sel === '.brand > span' && /max-width:\s*374\.98px/.test(x.media));
     expect(brand!.style.getPropertyValue('clip')).toMatch(/rect/);
   });
 
