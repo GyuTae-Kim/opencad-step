@@ -611,8 +611,10 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     expect(tool.key('Enter', canvas)).toBe(false);
     const p0 = dragB(41.7, 18.2, false);
     expect(tool.dragging).toBe(true);
-    expect(f.shown.at(-1)).toMatchObject({ axis: 'free', live: true });
+    // 끄는 동안 거리 칸은 숨긴다(막대 줄이 바뀌지 않게 — 커서 곁 거리 글만), 쳐 넣기 시작하면 보인다
+    expect(f.shown.at(-1)).toBeNull();
     expect(tool.key('7', canvas)).toBe(true);
+    expect(f.shown.at(-1)).toMatchObject({ axis: 'free', live: true });
     expect(tool.key('-', document.body)).toBe(true);
     expect(tool.key('F', canvas)).toBe(false);
     // 글 입력 칸에서 누른 것은 그 칸 것
@@ -673,7 +675,7 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     fire('pointerup', s[0], s[1]);
   });
 
-  it('막대의 거리 칸(실제 ExplodeControls)과 함께: 끄는 동안 값이 따라가고, 막 끈 뒤 칸에 쳐 넣고 Enter면 그 거리로', () => {
+  it('막대의 거리 칸(실제 ExplodeControls)과 함께: 끄는 동안은 숨기고(쳐 넣기 전), 떼면 그 끌기 거리 — 칸에 쳐 넣고 Enter면 그 거리로', () => {
     const c = new ExplodeControls(
       () => {},
       () => {},
@@ -684,11 +686,11 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     const label = input.closest('label')!;
     expect(label.hidden).toBe(true);
     const p0 = dragB(44.4, -12.2, false);
-    expect(label.hidden).toBe(false);
-    expect(input.value).toBe(plainLength(len(moved(p0)), { factor: 1, decimals: 3 }));
+    expect(label.hidden).toBe(true);
     const s = projectToScreen(frame, p0)!;
     fire('pointerup', s[0] + 44.4, s[1] - 12.2);
     expect(label.hidden).toBe(false);
+    expect(input.value).toBe(plainLength(len(moved(p0)), { factor: 1, decimals: 3 }));
     input.focus();
     input.value = '18';
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));

@@ -9,7 +9,8 @@
  * 단위마다 그 진행으로 나눠 담고 다시 건다(끈 점이 커서 아래에 온다). 떼면 되돌리기 한 단계, Esc·둘째 손가락·방향을 바꾸면 앞 자리로.
  * 끄는 동안 이번 끌기로 누른 점이 옮긴 거리를 측정 글상자와 같은 수 꼴로 커서 곁(손가락은 손가락 위)에 보인다(dragDistanceLines·dragLabelSpot).
  *
- * 거리 쳐 넣기(43차 — SketchUp 값 상자처럼 "옮기는 동안이나 막 옮긴 뒤"): 끄는 동안과 막 끈 뒤에는 분해 막대에 거리 칸(DistField)을 두고,
+ * 거리 쳐 넣기(43차 — SketchUp 값 상자처럼 "옮기는 동안이나 막 옮긴 뒤"): 막 끈 뒤와 끄는 동안 쳐 넣기 시작하면 분해 막대에 거리 칸(DistField)을 두고
+ * (끄는 동안 쳐 넣기 전에는 막대 줄이 바뀌지 않게 숨기고 커서 곁 거리 글만),
  * 쳐 넣은 거리(parseTypedLengths·typedDelta — 끈 방향으로 그 거리, 화면 평면은 가로; 세로, 사방은 ΔX; ΔY; ΔZ도)로 그 끌기를 맞춘다.
  * 끄는 동안 Enter는 그 자리로 끌기를 마치고(한 단계), 막 끈 뒤에는 같은 되돌리기 단계를 고친다(ExplodeTweaks.amend — 새 단계 없이).
  * 막 끈 끌기는 같은 문서·방향·방식·밀대 자리이고 그 끌기가 아직 그 방향의 마지막 되돌리기 단계일 때만 고친다(새로 끌기·되돌리기·밀대를 옮기면 끝난다).
@@ -155,6 +156,8 @@ export class ExplodeTweakTool implements TweakHandlers {
   private last: (DragRec & { mark: object }) | null = null;
   /** 분해 막대의 거리 칸(막대가 단다) */
   private field: DistField | null = null;
+  /** 끄는 동안 거리를 쳐 넣기 시작했는지(그때부터 거리 칸을 보인다 — 끄는 동안 막대 줄이 바뀌지 않게, 그 전에는 커서 곁 거리 글만) */
+  private typing = false;
   /** 손가락 길게 눌러 잡기 안내를 보였는지(이 창에서 한 번) */
   private hinted = false;
   /** 끄는 동안 옮긴 거리 글(값 글 마디는 줄 차례대로), 그 이름 짜임 */
@@ -195,7 +198,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     return (d.tweaks ??= new ExplodeTweaks());
   }
 
-  /** 분해 막대 손질 칸 상태(any = 어느 방향에든 손질이 있다 — 파일로 내보낼 것, dist = 거리 칸 — 끄는 동안·막 끈 뒤에만) */
+  /** 분해 막대 손질 칸 상태(any = 어느 방향에든 손질이 있다 — 파일로 내보낼 것, dist = 거리 칸 — 막 끈 뒤와 끄는 동안 쳐 넣기 시작한 뒤에만) */
   state(d: StepDoc | null, axis: ExplodeAxis): TweakState {
     const t = d?.tweaks;
     const dist = this.distState();
@@ -215,7 +218,13 @@ export class ExplodeTweakTool implements TweakHandlers {
   key(key: string, target: EventTarget | null): boolean {
     const f = this.field;
     if (!f || isTextTarget(target)) return false;
-    if (this.g) return TYPE_START.test(key) && f.seed(key);
+    if (this.g) {
+      if (!TYPE_START.test(key)) return false;
+      // 쳐 넣기 시작하면 거리 칸을 보이고 그 글자로 들어간다
+      this.typing = true;
+      this.emit();
+      return f.seed(key);
+    }
     return key === 'Enter' && !usesEnter(target) && !!this.amendable() && f.focus();
   }
 
@@ -290,9 +299,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     return ok ? a : null;
   }
 
-  /** 거리 칸 상태(끄는 중이면 그 끌기, 아니면 막 끈 끌기 — 둘 다 없으면 null) */
+  /** 거리 칸 상태(끄는 중이면 쳐 넣기 시작한 뒤의 그 끌기, 아니면 막 끈 끌기 — 없으면 null) */
   private distState(): DistState | null {
-    const a = this.g ?? this.amendable();
+    const a = this.g ? (this.typing ? this.g : null) : this.amendable();
     if (!a) return null;
     const f = this.host.fmt();
     return { value: plainLength(Math.hypot(a.d[0]!, a.d[1]!, a.d[2]!), f), unit: f.unit ?? '', axis: a.axis, live: !!this.g };
@@ -496,8 +505,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     const t = this.of(d);
     const zero = new Array<number>(tweakDims(axis)).fill(0);
     t.begin(axis);
-    // 새 끌기를 시작하면 막 끈 끌기는 더 고치지 않는다
+    // 새 끌기를 시작하면 막 끈 끌기는 더 고치지 않는다(거리 칸은 쳐 넣기 시작하거나 뗄 때까지 숨긴다)
     this.last = null;
+    this.typing = false;
     this.g = {
       doc: d,
       axis,
@@ -544,6 +554,7 @@ export class ExplodeTweakTool implements TweakHandlers {
   private end(commit: boolean): void {
     const g = this.g;
     this.g = null;
+    this.typing = false;
     this.label?.el.remove();
     this.label = null;
     const t = g?.doc.tweaks;
