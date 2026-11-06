@@ -631,3 +631,77 @@ describe('42차 보통 거리에서 이웃 칸을 얕게 뚫는 안내 선(코�
     expect(trackDirMeetLabel(h)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
   });
 });
+
+describe('44차 칸을 얕게 뚫는 안내 선의 그물 교점과 곡면 교점 사이(코어 0.37.0 — 0.36.0은 현 위 그물 교점 "· 면 위")', () => {
+  it('거리 15에서 그물을 뚫는 점 X와 곡면 교점 Q가 화면에서 붙잡기 거리(10화소)보다 떨어지면, 둘 사이는 Q(원기둥 위 다듬은 교점), X 쪽은 X 그대로(남은 한계)', () => {
+    // 낮은 원기둥, 높이 5: φ 칸 반각의 2.75배로 스치는 선 — 곡면 교점 Q 곁에서 선이 이웃 칸을 얕게 뚫는다(42차 겨눈 훑기에서 0.36.0이 X에 붙던 꼴)
+    const angs = rimAngles(lowScene, LOW_H, LOW_R);
+    const lo = Math.max(...angs.filter((t) => t < LOW_PHI));
+    const hi = Math.min(...angs.filter((t) => t > LOW_PHI));
+    const w = 2.75 * Math.min(LOW_PHI - lo, hi - LOW_PHI);
+    const z = 5;
+    const n: V3 = [Math.cos(LOW_PHI), Math.sin(LOW_PHI), 0];
+    const d = LOW_R * Math.cos(w);
+    const at0: V3 = [d * n[0], d * n[1], z];
+    const Q: V3 = [at0[0] + LOW_R * Math.sin(w) * LOW_E[0], at0[1] + LOW_R * Math.sin(w) * LOW_E[1], z];
+    const P: V3 = [at0[0] - 15 * LOW_E[0], at0[1] - 15 * LOW_E[1], z];
+    // X: 안내 선(P + s·E)이 옆면 그물(테두리 꼭짓점 각의 다각형 현 — 칸은 바닥에서 꼭대기까지 한 칸)을 뚫는 점 가운데 Q에 가장 가까운 것
+    let X: V3 | null = null;
+    for (let i = 0; i < angs.length; i++) {
+      const a = angs[i]!;
+      const b = angs[(i + 1) % angs.length]!;
+      const A = [LOW_R * Math.cos(a), LOW_R * Math.sin(a)];
+      const D = [LOW_R * Math.cos(b) - A[0]!, LOW_R * Math.sin(b) - A[1]!];
+      const r = [A[0]! - P[0], A[1]! - P[1]];
+      const det = D[0]! * LOW_E[1] - LOW_E[0] * D[1]!;
+      if (Math.abs(det) < 1e-12) continue;
+      const s = (D[0]! * r[1]! - r[0]! * D[1]!) / det;
+      const u = (LOW_E[0] * r[1]! - LOW_E[1] * r[0]!) / det;
+      if (u < 0 || u > 1) continue;
+      const c: V3 = [P[0] + s * LOW_E[0], P[1] + s * LOW_E[1], z];
+      if (!X || dist(c, Q) < dist(X, Q)) X = c;
+    }
+    expect(X).not.toBeNull();
+    const Xp = X!;
+    // X는 현 위(원기둥 안쪽), Q는 원기둥 위 — 선을 따라 0.2 mm 넘게 떨어진다
+    expect(Math.hypot(Xp[0], Xp[1])).toBeLessThan(LOW_R - 0.01);
+    expect(Math.abs(Math.hypot(Q[0], Q[1]) - LOW_R)).toBeLessThan(1e-9);
+    expect(dist(Xp, Q)).toBeGreaterThan(0.2);
+    const v = view('app', LOWCYL);
+    hoverAt(v, [LA[0] + 6 * LOW_E[0], LA[1] + 6 * LOW_E[1], LA[2]]);
+    expect(v.v.setMeasureTrackPoints([P])).toBe(1);
+    v.v.setCamera({ ...v.v.getCamera(), target: [...Q], distance: 15, yaw: Math.PI / 18, pitch: 0.25, projection: 'perspective' });
+    v.v.renderNow();
+    const xs = at(v, Xp);
+    const qs = at(v, Q);
+    const gap = Math.hypot(xs.x - qs.x, xs.y - qs.y);
+    // 전제: 화면에서 X와 Q는 붙잡기 거리보다 떨어지고 그 두 배보다는 가깝다(가운데는 둘 다 붙잡기 거리 안)
+    expect(gap).toBeGreaterThan(10.5);
+    expect(gap).toBeLessThan(19.5);
+    const hover = (x: number, y: number) => {
+      ptr(v, 'pointermove', x + 0.13, y - 0.11, 0);
+      v.v.renderNow();
+      return v.v.measureHoverSnap!;
+    };
+    // 둘 사이: 앱 refineFace가 준 곡면 교점 Q(커서에서 붙잡기 거리 안 — 0.37.0 넓힌 받기)
+    const h = hover((xs.x + qs.x) / 2, (xs.y + qs.y) / 2);
+    expect(h.snap).toBe('parallel');
+    expect(h.trackFrom).toEqual(P);
+    expect(trackDirMeet(h)).toBe('face');
+    expect(h.refined).toBe(true);
+    expect(Math.abs(Math.hypot(h.point[0], h.point[1]) - LOW_R)).toBeLessThan(1e-9);
+    expect(Math.abs(h.point[2] - z)).toBeLessThan(1e-9);
+    const k = (h.point[0] - P[0]) * LOW_E[0] + (h.point[1] - P[1]) * LOW_E[1];
+    expect(dist(h.point, [P[0] + LOW_E[0] * k, P[1] + LOW_E[1] * k, z])).toBeLessThan(1e-9);
+    expect(dist(h.point, Q)).toBeLessThan(1e-6);
+    expect(trackDirMeetLabel(h)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
+    // X 쪽: Q가 커서에서 붙잡기 거리 밖이라 코어 교차(현 위 X — 다듬지 않음) 그대로
+    const hx = hover(xs.x, xs.y);
+    v.v.dispose();
+    expect(trackDirMeet(hx)).toBe('face');
+    expect(hx.refined).toBeFalsy();
+    expect(dist(hx.point, Xp)).toBeLessThan(1e-3);
+    expect(Math.hypot(hx.point[0], hx.point[1])).toBeLessThan(LOW_R - 0.01);
+    expect(trackDirMeetLabel(hx)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
+  });
+});
