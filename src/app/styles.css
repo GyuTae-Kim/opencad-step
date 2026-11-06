@@ -11,16 +11,33 @@
   --border-soft: #e3e6eb;
   --text: #1d2530;
   --text-dim: #5b6573;
-  --text-faint: #8a93a1;
+  /*
+   * 색 대비(54차 — WCAG 1.4.3 글 4.5:1·1.4.11 비글 3:1, 바탕은 앱 바탕·막대·패널·카드·입력 칸·누름 바탕까지 잼):
+   * 옅은 글(머리글·도움말·표 머리)은 #8a93a1(패널 위 3.0:1) → #646d7b(앱 바탕 위 4.58:1, 패널 위 5.06:1)
+   */
+  --text-faint: #646d7b;
   --accent: #1f6fd1;
+  /* 강조색 글·글자 기호(눌린 단추·칩·메뉴 표시·가리기 띠): 옅은 강조 바탕(--accent-soft) 위 #1f6fd1은 3.9:1 → 4.9:1 넘게 */
+  --accent-fg: #1a5fb4;
+  /* 채움(주 단추·고른 갈래 단추): 흰 글(--accent-text)과 4.94:1, 카드·막대 바탕과 4.9:1 */
+  --accent-fill: #1f6fd1;
   --accent-text: #ffffff;
   --accent-soft: rgba(31, 111, 209, 0.12);
+  /* 입력 칸·고르기 칸 경계(1.4.11): 흐린 경계선(#e3e6eb, 1.2:1) 대신 도구 바탕 위 3.4:1 */
+  --border-input: #7d8693;
   --danger: #c43c3c;
   --warn: #a8620a;
   --card: #ffffff;
   --shadow: 0 6px 24px rgba(20, 30, 45, 0.14);
   /* 정밀 조준 십자선(코어 측정 색과 같다) */
   --aim: #c25e00;
+  /*
+   * 3D 보기 좌표축(코어 테마 CSS 변수): 반투명 축 색의 X·Y·Z 글자(600 11px)가 보기 바탕 위 3.3·2.5·4.1:1이라 불투명한 진한 색으로
+   * (보기 바탕 #f4f5f7 위 5.0·4.66·5.37:1). 바닥 격자의 X·Y 축선도 같은 색
+   */
+  --v3d-axis-x: #c62f2f;
+  --v3d-axis-y: #237f23;
+  --v3d-axis-z: #285adc;
   --font: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --panel-w: 320px;
@@ -39,15 +56,29 @@
   --border-soft: #3a434f;
   --text: #e8ebf0;
   --text-dim: #a9b2bf;
-  --text-faint: #7d8796;
+  /* 옅은 글 #7d8796(패널 위 3.9:1·카드 위 3.6:1) → #97a1ae(카드 위 4.94:1, 패널 위 5.37:1) */
+  --text-faint: #97a1ae;
   --accent: #3d95f0;
-  --accent-text: #ffffff;
+  /* 강조색 글: #3d95f0은 카드 위 4.2:1·옅은 강조 바탕 위 3.2~3.4:1 → 4.8:1 넘게 */
+  --accent-fg: #7cb8ff;
+  /*
+   * 채움(주 단추·고른 갈래 단추)과 그 위 글: #3d95f0 위 흰 글은 3.1:1. 흰 글이 4.5:1 되게 채움을 어둡게 하면(#1f6fd1) 고른 갈래 단추가
+   * 카드 바탕과 2.6:1로 떨어져(1.4.11) 채움은 그대로 두고 글을 어둡게(5.9:1, 채움은 카드 위 4.16:1)
+   */
+  --accent-fill: #3d95f0;
+  --accent-text: #0b1520;
   --accent-soft: rgba(61, 149, 240, 0.2);
+  /* 입력 칸 경계: #3a434f(1.3~1.4:1) → 카드 위 3.24:1·패널 위 3.52:1 */
+  --border-input: #76808f;
   --danger: #ff7b7b;
   --warn: #f2b84b;
   --card: #2b323c;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   --aim: #ffd24c;
+  /* 좌표축 글자: 보기 바탕 #212830 위 X 3.1·Z 4.1:1 → 4.94·7.53·5.13:1 */
+  --v3d-axis-x: #f06a6a;
+  --v3d-axis-y: #6ecd6e;
+  --v3d-axis-z: #5a96ff;
   color-scheme: dark;
 }
 
@@ -75,6 +106,11 @@ input,
 select {
   font: inherit;
   color: inherit;
+}
+/* 자리 글: 브라우저 기본(어두운 테마 #757575 — 입력 칸 바탕 위 3.4:1) 대신 옅은 글 색(4.5:1 넘음) */
+input::placeholder {
+  color: var(--text-faint);
+  opacity: 1;
 }
 .sr-only {
   position: absolute !important;
@@ -132,12 +168,13 @@ select {
   flex: none;
 }
 .btn.primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
 }
+/* 올려 둔 동안은 조금 어둡게(밝게 하면 밝은 테마의 흰 글이 4.3:1로 떨어진다 — 어두운 테마의 어두운 글은 어둡게 해도 5.1:1) */
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent);
-  filter: brightness(1.08);
+  background: var(--accent-fill);
+  filter: brightness(0.92);
 }
 .btn.large {
   height: 40px;
@@ -154,10 +191,11 @@ select {
   border-color: var(--border-soft);
   font-size: 12px;
 }
+/* 눌린(켠) 단추: 옅은 강조 바탕만으로는 막대 바탕과 1.2~1.3:1이라 강조색 테두리로 켠 상태를 보인다(1.4.11 — 도구 막대 위 밝게 4.6:1·어둡게 4.3:1) */
 .btn.on:not(:disabled) {
   background: var(--accent-soft);
-  color: var(--accent);
-  border-color: transparent;
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
 .icon-btn {
   display: inline-flex;
@@ -409,7 +447,7 @@ select {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-fg);
   cursor: pointer;
   flex: none;
 }
@@ -545,7 +583,7 @@ select {
   border-radius: 12px;
   background: rgba(61, 149, 240, 0.12);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: 16px;
   font-weight: 600;
   text-align: center;
@@ -600,7 +638,7 @@ select {
   color: var(--text);
 }
 .seg-btn.on {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
 }
 .section-slider {
@@ -618,7 +656,8 @@ select {
 }
 .section-bar .icon-btn.on {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .toasts {
   position: absolute;
@@ -1045,9 +1084,14 @@ body.resizing .viewer-host {
 .tree-row.part-sel {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/*
+ * 숨긴 마디: 이름을 반투명(0.5)으로 흐리면 글이 패널 위 3.1:1(자리 이름은 2.1:1)까지 떨어진다 — 흐린 글 색으로(54차).
+ * 옅은 글 색은 줄에 마우스를 올린 바탕 위에서 4.4:1이라 흐린 글 색(올린 바탕 위 4.9:1 넘음). 보이는 줄의 이름(--text)과는 색과 가린 눈 아이콘으로 갈린다
+ */
 .tree-row.hidden-node .tree-name,
-.tree-row.hidden-node .tree-name-gen {
-  opacity: 0.5;
+.tree-row.hidden-node .tree-name-gen,
+.tree-row.hidden-node .tree-name .dim {
+  color: var(--text-dim);
 }
 .tree-row:focus-visible {
   outline-offset: -2px;
@@ -1099,10 +1143,14 @@ body.resizing .viewer-host {
   padding: 0 6px;
   border-radius: 9px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: 11px;
   font-weight: 700;
   line-height: 18px;
+}
+/* 고른 줄(옅은 강조 바탕) 위 칩은 옅은 강조 바탕을 두 겹 쌓지 않고 패널 바탕으로(겹치면 어두운 테마 3.9:1) */
+.tree-row.sel .chip {
+  background: var(--bg-panel);
 }
 
 /* 표 */
@@ -1129,9 +1177,11 @@ table.grid .num,
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* 끈 줄(숨긴 레이어·PMI·부품 자리): 반투명(0.55, 글 3.4:1)이 아니라 옅은 글 색으로(4.5:1 넘음, 54차) */
 table.grid tr.off td,
+table.grid tr.off td .dim,
 .vgrid-row.off > * {
-  opacity: 0.55;
+  color: var(--text-faint);
 }
 /* 부품별 보이기 표(가상 목록 — ARIA table, 줄 높이가 같게 한 줄로 두고 긴 이름은 말줄임) */
 .vgrid-row {
@@ -1239,7 +1289,7 @@ table.grid td.mono {
   height: 30px;
   margin: 0 0 6px;
   padding: 0 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-input);
   border-radius: 6px;
   background: var(--bg-input);
   color: var(--text-faint);
@@ -1332,7 +1382,7 @@ table.grid td.mono {
 }
 .menu-check {
   width: 12px;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: 9px;
   text-align: center;
 }
@@ -1966,7 +2016,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   max-width: 100%;
   min-height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-input);
   border-radius: 6px;
   background: var(--bg-input);
   color: var(--text);
@@ -2143,7 +2193,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   width: 76px;
   height: 26px;
   padding: 0 6px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-input);
   border-radius: 5px;
   background: var(--bg-input);
   color: var(--text);
@@ -2231,7 +2281,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 }
 .iso-label {
   flex: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
 }
 .iso-text {
@@ -2273,7 +2323,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   width: 76px;
   height: 26px;
   padding: 0 6px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-input);
   border-radius: 5px;
   background: var(--bg-input);
   color: var(--text);
@@ -2285,7 +2335,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   padding: 2px 8px;
   border-radius: 5px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
 }
 .section-face[hidden] {
