@@ -17,6 +17,7 @@ import { curveSnap } from '../../src/app/curvesnap';
 import { edgeDetails } from '../../src/app/edges';
 import { edgeSnapPoints, measureSnapOptions } from '../../src/app/snap';
 import { cube, cylinder, plateWithHole, StepText, type P3 } from '../stepText';
+import { crossStep, LINE_A, LINE_B } from './crossscene';
 
 type V3 = [number, number, number];
 const dist = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
@@ -163,6 +164,41 @@ describe('곡선–면 교차점 붙잡기(46차)', () => {
     // measureSnapOptions의 pointsFor도 같은 점(같은 모서리는 기억)
     const opts = measureSnapOptions(S.scene.meshes, S.ex, [], curve);
     expect(opts.pointsFor!(pick)).toEqual(after);
+  });
+
+  it('면의 경계 위에서 뚫는 점은 두 모서리의 교차점이라 빼고(코어 교차점이 맡는다), 경계 밖 면 안쪽만 — 43차 교차 장면', () => {
+    const bytes = crossStep();
+    const { scene } = stepToSceneDeferred(bytes);
+    const d = createDoc('c.stp', bytes.length, { scene, ms: 0 } as never);
+    const ex = d.edges!;
+    const fx = d.faces!;
+    const of = (m: Mesh3d) => ex.tables[ex.tableOf.get(m.id)!]!;
+    const all = (m: Mesh3d) => {
+      const t = of(m);
+      return Array.from({ length: t.kinds.length }, (_, e) => ({ d: edgeDetails(m, t, e, ex.kinds)!, pts: crossingsOf(m, t, e, scene.meshes, ex, fx, null) }));
+    };
+    const byName = (name: string) => {
+      let id: string | undefined;
+      const walk = (n: (typeof d.products)[number]) => {
+        if (n.name === name && n.meshIds.length) id ??= n.meshIds[0];
+        n.children.forEach(walk);
+      };
+      d.products.forEach(walk);
+      return scene.meshes.find((m) => m.id === id)!;
+    };
+    // 삼각 판: 빗변은 원기둥 윗면을 테두리 원 위 (6, −8, 20)에서 지난다(빼고), 아랫변 C → A(z = 10)는 옆면을 (6, −8, 10)에서 뚫는다
+    const tri = all(byName('cross-line'));
+    const has = (x: (typeof tri)[number], p: readonly number[]) => dist(x.d.ends[0], p) < 1e-6 || dist(x.d.ends[1], p) < 1e-6;
+    const hyp = tri.find((x) => has(x, LINE_A) && has(x, LINE_B))!;
+    expect(hyp.pts).toEqual([]);
+    const ca = tri.find((x) => Math.abs(x.d.ends[0][2] - 10) < 1e-6 && Math.abs(x.d.ends[1][2] - 10) < 1e-6)!;
+    expectSame(ca.pts, [[6, -8, 10]], 1e-9);
+    // 세로 원판(테두리 원 위에서 닿기만)과 B-스플라인(테두리 원 위에서 지남)은 없고, B-스플라인 판 아랫변(z = 13)은 옆면을 (0, −10, 13)에서 뚫는다
+    for (const x of all(byName('cross-ring'))) expect(x.pts).toEqual([]);
+    const spl = all(byName('cross-spline'));
+    expect(spl.find((x) => x.d.kind === 'bspline')!.pts).toEqual([]);
+    const q = spl.find((x) => Math.abs(x.d.ends[0][2] - 13) < 1e-6 && Math.abs(x.d.ends[1][2] - 13) < 1e-6)!;
+    expectSame(q.pts, [[0, -10, 13]], 1e-9);
   });
 
   it('일 예산: 삼각형 한도를 넘으면 그 뒤는 보지 않는다(같은 모서리면 늘 같은 답)', () => {

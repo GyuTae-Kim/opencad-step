@@ -15,12 +15,15 @@
  * 면(평면은 면 가운데·법선, 곡면은 면 표의 식·워커가 준 곡면 정의)의 교점 C(t) = S(u, v)를 뉴턴법으로 푼다(rootNear — 개체 측정 최소 거리 다듬기
  * exactdist.ts의 개체·되짚기·잘린 경계 판정을 그대로 쓴다. 최소 거리 뉴턴은 잔차가 0인 근에서 정류 판정이 반올림에 걸려 따로 푼다).
  * |C − S|가 장면 크기 × 1e-12 안으로 수렴하고 면의 잘린 경계 안이며 그 토막 둘레(토막 길이 두 배 안)일 때만 받는다.
+ * 뚫는 점이 그 면의 경계(그 그물 윤곽선 — 곡선 토막은 토막 길이 0.1배 안) 위면 두 모서리의 교차점이라 뺀다 — 코어 교차점(선분 식별자가 실리고 앱이 곡선 위로 다듬는다)이 맡아
+ * 기존 결과가 그대로다.
  * 곡면 정의를 아직 받지 않은 면(B-스플라인 등)은 다듬지 못해 빼고, 그 모서리는 기억하지 않는다(받은 뒤 다시 구한다).
  * 꺾은선 토막이 현의 처짐만큼 비켜 곡면만 뚫는 자리(곡선이 곡면에 아주 얕게 닿는 자리)는 찾지 못한다.
  */
 import type { Mesh3d, SnapPoint } from 'opencad-viewer3d/types';
 import type { StepEdgeTable } from '../scene';
 import { toLocal, toWorld } from './curvesnap';
+import { edgeAt } from './edges';
 import { edgeGeo, type ExactGeo, faceGeo, segmentGeo } from './exactdist';
 import { faceAt, faceDetails } from './faces';
 import type { FaceSurfaceLookup, SnapFaceIndex } from './facesnap';
@@ -233,6 +236,11 @@ export function crossingsOf(
       if (P) st.why?.push(`same ${P}`);
       continue;
     }
+    // 뚫는 점이 그 면의 경계(그물 윤곽선) 위면 두 모서리의 교차점이다 — 코어 교차점(선분 식별자와 함께 — 곡선 위로 다듬음)이 맡는다
+    if (onOutline(h.m, ex, P, eps)) {
+      st.why?.push(`outline ${P}`);
+      continue;
+    }
     out.push({ point: P, kind: 'intersection', id: h.m.id });
     st.faces?.push(h.f);
   }
@@ -286,6 +294,33 @@ function rootNear(A: ExactGeo, B: ExactGeo, X: V3, size: number, reach: number):
   const q = B.near(X);
   const off = q ? B.ev(q) : null;
   return B.inside(xb, 2 * (off ? dist(off.P, X) : 0) + 1e-6 * (1 + mag(P))) ? P : null;
+}
+
+/**
+ * 세계 점 P가 그물 m의 윤곽선(모서리 꺾은선) 위인지: 어느 토막까지 거리가 eps 안, 곡선 모서리 토막이면 그 토막 길이의 0.1배 안
+ * (현과 곡선 사이 — 코어 넓힌 교차의 활꼴 높이 한도와 같다)
+ */
+function onOutline(m: Mesh3d, ex: SnapEdgeIndex, P: V3, eps: number): boolean {
+  const E = m.edges;
+  const L = E ? toLocal(m, P) : null;
+  if (!E || !L) return false;
+  const ti = ex.tableOf.get(m.id);
+  const et = ti === undefined ? undefined : ex.tables[ti];
+  const p = L.p;
+  const tol = eps / L.scale;
+  for (let s = 0; s * 6 + 5 < E.length; s++) {
+    const a: V3 = [E[s * 6]!, E[s * 6 + 1]!, E[s * 6 + 2]!];
+    const ab = sub([E[s * 6 + 3]!, E[s * 6 + 4]!, E[s * 6 + 5]!], a);
+    const l2 = dot(ab, ab);
+    const t = l2 > 0 ? Math.min(1, Math.max(0, dot(sub(p, a), ab) / l2)) : 0;
+    const d = dist(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t]);
+    if (d <= tol) return true;
+    if (d <= 0.1 * Math.sqrt(l2) && et) {
+      const e = edgeAt(et, s);
+      if (e >= 0 && ex.kinds[et.kinds[e]!] !== 'line') return true;
+    }
+  }
+  return false;
 }
 
 /** 삼각형 평면 위 점 X가 삼각형 abc 안인지(법선 n — 변마다 같은 쪽, 경계 포함) */
