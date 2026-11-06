@@ -979,6 +979,7 @@
   "되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)": "Redo the last undone adjustment (Ctrl+Shift+Z)",
   "손질 되돌리기": "Undo adjustment",
   "손질 다시 하기": "Redo adjustment",
+  "거리로 옮기기…": "Move by distance…",
   "손질 파일": "Adjustment file",
   "손질 파일: 분해 손질을 JSON 파일로 내보내거나 불러옵니다": "Adjustment file: export the explode adjustments as a JSON file or load them",
   "손질 내보내기(JSON 파일)": "Export adjustments (JSON file)",

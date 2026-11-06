@@ -7,7 +7,7 @@
  * 38차: 되돌린 것이 있으면 "다시 하기"(Ctrl/⌘+Shift+Z·Ctrl+Y), 옮기기 옆 "…"(손질 파일) 메뉴에 손질 내보내기(JSON)·불러오기.
  * 되돌리기·다시 하기 칸과 모두 되돌리기 칸은 따로 묶어 좁은 막대에서는 차례로 다음 줄로 내려간다.
  * 43차: 막 끈 뒤와 끄는 동안 쳐 넣기 시작하면 거리 칸("거리 [ ] mm" — 그 끌기로 옮긴 거리, 쳐 넣고 Enter·칸을 떠나면 그 거리로 맞춘다)을 손질 칸 끝에 둔다
- * (좁은 막대에서는 다음 줄로 — 손가락 기기는 이 칸을 눌러 쳐 넣는다).
+ * (좁은 막대에서는 다음 줄로 — 손가락 기기는 이 칸을 눌러 쳐 넣는다). 45차: 끌지 않고 고른 것을 옮기려고 열면(Enter·작업 메뉴) 빈 칸.
  * 손질 도구(explodetool.ts — 손질 계산 explodetweak.ts·끌기 손짓 explodedrag.ts·손질 파일 explodefile.ts를 품는다)도 이 조각으로 받는다(앱은 이 모듈에서 꺼내 쓴다 — 첫 화면 JS 밖).
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
@@ -22,12 +22,16 @@ export { ExplodeTweakTool } from './explodetool';
 /** 화면 방향을 정한 카메라 각의 열쇠(같은 각이면 같은 계획) */
 const viewKey = (v: ExplodeView | null | undefined) => (v ? `${v.yaw},${v.pitch}` : '0,0');
 
-/** 거리 칸 상태(43차): 그 끌기로 옮긴 거리(표시 단위, 점 소수), 단위 글, 분해 방향(받는 꼴 설명), 끄는 중인지 */
+/**
+ * 거리 칸 상태(43차): 그 끌기로 옮긴 거리(표시 단위, 점 소수), 단위 글, 분해 방향(받는 꼴 설명), 끄는 중인지.
+ * fresh(45차): 끌지 않고 고른 것을 옮기려고 연 빈 칸 — 사방·화면 평면은 성분(쌍반점·음수 기호)을 쳐 넣어야 해 손가락 기기에 숫자 자판 대신 글 자판
+ */
 export interface DistState {
   value: string;
   unit: string;
   axis: ExplodeAxis;
   live: boolean;
+  fresh?: boolean;
 }
 
 /**
@@ -251,8 +255,10 @@ export class ExplodeControls {
     if (document.activeElement !== this.distInput) this.distInput.value = s.value;
     this.distUnit.textContent = s.unit;
     this.distUnit.hidden = !s.unit;
-    const title = DIST_TITLES[s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line'];
+    const kind = s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line';
+    const title = DIST_TITLES[kind];
     if (this.distInput.title !== title) this.distInput.title = title;
+    this.distInput.setAttribute('inputmode', s.fresh && kind !== 'line' ? 'text' : 'decimal');
   }
 
   /** 문서·방식·방향의 분해 계획(표현 PMI는 제자리). 화면 방향은 view(카메라 각)로 */
