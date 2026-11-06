@@ -210,13 +210,14 @@ describe('규칙이 대비 토큰을 쓰는지', () => {
 });
 
 describe('53차가 남긴 것', () => {
-  it('부품별 보이기 표: 줄 첫 칸(넘침 자름) 안쪽 여백이 확인 칸 초점 테두리(2px + 틈 1px)를 담고, 바깥 여백으로 자리는 그대로', () => {
+  it('부품별 보이기 표·PMI 표: 줄 첫 칸(넘침 자름) 안쪽 여백이 확인 칸 초점 테두리(2px + 틈 1px)를 담고, 바깥 여백으로 자리는 그대로', () => {
     const R = plainRules();
     // 초점 테두리 굵기(줄임 꼴 outline: 2px solid var(--accent) — var()가 있으면 jsdom이 낱 속성으로 펼치지 않는다)와 틈
     const fv = R.get(':focus-visible') ?? {};
     const ring = parseFloat(fv['outline-width'] || fv.outline || '0') + parseFloat(fv['outline-offset'] ?? '0');
     expect(ring).toBe(3);
-    const cell = R.get('.vgrid-row > label.check:first-child') ?? {};
+    // label.check(부품별 보이기)·span.check(PMI 표 — 54차)
+    const cell = R.get('.vgrid-row > .check:first-child') ?? {};
     const [pt, , pb, pl] = (cell.padding ?? '').split(/\s+/).map(parseFloat);
     const [mt, , mb, ml] = (cell.margin ?? '').split(/\s+/).map(parseFloat);
     expect(pl).toBeGreaterThanOrEqual(ring);

@@ -21,10 +21,14 @@ import { edgeSummary, edgeTitle, entityHint, faceSummary, lineValue, panelMeasur
 import { snapPair } from './snap';
 import { allExpandableKeys, filterRows, nodeLabel, visibleRows } from './tree';
 import type { TreeView, VList } from './treeview';
+import type { PmiView } from './pmiview';
 import { NO_LAYER } from './visibility';
 
-/** 나무 조각(treeview.ts — 제품 나무·부품별 보이기 표의 가상 목록, 뷰어 조각에 든다): 앱이 뷰어를 만들 때 넣는다 */
-export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'>;
+/**
+ * 나무 조각(treeview.ts — 제품 나무·부품별 보이기 표의 가상 목록, 뷰어 조각에 든다): 앱이 뷰어를 만들 때 넣는다.
+ * 54차: PMI 탭 본문(pmiview.ts — 표현·의미 PMI 표도 가상 목록, 고르기·보이기는 줄 표시만 고침)도 이 조각에(앱은 늘 넣는다 — 없으면 PMI 탭을 비운다)
+ */
+export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'> & Partial<Pick<typeof import('./pmiview'), 'pmiView'>>;
 
 /**
  * 물리 속성 계산(physics.ts — 부피·질량·무게중심·관성, 재질 표): 53차에 첫 화면 JS에서 뷰어 조각으로 옮겼다(속성 탭은 문서가 있어야 그린다).
@@ -171,6 +175,8 @@ export class Panel {
   /** 지금 그린 나무(가상 목록)와 부품별 보이기 표 */
   private tree: TreeView | null = null;
   private groupList: VList | null = null;
+  /** 지금 그린 PMI 탭 본문(나무 조각 — 54차) */
+  private pmi: PmiView | null = null;
   private filterTimer = 0;
   /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
   private interferenceEl: HTMLElement | null = null;
@@ -224,7 +230,8 @@ export class Panel {
     if (!d) return;
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
-    } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
+    } else if (d.panelTab === 'pmi' && this.pmi) this.pmi.patch();
+    else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
     // 아래 띠를 먼저 고친다(처음 고르면 띠가 나타나 본문이 줄어든다 — 그 뒤에 재야 고른 줄이 띠 뒤에 숨지 않는다)
     this.renderFoot();
     // 고른 줄(몸체 줄이 있으면 그 줄 — 부품 줄의 일부 고름 표시보다 먼저)이 화면 밖이면 스크롤해 만든다
@@ -298,10 +305,11 @@ export class Panel {
     this.renderFoot();
   }
 
-  /** 보이기/숨기기가 바뀜 */
+  /** 보이기/숨기기가 바뀜(PMI 탭은 만든 줄의 표시만 고친다 — 54차) */
   onVisibility(): void {
     const t = this.doc?.panelTab;
-    if (t === 'tree' || t === 'layers' || t === 'pmi') this.renderBody();
+    if (t === 'pmi' && this.pmi) this.pmi.patch();
+    else if (t === 'tree' || t === 'layers' || t === 'pmi') this.renderBody();
   }
 
   setTab(tab: PanelTab): void {
@@ -373,6 +381,7 @@ export class Panel {
     // 가상 목록은 자리가 정해진 뒤 보이는 줄을 만든다
     this.tree?.list.update();
     this.groupList?.update();
+    this.pmi?.lists.forEach((l) => l.update());
     if (refocus) {
       const inp = this.body.querySelector<HTMLInputElement>('.tree-filter');
       if (inp) {
@@ -392,7 +401,8 @@ export class Panel {
   private dropLists(): void {
     this.tree?.list.dispose();
     this.groupList?.dispose();
-    this.tree = this.groupList = null;
+    this.pmi?.lists.forEach((l) => l.dispose());
+    this.tree = this.groupList = this.pmi = null;
   }
 
   // ───────────────────────── 제품 탭 ─────────────────────────
@@ -711,75 +721,13 @@ export class Panel {
 
   // ───────────────────────── PMI 탭 ─────────────────────────
 
+  /**
+   * 표현·의미 PMI 표와 저장된 보기(54차 — 나무 조각 pmiview.ts의 가상 목록, 보이는 줄만 만든다. 53차까지는 여기서 줄을 모두 만들었다 —
+   * 합성 PMI 2,120개에서 주 스레드 4배 느리게 탭 그리기 228 ms). 나무 조각이 아직 없으면 비운다(나무 탭과 같다)
+   */
   private renderPmi(d: StepDoc): void {
-    const v = d.vis;
-    const pres = d.pmi.presentations;
-    if (pres.length) {
-      const all = h('input', { type: 'checkbox', 'aria-label': '표현 PMI 모두 보이기' });
-      all.checked = !v.pmiOff;
-      all.addEventListener('change', () => this.host.setPmiVisible(null, all.checked));
-      const tbody = h('tbody');
-      const LIMIT = 1000;
-      for (const p of pres.slice(0, LIMIT)) {
-        const on = !v.pmiHidden.has(p.id);
-        const cb = h('input', { type: 'checkbox', 'aria-label': `${p.name || p.type} 보이기` });
-        cb.checked = on;
-        cb.disabled = v.pmiOff;
-        cb.addEventListener('change', () => this.host.setPmiVisible(p.id, cb.checked));
-        const label = p.name || pmiTypeLabel(p.type);
-        const selected = d.items?.ids.length === 1 && d.items.ids[0] === p.id;
-        const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${p.model}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)` }, label);
-        nameBtn.addEventListener('click', (ev) => {
-          if (ev.detail === 2) this.host.selectItems([p.id], `PMI ${label}`, true);
-          else if (ev.detail <= 1) this.host.selectItems(selected ? null : [p.id], `PMI ${label}`);
-        });
-        tbody.append(h('tr', { class: on && !v.pmiOff ? '' : 'off' }, h('td', {}, h('span', { class: 'check' }, cbHit(cb), nameBtn)), h('td', { class: 'dim small' }, p.plane ?? pmiTypeLabel(p.type))));
-      }
-      this.body.append(
-        section(
-          `표현 PMI ${fmtCount(pres.length)}개`,
-          h('label', { class: 'check all-check' }, all, h('span', {}, '표현 PMI 보이기')),
-          h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, '주석'), h('th', {}, '평면·종류'))), tbody),
-          pres.length > LIMIT ? h('p', { class: 'hint' }, `처음 ${fmtCount(LIMIT)}개만 보입니다.`) : null,
-        ),
-      );
-    }
-    const sem = d.pmi.semantic;
-    if (sem.length) {
-      const tbody = h('tbody');
-      const LIMIT = 1000;
-      for (const x of sem.slice(0, LIMIT)) {
-        // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
-        const label = `PMI ${x.name || semanticLabel(x.type)}`;
-        const selected = d.items?.label === label;
-        let nameCell: HTMLElement;
-        if (x.faces?.length) {
-          const b = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, h('span', { translate: 'no' }, x.name || '—'));
-          b.addEventListener('click', () => (selected ? this.host.selectItems(null, label) : this.host.showPmiFaces(x.faces!, label)));
-          nameCell = h('td', {}, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
-        } else nameCell = h('td', { translate: 'no' }, x.name || '—');
-        tbody.append(h('tr', { class: selected ? 'sel' : '' }, h('td', { title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), nameCell, h('td', { class: 'mono', translate: 'no' }, x.value || '—')));
-      }
-      this.body.append(
-        section(
-          `의미 PMI ${fmtCount(sem.length)}개`,
-          h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, '종류'), h('th', {}, '이름'), h('th', {}, '값'))), tbody),
-          sem.length > LIMIT ? h('p', { class: 'hint' }, `처음 ${fmtCount(LIMIT)}개만 보입니다.`) : null,
-          h('p', { class: 'hint' }, '치수(값·± 공차), 기하 공차(크기 | 데이텀), 데이텀을 STEP 의미 PMI에서 읽었습니다.'),
-        ),
-      );
-    }
-    const views = d.pmi.views;
-    if (views.length) {
-      const list = h('div', { class: 'view-list' });
-      for (const v of views) {
-        const b = h('button', { type: 'button', class: 'btn small view-btn', title: `${v.projection === 'perspective' ? '원근' : '평행'} · ${v.pmiIds?.length ? `PMI ${v.pmiIds.length}개` : 'PMI 없음'}` }, icon('views', 14), h('span', { translate: 'no' }, v.name || `#${v.id}`));
-        b.addEventListener('click', () => this.host.applySavedView(v));
-        list.append(b);
-      }
-      this.body.append(section(`저장된 보기 ${fmtCount(views.length)}개`, list, h('p', { class: 'hint' }, '누르면 그 보기의 카메라로 옮기고 그 보기에 든 표현 PMI만 보입니다(PMI 모두 보이기로 되돌립니다).')));
-    }
-    if (!pres.length && !sem.length && !views.length) this.body.append(h('p', { class: 'empty' }, '이 파일에는 PMI가 없습니다.'));
+    this.pmi = this.kit?.pmiView ? this.kit.pmiView(d, this.host, this.body) : null;
+    if (this.pmi) this.body.append(this.pmi.el);
   }
 
   // ───────────────────────── 정보 탭 ─────────────────────────
