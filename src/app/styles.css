@@ -1049,11 +1049,13 @@ body.resizing .viewer-host {
   color: var(--text-dim);
   font-style: italic;
 }
+/* 도움말 안의 긴 낱말(STEP 엔터티 이름 PRESENTATION_LAYER_ASSIGNMENT 등)도 줄을 바꾼다 — 글만 키우면 패널 폭을 넘어 옆으로 굴려야 보였다(55차) */
 .empty,
 .hint {
   margin: 6px 0;
   color: var(--text-faint);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .empty {
   padding: 12px;

@@ -159,6 +159,8 @@ describe('다시 흐르기(1280px 창 400% — 320×256)와 글만 키우기', (
       expect(R.get(sel)?.height, sel).toBeUndefined();
       expect(parseFloat(R.get(sel)?.['min-height'] ?? '0'), sel).toBeGreaterThan(0);
     }
+    // 도움말 안의 긴 낱말(STEP 엔터티 이름)도 줄을 바꾼다(글만 키우면 패널 폭을 넘었다)
+    expect(PLAIN.get('.hint')?.['overflow-wrap']).toBe('anywhere');
     // 묶음(.seg)은 둥근 모서리로 넘침을 자른다 — 바깥으로 그린 초점 테두리가 잘리지 않게 안쪽으로
     expect(PLAIN.get('.seg')?.overflow).toBe('hidden');
     expect(parseFloat(PLAIN.get('.seg-btn:focus-visible')?.['outline-offset'] ?? '0')).toBeLessThanOrEqual(-2);
