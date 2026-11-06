@@ -6,6 +6,7 @@ import { bodyTitle, carryDocState, createDoc, hasBodies, multiLabel, nodeItems, 
 import { filterRows, selectFromPick, visibleRows } from '../../src/app/tree';
 import { resolveTokens, selectionTokens } from '../../src/app/selink';
 import { Panel, type PanelHost } from '../../src/app/panel';
+import * as TV from '../../src/app/treeview';
 import { Fmt } from '../../src/app/display';
 import { StepText, cube } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -153,6 +154,7 @@ describe('패널: 선 형상 몸체 줄', () => {
     d.expanded.add('0/0').add('0/1');
     const { host, calls } = panelHost(d);
     const panel = new Panel(host);
+    panel.kit = TV;
     document.body.append(panel.el);
     panel.show(d);
     const [l1, l2] = scene.lines;

@@ -184,8 +184,8 @@ export interface StepDoc {
   readonly props: DocProps;
 }
 
-/** 제품 나무 기본 줄 수 제한 */
-export const TREE_LIMIT = 3000;
+/** 제품 나무 기본 줄 수 제한(49차 — 나무는 보이는 줄만 DOM에 만들므로 3,000 → 50,000: 줄 목록의 메모리·목록 높이 한도) */
+export const TREE_LIMIT = 50000;
 
 let serial = 0;
 
