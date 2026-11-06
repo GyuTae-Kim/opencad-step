@@ -17,11 +17,12 @@
  *   축이 아닌 잠근 선(line.axis 없음 — 나란함·앱이 정한 방향·곡선 접선)도 같은 계산이다(line.origin·line.dir만 읽는다)
  * - 그 밖의 종류(코어가 뒤에 더할 것)는 null
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
+ * - 앱이 주는 접점(43차 — pointsFor, 첫 점을 찍은 뒤): 첫 점에서 그은 직선이 곡선에 접하는 점(curveTangents — 원·타원은 닫힌 식, B-스플라인은 매개변수 뉴턴)
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
  */
-import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment } from 'opencad-viewer3d';
-import type { Mesh3d } from 'opencad-viewer3d/types';
-import { arcCuts, arcMidParam, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
+import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment, Viewer3d } from 'opencad-viewer3d';
+import type { Mesh3d, SnapPoint } from 'opencad-viewer3d/types';
+import { arcCuts, arcMidParam, bsplineBreaks, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
 import { edgeAt } from './edges';
 import { type FaceSurfaceLookup, refineFaceHit, type SnapFaceIndex } from './facesnap';
@@ -363,6 +364,220 @@ export function curveMidpoint(mesh: Mesh3d, table: StepEdgeTable, e: number, kin
   if (!m) return null;
   const w = toWorld(mesh, m[0], m[1], m[2]);
   return w.every(Number.isFinite) ? w : null;
+}
+
+// ── 첫 점에서 곡선에 그은 접선의 접점(43차 — AutoCAD 접점 붙잡기) ──
+
+const crossOf = (a: readonly number[], b: readonly number[]): V3 => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
+const norm3 = (a: readonly number[]): number => Math.hypot(a[0]!, a[1]!, a[2]!);
+/** B-스플라인 접점 찾기의 표본 한도(매듭 구간마다 나눔 수 · 모두) */
+const TAN_PER_SPAN = 16;
+const TAN_SAMPLES = 4096;
+/** 극값을 품은 표본 구간을 반으로 나눠 보는 깊이(가까운 두 근을 놓치지 않게) */
+const TAN_SPLIT = 10;
+
+/** 조절점(묶음 좌표, xyz 또는 xyzw — w는 무게라 점은 앞 셋)의 평면 법선과 평면에서 가장 먼 조절점 거리(직선이면 null) */
+function ctrlPlane(ctrl: Float64Array, stride: number): { p0: V3; n: V3; off: number } | null {
+  const m = Math.floor(ctrl.length / stride);
+  if (m < 2) return null;
+  const P = (i: number): V3 => [ctrl[i * stride]!, ctrl[i * stride + 1]!, ctrl[i * stride + 2]!];
+  const p0 = P(0);
+  let ia = 0;
+  let da = 0;
+  for (let i = 1; i < m; i++) {
+    const d = dist(P(i), p0);
+    if (d > da) {
+      da = d;
+      ia = i;
+    }
+  }
+  if (!(da > 0)) return null;
+  const u = sub(P(ia), p0);
+  let best: V3 | null = null;
+  let bl = 0;
+  for (let i = 1; i < m; i++) {
+    const c = crossOf(u, sub(P(i), p0));
+    const l = norm3(c);
+    if (l > bl) {
+      bl = l;
+      best = c;
+    }
+  }
+  // 모든 조절점이 한 직선 위(곧은 B-스플라인)
+  if (!best || !(bl > 1e-12 * da * da)) return null;
+  const n: V3 = [best[0] / bl, best[1] / bl, best[2] / bl];
+  let off = 0;
+  for (let i = 0; i < m; i++) off = Math.max(off, Math.abs(dot(sub(P(i), p0), n)));
+  return { p0, n, off };
+}
+
+/**
+ * 묶음 좌표 점 F에서 모서리 곡선 arc에 그은 직선이 곡선에 접하는 점들(묶음 좌표, 모서리 매개변수 범위 안).
+ * 3D로 접하는 것만이다 — F가 그 점의 접선 위(tol 안)에 있어야 한다. 원·타원·평면 B-스플라인은 F가 곡선 평면 위(tol 안)일 때만 있고,
+ * 그 평면에서 g(t) = ((C − F) × C′)·n = 0의 근이다(접선 식). 원·타원은 닫힌 식(틀 좌표 (x, y)의 F에서 x cos t / a + y sin t / b = 1 — 바깥 점에서 둘),
+ * B-스플라인은 매듭 구간마다 TAN_PER_SPAN개로 나눈 표본에서 g의 부호가 바뀌는 구간마다 매개변수 뉴턴(rtsafe — 반 나눔을 섞어 구간 밖으로 나가지 않는다)으로 풀고,
+ * 부호가 같아도 g′의 부호가 바뀌어 극값을 품은 구간은 반으로 나눠(TAN_SPLIT번까지) 가까운 두 근을 놓치지 않게 한다. 평면이 아닌 B-스플라인은 조절점의 대표 평면 법선으로
+ * 같은 근을 찾고 3D 접선까지 거리로 거른다. 모서리 두 끝에서 tol 안인 접점(끝점 붙잡기가 맡는다)과 F 자리(F가 곡선 위일 때 그 자리)는 뺀다
+ */
+export function tangentsOnArc(arc: EdgeArc, F: readonly number[], tol: number): V3[] {
+  const { ev, def } = arc;
+  const t0 = arc.param(0);
+  const t1 = arc.param(arc.n);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t0 === t1) return [];
+  const lo = Math.min(t0, t1);
+  const hi = Math.max(t0, t1);
+  const E0 = ev(t0)[0];
+  const E1 = ev(t1)[0];
+  const out: V3[] = [];
+  const take = (t: number): void => {
+    const [C, D] = ev(t);
+    const dl = norm3(D);
+    if (!(dl > 0)) return;
+    const r = sub(F, C);
+    // F가 그 점의 접선 위인지(3D), F 자리·모서리 끝 자리는 빼고, 같은 점은 하나로
+    if (norm3(crossOf(r, D)) / dl > tol || norm3(r) <= tol || dist(C, E0) <= tol || dist(C, E1) <= tol) return;
+    if (out.some((q) => dist(q, C) <= tol)) return;
+    out.push([C[0], C[1], C[2]]);
+  };
+  if (arc.conic) {
+    // 원·타원: 틀 (X, Y, a, b), 평면 법선 n = X × Y
+    const { X, Y, a, b } = arc.conic;
+    const c = (def as { center: V3 }).center;
+    const d = sub(F, c);
+    const n = crossOf(X, Y);
+    if (Math.abs(dot(d, n)) > tol) return [];
+    const A = dot(d, X) / a;
+    const B = dot(d, Y) / b;
+    const R = Math.hypot(A, B);
+    if (!(R > 1)) return [];
+    const phi = Math.atan2(B, A);
+    const delta = Math.acos(1 / R);
+    for (const t of [phi - delta, phi + delta]) {
+      // 모서리 범위 [lo, hi] 안으로(한 바퀴 원·타원은 어디든 — 범위가 2π)
+      const k = Math.ceil((lo - t) / TAU - 1e-12);
+      const tt = t + k * TAU;
+      if (tt <= hi + 1e-12) take(Math.min(hi, Math.max(lo, tt)));
+    }
+    return out;
+  }
+  if (def.kind !== 'bspline') return [];
+  const pl = ctrlPlane(def.ctrl, def.rational ? 4 : 3);
+  if (!pl) return [];
+  const planar = pl.off <= tol;
+  // 평면 곡선이면 F도 그 평면 위여야 접선이 F를 지난다
+  if (planar && Math.abs(dot(sub(F, pl.p0), pl.n)) > tol) return [];
+  const n = pl.n;
+  const gh = (t: number): [number, number] => {
+    const [C, D, A2] = ev(t);
+    const r = sub(C, F);
+    return [dot(crossOf(r, D), n), dot(crossOf(r, A2), n)];
+  };
+  const breaks = bsplineBreaks(def, lo, hi);
+  if (!breaks) return [];
+  const spans = breaks.length - 1;
+  const per = Math.max(2, Math.min(TAN_PER_SPAN, Math.floor(TAN_SAMPLES / Math.max(1, spans))));
+  const ts: number[] = [];
+  for (let i = 0; i < spans; i++) for (let j = 0; j < per; j++) ts.push(breaks[i]! + ((breaks[i + 1]! - breaks[i]!) * j) / per);
+  ts.push(breaks[spans]!);
+  const roots: number[] = [];
+  const scan = (a: number, b: number, ga: readonly [number, number], gb: readonly [number, number], depth: number): void => {
+    if (ga[0] === 0) roots.push(a);
+    if (ga[0] * gb[0] < 0) {
+      roots.push(ga[0] < 0 ? rtsafe(gh, a, b) : rtsafe(gh, b, a));
+      return;
+    }
+    // 부호가 같아도 극값을 품었으면(g′ 부호가 바뀜) 반으로 나눠 가까운 두 근을 찾는다
+    if (depth < TAN_SPLIT && ga[1] * gb[1] < 0) {
+      const m = 0.5 * (a + b);
+      if (m === a || m === b) return;
+      const gm = gh(m);
+      scan(a, m, ga, gm, depth + 1);
+      scan(m, b, gm, gb, depth + 1);
+    }
+  };
+  let prev = gh(ts[0]!);
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const next = gh(ts[i + 1]!);
+    scan(ts[i]!, ts[i + 1]!, prev, next, 0);
+    prev = next;
+  }
+  if (prev[0] === 0) roots.push(ts[ts.length - 1]!);
+  for (const t of roots) if (t >= lo && t <= hi) take(t);
+  return out;
+}
+
+/**
+ * 측정 첫 점과 그 세대(snap.ts TangentFirst — 앱이 뷰어마다 하나): 접점은 첫 점으로 정해지는데 코어는 바로 앞과 같은 고르기면 pointsFor 결과를 다시 쓴다
+ * (0.10.0 — 결과는 고른 것으로만 정해진다는 약속). 그래서 찍은 점이 바뀔 때마다(코어 onMeasure — 둘째 점·지우기·새 측정) 세대를 올리고,
+ * 접점에 차례 값 −세대(SnapPoint.order)를 달아 붙잡기 한도(setMeasureSnapLimit(1 − 세대) — 차례 < 한도만 붙는다)로 다시 쓴 앞 세대 접점을 거른다.
+ * 차례가 없는 다른 앱 점(끝점·가운데 점·중심)과 늘 후보인 원 중심은 한도와 상관없다. 첫 점을 처음 찍을 때(점 0 → 1)는 알림이 없지만
+ * 그 앞에는 접점이 없어 거를 것이 없다. 붙잡기 선택을 다시 주면(setMeasureSnap) 코어가 한도와 앞 결과 기억을 함께 비운다
+ */
+export class MeasureFirst {
+  private gen = 1;
+
+  constructor(private readonly v: Pick<Viewer3d, 'measurePointCount' | 'measurePoints' | 'setMeasureSnapLimit'>) {}
+
+  /** 첫 점만 찍었으면 그 점(세계), 아니면 null */
+  point(): readonly number[] | null {
+    return this.v.measurePointCount === 1 ? (this.v.measurePoints[0]?.point ?? null) : null;
+  }
+
+  /** 지금 세대 접점의 차례 값 */
+  get order(): number {
+    return -this.gen;
+  }
+
+  /** 찍은 점이 바뀌었다(코어 onMeasure): 앞 세대 접점을 거른다 */
+  changed(): void {
+    this.gen++;
+    this.v.setMeasureSnapLimit(1 - this.gen);
+  }
+}
+
+/**
+ * 그물 mesh의 모서리 e(곡선 모서리)에서 세계 점 F에서 그은 접선의 접점들(세계 — tangentsOnArc). 허용치는 F와 곡선 크기를 더한 값의 1e-6배
+ * (두 곡선의 교차점 허용치와 같은 꼴 — float32 윤곽선 꼭짓점에 찍은 첫 점도 평면 위로 본다). 곡선 정의가 없거나 직선이면 빈 목록
+ */
+export function curveTangents(mesh: Mesh3d, table: StepEdgeTable, e: number, kinds: readonly string[], F: ArrayLike<number>): V3[] {
+  const E = mesh.edges;
+  const L = E ? toLocal(mesh, F) : null;
+  const arc = E && L ? edgeArc(E, table, e, kinds) : null;
+  if (!arc || !L) return [];
+  // 크기: 꺾은선 꼭짓점 범위의 대각선, 좌표 크기: F와 꼭짓점 좌표의 절댓값 가운데 큰 것(float32 꼭짓점의 반올림을 덮는다)
+  const lo: V3 = [Infinity, Infinity, Infinity];
+  const hi: V3 = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i <= arc.n; i++) {
+    const v = arc.vertex(i);
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k]!, v[k]!);
+      hi[k] = Math.max(hi[k]!, v[k]!);
+    }
+  }
+  const size = dist(lo, hi);
+  const mag = Math.max(Math.abs(L.p[0]), Math.abs(L.p[1]), Math.abs(L.p[2]), ...lo.map(Math.abs), ...hi.map(Math.abs));
+  const tol = 1e-6 * (size + mag) + 1e-12;
+  return tangentsOnArc(arc, L.p, tol)
+    .map((q) => toWorld(mesh, q[0], q[1], q[2]))
+    .filter((q) => q.every(Number.isFinite));
+}
+
+/**
+ * 접점 붙잡기 점(snap.ts CurveSnap.tangents — 고른 곡선 모서리마다): 첫 점에서 그은 접선의 접점(curveTangents)을 kind 'point'·그 세대 차례 값으로.
+ * known(그 모서리의 끝점·가운데 점·중심 — 앞 차례 앱 점)과 좌표 크기의 1e-6배 안으로 겹치는 접점은 뺀다(그 점 붙잡기가 맡아 예전 차례와 결과가 그대로)
+ */
+export function tangentSnapPoints(
+  mesh: Mesh3d,
+  table: StepEdgeTable,
+  e: number,
+  kinds: readonly string[],
+  first: { point: readonly number[]; order: number },
+  known: readonly SnapPoint[],
+): SnapPoint[] {
+  const near = (q: readonly number[], p: readonly number[]): boolean => dist(q, p) <= 1e-6 * (1 + Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[2]!)));
+  return curveTangents(mesh, table, e, kinds, first.point)
+    .filter((q) => !known.some((s) => near(q, s.point)))
+    .map((q) => ({ point: q, kind: 'point' as const, id: mesh.id, order: first.order }));
 }
 
 /** 코어가 넘긴 윤곽선 토막의 그물·모서리 표·모서리 번호와 모서리 안 토막 번호 k, 모서리 꼭짓점(묶음 좌표 float32 — 0 = 시작 … n = 끝) */
@@ -890,6 +1105,7 @@ export function curveSnap(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, f
   return {
     refine: (c) => (ex ? refineSnap(c, byId, ex) : null),
     mid: (mesh, table, e) => (ex ? curveMidpoint(mesh, table, e, ex.kinds) : null),
+    tangents: (mesh, table, e, first, known) => (ex ? tangentSnapPoints(mesh, table, e, ex.kinds, first, known) : []),
     ...(faces ? { refineFace: (c: SnapRefineFaceInput) => refineFaceHit(c, byId, faces, surfaces) } : {}),
   };
 }
