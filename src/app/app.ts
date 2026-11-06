@@ -938,6 +938,8 @@ export class StepApp {
     this.trackMeetLabelOf = core.trackDirMeetLabel;
     // 제품 나무·부품별 보이기 표의 가상 목록(나무 조각 treeview.ts)도 같은 조각에 들어 있다 — 패널은 문서를 보일 때(이 뒤) 그린다
     this.panel.kit = core;
+    // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
+    this.panel.phys = core;
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize() });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {

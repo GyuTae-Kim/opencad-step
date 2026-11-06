@@ -11,7 +11,6 @@ import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
 import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
-import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
 import { selectRow } from './dialog';
 import { warningNodes } from './warnparts';
@@ -26,6 +25,12 @@ import { NO_LAYER } from './visibility';
 
 /** 나무 조각(treeview.ts — 제품 나무·부품별 보이기 표의 가상 목록, 뷰어 조각에 든다): 앱이 뷰어를 만들 때 넣는다 */
 export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'>;
+
+/**
+ * 물리 속성 계산(physics.ts — 부피·질량·무게중심·관성, 재질 표): 53차에 첫 화면 JS에서 뷰어 조각으로 옮겼다(속성 탭은 문서가 있어야 그린다).
+ * 앱이 뷰어를 만들 때 나무 조각과 함께 넣는다
+ */
+export type PhysKit = Pick<typeof import('./physics'), 'accuracyText' | 'inertiaText' | 'MATERIALS' | 'massText' | 'meshNodes' | 'physProps'>;
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
@@ -159,6 +164,8 @@ export class Panel {
   private doc: StepDoc | null = null;
   /** 나무 조각(문서를 보이기 전에 앱이 넣는다 — 없으면 나무 줄·부품별 보이기 표를 그리지 않는다) */
   kit: TreeKit | null = null;
+  /** 물리 속성 계산(문서를 보이기 전에 앱이 넣는다 — 없으면 속성 탭의 물리 속성 묶음을 비운다) */
+  phys: PhysKit | null = null;
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
   /** 지금 그린 나무(가상 목록)와 부품별 보이기 표 */
@@ -537,6 +544,9 @@ export class Panel {
 
   /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
   private physSection(d: StepDoc, ids: string[] | null, multi?: string): HTMLElement {
+    const P = this.phys;
+    if (!P) return section('물리 속성');
+    const { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } = P;
     const f = this.host.fmt;
     const owner = meshNodes(d.products);
     const sel = ids ? new Set(ids) : null;

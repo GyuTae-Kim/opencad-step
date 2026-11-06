@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { stepToScene, stepToSceneDeferred, type StepMeta } from '../../src/scene';
 import { applyDocProps, createDoc, type StepDoc } from '../../src/app/doc';
 import { Panel, type PanelHost } from '../../src/app/panel';
+import * as PHYS from '../../src/app/physics';
 import { Fmt } from '../../src/app/display';
 import { cube, cylinder, StepText } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -26,6 +27,9 @@ function host(d: StepDoc): PanelHost {
   }) as unknown as PanelHost;
 }
 
+/** 물리 속성 계산은 뷰어 조각에 들어 있어(53차) 앱이 뷰어를 만들 때 패널에 넣는다 — 시험은 모듈을 바로 넣는다 */
+const panelOf = (h: PanelHost): Panel => Object.assign(new Panel(h), { phys: PHYS });
+
 const rows = (el: HTMLElement) => Object.fromEntries([...el.querySelectorAll('.prop-row')].map((r) => [r.querySelector('.k')?.textContent, r.querySelector('.v')?.textContent]));
 
 describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () => {
@@ -36,7 +40,7 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     const job = def.props!;
     const doc = createDoc('a.stp', 1, { scene: def.scene, ms: 1, props: { tables: job.tables(), solids: job.total } });
     doc.density = 7850;
-    const panel = new Panel(host(doc));
+    const panel = panelOf(host(doc));
     document.body.append(panel.el);
     panel.show(doc);
     panel.setTab('props');
@@ -70,7 +74,7 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     r = rows(panel.el);
     const inlineDoc = createDoc('a.stp', 1, { scene: stepToScene(bytes, { name: 'a.stp' }), ms: 1 });
     inlineDoc.density = 7850;
-    const p2 = new Panel(host(inlineDoc));
+    const p2 = panelOf(host(inlineDoc));
     document.body.append(p2.el);
     p2.show(inlineDoc);
     p2.setTab('props');
@@ -88,7 +92,7 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     const doc = createDoc('a.stp', 1, { scene: def.scene, ms: 1, props: { tables: job.tables(), solids: job.total } });
     // 첫 입체(원기둥)를 고른다
     doc.items = { ids: [def.scene.meshes[0]!.id], label: '몸체 1개' };
-    const panel = new Panel(host(doc));
+    const panel = panelOf(host(doc));
     document.body.append(panel.el);
     panel.show(doc);
     panel.setTab('props');
@@ -106,7 +110,7 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
   it('멈추면(다른 파일) 기다리던 입체는 삼각형 값(≈)과 멈춤 안내', () => {
     const def = stepToSceneDeferred(bytes, { name: 'a.stp' });
     const doc = createDoc('a.stp', 1, { scene: def.scene, ms: 1, props: { tables: def.props!.tables(), solids: def.props!.total } });
-    const panel = new Panel(host(doc));
+    const panel = panelOf(host(doc));
     document.body.append(panel.el);
     panel.show(doc);
     panel.setTab('props');
