@@ -239,24 +239,33 @@ describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { time
       const ring = meshOf('고리');
       const triP = closestBetween(partShape(pin), partShape(plate))!;
       const triR = closestBetween(partShape(pin), partShape(ring))!;
-      const key = {};
+      // 앱 문서처럼 ent가 지금 측정 짝
+      const doc = { ent: {} };
       const later = vi.fn();
-      expect(partsLater(key, pin.id, plate.id, triP, s, 30, later)).toBeNull();
+      expect(partsLater(doc, pin.id, plate.id, triP, s, 30, later)).toBeNull();
       await vi.waitFor(() => expect(later).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
-      expect(Math.abs(partsLater(key, pin.id, plate.id, triP, s, 30, later)!.distance - 0.4)).toBeLessThan(1e-9);
-      // 다른 짝(같은 key라도 삼각형 답이 다르면)은 새로 — 받기 전 null, 그동안 앞 짝을 다시 부르면 또 새로(앞 답은 잊는다)
+      expect(Math.abs(partsLater(doc, pin.id, plate.id, triP, s, 30, later)!.distance - 0.4)).toBeLessThan(1e-9);
+      // 다른 짝(같은 측정 짝이라도 삼각형 답이 다르면)은 새로 — 받기 전 null
       const later2 = vi.fn();
-      expect(partsLater(key, pin.id, ring.id, triR, s, 30, later2)).toBeNull();
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later2)).toBeNull();
       await vi.waitFor(() => expect(later2).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
-      expect(Math.abs(partsLater(key, pin.id, ring.id, triR, s, 30, later2)!.distance - 0.5)).toBeLessThan(1e-9);
-      // 다른 key(새 측정 짝)는 같은 부품이어도 새로 받는다
+      expect(Math.abs(partsLater(doc, pin.id, ring.id, triR, s, 30, later2)!.distance - 0.5)).toBeLessThan(1e-9);
+      // 새 측정 짝은 같은 부품이어도 새로 받는다. 그 받기가 끝나기 전에 또 다른 짝을 부르면 앞 받기는 later를 부르지 않는다
       const later3 = vi.fn();
-      expect(partsLater({}, pin.id, ring.id, triR, s, 30, later3)).toBeNull();
-      // 그 받기가 끝나기 전에 또 다른 짝을 부르면 앞 받기는 later를 부르지 않는다
+      doc.ent = {};
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later3)).toBeNull();
       const later4 = vi.fn();
-      partsLater({}, pin.id, plate.id, triP, s, 30, later4);
+      const other = { ent: {} };
+      partsLater(other, pin.id, plate.id, triP, s, 30, later4);
       await vi.waitFor(() => expect(later4).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
       expect(later3).not.toHaveBeenCalled();
+      // 받았을 때 그 문서의 측정 짝이 바뀌었으면(셋째 개체를 누름 등) later를 부르지 않는다
+      const later5 = vi.fn();
+      doc.ent = {};
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later5)).toBeNull();
+      doc.ent = {};
+      await new Promise((r) => setTimeout(r, 300));
+      expect(later5).not.toHaveBeenCalled();
     });
   });
 

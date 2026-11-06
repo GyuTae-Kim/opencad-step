@@ -703,12 +703,12 @@ export function exactPartsSliced(
 
 /**
  * 앱의 "부품 사이 최소 거리" 다듬기(46차): exactParts와 같은 답이되, 오목한 자리 받기(certifyFar)는 시간 조각(exactPartsSliced)으로 돌린다.
- * 받기를 기다리는 동안은 null(삼각형 값 "≈")을 돌려주고, 받으면 later()를 부른다 — 앱이 다시 재면(같은 key·같은 r) 그 답을 돌려준다.
- * 기다리는 동안 같은 짝을 다시 재려 했으면(곡면 정의를 받음 등) 받지 못해도 later()를 불러 그때 처음부터 다시 잰다(받지 못한 답은 기억하지 않는다 — 45차처럼).
- * 다른 key·r로 부르면 앞 받기는 그만둔다. 한 번에 하나만 기억한다(개체 측정은 한 번에 한 짝)
+ * holder.ent가 앱의 측정 짝(key)이다. 받기를 기다리는 동안은 null(삼각형 값 "≈")을 돌려주고, 받았을 때 holder.ent가 그 짝 그대로면 later()를 부른다 —
+ * 앱이 다시 재면(같은 짝·같은 r) 그 답을 돌려준다. 기다리는 동안 같은 짝을 다시 재려 했으면(곡면 정의를 받음 등) 받지 못해도 later()를 불러
+ * 그때 처음부터 다시 잰다(받지 못한 답은 기억하지 않는다 — 45차처럼). 다른 짝·r로 부르면 앞 받기는 그만둔다. 한 번에 하나만 기억한다(개체 측정은 한 번에 한 짝)
  */
 export function partsLater(
-  key: object,
+  holder: { readonly ent: object },
   idA: string,
   idB: string,
   r: { a: readonly number[]; b: readonly number[]; distance: number },
@@ -716,6 +716,7 @@ export function partsLater(
   size: number,
   later: () => void,
 ): ExactClosest | null {
+  const key = holder.ent;
   const id = `${idA}\n${idB}\n${r.distance}\n${r.a.join()}\n${r.b.join()}`;
   const j = job;
   if (j?.key === key && j.id === id) {
@@ -733,7 +734,7 @@ export function partsLater(
       if (job !== mine) return;
       mine.result = e;
       delete mine.run;
-      if (e || mine.again) later();
+      if ((e || mine.again) && holder.ent === key) later();
     },
     () => delete mine.run,
   );
