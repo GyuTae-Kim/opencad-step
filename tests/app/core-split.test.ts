@@ -84,7 +84,9 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', './gpucontext', './trackdir', './treeview', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './trackdir', './treeview', 'opencad-viewer3d']);
+    // 작업 메뉴 항목·불투명도 메뉴(52차 — ctxmenu.ts, 작업 메뉴는 뷰어가 있어야 열린다)도 그 조각에만
+    expect(files.has(join(ROOT, 'src/app/ctxmenu.ts'))).toBe(false);
     // 나무 조각(49차 — 제품 나무·부품별 보이기 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져오고 앱이 뷰어를 만들 때 넣는다
     expect(files.has(join(ROOT, 'src/app/treeview.ts'))).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('treeview'))).toBe(false);
