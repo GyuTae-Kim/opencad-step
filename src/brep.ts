@@ -889,7 +889,9 @@ export class BrepMesher {
           const x1 = Math.floor((Math.max(a[0], c[0]) + tol) / cell);
           const y1 = Math.floor((Math.max(a[1], c[1]) + tol) / cell);
           const z1 = Math.floor((Math.max(a[2], c[2]) + tol) / cell);
-          if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= 4096) {
+          // 칸 번호가 2^52를 넘으면(좌표가 칸 크기의 수천조 배 — 깨진 파일의 9e15 등) 1을 더해도 그대로라 칸 고리가 끝나지 않았다(57차 퍼징)
+          const huge = Math.max(Math.abs(x0), Math.abs(x1), Math.abs(y0), Math.abs(y1), Math.abs(z0), Math.abs(z1)) >= 2 ** 52;
+          if (!huge && (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= 4096) {
             for (let gx = x0; gx <= x1; gx++) {
               const mx = grid.get(gx);
               if (mx)

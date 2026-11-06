@@ -42,6 +42,15 @@ export const MAX_COORD = 1e30;
 /** 형상에 쓸 수 있는 실수(NaN·무한이 아니고 절댓값이 MAX_COORD 안) — 좌표·반지름·크기·잘림 매개변수 */
 const real = (x: number): boolean => Math.abs(x) <= MAX_COORD;
 
+/**
+ * 좌표 목록의 앞 세 수(없으면 0, 수가 아니면 NaN — numList와 같은 값). 앞 셋만 본다: 방향은 캐시하지 않아 좌표틀마다 다시 읽는데,
+ * 깨진 파일의 좌표 100만 개짜리 DIRECTION을 그때마다 통째로 옮겨 13초가 걸렸다(57차 퍼징)
+ */
+function xyz(v: StepValue | undefined): V3 {
+  const l = list(v);
+  return [l.length > 0 ? num(l[0]) : 0, l.length > 1 ? num(l[1]) : 0, l.length > 2 ? num(l[2]) : 0];
+}
+
 export class Geometry {
   /** 평면각 단위 → 라디안 배율(원뿔 반각, 원뿔 곡선 잘림 매개변수) */
   angleFactor = 1;
@@ -76,8 +85,7 @@ export class Geometry {
     const e = this.f.get(id);
     let p: V3 | null = null;
     if (e && e.type === 'CARTESIAN_POINT') {
-      const c = numList(e.args[1]);
-      p = [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0];
+      p = xyz(e.args[1]);
       if (!(Math.abs(p[0]) <= MAX_COORD && Math.abs(p[1]) <= MAX_COORD && Math.abs(p[2]) <= MAX_COORD)) p = null;
     } else if (e && e.type === 'VERTEX_POINT') {
       // 자기·순환 참조(깨진 파일)는 null로 끝나게 먼저 적어 둔다
@@ -93,8 +101,7 @@ export class Geometry {
     const e = this.f.get(id);
     if (!e) return null;
     if (e.type === 'DIRECTION') {
-      const c = numList(e.args[1]);
-      const d: V3 = [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0];
+      const d = xyz(e.args[1]);
       return real(d[0]) && real(d[1]) && real(d[2]) ? d : null;
     }
     if (e.type === 'VECTOR' && depth < 4) return this.vector(id, depth + 1);

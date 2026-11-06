@@ -40,9 +40,10 @@ export { scaleProps } from './massprops';
 export { MassPropsJob, type PropsResult } from './propsjob';
 
 /**
- * 장면에 놓는 자리(제품 나무 마디·그물 자리·선 형상 자리) 상한. 같은 하위 조립(또는 사상 항목)을 층마다 두 번씩 쓰면 자리가 층 수의
+ * 장면에 놓는 자리(제품 나무 마디·따라간 표현·그물 자리·선 형상 자리) 상한. 같은 하위 조립(또는 사상 항목)을 층마다 두 번씩 쓰면 자리가 층 수의
  * 거듭제곱이 된다(깊이 상한 32면 40억) — 57차 퍼징의 합성 조립은 깊이 20(자리 약 200만)에서 해석기만 2.5 GB를 넘었다.
- * 25만 자리는 해석기에서 수백 MB·수 초이고, 로컬 실제 표본 1,765쌍에서 그물 자리가 가장 많은 파일도 31개다. 넘으면 더 놓지 않고 경고를 남긴다
+ * 25만 자리(부품 하나에 셋쯤 — 부품 자리 8만 개쯤)는 해석기에서 수백 MB·1~2초이고, 로컬 실제 표본 1,765쌍에서 그물 자리가 가장 많은 파일도 31개다.
+ * 넘으면 더 놓지 않고 경고를 남긴다
  */
 export const MAX_PLACEMENTS = 250_000;
 
@@ -784,6 +785,8 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
   const visitRep = (repId: number, matrix: M4, node: StepProductNode, pd: number, depth: number, color: Rgba | undefined) => {
     const r = rep(repId);
     if (!r || depth > 32 || repPath.has(repId) || full()) return;
+    // 표현을 따라가는 것도 자리로 센다 — 끝의 형상을 읽지 못해 그물이 생기지 않는 깨진 조립도 거듭제곱으로 따라가 멈췄다(57차 퍼징 둘째 판)
+    placed++;
     repPath.add(repId);
     visitedReps.add(repId);
     const prevLayer = curLayer;
