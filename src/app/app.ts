@@ -2398,8 +2398,8 @@ export class StepApp {
       size: E.armSize(a, b, diag),
       closest: (x, y) => E.pickedClosest(x, y, meshOf),
       parts: (x, y) => v.closestPoints(x, y),
-      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다)
-      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, () => this.doc === d && this.measureEntityPair(d)),
+      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다 — 그때 부품 사이 삼각형 답은 앞 것을 다시 씀)
+      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, () => this.doc === d && this.measureEntityPair(d), v),
     });
     // 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
     const rows = this.entLogged.get(d.ent);

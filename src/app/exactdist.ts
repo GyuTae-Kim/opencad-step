@@ -751,16 +751,32 @@ export function entRefine(
   size: number,
   surfaces: FaceSurfaceLookup | null,
   later: () => void,
+  v: { closestPoints(idA: string, idB: string): Closest | null },
 ): {
-  refine: (a: ExactPick, b: ExactPick, c: { a: readonly number[]; b: readonly number[]; distance: number }) => ExactClosest | null;
-  refineParts: (idA: string, idB: string, r: { a: readonly number[]; b: readonly number[]; distance: number }) => ExactClosest | null;
+  parts: (idA: string, idB: string) => Closest | null;
+  refine: (a: ExactPick, b: ExactPick, c: Closest) => ExactClosest | null;
+  refineParts: (idA: string, idB: string, r: Closest) => ExactClosest | null;
 } {
   const s: ExactScene = { meshes: new Map(d.scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces };
   return {
+    // 부품 사이 삼각형 답(코어 closestPoints)은 같은 측정 짝·같은 두 부품이면 앞 답을 다시 쓴다 — 받은 뒤 다시 잴 때 코어 계산을 되풀이하지 않게
+    // (측정 짝은 분해·새 개체 누르기·지우기에서 새것이 된다)
+    parts: (x, y) => {
+      const m = lastParts;
+      if (m?.ent === d.ent && m.x === x && m.y === y) return m.r;
+      const r = v.closestPoints(x, y);
+      lastParts = { ent: d.ent, x, y, r };
+      return r;
+    },
     refine: (a, b, c) => exactPicked(a, b, c, s, size),
     refineParts: (x, y, r) => partsLater(d, x, y, r, s, size, later),
   };
 }
+
+/** 최소 거리 답(두 점 — 세계, 거리) */
+type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
+/** entRefine parts가 기억하는 앞 답(측정 짝 하나) */
+let lastParts: { ent: object; x: string; y: string; r: Closest | null } | null = null;
 
 /** partsLater가 기억하는 받기 하나(key — 앱의 측정 짝, id — 두 부품·삼각형 답, again — 기다리는 동안 다시 재려 했음) */
 interface PartsJob {
