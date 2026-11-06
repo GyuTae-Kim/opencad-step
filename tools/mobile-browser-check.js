@@ -35,7 +35,9 @@ async (page) => {
   s = await state();
   assert(s.meshes > 2 && s.warnings === 0, 'Built-in sample assembly opens');
   assert(await noOverflow(), 'No horizontal overflow with a model open');
-  assert(await page.evaluate(() => [['.toolbar button', 38], ['.titlebar .btn', 40]].every(([sel, min]) => { const shown = [...document.querySelectorAll(sel)].filter(b => b.offsetParent); return shown.length > 3 && shown.every(b => { const r = b.getBoundingClientRect(); return r.width >= min && r.height >= min; }); })), 'Toolbar (38px) and title bar (40px) buttons keep their touch targets');
+  assert(await page.evaluate(() => [['.toolbar button', 44], ['.titlebar .btn', 44], ['.language-trigger', 44]].every(([sel, min]) => { const shown = [...document.querySelectorAll(sel)].filter(b => b.offsetParent); return shown.length > 0 && shown.every(b => { const r = b.getBoundingClientRect(); return r.width >= min && r.height >= min; }); })), 'Toolbar, title bar and language buttons keep 44px touch targets');
+  // All seven phone toolbar buttons fit on the bar without scrolling it sideways
+  assert(await page.evaluate(() => { const bar = document.querySelector('.toolbar'); const q = bar.getBoundingClientRect(); return bar.scrollWidth <= bar.clientWidth + 1 && [...bar.querySelectorAll('button')].filter(b => b.offsetParent).every(b => { const r = b.getBoundingClientRect(); return r.left >= q.left - 1 && r.right <= q.right + 1; }); }), 'Phone toolbar shows every button without sideways scrolling');
   await page.locator('.toolbar button[title^="두 점 거리"]').click();
   assert((await state()).measuring, 'Measure tool starts from the toolbar');
   const canvas = await page.locator('.view canvas').first().boundingBox();

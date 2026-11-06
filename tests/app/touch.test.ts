@@ -63,7 +63,7 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.twisty', 'height', 'width'],
       ['.eye', 'height', 'width'],
       ['.tree-search', 'height', null],
-      ['.link-btn', 'min-height', null],
+      ['.link-btn', 'min-height', 'min-width'],
       ['.cb-hit', 'min-height', 'min-width'],
       ['label.check', 'min-height', null],
       ['.mb-btn', 'height', null],
@@ -119,8 +119,14 @@ describe('손가락 기기 규칙(styles.css)', () => {
     // 손잡이가 패널 안으로 들어오는 몫(높이 − 위로 나간 몫)이 탭 위 띠 높이를 넘지 않는다
     const head = all.find((x) => x.sel === '.panel-head' && /max-width:\s*759\.98px/.test(x.media));
     expect(hh - top).toBeLessThanOrEqual(px(head!.style.getPropertyValue('padding-top')));
-    const side = all.find((x) => x.sel === '.panel-resizer' && !/max-width/.test(x.media));
-    expect(px(side!.style.getPropertyValue('width'))).toBeGreaterThanOrEqual(24);
+    // 옆 패널: 24px 폭, 패널 안으로 들어오는 몫이 패널 왼쪽 띠(padding) 안 — 탭·나무 줄 접기 단추를 덮지 않는다
+    const side = all.find((x) => x.sel === '.panel-resizer' && !/max-width/.test(x.media))!;
+    const sw = px(side.style.getPropertyValue('width'));
+    expect(sw).toBeGreaterThanOrEqual(24);
+    const pad = all.find((x) => x.sel === '.panel' && !/max-width/.test(x.media))!;
+    expect(sw - px(side.style.getPropertyValue('left').replace('-', ''))).toBeLessThanOrEqual(px(pad.style.getPropertyValue('padding-left')));
+    // 시트에서는 그 띠를 없앤다(손잡이는 위쪽)
+    expect(parseFloat(all.find((x) => x.sel === '.panel' && /max-width:\s*759\.98px/.test(x.media))!.style.getPropertyValue('padding-left'))).toBe(0);
   });
 
   it('320px 휴대폰: 도구 막대 일곱 단추(44px)가 틈·구분선 없이 한 줄(양옆 2px)', () => {
@@ -129,8 +135,14 @@ describe('손가락 기기 규칙(styles.css)', () => {
     expect(parseFloat(bar.style.getPropertyValue('gap'))).toBe(0);
     expect(7 * 44 + 2 * px(bar.style.getPropertyValue('padding-inline'))).toBeLessThanOrEqual(320);
     expect(r.find((x) => x.sel === '.toolbar .tool-sep')!.style.getPropertyValue('display')).toBe('none');
-    // 제목 막대 앱 이름 글은 화면 읽기용으로만(아이콘만 보임)
-    expect(r.find((x) => x.sel === '.brand > span')!.style.getPropertyValue('clip')).toMatch(/rect/);
+    // 375px보다 좁으면 제목 막대 앱 이름 글은 화면 읽기용으로만(아이콘만 보임)
+    const brand = all.find((x) => x.sel === '.brand > span' && /max-width:\s*374\.98px/.test(x.media));
+    expect(brand!.style.getPropertyValue('clip')).toMatch(/rect/);
+  });
+
+  it('휴대폰 시트 처음 높이는 손가락 기기에서 50%(끌어 바꾼 높이는 앱 뿌리의 --sheet-h가 덮는다)', () => {
+    const r = all.find((x) => x.sel === ':root' && /max-width:\s*759\.98px/.test(x.media));
+    expect(r!.style.getPropertyValue('--sheet-h').trim()).toBe('50%');
   });
 });
 
