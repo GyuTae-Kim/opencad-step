@@ -12,6 +12,7 @@
  * - 키보드 길잡이(keynav.ts — 53차): 패널 탭·라디오 묶음·도구 막대의 화살표와 띠·막대·패널을 닫을 때 초점 돌려주기 — 모두 문서가 있어야 쓴다
  * - 물리 속성 계산(physics.ts — 53차에 첫 화면 JS에서 옮김): 속성 탭의 부피·질량·무게중심·관성은 문서가 있어야 그린다(앱이 패널에 넣는다)
  * - PMI 탭 본문(pmiview.ts — 54차에 첫 화면 JS에서 옮김): 표현·의미 PMI 표를 보이는 줄만 그리는 가상 목록, 나무 조각과 함께 패널에 넣는다
+ * - 카메라 옮기기와 움직임 줄이기(motion.ts — 55차, 카메라 옮기기는 viewhelp.ts에서 옮김): 홈 뷰·면 정면·저장된 보기, 뷰어를 만들 때 코어 animate 선택
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -20,6 +21,7 @@ export { contextItems } from './ctxmenu';
 export * from './entpick';
 export { watchGraphicsContext } from './gpucontext';
 export { installKeyNav } from './keynav';
+export { animateCamera, reducedMotion } from './motion';
 export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';

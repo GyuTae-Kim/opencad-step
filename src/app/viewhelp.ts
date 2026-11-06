@@ -2,10 +2,10 @@
  * 면을 기준으로 보기·자르기(순수 계산 + 카메라 움직임):
  * - 정면으로 보기(Look At): 평면은 바깥 법선 쪽에서, 원기둥·원뿔·원환은 축 방향(지금 보는 쪽)에서 그 면을 맞춰 본다.
  * - 이 면으로 자르기: 평면은 그 면 자리에서 바깥 쪽을 잘라 내고, 축이 있는 면은 축을 지나며 눈 쪽 절반을 잘라 낸다(구멍 안이 보인다).
- * - 카메라 옮기기는 코어 setCamera를 프레임마다 불러 부드럽게(lerpCamera).
+ * - 카메라를 부드럽게 옮기기(animateCamera)는 55차부터 뷰어 조각의 motion.ts(움직임 줄이기 설정을 따른다).
  */
-import type { CameraState, Viewer3d } from 'opencad-viewer3d';
-import { basisFromAngles, dirToAngles, fitCamera, lerpCamera } from 'opencad-viewer3d/camera';
+import type { CameraState } from 'opencad-viewer3d';
+import { basisFromAngles, dirToAngles, fitCamera } from 'opencad-viewer3d/camera';
 import type { Box3 } from 'opencad-viewer3d/types';
 import type { FacePick } from './faces';
 
@@ -79,25 +79,4 @@ export function cameraBack(c: Pick<CameraState, 'yaw' | 'pitch'>): V3 {
 export function cameraLooking(c: CameraState, dir: readonly number[], box: Box3, aspect: number): CameraState {
   const a = dirToAngles(dir, c.yaw);
   return fitCamera({ ...c, yaw: a.yaw, pitch: a.pitch }, box, aspect);
-}
-
-let anim = 0;
-
-/** 카메라를 ms 동안 부드럽게 옮긴다(앞의 움직임은 그만둔다) */
-export function animateCamera(v: Viewer3d, to: CameraState, ms = 320): void {
-  const from = v.getCamera();
-  const id = ++anim;
-  if (typeof requestAnimationFrame !== 'function' || ms <= 0) {
-    v.setCamera(to);
-    return;
-  }
-  const t0 = performance.now();
-  const step = (now: number) => {
-    if (id !== anim) return;
-    const t = Math.min(1, (now - t0) / ms);
-    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-    v.setCamera(t >= 1 ? to : lerpCamera(from, to, e));
-    if (t < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
 }
