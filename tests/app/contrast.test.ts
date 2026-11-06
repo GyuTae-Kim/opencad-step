@@ -144,6 +144,27 @@ function plainRules(): Map<string, Record<string, string>> {
   return out;
 }
 
+/** 이 미디어 조건(정확히 같은 글)의 규칙 */
+function mediaRules(media: string): Map<string, Record<string, string>> {
+  const el = document.createElement('style');
+  el.textContent = css;
+  document.head.append(el);
+  const out = new Map<string, Record<string, string>>();
+  for (const r of [...el.sheet!.cssRules]) {
+    if (!(r instanceof CSSMediaRule) || r.media.mediaText.replace(/\s+/g, '') !== media.replace(/\s+/g, '')) continue;
+    for (const s of [...r.cssRules]) {
+      if (!(s instanceof CSSStyleRule)) continue;
+      for (const sel of s.selectorText.split(',').map((x) => x.trim())) {
+        const o = out.get(sel) ?? {};
+        for (let i = 0; i < s.style.length; i++) o[s.style[i]!] = s.style.getPropertyValue(s.style[i]!);
+        out.set(sel, o);
+      }
+    }
+  }
+  el.remove();
+  return out;
+}
+
 describe('규칙이 대비 토큰을 쓰는지', () => {
   const R = plainRules();
   const get = (sel: string, p: string) => R.get(sel)?.[p] ?? '';
@@ -185,5 +206,36 @@ describe('규칙이 대비 토큰을 쓰는지', () => {
       expect(get(sel!, 'color'), sel).toBe(col);
     }
     expect(get('input::placeholder', 'color')).toBe('var(--text-faint)');
+  });
+});
+
+describe('53차가 남긴 것', () => {
+  it('부품별 보이기 표: 줄 첫 칸(넘침 자름) 안쪽 여백이 확인 칸 초점 테두리(2px + 틈 1px)를 담고, 바깥 여백으로 자리는 그대로', () => {
+    const R = plainRules();
+    // 초점 테두리 굵기(줄임 꼴 outline: 2px solid var(--accent) — var()가 있으면 jsdom이 낱 속성으로 펼치지 않는다)와 틈
+    const fv = R.get(':focus-visible') ?? {};
+    const ring = parseFloat(fv['outline-width'] || fv.outline || '0') + parseFloat(fv['outline-offset'] ?? '0');
+    expect(ring).toBe(3);
+    const cell = R.get('.vgrid-row > label.check:first-child') ?? {};
+    const [pt, , pb, pl] = (cell.padding ?? '').split(/\s+/).map(parseFloat);
+    const [mt, , mb, ml] = (cell.margin ?? '').split(/\s+/).map(parseFloat);
+    expect(pl).toBeGreaterThanOrEqual(ring);
+    expect(pt).toBeGreaterThanOrEqual(ring);
+    expect(pb).toBeGreaterThanOrEqual(ring);
+    expect([ml, mt, mb]).toEqual([-pl!, -pt!, -pb!]);
+  });
+
+  it('좁은 창(마우스) 시트: 손잡이 띠가 패널 안으로 들어오는 몫이 탭 위 띠(패널 머리 위 여백) 안 — 탭을 덮지 않는다', () => {
+    const N = mediaRules('(max-width: 759.98px)');
+    const rz = N.get('.panel-resizer')!;
+    const inside = parseFloat(rz.height!) + parseFloat(rz.top!);
+    expect(inside).toBeGreaterThan(0);
+    expect(parseFloat(N.get('.panel-head')?.['padding-top'] ?? '0')).toBeGreaterThanOrEqual(inside);
+    // 손잡이 막대(::after)는 그 띠 안에 보이고, 입력 칸 경계 색(패널 바탕과 3:1 넘음)
+    const bar = N.get('.panel-resizer::after')!;
+    const top = parseFloat(bar.top!) + parseFloat(rz.top!);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(top + parseFloat(bar.height!)).toBeLessThanOrEqual(inside);
+    expect(bar.background).toBe('var(--border-input)');
   });
 });
