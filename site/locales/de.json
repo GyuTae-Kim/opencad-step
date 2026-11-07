@@ -979,6 +979,7 @@
   "되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)": "Rückgängig gemachte Anpassung wiederholen (Strg+Umschalt+Z)",
   "손질 되돌리기": "Anpassung rückgängig machen",
   "손질 다시 하기": "Anpassung wiederholen",
+  "거리로 옮기기…": "Um Abstand verschieben…",
   "손질 파일": "Anpassungsdatei",
   "손질 파일: 분해 손질을 JSON 파일로 내보내거나 불러옵니다": "Anpassungsdatei: Explosionsanpassungen als JSON-Datei exportieren oder laden",
   "손질 내보내기(JSON 파일)": "Anpassungen exportieren (JSON-Datei)",

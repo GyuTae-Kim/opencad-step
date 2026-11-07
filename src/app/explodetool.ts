@@ -13,9 +13,16 @@
  * (끄는 동안 쳐 넣기 전에는 막대 줄이 바뀌지 않게 숨기고 커서 곁 거리 글만),
  * 쳐 넣은 거리(parseTypedLengths·typedDelta — 끈 방향으로 그 거리, 화면 평면은 가로; 세로, 사방은 ΔX; ΔY; ΔZ도)로 그 끌기를 맞춘다.
  * 끄는 동안 Enter는 그 자리로 끌기를 마치고(한 단계), 막 끈 뒤에는 같은 되돌리기 단계를 고친다(ExplodeTweaks.amend — 새 단계 없이).
- * 막 끈 끌기는 같은 문서·방향·방식·밀대 자리이고 그 끌기가 아직 그 방향의 마지막 되돌리기 단계일 때만 고친다(새로 끌기·되돌리기·밀대를 옮기면 끝난다).
+ * 막 끈 끌기는 같은 문서·방향·방식·밀대 자리·고른 것이고 그 끌기가 아직 그 방향의 마지막 되돌리기 단계일 때만 고친다
+ * (새로 끌기·되돌리기·밀대를 옮기거나 다른 것을 고르면 끝난다 — 고른 것은 45차부터).
  * 키보드: 끄는 동안 숫자 글쇠는 거리 칸으로 들어가고(코어의 1~7 표준 뷰 키보다 먼저 — 앱이 창 keydown 캡처 단계에서 key를 부른다),
  * 막 끈 뒤에는 Enter로 거리 칸에 들어간다(숫자 글쇠는 그때도 표준 뷰 키 그대로). 손가락 기기는 막대의 거리 칸을 눌러 쳐 넣는다.
+ *
+ * 끌지 않고 고른 것 옮기기(45차 — SOLIDWORKS 분해 단계·Fusion 부품 옮기기처럼 고른 부품에 거리를 쳐 넣는다): 막 끈 끌기가 없을 때 Enter나
+ * 작업 메뉴(오른쪽 누르기·손가락 길게 누르기)의 "거리로 옮기기…"를 고르면 거리 칸을 빈 채로 열고 들어간다. 쳐 넣으면 고른 것의 끌 단위(dragUnits — 누른 것 대신
+ * 고른 것)를 지금 분해 방향으로 그 거리만큼 옮기는 새 되돌리기 단계를 남긴다(typedDelta의 끈 이동 0 — 축 하나·화면 가로·세로는 수 하나로 +쪽·음수는 반대쪽,
+ * 화면 평면은 가로; 세로, 사방은 ΔX; ΔY; ΔZ). 남긴 단계는 막 끈 끌기처럼 다시 쳐 넣어 고친다. 연 칸은 고른 것·밀대·방향·방식이 바뀌거나 끌기를 시작하면 닫힌다
+ * (끄는 동안에는 칸이 없다 — 막대 줄이 끄는 동안 바뀌지 않는 43차 규칙 그대로).
  */
 import type { Pick3d, Viewer3d } from 'opencad-viewer3d';
 import { sceneMm } from './display';
@@ -59,6 +66,7 @@ import {
 import { stemName } from './files';
 import { fmtCount } from './format';
 import { isTextTarget } from './keys';
+import type { MenuItem } from './menu';
 import { cleanEntries, type RecentBackend } from './recent';
 
 /** 앱이 건네는 것 */
@@ -133,7 +141,10 @@ const TYPED_HELP = {
   free: '거리를 읽지 못했습니다 — 수 하나(끈 방향으로 옮길 거리)나 ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.',
 } as const;
 
-/** 끄는 중·막 끈 끌기: 문서·방향·계획 카메라 각, 끄는 단위(낱말·진행·처음 성분), 끄는 길, 이동 한도, 누른 점이 옮긴 세계 이동, 밀대 자리·방식 */
+/**
+ * 끄는 중·막 끈 끌기: 문서·방향·계획 카메라 각, 끄는 단위(낱말·진행·처음 성분), 끄는 길, 이동 한도, 누른 점이 옮긴 세계 이동, 밀대 자리·방식,
+ * 고른 것의 표지(selSig)
+ */
 interface DragRec {
   doc: StepDoc;
   axis: ExplodeAxis;
@@ -144,7 +155,11 @@ interface DragRec {
   d: number[];
   t: number;
   mode: ExplodeMode;
+  sel: string;
 }
+
+/** 고른 것의 표지(45차 — 막 끈 끌기와 고른 것 옮기기 칸은 그 고른 것에 묶인다): 나무 마디·누른 것·몸체·여러 개 고르기 */
+const selSig = (d: StepDoc): string => `${d.selKey ?? ''}|${d.pick?.id ?? ''}|${d.body ?? ''}|${d.items?.ids.join('\n') ?? ''}`;
 
 export class ExplodeTweakTool implements TweakHandlers {
   /** 옮기기(부품 바로 끌기 — 손가락은 꺼도 길게 눌러 끈다), 이 창에서 마지막에 고른 것 */
@@ -154,6 +169,8 @@ export class ExplodeTweakTool implements TweakHandlers {
   private g: (DragRec & { p0: number[]; touch: boolean }) | null = null;
   /** 막 끈 끌기(43차 — 쳐 넣은 거리로 고칠 수 있는 것): 그 끌기의 되돌리기 단계 표지(ExplodeTweaks.lastStep) */
   private last: (DragRec & { mark: object }) | null = null;
+  /** 끌지 않고 고른 것을 옮기려고 연 거리 칸(45차): 연 때의 문서·방향·방식·밀대 자리·화면 방향·고른 것 */
+  private fresh: Pick<DragRec, 'doc' | 'axis' | 'mode' | 't' | 'view' | 'sel'> | null = null;
   /** 분해 막대의 거리 칸(막대가 단다) */
   private field: DistField | null = null;
   /** 끄는 동안 거리를 쳐 넣기 시작했는지(그때부터 거리 칸을 보인다 — 끄는 동안 막대 줄이 바뀌지 않게, 그 전에는 커서 곁 거리 글만) */
@@ -212,8 +229,8 @@ export class ExplodeTweakTool implements TweakHandlers {
 
   /**
    * 창 keydown(캡처 단계 — 앱이 수식 글쇠 없는 키마다 코어 키 듣기보다 먼저 부른다, target = 사건 대상): 끄는 동안 거리를 시작하는 글쇠(숫자·부호·소수점·<)면
-   * 그 글자로 거리 칸에 들어가고, 막 끈 뒤 Enter면 거리 칸에 들어간다. 글 입력 칸에서 누른 것은 그 칸 것이고, Enter를 스스로 쓰는 칸(단추·링크·메뉴 항목 등)의
-   * Enter도 그 칸 것이다. 받았으면 true(앱이 기본 동작과 전파를 막는다)
+   * 그 글자로 거리 칸에 들어가고, 끌지 않을 때 Enter면 거리 칸에 들어간다(막 끈 끌기 고치기, 없으면 고른 것 옮기기 — enterDistance).
+   * 글 입력 칸에서 누른 것은 그 칸 것이고, Enter를 스스로 쓰는 칸(단추·링크·메뉴 항목 등)의 Enter도 그 칸 것이다. 받았으면 true(앱이 기본 동작과 전파를 막는다)
    */
   key(key: string, target: EventTarget | null): boolean {
     const f = this.field;
@@ -225,16 +242,105 @@ export class ExplodeTweakTool implements TweakHandlers {
       this.emit();
       return f.seed(key);
     }
-    return key === 'Enter' && !usesEnter(target) && !!this.amendable() && f.focus();
+    return key === 'Enter' && !usesEnter(target) && this.enterDistance();
+  }
+
+  /**
+   * 거리 칸에 들어가기(끌지 않을 때 — Enter·작업 메뉴 "거리로 옮기기…"): 막 끈 끌기가 있으면 그것을 고칠 칸, 없으면 고른 것을 옮길 새 칸(45차 — 빈 칸)을 열고 들어간다.
+   * 고른 것이 없거나 옮길 단위가 없으면(덜 벌어짐·나무에 없음) false
+   */
+  enterDistance(): boolean {
+    const f = this.field;
+    if (!f || this.g) return false;
+    if (!this.amendable()) {
+      const r = this.selRec();
+      if (!r) return false;
+      this.fresh = { doc: r.doc, axis: r.axis, mode: r.mode, t: r.t, view: r.view, sel: r.sel };
+      this.emit();
+    }
+    return f.focus();
+  }
+
+  /**
+   * 작업 메뉴 맨 위에 둘 "거리로 옮기기…"(45차 — 고른 것을 옮길 수 있거나 막 끈 끌기를 고칠 수 있을 때, 아니면 null). 손가락 기기에서 길게 눌러 연 긴 메뉴에서도
+   * 스크롤하지 않고 닿게 맨 위에 둔다
+   */
+  moveItem(d: StepDoc): MenuItem | null {
+    return !this.g && (this.amendable() || this.selRec()) && this.host.live()?.doc === d ? { label: '거리로 옮기기…', hint: 'Enter', run: () => void this.enterDistance() } : null;
+  }
+
+  /** 작업 메뉴 끝에 덧붙일 손질 항목(앱이 분해 막대가 열렸을 때 부른다): 지금 방향에 되돌리거나 다시 할 손질이 있으면 되돌리기·다시 하기 */
+  menuItems(d: StepDoc, axis: ExplodeAxis): MenuItem[] {
+    const st = this.state(d, axis);
+    return st.undo || st.redo
+      ? [
+          { label: '손질 되돌리기', hint: 'Ctrl+Z', sep: true, disabled: !st.undo, run: () => this.undo() },
+          { label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => this.redo() },
+        ]
+      : [];
+  }
+
+  /** 고른 것을 옮길 기록(45차 — 끌지 않고 쳐 넣기): 고른 것 가운데 계획에 든 첫 묶음으로 끌 단위(dragUnits — 고른 마디·여러 개 고르기 그대로), 끈 이동 0. 없으면 null */
+  private selRec(): DragRec | null {
+    const l = this.host.live();
+    if (!l || this.g) return null;
+    const d = l.doc;
+    const plan = this.host.plan(d);
+    const id = selectionItemIds(d).find((x) => plan.owner.has(x) && !d.vis.pmiIds.has(x));
+    const units = id ? dragUnits(plan, d.explode, id, { node: d.selKey, ids: d.items?.ids ?? (d.body ? [d.body] : null) }) : [];
+    if (!units.length) return null;
+    const { axis, mode } = this.host.setup();
+    const view = plan.view ?? null;
+    const zero = new Array<number>(tweakDims(axis)).fill(0);
+    const moves = d.tweaks?.moves(axis);
+    return {
+      doc: d,
+      axis,
+      view,
+      units: units.map((u) => ({ token: u.token, f: u.f, start: [...(moves?.get(u.token) ?? zero)] })),
+      path: dragConstraint(axis, view, l.viewer.getCamera()),
+      limit: plan.size * 20,
+      d: [0, 0, 0],
+      t: d.explode,
+      mode,
+      sel: selSig(d),
+    };
+  }
+
+  /** 고른 것 옮기기 칸이 아직 열려 있는지(연 때와 같은 문서·방향·방식·밀대 자리·화면 방향·고른 것 — 아니면 닫는다) */
+  private freshOpen(): boolean {
+    const a = this.fresh;
+    if (!a || this.g || !this.same(a)) this.fresh = null;
+    return !!this.fresh;
+  }
+
+  /** 기록이 지금 상태와 같은 문서·방향·방식·밀대 자리·화면 방향·고른 것인지 */
+  private same(a: Pick<DragRec, 'doc' | 'axis' | 'mode' | 't' | 'view' | 'sel'>): boolean {
+    const l = this.host.live();
+    const s = this.host.setup();
+    const v = l ? (this.host.plan(a.doc).view ?? null) : null;
+    return (
+      !!l &&
+      l.doc === a.doc &&
+      s.axis === a.axis &&
+      s.mode === a.mode &&
+      a.doc.explode === a.t &&
+      (v?.yaw ?? 0) === (a.view?.yaw ?? 0) &&
+      (v?.pitch ?? 0) === (a.view?.pitch ?? 0) &&
+      selSig(a.doc) === a.sel
+    );
   }
 
   /**
    * 쳐 넣은 거리(표시 단위 — 글은 parseTypedLengths 꼴)로 이번 끌기를 맞춘다: 끄는 중이면 그 자리로 마치고(한 단계), 막 끈 뒤면 같은 되돌리기 단계를 고친다.
-   * 거리는 끄는 동안 거리 글과 같은 뜻(지금 밀대에서 누른 점이 보이게 옮기는 거리 — 손질에는 그 진행으로 나눠 담는다). 맞췄으면 true(못 읽으면 알린다)
+   * 거리는 끄는 동안 거리 글과 같은 뜻(지금 밀대에서 누른 점이 보이게 옮기는 거리 — 손질에는 그 진행으로 나눠 담는다). 맞췄으면 true(못 읽으면 알린다).
+   * 45차: 고른 것 옮기기 칸을 열었으면 고른 것을 그 거리만큼 옮기는 새 되돌리기 단계(그 뒤로는 막 끈 끌기처럼 고친다)
    */
   typed(text: string): boolean {
     const g = this.g;
-    const r: DragRec | null = g ?? this.amendable();
+    const a = g ? null : this.amendable();
+    const n = g || a || !this.freshOpen() ? null : this.selRec();
+    const r: DragRec | null = g ?? a ?? n;
     if (!r) return false;
     const f = this.host.fmt();
     const vals = parseTypedLengths(text, { comma: (f.sep ?? ', ').startsWith(';'), factor: f.factor ?? 1, sceneMm: sceneMm(r.doc.scene.units) });
@@ -255,8 +361,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     }
     const c = worldComps(r.axis, r.view, d);
     const entries = r.units.map((u) => [u.token, u.start.map((s, i) => s + c[i]! / u.f)] as const);
-    const t = r.doc.tweaks;
-    if (!t) return false;
+    const t = this.of(r.doc);
     if (g) {
       for (const [k, v] of entries) t.put(k, v);
       g.d = [...d];
@@ -265,45 +370,47 @@ export class ExplodeTweakTool implements TweakHandlers {
       this.drag?.finish();
       return true;
     }
-    const a = this.last!;
-    if (!t.amend(a.axis, a.mark, entries)) {
+    if (n) {
+      // 고른 것 옮기기: 새 되돌리기 단계(옮긴 것이 없으면 단계도 없고 칸은 그대로) — 그 뒤로는 막 끈 끌기처럼 고친다
+      t.begin(n.axis);
+      for (const [k, v] of entries) t.put(k, v);
+      const mark = t.commit() ? t.lastStep(n.axis) : null;
+      if (mark) {
+        this.fresh = null;
+        this.last = { ...n, d: [...d], mark };
+      }
+      this.changed(n.doc);
+      this.emit();
+      return true;
+    }
+    const m = this.last!;
+    if (!t.amend(m.axis, m.mark, entries)) {
       this.last = null;
       this.emit();
       return false;
     }
-    a.d = [...d];
+    m.d = [...d];
     // 제자리로 돌아와 단계가 비었으면 더 고칠 끌기가 없다
-    if (t.lastStep(a.axis) !== a.mark) this.last = null;
-    this.changed(a.doc);
+    if (t.lastStep(m.axis) !== m.mark) this.last = null;
+    this.changed(m.doc);
     this.emit();
     return true;
   }
 
-  /** 막 끈 끌기가 아직 고칠 수 있는 것이면 그것(같은 문서·방향·방식·밀대 자리·화면 방향, 그 방향의 마지막 되돌리기 단계 — 아니면 잊는다) */
+  /** 막 끈 끌기가 아직 고칠 수 있는 것이면 그것(같은 문서·방향·방식·밀대 자리·화면 방향·고른 것, 그 방향의 마지막 되돌리기 단계 — 아니면 잊는다) */
   private amendable(): (DragRec & { mark: object }) | null {
     const a = this.last;
     if (!a) return null;
-    const l = this.host.live();
-    const s = this.host.setup();
-    const v = l ? (this.host.plan(a.doc).view ?? null) : null;
-    const ok =
-      !!l &&
-      l.doc === a.doc &&
-      s.axis === a.axis &&
-      s.mode === a.mode &&
-      a.doc.explode === a.t &&
-      (v?.yaw ?? 0) === (a.view?.yaw ?? 0) &&
-      (v?.pitch ?? 0) === (a.view?.pitch ?? 0) &&
-      a.doc.tweaks?.lastStep(a.axis) === a.mark;
+    const ok = this.same(a) && a.doc.tweaks?.lastStep(a.axis) === a.mark;
     if (!ok) this.last = null;
     return ok ? a : null;
   }
 
-  /** 거리 칸 상태(끄는 중이면 쳐 넣기 시작한 뒤의 그 끌기, 아니면 막 끈 끌기 — 없으면 null) */
+  /** 거리 칸 상태(끄는 중이면 쳐 넣기 시작한 뒤의 그 끌기, 아니면 막 끈 끌기, 아니면 고른 것 옮기기 칸 — 빈 값. 없으면 null) */
   private distState(): DistState | null {
     const a = this.g ? (this.typing ? this.g : null) : this.amendable();
-    if (!a) return null;
     const f = this.host.fmt();
+    if (!a) return !this.g && this.freshOpen() ? { value: '', unit: f.unit ?? '', axis: this.fresh!.axis, live: false, fresh: true } : null;
     return { value: plainLength(Math.hypot(a.d[0]!, a.d[1]!, a.d[2]!), f), unit: f.unit ?? '', axis: a.axis, live: !!this.g };
   }
 
@@ -505,8 +612,8 @@ export class ExplodeTweakTool implements TweakHandlers {
     const t = this.of(d);
     const zero = new Array<number>(tweakDims(axis)).fill(0);
     t.begin(axis);
-    // 새 끌기를 시작하면 막 끈 끌기는 더 고치지 않는다(거리 칸은 쳐 넣기 시작하거나 뗄 때까지 숨긴다)
-    this.last = null;
+    // 새 끌기를 시작하면 막 끈 끌기는 더 고치지 않고 고른 것 옮기기 칸도 닫는다(거리 칸은 쳐 넣기 시작하거나 뗄 때까지 숨긴다)
+    this.last = this.fresh = null;
     this.typing = false;
     this.g = {
       doc: d,
@@ -520,6 +627,8 @@ export class ExplodeTweakTool implements TweakHandlers {
       d: [0, 0, 0],
       t: d.explode,
       mode,
+      // 누른 것을 고른 뒤의 고른 것(막 끈 끌기는 이것이 바뀌면 끝난다)
+      sel: selSig(d),
       touch: pointerType === 'touch',
     };
     if (pointerType === 'touch' && !this.hinted) {
@@ -563,7 +672,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     else if (t.commit()) {
       this.save(g.doc);
       const mark = t.lastStep(g.axis);
-      if (mark) this.last = { doc: g.doc, axis: g.axis, view: g.view, units: g.units, path: g.path, limit: g.limit, d: g.d, t: g.t, mode: g.mode, mark };
+      if (mark) this.last = { doc: g.doc, axis: g.axis, view: g.view, units: g.units, path: g.path, limit: g.limit, d: g.d, t: g.t, mode: g.mode, sel: g.sel, mark };
     }
     this.host.redraw();
     this.emit();

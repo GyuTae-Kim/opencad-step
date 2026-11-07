@@ -701,4 +701,157 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     c.sync(doc, 'all', true, 'free', null, tool.state(doc, 'free'));
     expect(label.hidden).toBe(true);
   });
+
+  // ── 45차: 끌지 않고 고른 것에 거리 쳐 넣기 ──
+
+  /** 그물 id의 지금 분해 이동(밀대·손질) */
+  const shift = (id: string, d = doc) => explodeMoves(planOf(d), d.explode, EXPLODE_SCALE, d.tweaks?.resolve(planOf(d), axis, undefined)).get(id) ?? [0, 0, 0];
+
+  it('끌지 않고 고른 것 옮기기(45차): 고른 것이 있으면 Enter로 빈 거리 칸을 열고, X로만이면 수 하나로 +X(음수는 반대쪽) — 새 되돌리기 한 단계, 다시 쳐 넣으면 같은 단계', () => {
+    const f = fakeField();
+    tool.bind(f.field);
+    axis = 'x';
+    // 고른 것이 없으면 Enter는 그대로(칸을 열지 않는다)
+    expect(tool.key('Enter', canvas)).toBe(false);
+    expect(tool.state(doc, 'x').dist).toBeUndefined();
+    doc.selKey = '0/1';
+    const b0 = shift('b');
+    const a0 = shift('a');
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(f.focused).toBe(1);
+    expect(f.shown.at(-1)).toEqual({ value: '', unit: 'mm', axis: 'x', live: false, fresh: true });
+    expect(tool.typed('12')).toBe(true);
+    // 누른 점 대신 고른 것이 보이게 +X로 12(한꺼번에 50% — 손질은 그 두 배), a는 그대로
+    expect(add(shift('b'), b0.map((v) => -v))).toEqual([expect.closeTo(12, 9), 0, 0]);
+    expect(shift('a')).toEqual(a0);
+    expect(doc.tweaks!.moves('x').get('0/1')).toEqual([expect.closeTo(24, 9)]);
+    expect(f.shown.at(-1)).toEqual({ value: '12', unit: 'mm', axis: 'x', live: false });
+    // 다시 쳐 넣으면 같은 단계를 고친다(음수는 반대쪽 — 끈 쪽이 없으니 +X 기준)
+    expect(tool.typed('-3')).toBe(true);
+    expect(add(shift('b'), b0.map((v) => -v))[0]).toBeCloseTo(-3, 9);
+    expect(tool.undo()).toBe(true);
+    expect(shift('b')).toEqual(b0);
+    expect(doc.tweaks!.canUndo('x')).toBe(false);
+    // 되돌린 뒤 칸은 닫히고(고칠 것이 없다), Enter로 다시 열면 지금 자리에서 새로
+    expect(tool.state(doc, 'x').dist).toBeUndefined();
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(tool.typed('0')).toBe(true);
+    expect(doc.tweaks!.canUndo('x')).toBe(false);
+    expect(tool.state(doc, 'x').dist).toMatchObject({ fresh: true });
+    // 여러 개 고르기: 고른 단위마다 같은 거리
+    doc.selKey = null;
+    doc.items = { ids: ['a', 'b'], label: '' } as StepDoc['items'];
+    expect(tool.state(doc, 'x').dist).toBeUndefined();
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(tool.typed('2')).toBe(true);
+    expect(add(shift('a'), a0.map((v) => -v))[0]).toBeCloseTo(2, 9);
+    expect(add(shift('b'), b0.map((v) => -v))[0]).toBeCloseTo(2, 9);
+    expect(doc.tweaks!.canUndo('x')).toBe(true);
+    expect(tool.undo()).toBe(true);
+    expect(doc.tweaks!.count('x')).toBe(0);
+  });
+
+  it('사방·화면 평면은 성분으로 쳐 넣고(수 하나는 방향이 없다고 알린다), 고른 것이 바뀌면 고른 것 옮기기 칸과 막 끈 끌기 고치기가 끝난다', () => {
+    const f = fakeField();
+    tool.bind(f.field);
+    doc.selKey = '0/1';
+    const b0 = shift('b');
+    expect(tool.enterDistance()).toBe(true);
+    expect(tool.typed('5')).toBe(false);
+    expect(toasts.at(-1)).toEqual({ m: '아직 끈 방향이 없어 거리 하나로는 옮기지 못합니다 — 성분으로 쳐 넣으십시오.', kind: 'warn' });
+    expect(tool.typed('1; 2; 3')).toBe(true);
+    add(shift('b'), b0.map((v) => -v)).forEach((v, i) => expect(v).toBeCloseTo([1, 2, 3][i]!, 9));
+    // 그 뒤 수 하나는 그 방향으로(막 끈 끌기처럼)
+    expect(tool.typed('7')).toBe(true);
+    expect(len(add(shift('b'), b0.map((v) => -v)))).toBeCloseTo(7, 9);
+    // 다른 것을 고르면 끝난다(칸을 닫고, 쳐 넣어도 아무것도 하지 않는다)
+    doc.selKey = '0/0';
+    expect(tool.state(doc, 'free').dist).toBeUndefined();
+    const n = toasts.length;
+    expect(tool.typed('4')).toBe(false);
+    expect(toasts.length).toBe(n);
+    // 열어 둔 칸도 고른 것이 바뀌면 닫힌다
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(tool.state(doc, 'free').dist).toMatchObject({ fresh: true });
+    doc.selKey = '0/1';
+    expect(tool.state(doc, 'free').dist).toBeUndefined();
+    // 막 끈 끌기도: 끈 것(b — 끌면 고른다) 밖을 고르면 끝난다
+    dragB(30.3, 10.1);
+    expect(tool.state(doc, 'free').dist).toMatchObject({ live: false });
+    doc.selKey = '0/0';
+    expect(tool.state(doc, 'free').dist).toBeUndefined();
+    // 화면 평면: 가로; 세로
+    axis = 'sp';
+    doc.selKey = '0/1';
+    const s0 = shift('b');
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(tool.typed('3; -4')).toBe(true);
+    const bb = basisFromAngles(0, 0);
+    add(shift('b'), s0.map((v) => -v)).forEach((v, i) => expect(v).toBeCloseTo(3 * bb.right[i]! - 4 * bb.up[i]!, 9));
+  });
+
+  it('작업 메뉴(손가락 기기는 길게 누르기): 고른 것을 옮길 수 있으면 맨 위에 "거리로 옮기기…"(Enter) — 고르면 빈 칸을 열고 들어간다, 되돌릴 것이 있으면 끝에 되돌리기·다시 하기', () => {
+    const f = fakeField();
+    tool.bind(f.field);
+    const lab = (i: { label: string; hint?: string; sep?: boolean; disabled?: boolean }) => [i.label, i.hint ?? '', !!i.sep, !!i.disabled];
+    const labels = () => [...(tool.moveItem(doc) ? [lab(tool.moveItem(doc)!)] : []), ...tool.menuItems(doc, axis).map(lab)];
+    expect(labels()).toEqual([]);
+    doc.selKey = '0/1';
+    expect(labels()).toEqual([['거리로 옮기기…', 'Enter', false, false]]);
+    // 측정 중(손질할 때가 아님)에는 없다
+    measuring = true;
+    expect(labels()).toEqual([]);
+    measuring = false;
+    tool.moveItem(doc)!.run();
+    expect(f.focused).toBe(1);
+    expect(f.shown.at(-1)).toMatchObject({ value: '', fresh: true, axis: 'free' });
+    expect(tool.typed('0; 0; 6')).toBe(true);
+    expect(labels()).toEqual([
+      ['거리로 옮기기…', 'Enter', false, false],
+      ['손질 되돌리기', 'Ctrl+Z', true, false],
+      ['손질 다시 하기', 'Ctrl+Shift+Z', false, true],
+    ]);
+    tool.undo();
+    // 고른 것이 없어도 다시 할 손질이 있으면 그 항목만
+    doc.selKey = null;
+    expect(labels()).toEqual([
+      ['손질 되돌리기', 'Ctrl+Z', true, true],
+      ['손질 다시 하기', 'Ctrl+Shift+Z', false, false],
+    ]);
+  });
+
+  it('막대와 함께(실제 ExplodeControls): 고른 것 옮기기 칸은 빈 칸 — 사방·화면 평면은 글 자판, 축 하나는 숫자 자판. 끌기를 시작하면 닫히고 끄는 동안 막대 줄은 그대로', () => {
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      tool,
+    );
+    document.body.append(...c.els);
+    const input = c.els[3]!.querySelector<HTMLInputElement>('.explode-num')!;
+    const label = input.closest('label')!;
+    doc.selKey = '0/1';
+    expect(label.hidden).toBe(true);
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect([label.hidden, input.value, input.getAttribute('inputmode'), document.activeElement === input]).toEqual([false, '', 'text', true]);
+    input.blur();
+    axis = 'x';
+    c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
+    // 방향을 바꾸면 연 칸은 닫힌다 — 다시 열면 축 하나라 숫자 자판
+    expect(label.hidden).toBe(true);
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(input.getAttribute('inputmode')).toBe('decimal');
+    const b0 = shift('b');
+    input.value = '9';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(add(shift('b'), b0.map((v) => -v))[0]).toBeCloseTo(9, 9);
+    expect([label.hidden, input.value, input.getAttribute('inputmode')]).toEqual([false, '9', 'decimal']);
+    // 끌기를 시작하면 칸을 닫고(끄는 동안 쳐 넣기 전에는 숨긴 채), 떼면 그 끌기 거리
+    const p0 = dragB(-40.2, 6.6, false);
+    expect(label.hidden).toBe(true);
+    fire('pointermove', projectToScreen(frame, p0)![0] - 50, projectToScreen(frame, p0)![1] + 6.6);
+    expect(label.hidden).toBe(true);
+    fire('pointerup', projectToScreen(frame, p0)![0] - 50, projectToScreen(frame, p0)![1] + 6.6);
+    expect(label.hidden).toBe(false);
+    expect(input.value).toBe(plainLength(Math.abs(moved(p0)[0]!), { factor: 1, decimals: 3 }));
+  });
 });

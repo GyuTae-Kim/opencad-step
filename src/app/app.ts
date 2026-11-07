@@ -1525,7 +1525,9 @@ export class StepApp {
 
   private selectionChanged(reveal = false): void {
     this.panel.onSelection(reveal);
-    this.toolbar.refresh();
+    // 분해 막대가 열렸으면 막대도(거리 칸은 고른 것에 묶인다 — 45차), syncExplode가 도구 막대도 맞춘다
+    if (this.explodeOpen) this.syncExplode();
+    else this.toolbar.refresh();
     this.updateStatus();
   }
 
@@ -1969,12 +1971,13 @@ export class StepApp {
     items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
     if (d.opacity.size) items.push({ label: '불투명도 모두 되돌리기', run: () => this.resetOpacity() });
     if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
-    // 분해 막대가 열렸고 지금 방향에 되돌리거나 다시 할 손질이 있으면(손가락 기기에서도 길게 누르기 → 메뉴)
+    // 분해 막대가 열렸으면 손질 항목(분해 조각이 만든다 — 손가락 기기에서도 길게 누르기 → 메뉴): 되돌리기·다시 하기는 끝에, 고른 것을 거리로 옮기기는 맨 위에
     const tw = this.explodeOpen ? this.tweakTool : null;
-    const st = tw?.state(d, this.explodeAxis);
-    if (tw && (st?.undo || st?.redo)) {
-      items.push({ label: '손질 되돌리기', hint: 'Ctrl+Z', sep: true, disabled: !st.undo, run: () => tw.undo() });
-      items.push({ label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => tw.redo() });
+    const mv = tw?.moveItem(d);
+    if (tw) items.push(...tw.menuItems(d, this.explodeAxis));
+    if (mv) {
+      if (items[0]) items[0].sep = true;
+      items.unshift(mv);
     }
     return items;
   }

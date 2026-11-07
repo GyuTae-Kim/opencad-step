@@ -16,6 +16,7 @@ import type { Mesh3d } from 'opencad-viewer3d/types';
 import { nearestParam } from '../edgecurve';
 import type { StepFaceTable } from '../scene';
 import { edgeArc, toLocal, toWorld } from './curvesnap';
+import { certifyConcave } from './exactbound';
 import { faceAt, faceDetails } from './faces';
 import { insideFace, PARAMETRIC_KINDS, type FaceSurface, type FaceSurfaceLookup, type SnapFaceIndex } from './facesnap';
 import type { SnapEdgeIndex } from './snap';
@@ -56,6 +57,8 @@ export interface ExactGeo {
   atBound(x: readonly number[], k: number): number;
   /** 잘린 면의 경계 안인지(tol: 그물 좌표 허용치 — 곡선·점은 늘 true) */
   inside(x: readonly number[], tol: number): boolean;
+  /** 면 표의 면이면 그 그물·면 번호(45차 — 오목한 자리 받기 exactbound.ts가 면 짝을 센다) */
+  src?: { mesh: Mesh3d; face: number };
 }
 
 // ── 자리 변환(그물 좌표 → 세계) ──
@@ -327,13 +330,18 @@ export function faceGeo(mesh: Mesh3d, fx: SnapFaceIndex, f: number, lookup: Face
   const table = ti === undefined ? undefined : fx.tables[ti];
   if (!table || ti === undefined || !(f >= 0) || table.kinds[f] === undefined) return null;
   const kind = fx.kinds[table.kinds[f]!] ?? '';
-  if (kind === 'plane') return plane ? planeGeo(mesh, table, f, plane.center, plane.normal) : null;
-  const an = analyticSurface(kind, table.params.subarray(f * 8, f * 8 + 8));
-  if (an) return surfaceGeo(mesh, table, f, an);
-  if (!lookup || !PARAMETRIC_KINDS.has(kind)) return null;
-  const fs = lookup(ti, f);
-  const ps = fs ? paramSurface(fs) : null;
-  return ps ? surfaceGeo(mesh, table, f, ps) : null;
+  const g = (): ExactGeo | null => {
+    if (kind === 'plane') return plane ? planeGeo(mesh, table, f, plane.center, plane.normal) : null;
+    const an = analyticSurface(kind, table.params.subarray(f * 8, f * 8 + 8));
+    if (an) return surfaceGeo(mesh, table, f, an);
+    if (!lookup || !PARAMETRIC_KINDS.has(kind)) return null;
+    const fs = lookup(ti, f);
+    const ps = fs ? paramSurface(fs) : null;
+    return ps ? surfaceGeo(mesh, table, f, ps) : null;
+  };
+  const out = g();
+  if (out) out.src = { mesh, face: f };
+  return out;
 }
 
 // ── 곡선 모서리 ──
@@ -403,11 +411,13 @@ export interface ExactClosest {
   distance: number;
   /** 뉴턴 걸음 수 */
   steps: number;
+  /** 삼각형 답보다 먼 정류점(45차 — keepFarther로만, 오목한 자리 받기가 전역 최소인지 본다) */
+  farther?: boolean;
 }
 
 /**
  * 두 개체 A·B 사이 가장 가까운 두 점: 삼각형 답(c.a는 A 위, c.b는 B 위 — 세계)에서 시작해 뉴턴법으로(머리글 규칙). size는 장면 크기(수렴 판정 기준),
- * deadline은 performance.now() 한도. 받지 못하면 null
+ * deadline은 performance.now() 한도. 받지 못하면 null. keepFarther면 삼각형 답보다 먼 정류점도 경계 안이면 farther를 달아 돌려준다(45차)
  */
 export function refineClosest(
   A: ExactGeo,
@@ -416,6 +426,7 @@ export function refineClosest(
   size: number,
   deadline = Infinity,
   trace: ((why: string) => void) | null = null,
+  keepFarther = false,
 ): ExactClosest | null {
   const no = (why: string): null => (trace?.(why), null);
   if (A.flat && B.flat) return no('flat');
@@ -511,15 +522,16 @@ export function refineClosest(
   // 극소인지: 정의역 안 매개변수는 기울기가 0, 끝에 걸린 매개변수는 기울기가 바깥쪽(안으로 가면 커진다)
   if (n > 0 && !stationary(1e-8)) return no(`not stationary ${JSON.stringify(g)} steps ${steps}`);
   const distance = Math.sqrt(2 * f);
-  // 더 먼 자리로 갔으면 버린다
-  if (!(distance <= c.distance + tiny)) return no(`farther ${distance} > ${c.distance}`);
+  // 더 먼 자리로 갔으면 버린다(keepFarther면 표를 달아 경계까지 본다)
+  const farther = !(distance <= c.distance + tiny);
+  if (farther && !(keepFarther && Number.isFinite(distance))) return no(`farther ${distance} > ${c.distance}`);
   // 잘린 면의 경계 안(허용치: 삼각형 답과 곡면 사이만큼의 두 배 — 현이 곡면에서 벗어난 만큼)
   const mag = Math.max(...ea.P.map(Math.abs), ...eb.P.map(Math.abs));
   const tolA = 2 * dist(A.ev(A.near(qa) ?? xa)?.P ?? qa, qa) + 1e-6 * (1 + mag);
   const tolB = 2 * dist(B.ev(B.near(qb) ?? xb)?.P ?? qb, qb) + 1e-6 * (1 + mag);
   if (!A.inside(xa, tolA)) return no('outside A');
   if (!B.inside(xb, tolB)) return no('outside B');
-  return { a: ea.P, b: eb.P, distance, steps };
+  return farther ? { a: ea.P, b: eb.P, distance, steps, farther } : { a: ea.P, b: eb.P, distance, steps };
 }
 
 // ── 개체 측정에서 ──
@@ -588,7 +600,9 @@ function partFaceGeos(mesh: Mesh3d, s: ExactScene, p: readonly number[]): ExactG
 
 /**
  * "부품 사이 최소 거리"(두 그물 삼각형 답 r — 코어 closestPoints)를 두 점이 놓인 면의 정확한 정의로(받지 못하면 null).
- * 점이 면 사이 모서리 위라 면이 둘 이상이면 짝마다 다듬어 가장 가까운 것
+ * 점이 면 사이 모서리 위라 면이 둘 이상이면 짝마다 다듬어 가장 가까운 것.
+ * 45차: 다듬은 자리가 삼각형 값보다 먼 정류점(오목한 면 — 구멍 안 축 등)이면 그것이 두 부품의 전역 최소라는 것을 exactbound.ts로 보이면 받는다
+ * (보이는 데 boundMs까지 — 못 보이면 그대로 버린다)
  */
 export function exactParts(
   idA: string,
@@ -598,6 +612,7 @@ export function exactParts(
   size: number,
   ms = 30,
   trace: ((why: string) => void) | null = null,
+  boundMs = 150,
 ): ExactClosest | null {
   const end = clock() + ms;
   const ma = s.meshes.get(idA);
@@ -606,13 +621,37 @@ export function exactParts(
   const Bs = mb && clock() < end ? partFaceGeos(mb, s, r.b) : [];
   if (!As.length || !Bs.length) trace?.(`no geo ${As.length} ${Bs.length}`);
   let best: ExactClosest | null = null;
+  const far: [ExactGeo, ExactGeo, ExactClosest][] = [];
   for (const A of As)
     for (const B of Bs) {
       if (clock() > end) return best;
-      const e = refineClosest(A, B, r, size, end, trace);
-      if (e && (!best || e.distance < best.distance)) best = e;
+      const e = refineClosest(A, B, r, size, end, trace, true);
+      if (e?.farther) far.push([A, B, e]);
+      else if (e && (!best || e.distance < best.distance)) best = e;
     }
-  return best;
+  if (best || !far.length) {
+    for (const [, , e] of far) trace?.(`farther ${e.distance} > ${r.distance}`);
+    return best;
+  }
+  // 더 먼 정류점뿐: 가까운 것부터 전역 최소인지 본다
+  far.sort((x, y) => x[2].distance - y[2].distance);
+  const until = clock() + boundMs;
+  for (const [A, B, e] of far) {
+    const ok =
+      !!A.src &&
+      !!B.src &&
+      !!s.faces &&
+      ([
+        [A.src, B.src],
+        [B.src, A.src],
+      ] as const).some(([inner, outer]) => certifyConcave({ inner, outer, distance: e.distance }, s.faces!, s.edges, size, until, trace));
+    if (ok) {
+      delete e.farther;
+      return e;
+    }
+    trace?.(`farther ${e.distance} > ${r.distance}`);
+  }
+  return null;
 }
 
 /**
