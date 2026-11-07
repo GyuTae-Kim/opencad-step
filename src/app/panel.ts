@@ -538,7 +538,7 @@ export class Panel {
     else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
-      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
+      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count, isolateText).map(propRow)));
     }
     // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만. 선 형상 몸체는 물리 속성이 없다
     const pid = selectedBody(d);
