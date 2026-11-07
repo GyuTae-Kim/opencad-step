@@ -85,21 +85,19 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
   }
   document.body.append(el);
   const usable = buttons.filter((b) => !b.disabled);
-  // 자리: 단추 아래 왼쪽 맞춤, 화면 밖으로 나가지 않게
+  // 자리: 단추 아래 왼쪽 맞춤, 화면 밖으로 나가지 않게(가장자리 8px, 단추와 4px). 아래에 다 들어가지 않으면 더 넓은 쪽으로 펴고(51차 — Android PopupWindow는
+  // 아래가 모자라면 단추 위에 붙이고, iOS 작업 메뉴도 누른 자리 위·아래로 열린다), 그 쪽도 모자라면 그 높이까지 펴고 메뉴 안에서 굴린다.
+  // 전에는 위아래 모두 모자라면 위쪽이 더 넓어도 아래로 폈다(휴대폰 3D 보기 아래쪽을 길게 눌러 연 작업 메뉴가 320×568에서 다섯 줄쯤만 보임)
   const place = (): void => {
     el.style.maxHeight = '';
     const r = anchor.getBoundingClientRect();
-    const mw = el.offsetWidth;
+    const below = innerHeight - r.bottom - 12;
     const mh = el.offsetHeight;
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8));
-    let top = r.bottom + 4;
-    if (top + mh > window.innerHeight - 8) {
-      if (r.top - mh - 4 >= 8) top = r.top - mh - 4;
-      // 위아래 모두 모자라면(휴대폰 가로 등) 아래로 펴고 메뉴 안에서 굴린다
-      else el.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
-    }
-    el.style.left = `${left}px`;
-    el.style.top = `${top}px`;
+    const up = mh > below && r.top - 12 > below;
+    const fit = Math.min(mh, up ? r.top - 12 : below);
+    if (fit < mh) el.style.maxHeight = `${fit}px`;
+    el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8))}px`;
+    el.style.top = `${up ? r.top - 4 - fit : r.bottom + 4}px`;
   };
   place();
   // 다른 언어 화면은 번역층(i18n.ts — 문서 변화 관찰, 마이크로태스크)이 붙인 뒤 글을 바꿔 폭이 달라진다(375px 독일어 "App-Einstellungen" 메뉴가
@@ -131,9 +129,9 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     } else if (e.key === 'Tab') closeMenu();
   };
   // 휴대폰 주소 막대가 숨고 나타날 때(높이만 바뀜)는 닫지 않는다
-  const width = window.innerWidth;
+  const width = innerWidth;
   const onResize = () => {
-    if (window.innerWidth !== width) closeMenu();
+    if (innerWidth !== width) closeMenu();
   };
   const close = () => {
     sized?.disconnect();

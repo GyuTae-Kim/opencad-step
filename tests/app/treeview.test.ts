@@ -278,6 +278,69 @@ describe('제품 나무 가상 목록', () => {
     expect(find(document.body)).toBe(false);
   });
 
+  it('Ctrl·⌘+F(51차): 다른 글 칸(단면 위치·분해 거리 등)에 초점이 있으면 가로채지 않고, 칸으로 초점을 옮기지 못하면(모달 뒤 inert 등) 막지 않는다', () => {
+    const d = bigDoc();
+    const { panel, row } = mount(d);
+    const find = (target: Element) => {
+      const ev = new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true, ctrlKey: true });
+      target.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const input = () => panel.el.querySelector<HTMLInputElement>('.tree-filter')!;
+    panel.setOpen(true);
+    // 단면 위치(숫자)·분해 거리(글)·글 상자: 쳐 넣던 칸을 떠나면 값이 걸리므로 그 칸에서는 브라우저 찾기
+    for (const make of [
+      () => Object.assign(document.createElement('input'), { type: 'number', className: 'section-num' }),
+      () => Object.assign(document.createElement('input'), { type: 'text', className: 'explode-num' }),
+      () => document.createElement('textarea'),
+    ]) {
+      const f = make();
+      document.body.append(f);
+      f.focus();
+      expect(find(f)).toBe(false);
+      expect(document.activeElement).toBe(f);
+      f.remove();
+    }
+    // 밀대는 글 칸이 아니라 그대로 거르기 칸으로
+    const slider = Object.assign(document.createElement('input'), { type: 'range' });
+    document.body.append(slider);
+    slider.focus();
+    expect(find(slider)).toBe(true);
+    expect(document.activeElement).toBe(input());
+    slider.remove();
+    // 칸에 초점이 가지 않으면(모달 대화 상자가 열려 패널이 inert — jsdom에는 inert가 없어 focus를 막아 흉내) 막지 않아 브라우저 찾기가 열린다
+    row('0/0/1')!.focus();
+    const stuck = vi.spyOn(input(), 'focus').mockImplementation(() => {});
+    expect(find(document.body)).toBe(false);
+    expect(document.activeElement).toBe(row('0/0/1'));
+    stuck.mockRestore();
+    expect(find(document.body)).toBe(true);
+  });
+
+  it('나무 도구 "⋯" 메뉴(51차): 도구 줄 끝에 단추를 두고, 항목을 고르면 그 도구 단추를 누른 것으로 친다(휴대폰 시트에서만 보임 — styles.css)', () => {
+    const d = bigDoc(3, 2);
+    const { panel, calls } = mount(d);
+    const tools = panel.el.querySelector<HTMLElement>('.tree-tools')!;
+    const more = tools.querySelector<HTMLButtonElement>('.tree-more-btn')!;
+    expect(tools.lastElementChild).toBe(more);
+    expect([more.getAttribute('aria-label'), more.getAttribute('aria-haspopup'), more.getAttribute('aria-expanded')]).toEqual(['나무 도구', 'menu', 'false']);
+    more.click();
+    const menu = document.querySelector<HTMLElement>('.menu')!;
+    expect(menu.getAttribute('aria-label')).toBe('나무 도구');
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('.menu-item')];
+    expect(items.map((b) => b.textContent)).toEqual(['모두 펼치기', '모두 접기', '모두 보이기']);
+    items[2]!.click();
+    expect(calls).toContain('showAll');
+    expect(document.querySelector('.menu')).toBeNull();
+    // 모두 접기 → 나무를 다시 그려도 새 도구 줄에 "⋯"는 하나
+    panel.el.querySelector<HTMLButtonElement>('.tree-more-btn')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][1]!.click();
+    expect(d.expanded.size).toBe(0);
+    expect(panel.el.querySelectorAll('.tree-more-btn')).toHaveLength(1);
+    expect(more.isConnected).toBe(false);
+  });
+
   it('눈 단추로 숨기면(다시 그림) 초점이 새 줄의 눈 단추로 돌아온다', () => {
     const d = bigDoc();
     const { panel, row, calls } = mount(d);

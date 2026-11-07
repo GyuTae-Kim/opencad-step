@@ -112,7 +112,6 @@ interface Tool {
 export class Toolbar {
   readonly el: HTMLElement;
   private tools: Tool[] = [];
-  private moreBtn: HTMLButtonElement | null = null;
 
   constructor(private readonly host: ToolbarHost) {
     this.el = h('nav', { class: 'toolbar', role: 'toolbar', 'aria-label': '보기 도구' });
@@ -139,8 +138,7 @@ export class Toolbar {
     views.el.setAttribute('aria-haspopup', 'menu');
     views.el.setAttribute('aria-expanded', 'false');
     views.el.classList.add('has-menu');
-    const more = this.add('sliders', '보기 설정', '보기 설정', () => openMenu(more.el, this.moreItems(), '보기 설정'), undefined, 'narrow-only');
-    this.moreBtn = more.el;
+    const more = this.add('sliders', '보기 설정', '보기 설정', () => openMenu(more.el, this.moreItems(more.el), '보기 설정'), undefined, 'narrow-only');
     more.el.setAttribute('aria-haspopup', 'menu');
     more.el.setAttribute('aria-expanded', 'false');
     more.el.classList.add('has-menu');
@@ -151,12 +149,7 @@ export class Toolbar {
       setLabel(proj.el, persp ? '원근' : '평행', persp ? 'perspective' : 'ortho');
       proj.el.title = persp ? '지금 원근 투영 — 눌러서 평행 투영으로' : '지금 평행 투영 — 눌러서 원근 투영으로';
     }, 'wide-only');
-    const mode = this.add('shade', '음영 + 모서리', '그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray · 숨은선 제거 · 단색, 외곽선·부품 색 구분·분해 보기', () =>
-      openMenu(
-        mode.el,
-        [...RENDER_MODES.map(([m, label]): MenuItem => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })), ...this.displayItems()],
-        '그리기 모드',
-      ),
+    const mode = this.add('shade', '음영 + 모서리', '그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray · 숨은선 제거 · 단색, 외곽선·부품 색 구분·분해 보기', () => this.modeMenu(mode.el),
     () => setLabel(mode.el, RENDER_MODES.find(([m]) => m === H.renderMode)?.[1] ?? '그리기'), 'wide-only');
     mode.el.setAttribute('aria-haspopup', 'menu');
     mode.el.setAttribute('aria-expanded', 'false');
@@ -229,34 +222,42 @@ export class Toolbar {
     }
   }
 
-  /** 좁은 화면의 보기 설정 메뉴: 넓은 화면 도구 막대에만 있는 단추(고른 부품 보기, 투영, 그리기 모드, 격자·뷰 큐브·좌표축, PNG) */
-  private moreItems(): MenuItem[] {
+  /**
+   * 좁은 화면의 보기 설정 메뉴: 넓은 화면 도구 막대에만 있는 단추(고른 부품 보기, 투영, 그리기 모드, 격자·뷰 큐브·좌표축, PNG·내보내기)를 막대와 같은 차례로.
+   * 그리기 모드(여섯 모드와 외곽선·부품 색 구분·분해 보기 — 넓은 화면 그리기 모드 단추의 메뉴와 같은 열 항목)는 "그리기 모드…"를 고르면 같은 단추 자리에
+   * 다시 연다(51차 — 내보내기…와 같은 꼴). 전에는 열여덟 항목을 한 메뉴에 펴서 손가락 기기(44px 줄)에서는 375×812에서도 화면보다 길어 아래 항목은
+   * 메뉴 안에서 굴려야 닿았다(Apple HIG 메뉴: 너무 길면 나누거나 하위 메뉴로 줄인다). 이제 아홉 항목이라 320×568에서도 다 보인다
+   */
+  private moreItems(at: HTMLElement): MenuItem[] {
     const H = this.host;
     return [
       { label: '고른 부품 보기', disabled: !H.hasSelection, run: () => H.fitSelection() },
       { label: '원근 투영', checked: H.projection === 'perspective', sep: true, run: () => H.setProjection('perspective') },
       { label: '평행 투영', checked: H.projection === 'orthographic', run: () => H.setProjection('orthographic') },
-      ...RENDER_MODES.map(([m, label], i): MenuItem => ({ label, checked: H.renderMode === m, sep: i === 0, run: () => H.setRenderMode(m) })),
-      ...this.displayItems(),
+      { label: '그리기 모드…', sep: true, run: () => this.modeMenu(at) },
       { label: '격자', checked: H.gridOn, toggle: true, sep: true, run: () => H.toggleGrid() },
       { label: '뷰 큐브', checked: H.cubeOn, toggle: true, run: () => H.toggleCube() },
       { label: '좌표축', checked: H.axesOn, toggle: true, run: () => H.toggleAxes() },
       { label: 'PNG 저장', sep: true, run: () => H.savePng() },
-      // 내보내기 메뉴는 같은 단추(보기 설정) 자리에 다시 연다
-      { label: '내보내기…', run: () => openMenu(this.moreBtn!, H.exportItems(), '내보내기') },
+      // 내보내기 메뉴도 같은 단추(보기 설정) 자리에 다시 연다
+      { label: '내보내기…', run: () => openMenu(at, H.exportItems(), '내보내기') },
     ];
   }
 
-  /** 그리기 선택(그리기 모드 메뉴·보기 설정 메뉴): 숨은 모서리 점선(숨은선 모드에서만), 외곽선, 부품 색 구분, 분해 보기 */
-  private displayItems(): MenuItem[] {
+  /**
+   * 그리기 모드 메뉴(넓은 화면 그리기 모드 단추, 좁은 화면 보기 설정 메뉴의 "그리기 모드…"): 여섯 모드, 숨은 모서리 점선(숨은선 모드에서만),
+   * 외곽선, 부품 색 구분, 분해 보기
+   */
+  private modeMenu(at: HTMLElement): void {
     const H = this.host;
-    return [
+    openMenu(at, [
+      ...RENDER_MODES.map(([m, label]): MenuItem => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })),
       { label: '숨은 모서리 점선', checked: H.hiddenEdges, toggle: true, sep: true, disabled: H.renderMode !== 'hiddenLine', run: () => H.toggleHiddenEdges() },
       // 선 모드(와이어프레임·숨은선)는 1화소 외곽선을 늘 그린다(모서리 없는 매끈한 면이 사라지지 않게) — 켜진 채 잠근다
       { label: '외곽선 강조', checked: H.profiles || isLineMode(H.renderMode), toggle: true, disabled: isLineMode(H.renderMode), run: () => H.toggleProfiles() },
       { label: '부품 색 구분', checked: H.partColors, toggle: true, sep: true, run: () => H.togglePartColors() },
       { label: '분해 보기', checked: H.explodeOpen, toggle: true, run: () => H.toggleExplode() },
-    ];
+    ], '그리기 모드');
   }
 
   private add(ic: IconName, label: string, title: string, run: () => void, refresh: () => void = () => {}, cls = ''): Tool {

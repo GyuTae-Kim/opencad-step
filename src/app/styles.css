@@ -983,6 +983,10 @@ body.resizing .viewer-host {
   gap: 4px;
   margin-bottom: 6px;
 }
+/* 나무 도구 "⋯" 메뉴 단추(51차 — treeview.ts): 휴대폰 시트(아래 손가락 기기 규칙)에서만 */
+.tree-more-btn {
+  display: none;
+}
 .tree {
   margin: 0 -10px;
 }
@@ -1569,6 +1573,43 @@ table.grid td.mono {
   .panel-head {
     padding-top: 14px;
   }
+  /*
+   * 51차: 시트의 제품 나무는 나무 도구 단추 줄(모두 펼치기·접기·보이기·간섭 검사)을 거르기 칸 오른쪽의 "⋯" 메뉴 단추(treeview.ts)로 접는다 —
+   * 320×568에서 시트를 처음 열면 거르기 칸·도구 줄 아래 나무 줄이 하나도 보이지 않았고, 영어·독일어는 도구 줄이 두 줄로 접혀 더 줄었다.
+   * 나무 조각을 받지 못해 "⋯"가 없으면 도구 줄 그대로
+   */
+  .prop-group:has(> .tree-tools > .tree-more-btn) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 6px;
+  }
+  .prop-group:has(> .tree-tools > .tree-more-btn) > * {
+    grid-column: 1 / -1;
+  }
+  .prop-group:has(> .tree-tools > .tree-more-btn) > .tree-search {
+    grid-column: 1;
+  }
+  .prop-group:has(> .tree-tools > .tree-more-btn) > .tree-tools {
+    grid-column: 2;
+    grid-row: 2;
+    margin: 0;
+  }
+  .tree-tools:has(> .tree-more-btn) > .btn:not(.tree-more-btn) {
+    display: none;
+  }
+  .tree-tools > .tree-more-btn {
+    display: inline-flex;
+  }
+}
+/*
+ * 51차: 높이 640px 이하 손가락 휴대폰(320×568·360×640)은 시트 처음 높이 60% — 반 높이로는 손잡이 띠·탭·고른 것 띠·거르기 칸이 시트를 거의 채워
+ * 부품을 고른 채 연 나무 탭에 줄이 하나도 보이지 않았다(320×568 본문 88px). iOS 시트도 중간 높이 말고 앱이 정한 높이(custom detent)를 둘 수 있다.
+ * 끌어 바꾼 높이는 그대로
+ */
+@media (pointer: coarse) and (max-width: 759.98px) and (max-height: 640px) {
+  :root {
+    --sheet-h: 60%;
+  }
 }
 /*
  * 손가락 기기 휴대폰 도구 막대(44px 단추 일곱 개): 360px 폭은 양옆 4px로 구분선까지 한 줄(355px),
@@ -1634,6 +1675,17 @@ table.grid td.mono {
   }
   .menu-item {
     height: 44px;
+  }
+  /*
+   * 51차: 메뉴의 단축키 글(H·I·F·Home·1~7·Alt·Enter·Ctrl+Z)은 손가락 기기에서 숨긴다(Apple HIG 작업 메뉴: 단축키는 주 메뉴에만, 작업 메뉴에는 겹치는 글.
+   * iPadOS는 하드웨어 키보드의 ⌘를 누르고 있을 때 단축키 목록을 따로 보인다). 화면 읽기 프로그램도 항목 이름만 읽는다. 구분선 위아래 틈은 4 → 2px
+   * (44px 줄로 그리기 모드 열 항목이 320×568 도구 막대 아래에 다 들어가게)
+   */
+  .menu kbd {
+    display: none;
+  }
+  .menu-sep {
+    margin: 2px 6px;
   }
   .btn.small {
     height: 44px;
@@ -1797,6 +1849,16 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+}
+/*
+ * 51차: 375~389px에서 일본어 "STEPビューア"(89px)·중국어 "STEP 查看器"(81px)는 아이콘 옆 75px 자리에 들어가지 않아 "STEPビ…"로 잘렸다(한국어 57·영어 72·독일어 73px는 들어감).
+ * 그 두 언어는 이 폭에서 아이콘을 빼고 이름 전체(97px 자리)를 보인다 — 아이콘은 꾸밈(alt 없음)이라 읽는 글은 그대로
+ */
+@media (pointer: coarse) and (min-width: 375px) and (max-width: 389.98px) {
+  :lang(ja) .brand-icon,
+  :lang(zh) .brand-icon {
+    display: none;
   }
 }
 

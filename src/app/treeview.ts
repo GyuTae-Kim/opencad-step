@@ -10,6 +10,8 @@ import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
 import { bodyName, instanceCounts, itemById, nodeItems, selectedBody, wireLabel, type StepDoc } from './doc';
 import { fmtCount } from './format';
+import { isTextTarget } from './keys';
+import { openMenu, type MenuItem } from './menu';
 import type { PanelHost } from './panel';
 import { nodeInstances, nodeLabel, nodeVisible, toggleKey, type TreeRow } from './tree';
 
@@ -139,6 +141,27 @@ export interface TreeOpts {
   redraw(): void;
   /** 나무 위 이름 거르기 칸: 첫 줄에서 ↑, 그리고 Ctrl·⌘+F(findToFilter)가 이 칸으로 */
   filter: HTMLInputElement;
+  /** 나무 도구 단추 줄(모두 펼치기·접기·보이기·간섭 검사): 휴대폰 시트에서 접을 "⋯" 메뉴 단추를 끝에 붙인다(51차) */
+  tools?: HTMLElement;
+}
+
+/**
+ * 나무 도구 "⋯" 메뉴 단추(51차): 좁은 손가락 기기(휴대폰 시트 — styles.css)에서는 나무 도구 단추 줄을 숨기고 이 단추 하나를 거르기 칸 오른쪽에 둔다.
+ * 고르면 같은 단추를 누른 것으로 친다(이름은 화면 언어로 바뀐 단추 글 그대로). 320×568에서 시트를 처음 열면 거르기 칸·도구 줄 아래 나무 줄이 하나도
+ * 보이지 않던 것(독일어·일본어는 도구 줄이 두 줄이라 375px에서도 한 줄 적었다) — 시트에서 나무 줄이 먼저 보이게(Apple HIG 시트: 중간 높이에 가장 쓸모 있는 것을).
+ * 넓은 화면·마우스 화면에서는 이 단추를 숨기고 도구 줄 그대로
+ */
+export function treeToolsMenu(tools: HTMLElement): HTMLButtonElement {
+  const b = h('button', { type: 'button', class: 'btn icon-btn tree-more-btn', title: '나무 도구', 'aria-label': '나무 도구', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('more'));
+  b.addEventListener('click', () =>
+    openMenu(
+      b,
+      [...tools.querySelectorAll<HTMLButtonElement>('button:not(.tree-more-btn)')].map((t): MenuItem => ({ label: t.textContent ?? '', run: () => t.click() })),
+      '나무 도구',
+    ),
+  );
+  tools.append(b);
+  return b;
 }
 
 /** Ctrl·⌘+F가 옮겨 갈 거르기 칸(가장 최근에 그린 나무의 것 — 탭을 바꾸거나 다시 그리면 DOM에서 빠진다) */
@@ -149,13 +172,17 @@ let findBound = false;
  * Ctrl·⌘+F → 나무 위 이름 거르기 칸(50차). 가상 목록은 화면 밖 줄이 DOM에 없어 브라우저의 페이지 안 찾기가 그 줄을 찾지 못하므로,
  * 나무가 보이는 동안(패널이 열리고 제품 탭) 첫 Ctrl·⌘+F는 거르기 칸에 초점을 주고 글을 고른다. 그 칸에서 한 번 더 누르면 가로채지 않아
  * 브라우저 찾기가 열린다(GitHub 코드 보기와 같은 꼴 — GitHub Projects도 Ctrl·⌘+F가 거르기 칸으로 간다). 패널이 닫혔거나 다른 탭이면 브라우저 찾기 그대로.
- * Shift·Alt가 붙은 조합(브라우저·운영 체제의 다른 찾기)은 건드리지 않는다
+ * Shift·Alt가 붙은 조합(브라우저·운영 체제의 다른 찾기)은 건드리지 않는다.
+ * 51차: 다른 글 칸(단면 위치·분해 거리·대화 상자의 밀도 칸 등 — keys.ts isTextTarget)에 초점이 있으면 가로채지 않는다(쳐 넣던 칸을 떠나면 분해 거리 칸은
+ * 그 글로 옮기고 단면 위치 칸은 값을 건다 — 반쯤 친 값이 걸리지 않게, 그 칸에서는 브라우저 찾기). 칸으로 초점이 옮겨지지 않으면(모달 대화 상자가 열려
+ * 패널이 inert 등) 기본 동작을 막지 않는다(전에는 막기만 해서 아무 일도 일어나지 않았다)
  */
 export function findToFilter(ev: KeyboardEvent, f: HTMLInputElement | null = findFilter): boolean {
   if (!f || ev.defaultPrevented || ev.altKey || ev.shiftKey || !(ev.ctrlKey || ev.metaKey) || (ev.key !== 'f' && ev.key !== 'F')) return false;
-  if (ev.target === f || !f.isConnected || f.closest('[hidden]')) return false;
-  ev.preventDefault();
+  if (isTextTarget(ev.target) || !f.isConnected || f.closest('[hidden]')) return false;
   f.focus();
+  if (document.activeElement !== f) return false;
+  ev.preventDefault();
   f.select();
   return true;
 }
@@ -235,6 +262,7 @@ export function treeView(o: TreeOpts): TreeView {
     findBound = true;
     window.addEventListener('keydown', (ev) => void findToFilter(ev));
   }
+  if (o.tools) treeToolsMenu(o.tools);
   // 거르기 칸에서 ↓: 첫 줄로(거른 줄이 없으면 그대로)
   o.filter.addEventListener('keydown', (ev) => {
     if (ev.key !== 'ArrowDown') return;
