@@ -662,20 +662,21 @@ export function unitItemIds(roots: readonly ProductNode[], id: string, unit: Pic
 
 /**
  * 몸체 이름(id = 그물·선·점 묶음): 형상 항목에 이름이 있으면 그물 이름("부품 / 항목") 그대로, 없으면(그물 이름 = 부품 이름) 형상 항목이 여럿인 부품에서
- * "부품 · 몸체 2"(나무 마디의 입체 차례). 선 형상은 형상 항목이 여럿인 부품에서 "부품 / 표현 이름" 또는 "부품 · 선 형상 1"(마디 선 형상 차례)
+ * "부품 · 몸체 2"(나무 마디의 입체 차례). 선 형상은 형상 항목이 여럿인 부품에서 "부품 / 표현 이름" 또는 "부품 · 선 형상 1"(마디 선 형상 차례).
+ * file은 파일 글 조각(부품·항목 이름)에 씌울 것(59차 — 화면 글과 섞이는 곳은 ftext.ts isolateText로 방향을 가두고 번역층을 비킨다)
  */
-export function bodyTitle(roots: readonly ProductNode[], scene: Scene3d, id: string): string {
+export function bodyTitle(roots: readonly ProductNode[], scene: Scene3d, id: string, file: (s: string) => string = (s) => s): string {
   const found = itemById(scene, id);
-  const name = found?.[0].name ?? id;
+  const name = file(found?.[0].name ?? id);
   const key = productKeyOf(roots, id);
   const node = key ? productAt(roots, key) : null;
   if (!node || !hasBodies(node)) return name;
   const i = node.meshIds.indexOf(id);
-  if (i >= 0) return name !== node.name ? name : `${name} · 몸체 ${i + 1}`;
+  if (i >= 0) return (found?.[0].name ?? id) !== node.name ? name : `${name} · 몸체 ${i + 1}`;
   const j = node.lineIds?.indexOf(id) ?? -1;
   if (j < 0) return name;
   const own = bodyName(node, found?.[0], true);
-  return own ? `${node.name} / ${own}` : `${node.name} · ${wireLabel(node, undefined, found?.[1], j + 1)}`;
+  return own ? `${file(node.name)} / ${file(own)}` : `${file(node.name)} · ${wireLabel(node, undefined, found?.[1], j + 1)}`;
 }
 
 /**

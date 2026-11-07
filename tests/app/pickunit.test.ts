@@ -180,7 +180,8 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     panel.setTab('props');
     const heads = [...panel.el.querySelectorAll('h3, .sec-title, .section-title')].map((e) => e.textContent);
     expect(heads).toContain('부품 속성');
-    expect(heads).toContain('물리 속성 · multibody / body-B');
+    // 몸체 이름(파일 글)은 FSI…PDI로 갇힌다(59차 — ftext.ts)
+    expect(heads).toContain('물리 속성 · \u{2068}multibody / body-B\u{2069}');
     const vol = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '부피')!.querySelector('.v')!.textContent!;
     // 평면 상자라 곡면 적분이 정확하다 — ≈ 없이, 정확도 줄에 "정확"
     expect(vol).toMatch(/^1[,.]?000/);
@@ -222,7 +223,7 @@ describe('제품 나무 몸체 줄', () => {
     expect(row(panel, '0/0.1').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
     expect(row(panel, '0/0.3').querySelector('.tree-name')).toBeNull();
     expect(row(panel, '0/0.3').querySelector('.tree-name-gen')!.hasAttribute('translate')).toBe(false);
-    expect(row(panel, '0/0.3').title).toBe('multibody · 몸체 3 · 두 번 누르면 이 몸체로 맞춰 봅니다');
+    expect(row(panel, '0/0.3').title).toBe('\u{2068}multibody\u{2069} · 몸체 3 · 두 번 누르면 이 몸체로 맞춰 봅니다');
     expect(row(panel, '0/0.3').getAttribute('aria-level')).toBe('3');
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) {
       expect(translate(row(panel, '0/0.3').title, lang), lang).not.toMatch(/[가-힣]/);
@@ -269,7 +270,7 @@ describe('제품 나무 몸체 줄', () => {
     expect(row(panel, '0/0').classList.contains('part-sel')).toBe(true);
     expect(selectedBody(d)).toBe(c!.id);
     expect(selectionItemIds(d)).toEqual([c!.id]);
-    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 multibody · 몸체 3');
+    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 \u{2068}multibody\u{2069} · 몸체 3');
     // 3D에서 몸체 단위로 고른 것도 같은 줄(펼침이 그대로면 줄 표시만 고친다)
     const before = row(panel, '0/0.2');
     d.body = null;
@@ -289,7 +290,7 @@ describe('제품 나무 몸체 줄', () => {
     d.body = c!.id;
     panel.setTab('props');
     const heads = [...panel.el.querySelectorAll('h3')].map((e) => e.textContent);
-    expect(heads).toEqual(expect.arrayContaining(['부품 속성', '물리 속성 · multibody · 몸체 3']));
+    expect(heads).toEqual(expect.arrayContaining(['부품 속성', '물리 속성 · \u{2068}multibody\u{2069} · 몸체 3']));
     const vol = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '부피')!.querySelector('.v')!.textContent!;
     expect(vol).toMatch(/^216/);
     panel.el.remove();
@@ -321,7 +322,7 @@ describe('간섭 검사 결과: 안에 든 쌍', () => {
     expect(sec.querySelector('.hint')!.textContent).toBe('범위가 겹친 쌍 3 · 간섭 2 · 안에 듦 1 · 5 ms');
     const rows = [...sec.querySelectorAll('.prop-row')];
     expect(rows.map((r) => r.querySelector('.chip')!.textContent)).toEqual(['안에 듦', '12']);
-    expect(rows[0]!.querySelector('.link-btn')!.textContent).toBe('other / other-body ↔ multibody / body-A');
+    expect(rows[0]!.querySelector('.link-btn')!.textContent).toBe('\u{2068}other / other-body\u{2069} ↔ \u{2068}multibody / body-A\u{2069}');
     rows[0]!.querySelector<HTMLElement>('.link-btn')!.click();
     expect(calls).toContain('showInterference');
     const notes = [...sec.querySelectorAll('p.hint')].map((x) => x.textContent!);

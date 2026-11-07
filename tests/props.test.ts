@@ -48,6 +48,9 @@ describe('제품 속성(설명·재질·밀도·사용자 속성)', () => {
     const path = nodePath(doc.products, '0/2');
     expect(path.map((n) => n.name)).toEqual(['OpenCAD 예제 조립', '블록']);
     expect(pathText(path)).toBe('OpenCAD 예제 조립 › 블록 · 블록-2');
+    // 화면은 이름 조각마다 씌운다(59차 — 방향 가둠): 구분 글(›·)은 조각 밖
+    expect(pathText(path, (s) => `[${s}]`)).toBe('[OpenCAD 예제 조립] › [블록] · [블록-2]');
+    expect(partRows(path, new Fmt('mm'), 1, (s) => `[${s}]`).find((r) => r.k === '경로')?.v).toBe('[OpenCAD 예제 조립] › [블록] · [블록-2]');
     const rows = partRows(path, new Fmt('mm'), 2);
     const get = (k: string) => rows.find((r) => r.k === k)?.v;
     expect(get('재질')).toBe('Steel S45C');

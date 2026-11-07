@@ -80,7 +80,7 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(panel.el.textContent).not.toContain('처음 1,000개만');
     // 표현 PMI 줄: 확인 칸(라벨로 감쌈)·이름 단추·평면
     const row = grids[0]!.querySelector('[role=rowgroup] > [role=row]')!;
-    expect(row.querySelector('label.cb-hit > input[type=checkbox]')!.getAttribute('aria-label')).toBe('치수 1 보이기');
+    expect(row.querySelector('label.cb-hit > input[type=checkbox]')!.getAttribute('aria-label')).toBe('\u{2068}치수 1\u{2069} 보이기');
     expect(row.querySelector('.link-btn')!.textContent).toBe('치수 1');
     expect(row.lastElementChild!.textContent).toBe('평면 1');
   });
@@ -117,11 +117,11 @@ describe('PMI 탭 본문(가상 목록)', () => {
     const btns = () => [...grid.querySelectorAll<HTMLButtonElement>('[role=rowgroup] .link-btn')];
     const b = btns()[2]!;
     b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-    expect(calls.at(-1)).toBe('select p2 PMI 치수 3');
+    expect(calls.at(-1)).toBe('select p2 PMI \u{2068}치수 3\u{2069}');
     expect(b.isConnected).toBe(true);
     expect(btns().filter((x) => x.classList.contains('sel'))).toEqual([b]);
     b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-    expect(calls.at(-1)).toBe('select null PMI 치수 3');
+    expect(calls.at(-1)).toBe('select null PMI \u{2068}치수 3\u{2069}');
     expect(btns().some((x) => x.classList.contains('sel'))).toBe(false);
   });
 
@@ -134,12 +134,12 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(rows[0]!.querySelector('.mono')!.textContent).toBe('1 mm ±0.05');
     const b = rows[0]!.querySelector<HTMLButtonElement>('.link-btn')!;
     b.click();
-    expect(calls.at(-1)).toBe('faces 7 PMI 형체 1');
+    expect(calls.at(-1)).toBe('faces 7 PMI \u{2068}형체 1\u{2069}');
     expect(rows[0]!.classList.contains('sel')).toBe(true);
     expect(b.classList.contains('sel')).toBe(true);
     expect(rows[2]!.classList.contains('sel')).toBe(false);
     b.click();
-    expect(calls.at(-1)).toBe('select null PMI 형체 1');
+    expect(calls.at(-1)).toBe('select null PMI \u{2068}형체 1\u{2069}');
     expect(rows[0]!.classList.contains('sel')).toBe(false);
   });
 });

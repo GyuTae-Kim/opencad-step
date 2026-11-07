@@ -9,6 +9,7 @@
 import { h, icon } from './dom';
 import type { StepDoc } from './doc';
 import { fmtCount } from './format';
+import { fileSpan, isolateText } from './ftext';
 import { pmiTypeLabel, semanticLabel, type PanelHost } from './panel';
 import { VList } from './treeview';
 
@@ -68,15 +69,18 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
       scroller,
       (i) => {
         const p = pres[i]!;
-        const cb = h('input', { type: 'checkbox', 'aria-label': `${p.name || p.type} 보이기` });
+        // 59차: 이름·평면·모형 이름은 파일 글(번역하지 않음·방향 가둠·길이 한도 — ftext.ts), 종류는 화면 글
+        const label = p.name ? isolateText(p.name) : pmiTypeLabel(p.type);
+        const cb = h('input', { type: 'checkbox', 'aria-label': `${p.name ? label : p.type} 보이기` });
         cb.addEventListener('change', () => host.setPmiVisible(p.id, cb.checked));
-        const label = p.name || pmiTypeLabel(p.type);
-        const nameBtn = h('button', { type: 'button', class: 'link-btn', title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${p.model}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)` }, label);
+        const nameBtn = h('button', { type: 'button', class: 'link-btn', title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${isolateText(p.model)}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)` }, p.name ? fileSpan(p.name) : label);
         nameBtn.addEventListener('click', (ev) => {
           if (ev.detail === 2) host.selectItems([p.id], `PMI ${label}`, true);
           else if (ev.detail <= 1) host.selectItems(picked(p.id) ? null : [p.id], `PMI ${label}`);
         });
-        return h('div', { class: 'vgrid-row', role: 'row' }, h('span', { class: 'check', role: 'cell' }, h('label', { class: 'cb-hit' }, cb), nameBtn), h('span', { class: 'dim small', role: 'cell' }, p.plane ?? pmiTypeLabel(p.type)));
+        const plane = p.plane ? fileSpan(p.plane, 'dim small', p.plane) : h('span', { class: 'dim small' }, pmiTypeLabel(p.type));
+        plane.setAttribute('role', 'cell');
+        return h('div', { class: 'vgrid-row', role: 'row' }, h('span', { class: 'check', role: 'cell' }, h('label', { class: 'cb-hit' }, cb), nameBtn), plane);
       },
       (row, i) => {
         const p = pres[i]!;
@@ -98,7 +102,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
 
   const sem = d.pmi.semantic;
   if (sem.length) {
-    const labelOf = (i: number) => `PMI ${sem[i]!.name || semanticLabel(sem[i]!.type)}`;
+    const labelOf = (i: number) => `PMI ${sem[i]!.name ? isolateText(sem[i]!.name) : semanticLabel(sem[i]!.type)}`;
     const g = grid(
       'pmi-sem-title',
       ['종류', '이름', '값'],
@@ -110,17 +114,13 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         let nameCell: HTMLElement;
         // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
         if (x.faces?.length) {
-          const b = h('button', { type: 'button', class: 'link-btn', title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, h('span', { translate: 'no' }, x.name || '—'));
+          const b = h('button', { type: 'button', class: 'link-btn', title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, fileSpan(x.name || '—'));
           b.addEventListener('click', () => (d.items?.label === label ? host.selectItems(null, label) : host.showPmiFaces(x.faces!, label)));
           nameCell = h('span', { class: 'sem-name', role: 'cell' }, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
-        } else nameCell = h('span', { role: 'cell', translate: 'no' }, x.name || '—');
-        return h(
-          'div',
-          { class: 'vgrid-row', role: 'row' },
-          h('span', { role: 'cell', title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)),
-          nameCell,
-          h('span', { class: 'mono', role: 'cell', translate: 'no', title: x.value || '' }, x.value || '—'),
-        );
+        } else (nameCell = fileSpan(x.name || '—', '', x.name || undefined)).setAttribute('role', 'cell');
+        const value = fileSpan(x.value || '—', 'mono', x.value);
+        value.setAttribute('role', 'cell');
+        return h('div', { class: 'vgrid-row', role: 'row' }, h('span', { role: 'cell', title: `${x.type} · #${x.stepId}` }, semanticLabel(x.type)), nameCell, value);
       },
       (row, i) => {
         const on = d.items?.label === labelOf(i);
@@ -144,7 +144,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
   if (views.length) {
     const list = h('div', { class: 'view-list' });
     for (const sv of views) {
-      const b = h('button', { type: 'button', class: 'btn small view-btn', title: `${sv.projection === 'perspective' ? '원근' : '평행'} · ${sv.pmiIds?.length ? `PMI ${sv.pmiIds.length}개` : 'PMI 없음'}` }, icon('views', 14), h('span', { translate: 'no' }, sv.name || `#${sv.id}`));
+      const b = h('button', { type: 'button', class: 'btn small view-btn', title: `${sv.projection === 'perspective' ? '원근' : '평행'} · ${sv.pmiIds?.length ? `PMI ${sv.pmiIds.length}개` : 'PMI 없음'}` }, icon('views', 14), fileSpan(sv.name || `#${sv.id}`));
       b.addEventListener('click', () => host.applySavedView(sv));
       list.append(b);
     }

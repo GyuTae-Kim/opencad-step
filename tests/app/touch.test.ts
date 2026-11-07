@@ -262,7 +262,7 @@ describe('레이어·PMI 표의 보이기 칸', () => {
     panel.setTab('layers');
     const lab = panel.el.querySelector<HTMLLabelElement>('tbody label.cb-hit')!;
     const cb = lab.querySelector<HTMLInputElement>('input[type=checkbox]')!;
-    expect(cb.getAttribute('aria-label')).toBe('L1 레이어 보이기');
+    expect(cb.getAttribute('aria-label')).toBe('\u{2068}L1\u{2069} 레이어 보이기');
     expect(lab.querySelector('.link-btn')).toBeNull();
     expect(lab.parentElement!.querySelector(':scope > .link-btn')!.textContent).toBe('L1');
     expect(cb.checked).toBe(true);

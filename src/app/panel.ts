@@ -6,17 +6,17 @@
  */
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
+import { fileSpan, isolateText } from './ftext';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, selectedBody, subtreeMeshIds, type PanelTab, type ProductNode, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { sceneMm } from './display';
 import { selectRow } from './dialog';
-import { warningNodes } from './warnparts';
 import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
-import { formatBytes, formatMs, fmtCount } from './format';
+import { fmtCount } from './format';
 import { edgeSummary, edgeTitle, entityHint, faceSummary, lineValue, panelMeasureHint } from './measure';
 import { snapPair } from './snap';
 import { allExpandableKeys, filterRows, nodeLabel, visibleRows } from './tree';
@@ -27,8 +27,9 @@ import { NO_LAYER } from './visibility';
 /**
  * 나무 조각(treeview.ts — 제품 나무·부품별 보이기 표의 가상 목록, 뷰어 조각에 든다): 앱이 뷰어를 만들 때 넣는다.
  * 54차: PMI 탭 본문(pmiview.ts — 표현·의미 PMI 표도 가상 목록, 고르기·보이기는 줄 표시만 고침)도 이 조각에(앱은 늘 넣는다 — 없으면 PMI 탭을 비운다)
+ * 59차: 정보 탭 본문(infoview.ts — 문서·파일 머리·단위·통계·경고)도 이 조각에(없으면 정보 탭을 비운다)
  */
-export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'> & Partial<Pick<typeof import('./pmiview'), 'pmiView'>>;
+export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'> & Partial<Pick<typeof import('./pmiview'), 'pmiView'> & Pick<typeof import('./infoview'), 'infoView'>>;
 
 /**
  * 물리 속성 계산(physics.ts — 부피·질량·무게중심·관성, 재질 표): 53차에 첫 화면 JS에서 뷰어 조각으로 옮겼다(속성 탭은 문서가 있어야 그린다).
@@ -125,9 +126,9 @@ const SEMANTIC_TYPE: Record<string, string> = {
   COMMON_DATUM: '공통 데이텀',
 };
 
-/** 간섭 한 쌍의 이름표(고른 묶음 이름과 같다): "A ↔ B" — 안에 든 쌍은 앞이 안쪽 부품 */
+/** 간섭 한 쌍의 이름표(고른 묶음 이름과 같다): "A ↔ B" — 안에 든 쌍은 앞이 안쪽 부품. 이름은 파일 글이라 방향을 가둔다(ftext.ts) */
 export function interferenceLabel(d: StepDoc, p: InterferencePair): string {
-  const name = (id: string) => meshById(d.scene, id)?.name ?? id;
+  const name = (id: string) => isolateText(meshById(d.scene, id)?.name ?? id);
   return `${name(p.a)} ↔ ${name(p.b)}`;
 }
 
@@ -141,18 +142,15 @@ export function pmiTypeLabel(type: string): string {
   return PMI_TYPE[type] ?? type;
 }
 
-const row = (k: string, v: string, title?: string): HTMLElement =>
-  h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v }, v));
-
-/** 속성 줄(파일 글은 번역하지 않는다) */
+/** 속성 줄(파일 글은 번역하지 않는다 — 59차: 방향 가둠·길이 한도도) */
 const propRow = (r: PropRow): HTMLElement =>
-  h('div', { class: 'prop-row' }, h('span', { class: 'k', translate: r.kData ? 'no' : null }, r.k), h('span', { class: 'v', title: r.v, translate: r.vData ? 'no' : null }, r.v));
+  h('div', { class: 'prop-row' }, r.kData ? fileSpan(r.k, 'k') : h('span', { class: 'k' }, r.k), r.vData ? fileSpan(r.v, 'v', r.v) : h('span', { class: 'v', title: r.v }, r.v));
 
 /** 본문을 다시 그린 뒤 초점을 돌려줄 칸 */
 const FOCUSABLE = 'button, input, select, a[href]';
 
-const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
-  h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
+const section = (title: string | (Node | string)[], ...children: (HTMLElement | null)[]): HTMLElement =>
+  h('section', { class: 'prop-group' }, h('h3', {}, ...(typeof title === 'string' ? [title] : title)), ...children.filter((c): c is HTMLElement => !!c));
 
 /**
  * 표 줄의 보이기 확인 칸을 라벨로 감싼다: 손가락 기기에서 라벨이 44×44 누르는 자리가 된다(styles.css `.cb-hit`).
@@ -540,13 +538,13 @@ export class Panel {
     else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
-      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count).map(propRow)));
+      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count, isolateText).map(propRow)));
     }
     // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만. 선 형상 몸체는 물리 속성이 없다
     const pid = selectedBody(d);
     const all = node ? subtreeMeshIds(node) : null;
     const body = pid && all && all.length > 1 && all.includes(pid) ? meshById(d.scene, pid) : undefined;
-    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, d.scene, body.id)));
+    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, d.scene, body.id, isolateText)));
     else if (pid && node?.lineIds?.includes(pid) && hasBodies(node))
       this.body.append(section('물리 속성', h('p', { class: 'hint' }, '선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.')));
     else this.body.append(this.physSection(d, all ?? (d.items ? d.items.ids : null), d.items && !node ? d.items.label : undefined));
@@ -631,7 +629,8 @@ export class Panel {
     });
     const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
     const el = section(
-      multi ? `물리 속성 · ${multi}` : ids ? '물리 속성' : '모형 전체 물리 속성',
+      // 몸체 이름·묶음 이름표 안의 파일 글은 FSI…PDI로 갇혀(ftext.ts) 번역층이 그대로 둔다 — 화면 글("몸체 2"·"부품 3개")만 옮긴다
+      multi ? [h('span', {}, '물리 속성'), ' · ', h('span', {}, multi)] : ids ? '물리 속성' : '모형 전체 물리 속성',
       ...rows,
       ...notes,
       pick,
@@ -686,14 +685,17 @@ export class Panel {
     for (const l of d.scene.lines) if (!inLayer.has(l.id)) loose.push(l.id);
     for (const p of d.scene.points ?? []) if (!inLayer.has(p.id)) loose.push(p.id);
     const tbody = h('tbody');
-    const addRow = (idx: number, name: string, title: string, ids: string[], fileHidden: boolean) => {
+    // 파일 레이어의 이름·설명은 파일 글(번역하지 않음·방향 가둠·길이 한도 — ftext.ts). "(레이어 없음)"·그 설명은 화면 글
+    const addRow = (idx: number, name: string, title: string, ids: string[], fileHidden: boolean, data = true) => {
       const on = v.layerOn(idx);
-      const cb = h('input', { type: 'checkbox', 'aria-label': `${name} 레이어 보이기` });
+      const nm = data ? isolateText(name) : name;
+      const cb = h('input', { type: 'checkbox', 'aria-label': `${nm} 레이어 보이기` });
       cb.checked = on;
       cb.addEventListener('change', () => this.host.setLayerVisible(idx, cb.checked));
-      const label = `레이어 ${name}`;
+      const label = `레이어 ${nm}`;
       const selected = d.items?.label === label;
-      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${title}${title ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, h('span', { translate: 'no' }, name));
+      const tip = data ? isolateText(title) : title;
+      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${tip}${tip ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, data ? fileSpan(name) : h('span', {}, name));
       nameBtn.addEventListener('click', (ev) => {
         if (ev.detail === 2) this.host.selectItems(ids, label, true);
         else if (ev.detail <= 1) this.host.selectItems(selected ? null : ids, label);
@@ -708,7 +710,7 @@ export class Panel {
       );
     };
     d.layers.forEach((l, i) => addRow(i, l.name, l.description, l.itemIds, !l.visible));
-    if (loose.length) addRow(NO_LAYER, '(레이어 없음)', '어느 레이어에도 들지 않은 형상', loose, false);
+    if (loose.length) addRow(NO_LAYER, '(레이어 없음)', '어느 레이어에도 들지 않은 형상', loose, false, false);
     this.body.append(
       section(
         `레이어 ${fmtCount(d.layers.length)}개`,
@@ -732,78 +734,9 @@ export class Panel {
 
   // ───────────────────────── 정보 탭 ─────────────────────────
 
+  /** 정보 탭 본문은 나무 조각(infoview.ts — 59차에 첫 화면 JS에서 옮김)이 그린다. 조각이 아직 없으면 비운다(나무·PMI 탭과 같다) */
   private renderInfo(d: StepDoc): void {
-    const s = d.scene;
-    const info = d.info;
-    const u = unitLabel(s.units);
-    const c = sceneCounts(s);
-    const b = s.bounds;
-    const docRows: HTMLElement[] = [
-      row('파일', d.name),
-      row('크기', `${formatBytes(d.size)} (${fmtCount(d.size)} 바이트)`),
-      row('형식', `STEP ${schemaSummary(info.schema)}`.trim()),
-      row('읽은 시간', formatMs(d.openMs)),
-    ];
-    if (d.source) {
-      const kinds = d.source.containers.map((k) => (k === 'zip' ? 'ZIP' : 'gzip')).join(' → ');
-      docRows.splice(2, 0, row('압축', `${kinds}${d.source.entry ? ` · ${d.source.entry}` : ''}`), row('푼 크기', `${formatBytes(d.source.size)} (압축 ${formatBytes(d.source.packedSize)})`));
-    }
-    if (b) {
-      const f = this.host.fmt;
-      docRows.push(row('범위 크기', `${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])} ${f.unit}`.trim()));
-      docRows.push(row('최소', f.pt(b.min)), row('최대', f.pt(b.max)));
-    }
-    docRows.push(row('삼각형', fmtCount(c.triangles), '놓인 자리를 모두 센 삼각형 수'));
-    this.body.append(section('문서', ...docRows));
-
-    const hd = info.header;
-    if (hd) {
-      const join = (a: string[]) => a.filter(Boolean).join(', ');
-      const r: (HTMLElement | null)[] = [
-        hd.name ? row('FILE_NAME', hd.name) : null,
-        hd.timeStamp ? row('만든 때', hd.timeStamp) : null,
-        join(hd.author) ? row('작성자', join(hd.author)) : null,
-        join(hd.organization) ? row('조직', join(hd.organization)) : null,
-        hd.preprocessorVersion ? row('전처리기', hd.preprocessorVersion) : null,
-        hd.originatingSystem ? row('만든 프로그램', hd.originatingSystem) : null,
-        hd.authorization ? row('승인', hd.authorization) : null,
-        join(hd.description) ? row('FILE_DESCRIPTION', join(hd.description)) : null,
-        hd.implementationLevel ? row('구현 수준', hd.implementationLevel) : null,
-        hd.schemas.length ? row('FILE_SCHEMA', hd.schemas.join(', ')) : null,
-      ];
-      if (r.some(Boolean)) this.body.append(section('파일 머리', ...r));
-    }
-
-    const fu = this.host.fmt;
-    this.body.append(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름'), row('표시 단위', fu.unit || '—'), row('소수 자리', String(fu.decimals))));
-
-    const st = info.stats;
-    const statRows: HTMLElement[] = [];
-    if (st) {
-      statRows.push(row('솔리드', fmtCount(st.solids)), row('면', fmtCount(st.faces)));
-      statRows.push(row('삼각화 못 한 면', fmtCount(st.failedFaces)));
-      statRows.push(row('고유 삼각형', fmtCount(st.triangles), '같은 형상을 여러 번 놓아도 한 번만 센 삼각형 수'), row('인스턴스', fmtCount(st.instances)));
-    }
-    const pmiIds = new Set(d.pmi.presentations.map((p) => p.id));
-    const curveSets = s.lines.filter((l) => !pmiIds.has(l.id)).length + (s.points?.length ?? 0);
-    if (curveSets) statRows.push(row('선 형상 묶음', fmtCount(curveSets), '와이어프레임·곡선 형상(선·점 묶음)'));
-    if (d.layers.length) statRows.push(row('레이어', fmtCount(d.layers.length)));
-    if (d.pmi.presentations.length || d.pmi.semantic.length) statRows.push(row('PMI', `표현 ${fmtCount(d.pmi.presentations.length)} · 의미 ${fmtCount(d.pmi.semantic.length)}`));
-    if (info.entityCount !== null) statRows.push(row('엔티티', fmtCount(info.entityCount)));
-    if (st) statRows.push(row('구조 읽기', formatMs(st.parseMs)), row('삼각화', formatMs(st.meshMs)), row('해석 전체', formatMs(st.totalMs)));
-    if (statRows.length) this.body.append(section('통계', ...statRows));
-
-    const warns = s.warnings ?? [];
-    if (warns.length) {
-      const LIMIT = 300;
-      this.body.append(
-        section(
-          `경고 ${fmtCount(warns.length)}개`,
-          h('ul', { class: 'warn-list' }, ...warns.slice(0, LIMIT).map((w) => h('li', {}, ...warningNodes(w)))),
-          warns.length > LIMIT ? h('p', { class: 'hint' }, `처음 ${LIMIT}개만 보입니다.`) : null,
-        ),
-      );
-    } else this.body.append(section('경고', h('p', { class: 'hint' }, '해석기 경고가 없습니다.')));
+    if (this.kit?.infoView) this.body.append(...this.kit.infoView(d, this.host.fmt));
   }
 
   // ───────────────────────── 아래 띠 ─────────────────────────
@@ -831,9 +764,10 @@ export class Panel {
       // 윤곽선(모서리) 고르기의 id는 그물 id
       const item = p.kind === 'mesh' || p.kind === 'edge' ? d.scene.meshes.find((m) => m.id === p.id) : p.kind === 'line' ? d.scene.lines.find((l) => l.id === p.id) : d.scene.points?.find((x) => x.id === p.id);
       const pm = d.pmi.presentations.find((x) => x.id === p.id);
-      const name = pm ? { name: pm.name || pmiTypeLabel(pm.type), instance: pmiTypeLabel(pm.type) } : node ? nodeLabel(node) : { name: item ? bodyTitle(d.products, d.scene, p.id) : p.id, instance: '' };
       const what = pm ? '고른 PMI ' : '고른 것 ';
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
+      // 이름·자리 이름은 파일 글(ftext.ts), PMI 종류는 화면 글
+      const name = pm ? [pm.name ? fileSpan(pm.name) : h('span', {}, pmiTypeLabel(pm.type)), h('span', { class: 'dim' }, ' · ', h('span', {}, pmiTypeLabel(pm.type)))] : node ? nodeNames(node) : [item ? h('span', {}, bodyTitle(d.products, d.scene, p.id, isolateText)) : fileSpan(p.id)];
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, what), ...name), fitBtn()));
       // 점·법선 조각을 따로 번역되게 나눈다
       const at = `${p.section ? '단면(자른 면) 위 점' : p.kind === 'edge' ? '모서리 위 점' : '점'} ${fm.pt(p.point)} ${u}`.trim();
       lines.push(h('div', { class: 'dim' }, h('span', {}, at), ...(p.normal ? [' · ', h('span', {}, `법선 ${fm.dir(p.normal)}`)] : [])));
@@ -841,14 +775,12 @@ export class Panel {
       else if (d.edge) lines.push(...edgeLines(d.edge, fm));
     } else if (d.selKey) {
       const node = productAt(d.products, d.selKey);
-      if (node) {
-        const name = nodeLabel(node);
-        lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), h('span', { translate: 'no' }, name.name), name.instance ? h('span', { class: 'dim' }, ` · ${name.instance}`) : null), fitBtn()));
-      }
+      if (node) lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), ...nodeNames(node)), fitBtn()));
     } else if (d.items) {
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), d.items.label, h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
+      // 묶음 이름표의 파일 글(레이어·PMI·간섭 쌍 이름)은 FSI…PDI로 갇혀 번역층이 틀 그대로 끼운다(ftext.ts) — 길이 한도는 이름표를 만들 때
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), h('span', {}, d.items.label), h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     } else if (d.body) {
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', { translate: 'no' }, bodyTitle(d.products, d.scene, d.body))), fitBtn()));
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', {}, bodyTitle(d.products, d.scene, d.body, isolateText))), fitBtn()));
     }
     if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
     else if (d.measure) {
@@ -860,6 +792,13 @@ export class Panel {
     f.hidden = !lines.length;
     f.append(...lines);
   }
+}
+
+/** 나무 마디 이름(파일 글)과 다르면 " · 자리 이름"(파일 글) 조각. 이름·제품 번호가 모두 없으면 "(이름 없음)"은 화면 글 */
+export function nodeNames(n: ProductNode): HTMLElement[] {
+  const l = nodeLabel(n);
+  const name = n.name || n.productId ? fileSpan(l.name) : h('span', {}, l.name);
+  return l.instance ? [name, h('span', { class: 'dim' }, ' · ', fileSpan(l.instance))] : [name];
 }
 
 /** 개체 측정 줄: 누른 개체(A·B — 이름과 주요 치수)와 결과(이름표 값), 아직이면 안내 */

@@ -123,6 +123,18 @@ input::placeholder {
 .dim {
   color: var(--text-dim);
 }
+/*
+ * 파일 글(이름·속성·PMI·레이어·보기·파일 머리 — ftext.ts)과 번역하지 않는 글: 방향을 가둔다(59차). 파일 글에 닫지 않은 방향 바꾸기(RLO 등)가 있으면
+ * 같은 줄 뒤의 화면 글(" · 자리 이름", 개수)까지 거꾸로 그려졌다. 가둔 안쪽은 글 그대로(왼쪽에서 오른쪽 바탕, 히브리어·아랍어 조각은 그대로 오른쪽에서 왼쪽)
+ */
+.ftext,
+[translate='no'],
+.tree-name,
+.doc-name,
+.busy-name,
+.iso-text {
+  unicode-bidi: isolate;
+}
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -761,6 +773,14 @@ input::placeholder {
   font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
+/* 고른 부품 카드의 이름(파일 글): 두 줄까지(59차 — 긴 이름이면 띠가 3D 보기를 덮도록 자랐다). 전체는 말풍선 */
+.mb-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
 .mb-sub {
   color: var(--text-dim);
   font-size: 12px;
@@ -1186,6 +1206,11 @@ body.resizing .viewer-host {
 table.grid {
   width: 100%;
   border-collapse: collapse;
+}
+/* 레이어 이름 칸이 남은 폭을 다 쓰고 긴 이름은 이름 단추가 말줄임(59차 — 칸이 이름 길이만큼 늘어 표가 2,000 px 넘게 패널 밖으로 나가 개수 칸이 안 보였다) */
+table.grid td:first-child {
+  width: 100%;
+  max-width: 0;
 }
 table.grid th,
 table.grid td,

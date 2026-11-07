@@ -22,12 +22,15 @@ export function nodePath(roots: readonly ProductNode[], key: string): ProductNod
   return out;
 }
 
-/** 경로 글: "조립 › 하위 조립 › 부품 · 자리 이름" */
-export function pathText(path: readonly ProductNode[]): string {
+/**
+ * 경로 글: "조립 › 하위 조립 › 부품 · 자리 이름". file은 이름 조각마다 씌울 것(59차 — 화면은 ftext.ts isolateText로 조각마다 방향을 가둔다:
+ * 한 이름의 닫지 않은 RLO가 뒤 이름들을 뒤집었다)
+ */
+export function pathText(path: readonly ProductNode[], file: (s: string) => string = (s) => s): string {
   return path
     .map((n) => {
       const l = nodeLabel(n);
-      return l.instance ? `${l.name} · ${l.instance}` : l.name;
+      return l.instance ? `${file(l.name)} · ${file(l.instance)}` : file(l.name);
     })
     .join(' › ');
 }
@@ -90,9 +93,9 @@ export interface PropRow {
 
 /**
  * 마디 속성 줄. 경로·제품 번호·설명·판·정의·재질·밀도·사용자 속성, 자리면 놓인 위치·회전.
- * count는 같은 제품이 모형에 놓인 수.
+ * count는 같은 제품이 모형에 놓인 수, file은 경로 글의 이름 조각마다 씌울 것(pathText).
  */
-export function partRows(path: readonly ProductNode[], f: Fmt, count = 1): PropRow[] {
+export function partRows(path: readonly ProductNode[], f: Fmt, count = 1, file?: (s: string) => string): PropRow[] {
   const node = path[path.length - 1];
   if (!node) return [];
   const rows: PropRow[] = [];
@@ -100,7 +103,7 @@ export function partRows(path: readonly ProductNode[], f: Fmt, count = 1): PropR
   const l = nodeLabel(node);
   data('이름', l.name);
   if (l.instance) data('자리 이름', l.instance);
-  if (path.length > 1) data('경로', pathText(path));
+  if (path.length > 1) data('경로', pathText(path, file));
   if (node.productId && node.productId !== l.name) data('제품 번호', node.productId);
   const p = node.props;
   if (p?.description) data('설명', p.description);

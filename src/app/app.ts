@@ -25,6 +25,7 @@ import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import type { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame } from './dom';
+import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
@@ -369,7 +370,8 @@ export class StepApp {
     this.hostEl = h('div', { class: 'viewer-host' });
     this.startError = h('div', { class: 'start-error', role: 'alert', hidden: true });
     this.startEl = this.buildStart();
-    this.busyName = h('div', { class: 'busy-name' });
+    // 여는 파일 이름(파일 글 — 번역하지 않음, 방향은 styles.css .busy-name이 가둔다)
+    this.busyName = h('div', { class: 'busy-name', translate: 'no' });
     // 화면 읽기 프로그램에는 단계가 바뀔 때만 알린다(53차 — 전에는 진행 카드 전체가 status라 백분율이 바뀔 때마다 파일 이름·백분율·"취소"까지 다시 읽었다.
     // 진행률은 progressbar의 aria-valuenow로 물어볼 수 있다)
     this.busyStage = h('div', { class: 'busy-stage', role: 'status' });
@@ -579,9 +581,11 @@ export class StepApp {
    */
   async openFile(file: File, remember = true): Promise<boolean> {
     const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
+    // 알림 글 속 파일 이름은 방향을 가두고 번역층이 건드리지 않게(ftext.ts)
+    const fname = isolateText(file.name);
     if (isStepXmlName(file.name)) {
       attempt.error('unsupported');
-      this.showError([`${file.name}:`, STEP_XML_MESSAGE]);
+      this.showError([`${fname}:`, STEP_XML_MESSAGE]);
       return false;
     }
     if (!isStepName(file.name)) {
@@ -589,20 +593,20 @@ export class StepApp {
       try {
         head = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
       } catch (e) {
-        this.showError([`${file.name}: 파일을 읽지 못했습니다.`, friendlyError(errorText(e))]);
+        this.showError([`${fname}: 파일을 읽지 못했습니다.`, friendlyError(errorText(e))]);
         attempt.error('read_error');
         return false;
       }
       const kind = sniffContainer(head);
       if (kind === 'xml') {
         attempt.error('unsupported');
-        this.showError([`${file.name}:`, isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.']);
+        this.showError([`${fname}:`, isStepXml(head) ? STEP_XML_MESSAGE : 'XML 파일입니다. STEP Part 21(.stp·.step) 파일만 열 수 있습니다.']);
         return false;
       }
       if (kind !== 'step' && kind !== 'gzip' && kind !== 'zip') {
         attempt.error('unsupported');
         const sn = sniffStep(head);
-        this.showError([`${file.name}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다.`, ...(sn.ok ? [] : [sn.reason])]);
+        this.showError([`${fname}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다.`, ...(sn.ok ? [] : [sn.reason])]);
         return false;
       }
     }
@@ -638,10 +642,10 @@ export class StepApp {
   }
 
   private recentRow(r: RecentEntry, now: number, locale: string): HTMLElement {
-    // 파일 이름은 번역하지 않는다
-    const open = h('button', { type: 'button', class: 'recent-open' }, h('span', { class: 'recent-name', translate: 'no' }, r.name), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
+    // 파일 이름은 번역하지 않는다(방향 가둠·길이 한도 — ftext.ts)
+    const open = h('button', { type: 'button', class: 'recent-open' }, fileSpan(r.name, 'recent-name'), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
     open.addEventListener('click', () => void this.openRecent(r));
-    const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${r.name}` });
+    const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${isolateText(r.name)}` });
     del.append(icon('close', 16));
     del.addEventListener('click', () => void this.recent.remove(r.id).then(() => this.refreshRecent()));
     return h('li', { class: 'recent-row' }, open, del);
@@ -783,7 +787,7 @@ export class StepApp {
       this.lastError = null;
       this.updateAll();
       // 다 열었음을 화면 읽기 프로그램에 알린다(53차 — 단계 알림 뒤 끝을 알리지 않았다. 문장 하나라 번역 사전의 "{0}을(를) 열었습니다."로 옮긴다)
-      this.sayEl.replaceChildren(`${name}을(를) 열었습니다.`);
+      this.sayEl.replaceChildren(`${isolateText(name)}을(를) 열었습니다.`);
       this.startProps(doc);
       // 끊긴 파일·조립 자리 상한·그 밖의 경고 알림(뷰어 조각의 opennotice.ts — 58차에 앱 입구에서 옮김)
       const note = this.ent!.openNotice(res.scene.warnings ?? []);
@@ -796,7 +800,7 @@ export class StepApp {
       attempt.error(reading ? (input === 'url' ? 'fetch_error' : 'read_error') : 'parse_error');
       // 조각마다 따로 번역되게(파일 이름은 그대로) 문장 단위로 나눠 보인다
       const detail = (e as { detail?: string } | null)?.detail;
-      this.showError([`${name}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])]);
+      this.showError([`${isolateText(name)}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])]);
       return false;
     } finally {
       if (seq === this.loadSeq) {
@@ -847,8 +851,12 @@ export class StepApp {
     this.tweakTool?.cancel();
     // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다. 몫은 그물 수에 맞춘다(뷰어 조각의 upload.ts — 프레임마다
     // 올린 그물을 다시 그리므로 고정 8 ms면 그물 수의 제곱으로 늘었다. 뷰어를 만들며 조각을 받았다)
+    // 59차: 앞 두 걸음은 8 ms로 올려 첫 그림을 57차만큼 빨리 보이고 그다음부터 그물 수에 맞춘 몫(stepBudgetMs). setScene에는 그물 수에 맞춘 몫(58차)을 주고
+    // 곧바로 첫 몫으로 바꾼다 — 코어가 바뀌어 몫을 못 바꾸면 58차 그대로 간다
     const { triangles: tris, budgetMs } = this.ent!.sceneUpload(doc.scene.meshes);
     this.upload = null;
+    const n = doc.scene.meshes.length;
+    let step = 0;
     v.setScene(doc.scene, {
       keepView: !!carry,
       ...(budgetMs
@@ -856,11 +864,13 @@ export class StepApp {
             incremental: { budgetMs },
             onProgress: (done: number, total: number) => {
               this.upload = done < total ? done / Math.max(1, total) : null;
+              if (step && done < total) this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(step++, n));
               this.updateStatus();
             },
           }
         : {}),
     });
+    if (budgetMs && this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(0, n))) step = 1;
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.lookSync.clear();
@@ -887,7 +897,7 @@ export class StepApp {
     this.syncIsolate();
     this.panel.show(doc);
     this.panel.setOpen(this.panelOpen);
-    document.title = `${doc.name} - OpenCAD STEP 뷰어`;
+    document.title = `${isolateText(doc.name)} - OpenCAD STEP 뷰어`;
     // 문서가 있을 때만 쓰는 작은 조각(내보내기·보기 링크 고른 것)을 미리 받아 둔다 — 눌렀을 때 기다리지 않게(공유 시트·클립보드)
     void Promise.all([import('./export'), import('./selink'), this.loadExplode()]).catch(() => {});
     if (carry) {
@@ -2869,7 +2879,7 @@ export class StepApp {
       // 문서를 연 채 놓은 JSON은 분해 손질 파일로 받는다
       if (f && this.doc && /\.json$/i.test(f.name)) return void this.dropTweaks(f);
       if (f) void this.openFile(f);
-      if (files.length > 1) this.toast(`한 번에 파일 하나만 엽니다 — ${f?.name ?? ''}을(를) 엽니다.`);
+      if (files.length > 1) this.toast(`한 번에 파일 하나만 엽니다 — ${isolateText(f?.name ?? '')}을(를) 엽니다.`);
     });
     // 시스템 테마가 바뀌면(사용자가 고르지 않았을 때만) 따라간다
     this.systemDark?.addEventListener('change', () => {
@@ -2969,7 +2979,7 @@ export class StepApp {
     this.loading = l;
     this.busyEl.hidden = !l;
     if (l) {
-      this.busyName.textContent = l.name;
+      this.busyName.textContent = clipText(l.name);
       // Keep stage messages separate from punctuation so every progress stage
       // uses its catalog entry, including worker-provided stage names.
       // 알림 칸이므로 단계가 바뀔 때만 바꾼다(진행할 때마다 같은 글을 다시 넣으면 다시 읽는다)
@@ -3020,8 +3030,8 @@ export class StepApp {
     if (fromStart) this.viewer?.canvas.focus({ preventScroll: true });
     this.startError.hidden = !this.lastError || !!d;
     this.startError.replaceChildren(...(this.lastError ? this.lastErrorParts.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : []));
-    this.docNameEl.textContent = d ? d.name : '';
-    this.docNameEl.title = d ? d.name : '';
+    this.docNameEl.textContent = d ? clipText(d.name) : '';
+    this.docNameEl.title = d ? clipText(d.name) : '';
     if (!d) document.title = APP_TITLE;
     this.toolbar.refresh();
     this.panel.setOpen(this.panelOpen);
@@ -3032,24 +3042,26 @@ export class StepApp {
     const d = this.doc;
     this.statusDoc.innerHTML = '';
     if (this.loading) {
-      this.statusDoc.append(h('span', {}, `${this.loading.name} 여는 중… ${fmtPercent(this.loading.fraction)}`));
+      this.statusDoc.append(h('span', {}, `${isolateText(this.loading.name)} 여는 중… ${fmtPercent(this.loading.fraction)}`));
     } else if (d) {
       if (this.upload !== null) this.statusDoc.append(h('span', {}, `화면에 올리는 중 ${fmtPercent(this.upload)}`));
       for (const it of docStatus(d)) this.statusDoc.append(h('span', { title: it.title ?? null }, it.text));
     } else {
       this.statusDoc.append(h('span', {}, 'STEP 파일을 열거나 끌어다 놓으세요'));
     }
-    const sel = d ? this.selectionText(d) : '';
-    const detail = d && sel ? this.selectionDetail(d) : [];
+    const sel = d ? this.selectionText(d) : [];
+    const detail = d && sel.length ? this.selectionDetail(d) : [];
     const sp = d?.measure ? snapPair(d.measure) : null;
     // 측정 방향 잠금 안내는 따로 둔다(번역이 안내 글을 한 덩어리로 찾게)
     const lock = this.measureLockHint();
     this.statusSel.replaceChildren(
-      sel,
+      ...sel,
       ...detail.flatMap((x) => [' · ', h('span', {}, x)]),
       ...(sp ? [' · ', h('span', {}, sp[0]), ' → ', h('span', {}, sp[1])] : []),
       ...(lock ? [' · ', h('span', { class: 'st-lock' }, lock)] : []),
     );
+    // 좁은 막대에서 말줄임된 고른 것 이름을 말풍선으로(59차 — 말풍선이 없어 긴 이름을 볼 수 없었다)
+    this.statusSel.title = this.statusSel.textContent ?? '';
     this.refreshBar();
   }
 
@@ -3128,8 +3140,9 @@ export class StepApp {
     } else if (mode === 'face') t.append(h('span', { class: 'mb-hint' }, faceHint(this.touch)));
     else if (mode === 'multi' && !selectionItemIds(d).length) t.append(h('span', { class: 'mb-hint' }, multiHint(this.bodyPick)));
     else {
-      // 부품 이름은 파일 글이라 번역하지 않는다
-      t.append(h('b', { class: 'mb-value', 'data-i18n-skip': '' }, this.selectionName(d)));
+      // 부품 이름은 파일 글이라 FSI…PDI로 가둬(selectionName) 번역층이 그대로 두고 화면 글("몸체 2"·"부품 3개")만 옮긴다. 휴대폰 띠는 두 줄까지(말풍선에 전체)
+      const nm = this.selectionName(d);
+      t.append(h('b', { class: 'mb-value mb-name', title: nm }, nm));
       const size = selectionSize(d.scene, selectionItemIds(d));
       if (mode === 'multi') t.append(h('span', { class: 'mb-sub' }, multiHint(this.bodyPick)));
       // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
@@ -3167,36 +3180,37 @@ export class StepApp {
     t.append(h('span', { class: p ? 'mb-sub' : 'mb-hint' }, entityHint(picks.length, this.touch)));
   }
 
-  /** 고른 것의 이름(고른 부품 카드 제목) */
+  /**
+   * 고른 것의 이름(고른 부품 카드 제목·격리 띠). 59차: 이름·자리 이름은 파일 글이라 FSI…PDI로 가둔다(ftext.ts — 닫지 않은 RLO가 " · 자리 이름"을 뒤집고,
+   * 사전 열쇠와 같은 이름을 번역층이 바꿨다). 묶음 이름표는 만들 때 가뒀다
+   */
   private selectionName(d: StepDoc): string {
     const node = d.selKey ? productAt(d.products, d.selKey) : null;
     if (node) {
       const n = nodeLabel(node);
-      return `${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
+      return `${node.name || node.productId ? isolateText(n.name) : n.name}${n.instance ? ` · ${isolateText(n.instance)}` : ''}`;
     }
     const id = d.pick?.id ?? d.body;
-    if (id) return bodyTitle(d.products, d.scene, id);
+    if (id) return bodyTitle(d.products, d.scene, id, isolateText);
     return d.items?.label ?? '';
   }
 
-  /** 상태 막대 오른쪽: 거리·측정 안내 또는 고른 것(이름) — 고른 면·모서리는 조각마다 따로 번역되게 덧붙인다 */
-  private selectionText(d: StepDoc): string {
+  /**
+   * 상태 막대 오른쪽: 거리·측정 안내 또는 고른 것(이름) — 고른 면·모서리는 조각마다 따로 번역되게 덧붙인다.
+   * 묶음(레이어·PMI·간섭 쌍·여러 개)의 이름표는 화면 글("레이어"·"부품 3개")을 품어 "고른 것"과 따로 옮긴다(틀이 이름표를 통째로 잡아 "레이어"가 남았다)
+   */
+  private selectionText(d: StepDoc): (Node | string)[] {
     const fm = this.fmt;
-    if (d.measure) return `거리 ${fm.len(d.measure.distance)}`.trim();
-    if (this.entMeasuring) return '개체 측정';
-    if (this.measuring) return '측정: 두 점을 누르십시오';
-    const node = d.selKey ? productAt(d.products, d.selKey) : null;
-    if (node) {
-      const n = nodeLabel(node);
-      return `고른 것: ${n.name}${n.instance ? ` · ${n.instance}` : ''}`;
-    }
+    if (d.measure) return [`거리 ${fm.len(d.measure.distance)}`.trim()];
+    if (this.entMeasuring) return ['개체 측정'];
+    if (this.measuring) return ['측정: 두 점을 누르십시오'];
+    if (d.selKey && productAt(d.products, d.selKey)) return [`고른 것: ${this.selectionName(d)}`];
     if (d.pick) {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
-      if (pm) return `고른 PMI: ${pm.name || pmiTypeLabel(pm.type)}`;
+      if (pm) return [`고른 PMI: ${pm.name ? isolateText(pm.name) : pmiTypeLabel(pm.type)}`];
     }
-    if (d.items) return `고른 것: ${d.items.label}`;
-    if (d.pick || d.body) return `고른 것: ${this.selectionName(d)}`;
-    return '';
+    if (d.items) return [h('span', {}, '고른 것'), ': ', h('span', {}, d.items.label)];
+    return d.pick || d.body ? [`고른 것: ${this.selectionName(d)}`] : [];
   }
 
   /** 고른 면·모서리 조각(종류 이름, 치수) — 측정 중이 아닐 때만 */
