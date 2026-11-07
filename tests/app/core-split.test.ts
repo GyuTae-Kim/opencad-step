@@ -84,7 +84,10 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './keynav', './physics', './trackdir', './treeview', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './keynav', './physics', './pmiview', './trackdir', './treeview', 'opencad-viewer3d']);
+    // PMI 탭 본문(54차 — pmiview.ts, 표현·의미 PMI 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져온다
+    expect(files.has(join(ROOT, 'src/app/pmiview.ts'))).toBe(false);
+    expect(dynamic.some((d) => d.spec.endsWith('pmiview'))).toBe(false);
     // 키보드 길잡이(53차 — keynav.ts, 패널 탭·라디오·도구 막대 화살표와 띠를 닫을 때 초점)와 물리 속성 계산(physics.ts — 속성 탭, 53차에 옮김)도 그 조각에만
     for (const m of ['src/app/keynav.ts', 'src/app/physics.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('keynav') || d.spec.endsWith('physics'))).toBe(false);
@@ -160,6 +163,7 @@ describe('코어 나눠 받기', () => {
     const tv = await import('../../src/app/treeview');
     expect(m.treeView).toBe(tv.treeView);
     expect(m.groupGrid).toBe(tv.groupGrid);
+    expect(m.pmiView).toBe((await import('../../src/app/pmiview')).pmiView);
     // 같은 조각의 키보드 길잡이와 물리 속성 계산(앱이 뷰어를 만들 때 달고 패널에 넣는다)
     expect(m.installKeyNav).toBe((await import('../../src/app/keynav')).installKeyNav);
     const phys = await import('../../src/app/physics');

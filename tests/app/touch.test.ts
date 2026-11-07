@@ -11,6 +11,8 @@ import { createDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
+import { groupGrid, treeView } from '../../src/app/treeview';
+import { pmiView } from '../../src/app/pmiview';
 
 // TOUCH_CSS: 다른 판의 스타일시트로 같은 시험을 돌려 볼 때(앞 판에서 실패하는지 확인용)
 const css = readFileSync(process.env.TOUCH_CSS || join(__dirname, '../../src/app/styles.css'), 'utf8');
@@ -236,6 +238,8 @@ describe('레이어·PMI 표의 보이기 칸', () => {
     const meta = { products: [], layers: [{ name: 'L1', meshIds: ['m1'] }], pmi: { presentations: [{ id: 'p1', name: '치수 1', type: 'annotation_curve_occurrence', stepId: 9 }] } };
     const d = createDoc('l.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
     const panel = new Panel(host);
+    // PMI 탭 본문은 나무 조각(54차 — pmiview.ts 가상 목록)이 그린다: 앱처럼 넣는다
+    panel.kit = { treeView, groupGrid, pmiView };
     document.body.append(panel.el);
     panel.show(d);
     panel.setOpen(true);
@@ -250,7 +254,8 @@ describe('레이어·PMI 표의 보이기 칸', () => {
     expect(cb.checked).toBe(false);
     expect(calls).toContain('layer 0 false');
     panel.setTab('pmi');
-    const plab = panel.el.querySelector<HTMLLabelElement>('tbody label.cb-hit')!;
+    const plab = panel.el.querySelector<HTMLLabelElement>('.pmi-grid label.cb-hit')!;
+    expect(plab.querySelector('.link-btn')).toBeNull();
     plab.click();
     expect(calls).toContain('pmi p1 false');
   });
