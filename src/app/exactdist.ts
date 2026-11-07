@@ -16,7 +16,7 @@ import type { Mesh3d } from 'opencad-viewer3d/types';
 import { nearestParam } from '../edgecurve';
 import type { StepFaceTable } from '../scene';
 import { edgeArc, toLocal, toWorld } from './curvesnap';
-import { certifyConcave } from './exactbound';
+import { certifySteps, drain, type Now, sliced } from './exactbound';
 import { faceAt, faceDetails } from './faces';
 import { insideFace, PARAMETRIC_KINDS, type FaceSurface, type FaceSurfaceLookup, type SnapFaceIndex } from './facesnap';
 import type { SnapEdgeIndex } from './snap';
@@ -602,7 +602,7 @@ function partFaceGeos(mesh: Mesh3d, s: ExactScene, p: readonly number[]): ExactG
  * "부품 사이 최소 거리"(두 그물 삼각형 답 r — 코어 closestPoints)를 두 점이 놓인 면의 정확한 정의로(받지 못하면 null).
  * 점이 면 사이 모서리 위라 면이 둘 이상이면 짝마다 다듬어 가장 가까운 것.
  * 45차: 다듬은 자리가 삼각형 값보다 먼 정류점(오목한 면 — 구멍 안 축 등)이면 그것이 두 부품의 전역 최소라는 것을 exactbound.ts로 보이면 받는다
- * (보이는 데 boundMs까지 — 못 보이면 그대로 버린다)
+ * (보이는 데 boundMs까지 — 못 보이면 그대로 버린다). 한 번에 끝까지 돈다(46차 앱은 partsLater — 받기를 시간 조각으로)
  */
 export function exactParts(
   idA: string,
@@ -614,6 +614,22 @@ export function exactParts(
   trace: ((why: string) => void) | null = null,
   boundMs = 150,
 ): ExactClosest | null {
+  const p = partsFirst(idA, idB, r, s, size, ms, trace);
+  return p.far ? drain(certifyFar(p.far, r, s, size, boundMs, trace, clock)) : p.best;
+}
+
+type Far = [ExactGeo, ExactGeo, ExactClosest][];
+
+/** exactParts 앞부분(다듬기 — ms 한도): 답이 정해졌으면 best, 더 먼 정류점뿐이면 받기를 기다리는 그것들(far — 가까운 것부터) */
+function partsFirst(
+  idA: string,
+  idB: string,
+  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  s: ExactScene,
+  size: number,
+  ms: number,
+  trace: ((why: string) => void) | null,
+): { best: ExactClosest | null; far?: Far } {
   const end = clock() + ms;
   const ma = s.meshes.get(idA);
   const mb = s.meshes.get(idB);
@@ -621,30 +637,41 @@ export function exactParts(
   const Bs = mb && clock() < end ? partFaceGeos(mb, s, r.b) : [];
   if (!As.length || !Bs.length) trace?.(`no geo ${As.length} ${Bs.length}`);
   let best: ExactClosest | null = null;
-  const far: [ExactGeo, ExactGeo, ExactClosest][] = [];
+  const far: Far = [];
   for (const A of As)
     for (const B of Bs) {
-      if (clock() > end) return best;
+      if (clock() > end) return { best };
       const e = refineClosest(A, B, r, size, end, trace, true);
       if (e?.farther) far.push([A, B, e]);
       else if (e && (!best || e.distance < best.distance)) best = e;
     }
   if (best || !far.length) {
     for (const [, , e] of far) trace?.(`farther ${e.distance} > ${r.distance}`);
-    return best;
+    return { best };
   }
-  // 더 먼 정류점뿐: 가까운 것부터 전역 최소인지 본다
   far.sort((x, y) => x[2].distance - y[2].distance);
-  const until = clock() + boundMs;
+  return { best: null, far };
+}
+
+/** 더 먼 정류점뿐: 가까운 것부터 전역 최소인지 본다(exactbound.ts certifySteps — boundMs는 now로 잰 한도) */
+function* certifyFar(
+  far: Far,
+  r: { distance: number },
+  s: ExactScene,
+  size: number,
+  boundMs: number,
+  trace: ((why: string) => void) | null,
+  now: Now,
+): Generator<void, ExactClosest | null, void> {
+  const until = now() + boundMs;
   for (const [A, B, e] of far) {
-    const ok =
-      !!A.src &&
-      !!B.src &&
-      !!s.faces &&
-      ([
+    let ok = false;
+    if (A.src && B.src && s.faces)
+      for (const [inner, outer] of [
         [A.src, B.src],
         [B.src, A.src],
-      ] as const).some(([inner, outer]) => certifyConcave({ inner, outer, distance: e.distance }, s.faces!, s.edges, size, until, trace));
+      ] as const)
+        if ((ok = yield* certifySteps({ inner, outer, distance: e.distance }, s.faces, s.edges, size, until, trace, now))) break;
     if (ok) {
       delete e.farther;
       return e;
@@ -653,6 +680,113 @@ export function exactParts(
   }
   return null;
 }
+
+/**
+ * exactParts와 같은 답이되 오목한 자리 받기(certifyFar)는 시간 조각(exactbound.ts sliced — sliceMs 남짓씩)으로(46차).
+ * 받기가 필요 없으면 { best }, 있으면 { run }(run.done이 답 — 첫 조각은 부른 자리에서 돈다)
+ */
+export function exactPartsSliced(
+  idA: string,
+  idB: string,
+  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  s: ExactScene,
+  size: number,
+  ms = 30,
+  trace: ((why: string) => void) | null = null,
+  boundMs = 150,
+  sliceMs = 8,
+): { best: ExactClosest | null; run?: ReturnType<typeof sliced<ExactClosest | null>> } {
+  const p = partsFirst(idA, idB, r, s, size, ms, trace);
+  const far = p.far;
+  return far ? { best: null, run: sliced((now) => certifyFar(far, r, s, size, boundMs, trace, now), sliceMs) } : p;
+}
+
+/**
+ * 앱의 "부품 사이 최소 거리" 다듬기(46차): exactParts와 같은 답이되, 오목한 자리 받기(certifyFar)는 시간 조각(exactPartsSliced)으로 돌린다.
+ * holder.ent가 앱의 측정 짝(key)이다. 받기를 기다리는 동안은 null(삼각형 값 "≈")을 돌려주고, 받았을 때 holder.ent가 그 짝 그대로면 later()를 부른다 —
+ * 앱이 다시 재면(같은 짝·같은 r) 그 답을 돌려준다. 기다리는 동안 같은 짝을 다시 재려 했으면(곡면 정의를 받음 등) 받지 못해도 later()를 불러
+ * 그때 처음부터 다시 잰다(받지 못한 답은 기억하지 않는다 — 45차처럼). 다른 짝·r로 부르면 앞 받기는 그만둔다. 한 번에 하나만 기억한다(개체 측정은 한 번에 한 짝)
+ */
+export function partsLater(
+  holder: { readonly ent: object },
+  idA: string,
+  idB: string,
+  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  s: ExactScene,
+  size: number,
+  later: () => void,
+): ExactClosest | null {
+  const key = holder.ent;
+  const id = `${idA}\n${idB}\n${r.distance}\n${r.a.join()}\n${r.b.join()}`;
+  const j = job;
+  if (j?.key === key && j.id === id) {
+    if (j.run) return (j.again = true), null;
+    if (j.result) return j.result;
+  }
+  j?.run?.cancel();
+  job = null;
+  const p = exactPartsSliced(idA, idB, r, s, size);
+  if (!p.run) return p.best;
+  const mine: PartsJob = { key, id, run: p.run };
+  job = mine;
+  p.run.done.then(
+    (e) => {
+      if (job !== mine) return;
+      mine.result = e;
+      delete mine.run;
+      if ((e || mine.again) && holder.ent === key) later();
+    },
+    () => delete mine.run,
+  );
+  return null;
+}
+
+/**
+ * 앱 개체 측정(entpick measurePicked)의 다듬기 선택: 고른 두 개체 최소 거리는 exactPicked, 부품 사이 최소 거리는 partsLater(받으면 later — 앱이 다시 잰다).
+ * d는 앱 문서(장면 그물·면 표·모서리 표, ent — 지금 측정 짝), size는 장면 크기, surfaces는 면 표에 식이 없는 곡면 정의(받기 전이면 undefined를 돌려줌).
+ * 46차 — 이 선택을 앱(첫 화면 JS)에서 이 조각으로 옮겼다
+ */
+export function entRefine(
+  d: { readonly ent: object; readonly scene: { readonly meshes: readonly Mesh3d[] }; readonly faces: SnapFaceIndex | null; readonly edges: SnapEdgeIndex | null },
+  size: number,
+  surfaces: FaceSurfaceLookup | null,
+  later: () => void,
+  v: { closestPoints(idA: string, idB: string): Closest | null },
+): {
+  parts: (idA: string, idB: string) => Closest | null;
+  refine: (a: ExactPick, b: ExactPick, c: Closest) => ExactClosest | null;
+  refineParts: (idA: string, idB: string, r: Closest) => ExactClosest | null;
+} {
+  const s: ExactScene = { meshes: new Map(d.scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces };
+  return {
+    // 부품 사이 삼각형 답(코어 closestPoints)은 같은 측정 짝·같은 두 부품이면 앞 답을 다시 쓴다 — 받은 뒤 다시 잴 때 코어 계산을 되풀이하지 않게
+    // (측정 짝은 분해·새 개체 누르기·지우기에서 새것이 된다)
+    parts: (x, y) => {
+      const m = lastParts;
+      if (m?.ent === d.ent && m.x === x && m.y === y) return m.r;
+      const r = v.closestPoints(x, y);
+      lastParts = { ent: d.ent, x, y, r };
+      return r;
+    },
+    refine: (a, b, c) => exactPicked(a, b, c, s, size),
+    refineParts: (x, y, r) => partsLater(d, x, y, r, s, size, later),
+  };
+}
+
+/** 최소 거리 답(두 점 — 세계, 거리) */
+type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
+/** entRefine parts가 기억하는 앞 답(측정 짝 하나) */
+let lastParts: { ent: object; x: string; y: string; r: Closest | null } | null = null;
+
+/** partsLater가 기억하는 받기 하나(key — 앱의 측정 짝, id — 두 부품·삼각형 답, again — 기다리는 동안 다시 재려 했음) */
+interface PartsJob {
+  key: object;
+  id: string;
+  run?: ReturnType<typeof sliced<ExactClosest | null>>;
+  result?: ExactClosest | null;
+  again?: boolean;
+}
+let job: PartsJob | null = null;
 
 /**
  * 그물 좌표 점 p에 가장 가까운 삼각형들의 면 번호(가장 가까운 거리에서 허용치 안 — 모서리·꼭짓점 위 점이면 그 둘레 면들, 면 표 — 못 찾으면 빈 목록, 넷까지)

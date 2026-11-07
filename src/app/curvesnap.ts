@@ -18,12 +18,14 @@
  * - 그 밖의 종류(코어가 뒤에 더할 것)는 null
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
  * - 앱이 주는 접점(43차 — pointsFor, 첫 점을 찍은 뒤): 첫 점에서 그은 직선이 곡선에 접하는 점(curveTangents — 원·타원은 닫힌 식, B-스플라인은 매개변수 뉴턴)
+ * - 앱이 주는 곡선–면 교차점(46차 — pointsFor): 고른 모서리 곡선이 다른 면을 뚫는 점(edgecross.ts — 개체 측정 최소 거리의 뉴턴 길을 다시 쓴다)
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
  */
 import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment, Viewer3d } from 'opencad-viewer3d';
 import type { Mesh3d, SnapPoint } from 'opencad-viewer3d/types';
 import { arcCuts, arcMidParam, bsplineBreaks, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
+import { edgeCrossings } from './edgecross';
 import { edgeAt } from './edges';
 import { type FaceSurfaceLookup, refineFaceHit, type SnapFaceIndex } from './facesnap';
 import type { CurveSnap, SnapEdgeIndex } from './snap';
@@ -1097,15 +1099,20 @@ export function refineSnap(c: SnapRefineInput, meshes: ReadonlyMap<string, Mesh3
 /**
  * 장면의 곡선 붙잡기(코어 refine과 앱 곡선 가운데 점, 면 표 faces가 있으면 0.19.0 refineFace — 축이 곡면을 뚫는 점, facesnap.ts).
  * surfaces는 면 표에 식이 없는 곡면(B-스플라인 등)의 정의(해석 워커에서 받은 것 — 없으면 그런 면은 삼각형 위 점 그대로).
+ * 고른 모서리에 더하는 앱 점(more)은 첫 점이 있으면 곡선 모서리의 접점, 그 뒤 모서리와 면 표가 모두 있으면 곡선–면 교차점(46차 — edgecross.ts, 모서리마다 기억).
  * 모서리 표도 면 표도 없으면 null
  */
 export function curveSnap(meshes: readonly Mesh3d[], ex: SnapEdgeIndex | null, faces: SnapFaceIndex | null = null, surfaces: FaceSurfaceLookup | null = null): CurveSnap | null {
   if (!ex && !faces) return null;
   const byId = new Map(meshes.map((m) => [m.id, m] as const));
+  const cross = ex && faces ? edgeCrossings(meshes, ex, faces, surfaces) : null;
   return {
     refine: (c) => (ex ? refineSnap(c, byId, ex) : null),
     mid: (mesh, table, e) => (ex ? curveMidpoint(mesh, table, e, ex.kinds) : null),
-    tangents: (mesh, table, e, first, known) => (ex ? tangentSnapPoints(mesh, table, e, ex.kinds, first, known) : []),
+    more: (mesh, table, e, first, known) => {
+      const t = ex && first && ex.kinds[table.kinds[e]!] !== 'line' ? tangentSnapPoints(mesh, table, e, ex.kinds, first, known) : [];
+      return cross ? [...t, ...cross(mesh, table, e, [...known, ...t])] : t;
+    },
     ...(faces ? { refineFace: (c: SnapRefineFaceInput) => refineFaceHit(c, byId, faces, surfaces) } : {}),
   };
 }

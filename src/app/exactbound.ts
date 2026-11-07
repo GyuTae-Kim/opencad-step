@@ -24,6 +24,11 @@
  *   B-스플라인·회전·밀기 곡면은 곡면 처짐 상한을 세우지 못해 무한대 — 그런 면은 ①~③으로 갈리지 않으면 받지 않는다(삼각형 값 "≈" 그대로)
  * 이웃 면은 경계 현(그 면 삼각형에서 한 번만 쓰인 변)의 두 끝 좌표(float32 그대로)가 같은 다른 면, 현의 모서리는 그물 윤곽선 토막(같은 좌표)으로 찾는다.
  * 시간 한도를 넘으면 받지 않는다.
+ *
+ * 46차 — 시간 조각: 받기는 측정할 때 한 번 150 ms까지 돌아 화면(주 스레드)을 그만큼 멈췄다. 그물·면 표·모서리 표는 화면 쪽에만 있다(해석 워커는 결과를
+ * 옮겨 보내 그물을 들고 있지 않다 — 워커로 옮기면 두 부품 그물·면 표·모서리 곡선을 잴 때마다 다시 보내거나 워커가 사본을 들어야 한다). 그래서 같은 계산을
+ * 생성기(certifySteps — 일 사이사이 yield)로 두고, 앱은 sliced로 8 ms 남짓씩 돌리며 그 사이 화면을 그린다(먼저 "≈" 값을 보이고 받으면 바꾼다).
+ * 한도는 쉰 틈을 뺀 시계로 보므로 한 번에 돌린 것(certifyConcave)과 같은 일·같은 답이다.
  */
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import type { BsplineDef } from '../edgecurve';
@@ -199,11 +204,18 @@ function spanAbout(o: V3, a: V3, p: V3[]): number {
   return m;
 }
 
+/** 시계(ms): 동기로 돌면 performance.now, 시간 조각으로 나눠 돌면 쉰 틈을 뺀 시계(sliced) */
+export type Now = () => number;
+const clock: Now = () => performance.now();
+
+/** 이만큼 일할 때마다 한 번 쉴 틈을 준다(조각 운전기가 시간을 본다 — 결과에는 상관없다) */
+const TICK = 1024;
+
 /**
  * 부품 자료 만들기(면 표·모서리 표가 있는 그물). 면 표가 모든 삼각형을 덮지 않거나 자리 변환이 균등 배율이 아니면 null.
- * 처짐은 머리글 규칙대로(모르면 무한대)
+ * 처짐은 머리글 규칙대로(모르면 무한대). 46차: 일 사이사이 쉴 틈(yield)을 주는 생성기 — 한도는 now로 본다
  */
-function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, deadline: number): PartData | null {
+function* partSteps(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, deadline: number, now: Now): Generator<void, PartData | null, void> {
   const ti = fx.tableOf.get(mesh.id);
   const table: StepFaceTable | undefined = ti === undefined ? undefined : fx.tables[ti];
   const k = uniformScale(mesh);
@@ -221,6 +233,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
     W[i * 3 + 1] = w[1];
     W[i * 3 + 2] = w[2];
     big = Math.max(big, Math.abs(P[i * 3]!), Math.abs(P[i * 3 + 1]!), Math.abs(P[i * 3 + 2]!));
+    if (i % TICK === TICK - 1) yield;
   }
   // float32 꼭짓점은 참 꼭짓점에서 반올림만큼(상대 2⁻²⁴) — 세계로 배율
   const round = 2 * big * 2 ** -24 * k * Math.sqrt(3);
@@ -232,14 +245,16 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
     const c = seen.get(key);
     if (c === undefined) seen.set(key, (canon[i] = i));
     else canon[i] = c;
+    if (i % TICK === TICK - 1) yield;
   }
-  if (performance.now() > deadline) return null;
+  if (now() > deadline) return null;
   const ekey = (a: number, b: number) => (canon[a]! < canon[b]! ? canon[a]! * nv + canon[b]! : canon[b]! * nv + canon[a]!);
   // 모서리 표: 윤곽선 토막 → (모서리, 꺾은선 안 토막 번호)
   const segEdge = new Map<number, [number, number]>();
   const eti = ex?.tableOf.get(mesh.id);
   const etab = eti === undefined ? undefined : ex!.tables[eti];
   const E = mesh.edges;
+  let work = 0;
   if (etab && E) {
     const vid = (o: number): number => seen.get(`${E[o]},${E[o + 1]},${E[o + 2]}`) ?? -1;
     for (let e = 0; e + 1 < etab.segStart.length; e++)
@@ -247,6 +262,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
         const a = vid(s * 6);
         const b = vid(s * 6 + 3);
         if (a >= 0 && b >= 0 && a !== b) segEdge.set(ekey(a, b), [e, s - etab.segStart[e]!]);
+        if (++work % TICK === 0) yield;
       }
   }
   const misses: Record<string, number> = {};
@@ -291,7 +307,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
     const count = new Map<number, [number, number, number]>();
     const lo: V3 = [Infinity, Infinity, Infinity];
     const hi: V3 = [-Infinity, -Infinity, -Infinity];
-    for (let t = t0; t < t1; t++)
+    for (let t = t0; t < t1; t++) {
       for (let c = 0; c < 3; c++) {
         const a = I[t * 3 + c]!;
         const b = I[t * 3 + ((c + 1) % 3)]!;
@@ -303,6 +319,8 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
           hi[q] = Math.max(hi[q]!, W[a * 3 + q]!);
         }
       }
+      if (++work % TICK === 0) yield;
+    }
     const chords: FaceData['chords'] = [];
     for (const [kk, [a, b, n]] of count)
       if (n === 1) {
@@ -313,6 +331,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
         const o = owner.get(kk);
         if (o) o.push(f);
         else owner.set(kk, [f]);
+        if (++work % TICK === 0) yield;
       }
     const kind = fx.kinds[table.kinds[f]!] ?? '';
     const p = table.params.subarray(f * 8, f * 8 + 8);
@@ -327,7 +346,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
       }
     }
     faces.push(fd);
-    if (performance.now() > deadline) return null;
+    if (now() > deadline) return null;
   }
   // 이웃 면
   for (const fd of faces)
@@ -335,6 +354,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
       const o = owner.get(ekey(c.a, c.b));
       const nb = o?.find((g) => g !== fd.f);
       if (nb !== undefined) c.nb = nb;
+      if (++work % TICK === 0) yield;
     }
   // 처짐
   const v = (i: number): V3 => [W[i * 3]!, W[i * 3 + 1]!, W[i * 3 + 2]!];
@@ -351,9 +371,11 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
           best = l;
           fd.n = unit(n)!;
         }
+        if (++work % TICK === 0) yield;
       }
     } else if (fd.ax && fd.org && (fd.kind === 'cylinder' || fd.kind === 'cone' || fd.kind === 'torus' || fd.kind === 'sphere')) {
       for (let t = fd.t0; t < fd.t1 && surf < Infinity; t++) {
+        if (++work % TICK === 0) yield;
         const tri = [v(I[t * 3]!), v(I[t * 3 + 1]!), v(I[t * 3 + 2]!)];
         if (fd.kind === 'sphere') {
           const n = unit(cross(sub(tri[1]!, tri[0]!), sub(tri[2]!, tri[0]!)));
@@ -395,6 +417,7 @@ function partData(mesh: Mesh3d, fx: SnapFaceIndex, ex: SnapEdgeIndex | null, dea
     fd.sag = (fd.kind === 'plane' ? edge : 2 * surf + edge) + round;
     fd.es = edge + round;
     fd.cbox = faceBox(fd);
+    if (++work % TICK === 0) yield;
   }
   return { mesh, W, faces, round, misses };
 
@@ -533,7 +556,7 @@ export interface ConcaveCandidate {
 
 /**
  * 오목한 자리 받기(머리글 규칙): 두 부품 사이 최소 거리가 정말 candidate.distance인지. 두 면이 H에 나란한 오목한 짝이고 모든 면 짝이 그보다 가깝지 않음을
- * 보이면 true. size는 장면 크기(허용치 기준), deadline은 performance.now() 한도
+ * 보이면 true. size는 장면 크기(허용치 기준), deadline은 performance.now() 한도(한 번에 끝까지 — certifySteps를 쉬지 않고 돌린다)
  */
 export function certifyConcave(
   cand: ConcaveCandidate,
@@ -543,6 +566,87 @@ export function certifyConcave(
   deadline: number,
   trace: ((why: string) => void) | null = null,
 ): boolean {
+  return drain(certifySteps(cand, fx, ex, size, deadline, trace, clock));
+}
+
+/** 생성기를 쉬지 않고 끝까지 돌린 값 */
+export function drain<T>(g: Generator<void, T, void>): T {
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
+}
+
+/**
+ * 시간 조각(46차): 생성기(make — 쉬는 틈마다 yield, 한도는 받은 시계 now로 본다)를 sliceMs 남짓씩 돌리고 setTimeout으로 이어 간다(화면이 그 사이에 그린다).
+ * now는 쉰 틈(조각 사이)을 뺀 시계라, 한도가 같으면 한 번에 돌린 것(drain)과 같은 일·같은 답이다. cancel()하면 그만두고 done은 끝나지 않는다.
+ * stats: 조각 수, 가장 긴 조각(ms), 일한 시간(ms — 쉰 틈 뺌). tick은 바탕 시계(시험이 바꾼다)
+ */
+export function sliced<T>(
+  make: (now: Now) => Generator<void, T, void>,
+  sliceMs = 8,
+  tick: Now = clock,
+): { done: Promise<T>; cancel(): void; stats: { slices: number; longest: number; busy: number } } {
+  let paused = 0;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stats = { slices: 0, longest: 0, busy: 0 };
+  const now: Now = () => tick() - paused;
+  const done = new Promise<T>((resolve, reject) => {
+    let g: Generator<void, T, void> | null = null;
+    let last = -1;
+    const step = () => {
+      if (stopped) return;
+      const t0 = tick();
+      if (last >= 0) paused += t0 - last;
+      try {
+        g ??= make(now);
+        for (;;) {
+          const r = g.next();
+          if (r.done) {
+            note(t0);
+            resolve(r.value);
+            return;
+          }
+          if (tick() - t0 >= sliceMs) break;
+        }
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      last = note(t0);
+      timer = setTimeout(step, 0);
+    };
+    step();
+  });
+  /** 조각 끝: 잰 값을 남기고 끝 시각 */
+  function note(t0: number): number {
+    const t1 = tick();
+    stats.slices++;
+    stats.longest = Math.max(stats.longest, t1 - t0);
+    stats.busy += t1 - t0;
+    return t1;
+  }
+  return {
+    done,
+    cancel() {
+      stopped = true;
+      clearTimeout(timer);
+    },
+    stats,
+  };
+}
+
+/** certifyConcave를 쉴 틈(yield)을 주며 — now는 한도를 보는 시계 */
+export function* certifySteps(
+  cand: ConcaveCandidate,
+  fx: SnapFaceIndex,
+  ex: SnapEdgeIndex | null,
+  size: number,
+  deadline: number,
+  trace: ((why: string) => void) | null,
+  now: Now,
+): Generator<void, boolean, void> {
   const no = (why: string): false => (trace?.(`concave: ${why}`), false);
   // 부품 자료를 만들기 전에 두 면 종류부터(바깥쪽은 H를 감쌀 수 있는 원기둥·원뿔·원환, 안쪽은 그것과 구)
   const kindOf = (m: Mesh3d, f: number) => {
@@ -553,8 +657,8 @@ export function certifyConcave(
   const ko = kindOf(cand.outer.mesh, cand.outer.face);
   const ki = kindOf(cand.inner.mesh, cand.inner.face);
   if (!/^(cylinder|cone|torus)$/.test(ko) || !/^(cylinder|cone|torus|sphere)$/.test(ki)) return no('kinds');
-  const pi = partData(cand.inner.mesh, fx, ex, deadline);
-  const po = pi ? partData(cand.outer.mesh, fx, ex, deadline) : null;
+  const pi = yield* partSteps(cand.inner.mesh, fx, ex, deadline, now);
+  const po = pi ? yield* partSteps(cand.outer.mesh, fx, ex, deadline, now) : null;
   if (!pi || !po) return no('part');
   if (trace)
     for (const [nm, p] of [
@@ -584,14 +688,19 @@ export function certifyConcave(
   if (!(rin < rout) || Math.abs(rout - rin - cand.distance) > tol) return no(`gap ${rout - rin} vs ${cand.distance}`);
   // 면마다 안(K_in)·밖(K_out)
   const v = (p: PartData, i: number): V3 => [p.W[i * 3]!, p.W[i * 3 + 1]!, p.W[i * 3 + 2]!];
-  const isIn = pi.faces.map((fd) => {
+  let work = 0;
+  const isIn: boolean[] = [];
+  for (const fd of pi.faces) {
     const r = closedRange(fd, H, pi.W, Ii);
-    if (r) return r[1] <= rin + tol;
-    if (fd.kind === 'plane' || !Number.isFinite(fd.sag)) return false;
     let m = 0;
-    for (let t = fd.t0; t < fd.t1; t++) for (let c = 0; c < 3; c++) m = Math.max(m, rho(H, v(pi, Ii[t * 3 + c]!)));
-    return m + fd.sag <= rin + tol;
-  });
+    if (!r && fd.kind !== 'plane' && Number.isFinite(fd.sag))
+      for (let t = fd.t0; t < fd.t1; t++) {
+        for (let c = 0; c < 3; c++) m = Math.max(m, rho(H, v(pi, Ii[t * 3 + c]!)));
+        if (++work % TICK === 0) yield;
+      }
+    isIn.push(r ? r[1] <= rin + tol : fd.kind === 'plane' || !Number.isFinite(fd.sag) ? false : m + fd.sag <= rin + tol);
+    if (++work % TICK === 0) yield;
+  }
   // 평면: 경계 현마다 참 모서리가 K_in 안이면 면도 안(되풀이 — 이웃 평면이 안으로 바뀌면 다시 본다)
   for (let changed = true; changed; ) {
     changed = false;
@@ -599,37 +708,52 @@ export function certifyConcave(
       if (isIn[fd.f] || fd.kind !== 'plane' || !fd.chords.length) continue;
       const ok = fd.chords.every((c) => (c.nb >= 0 && isIn[c.nb]) || Math.max(rho(H, v(pi, c.a)), rho(H, v(pi, c.b))) + c.sag + pi.round <= rin + tol);
       if (ok) changed = isIn[fd.f] = true;
+      if ((work += fd.chords.length) >= TICK) {
+        work = 0;
+        yield;
+      }
     }
-    if (performance.now() > deadline) return no('time');
+    if (now() > deadline) return no('time');
   }
-  const isOut = po.faces.map((fd) => {
+  const isOut: boolean[] = [];
+  for (const fd of po.faces) {
     const r = closedRange(fd, H, po.W, Io);
-    if (r) return r[0] >= rout - tol;
-    if (fd.kind === 'plane' || !Number.isFinite(fd.sag)) return false;
     let m = Infinity;
-    for (let t = fd.t0; t < fd.t1; t++) m = Math.min(m, triRho(H, v(po, Io[t * 3]!), v(po, Io[t * 3 + 1]!), v(po, Io[t * 3 + 2]!)));
-    return m - fd.sag >= rout - tol;
-  });
+    if (!r && fd.kind !== 'plane' && Number.isFinite(fd.sag))
+      for (let t = fd.t0; t < fd.t1; t++) {
+        m = Math.min(m, triRho(H, v(po, Io[t * 3]!), v(po, Io[t * 3 + 1]!), v(po, Io[t * 3 + 2]!)));
+        if (++work % TICK === 0) yield;
+      }
+    isOut.push(r ? r[0] >= rout - tol : fd.kind === 'plane' || !Number.isFinite(fd.sag) ? false : m - fd.sag >= rout - tol);
+    if (++work % TICK === 0) yield;
+  }
   // 평면: H와 만나는 점 p가 면 밖이고 경계가 모두 K_out 안이면 면도 밖
-  const pOut = (fd: FaceData): boolean => {
+  function* pOut(fd: FaceData): Generator<void, boolean, void> {
     const n = fd.n;
     if (!n || Math.abs(dot(n, H.a)) < 1e-6) return false;
-    const q = v(po, Io[fd.t0 * 3]!);
+    const q = v(po!, Io[fd.t0 * 3]!);
     const p: V3 = (() => {
       const s = dot(sub(q, H.o), n) / dot(H.a, n);
       return [H.o[0] + H.a[0] * s, H.o[1] + H.a[1] * s, H.o[2] + H.a[2] * s];
     })();
-    for (let t = fd.t0; t < fd.t1; t++) if (pointTri(p, v(po, Io[t * 3]!), v(po, Io[t * 3 + 1]!), v(po, Io[t * 3 + 2]!)) <= po.round + tol) return false;
-    return fd.chords.every((c) => segDist(p, v(po, c.a), v(po, c.b)) > c.sag + po.round + tol);
-  };
+    for (let t = fd.t0; t < fd.t1; t++) {
+      if (pointTri(p, v(po!, Io[t * 3]!), v(po!, Io[t * 3 + 1]!), v(po!, Io[t * 3 + 2]!)) <= po!.round + tol) return false;
+      if (++work % TICK === 0) yield;
+    }
+    return fd.chords.every((c) => segDist(p, v(po!, c.a), v(po!, c.b)) > c.sag + po!.round + tol);
+  }
   for (let changed = true; changed; ) {
     changed = false;
     for (const fd of po.faces) {
       if (isOut[fd.f] || fd.kind !== 'plane' || !fd.chords.length) continue;
       const ok = fd.chords.every((c) => (c.nb >= 0 && isOut[c.nb]) || segRho(H, v(po, c.a), v(po, c.b)) - c.sag - po.round >= rout - tol);
-      if (ok && pOut(fd)) changed = isOut[fd.f] = true;
+      if (ok && (yield* pOut(fd))) changed = isOut[fd.f] = true;
+      if ((work += fd.chords.length) >= TICK) {
+        work = 0;
+        yield;
+      }
     }
-    if (performance.now() > deadline) return no('time');
+    if (now() > deadline) return no('time');
   }
   // 나머지 면 짝: 삼각형 사이 최소 거리 − 두 처짐
   const d = cand.distance;
@@ -683,13 +807,20 @@ export function certifyConcave(
   };
   for (const a of pi.faces) {
     // 안쪽 면(안)과 바깥쪽 면(밖)은 이미 갈렸다 — 안이면 밖이 아닌 바깥쪽 면만
-    for (const b of po.faces) if (!(isIn[a.f] && isOut[b.f]) && !pairOk(a, b)) return no(trace ? why(a, b) : 'pair');
-    if (performance.now() > deadline) return no('time');
+    for (const b of po.faces) {
+      if (!(isIn[a.f] && isOut[b.f]) && !(yield* pairOk(a, b))) return no(trace ? why(a, b) : 'pair');
+      // 짝 하나는 상자·범위 몇 개(평면 법선 쪽 범위는 두 면 삼각형을 훑는다)
+      if ((work += 8 + (a.n || b.n ? a.t1 - a.t0 + b.t1 - b.t0 : 0)) >= TICK) {
+        work = 0;
+        yield;
+      }
+    }
+    if (now() > deadline) return no('time');
   }
   trace?.(`concave: ok ${tested} triangle pairs`);
   return true;
 
-  function pairOk(a: FaceData, b: FaceData): boolean {
+  function* pairOk(a: FaceData, b: FaceData): Generator<void, boolean, void> {
     // 참 면을 품는 두 상자가 후보보다 멀면 된다(처짐을 모르는 면도)
     if (a.cbox && b.cbox && boxesGap(a.cbox, b.cbox) >= d - tol) return true;
     // H 둘레 원통 좌표: 두 면의 ρ 범위 사이 틈과 축 방향 범위 사이 틈 — |x − y|² ≥ Δh² + Δρ²
@@ -720,7 +851,8 @@ export function certifyConcave(
     let k = 0;
     for (const x of ta)
       for (const y of tb) {
-        if (++k % 4096 === 0 && performance.now() > deadline) return false;
+        if (++k % 4096 === 0 && now() > deadline) return false;
+        if (k % 512 === 0) yield;
         if (boxesGap(x.box, y.box) >= need) continue;
         const dd = triTri(x.p, y.p);
         if (dd < need) {

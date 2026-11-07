@@ -45,10 +45,11 @@ export interface CurveSnap {
   /** 모서리 e의 곡선 길이 가운데 점(세계, 곡선 정의가 없으면 null — 그때는 꺾은선 길이 가운데 점) */
   mid(mesh: Mesh3d, table: StepEdgeTable, e: number): [number, number, number] | null;
   /**
-   * 43차: 측정 첫 점(first.point — 세계)에서 모서리 e 곡선에 그은 접선의 접점 붙잡기 점(kind 'point', 차례 값 first.order — curvesnap.ts tangentSnapPoints).
-   * known(그 모서리의 끝점·가운데 점·중심)과 겹치는 접점은 뺀다. 곡선 정의가 없으면 빈 목록
+   * 모서리 e에 더하는 앱 점(이 차례로 — known(그 모서리의 끝점·가운데 점·중심)과 겹치는 점은 뺀다):
+   * 43차 접점 — first(측정 첫 점 — 세계, 그 세대 차례 값)가 있고 곡선 모서리면 첫 점에서 그은 접선의 접점(kind 'point', 차례 값 first.order — curvesnap.ts tangentSnapPoints),
+   * 46차 곡선–면 교차점 — 그 모서리 곡선이 다른 면(곡면 포함)을 뚫는 점(kind 'intersection' — edgecross.ts, 면 표가 있을 때만)
    */
-  tangents?(mesh: Mesh3d, table: StepEdgeTable, e: number, first: { point: readonly number[]; order: number }, known: readonly SnapPoint[]): SnapPoint[];
+  more?(mesh: Mesh3d, table: StepEdgeTable, e: number, first: { point: readonly number[]; order: number } | null, known: readonly SnapPoint[]): SnapPoint[];
   /** 코어 0.19.0 refineFace: 축이 면을 뚫는 점 → 축 직선과 그 B-rep 곡면의 교점(facesnap.ts — 면 표가 있을 때만, 평면·모르면 null) */
   refineFace?(c: SnapRefineFaceInput): readonly number[] | null;
 }
@@ -119,7 +120,8 @@ export interface TangentFirst {
  * 한 바퀴 원은 끝점·가운데 점이 따로 없어(이음 꼭짓점 하나) 중심만. 윤곽선이 아니거나 표가 없으면 null.
  * curve가 있으면 곡선 모서리의 가운데 점은 곡선 정의로 잰 곡선 위 점(없거나 못 구하면 꺾은선 길이로 잰 점).
  * first(측정 첫 점과 그 세대 차례 값 — 43차)가 있고 곡선 모서리면 첫 점에서 그은 접선의 접점(kind 'point', 이름 "접점")을 끝에 더한다 —
- * 끝점·가운데 점과 겹치는 접점은 빼서(그 점 붙잡기가 맡는다) 예전 점의 차례와 결과가 그대로다
+ * 끝점·가운데 점과 겹치는 접점은 빼서(그 점 붙잡기가 맡는다) 예전 점의 차례와 결과가 그대로다.
+ * 46차: 그 뒤에 그 모서리 곡선이 다른 면을 뚫는 점(kind 'intersection', 이름 "교차점" — curve.more, edgecross.ts)도 더한다(앞 점들과 겹치는 것은 뺀다)
  */
 export function edgeSnapPoints(
   pick: Pick3d,
@@ -143,7 +145,7 @@ export function edgeSnapPoints(
     out.push({ point: (d.kind !== 'line' && curve?.mid(mesh, table, e)) || d.mid, kind: 'midpoint', id: mesh.id });
   }
   if (d.center) out.push({ point: d.center, kind: 'center', id: mesh.id });
-  if (first && d.kind !== 'line' && curve?.tangents) out.push(...curve.tangents(mesh, table, e, first, out));
+  if (curve?.more) out.push(...curve.more(mesh, table, e, first, out));
   return out;
 }
 
@@ -185,7 +187,7 @@ export function measureSnapOptions(
     pointsFor: (p) => {
       if (p.kind !== 'edge') return null;
       // 접점은 첫 점과 그 세대로 정해진다(같은 모서리를 이어 가리키는 동안은 한 번만 구한다)
-      const F = curve?.tangents ? (first?.point() ?? null) : null;
+      const F = curve?.more ? (first?.point() ?? null) : null;
       const key = `${p.id}:${p.raw ?? p.index}${F ? `:${first!.order}:${F.join(',')}` : ''}`;
       if (key !== lastKey) {
         lastKey = key;

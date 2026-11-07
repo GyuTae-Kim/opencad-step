@@ -3,14 +3,16 @@
 // - 판 구멍(반지름 2)을 지나는 축(반지름 1.5): 같은 축이면 0.5, 0.3 비킨 축이면 0.2 — 구멍 둘레 윗면·아랫면(구멍 고리)과 축 옆면이 테두리에서 같은 거리로 닿아도
 // - 구멍 안에 든 짧은 축(끝 평면 둘이 구멍 안): 0.5
 // - 받지 않는 것: 막힌 구멍 바닥이 축 끝 평면에서 0.495(구멍 벽 0.5보다 가깝다 — 참 최소는 0.495), 기운 축(나란하지 않음), 시간 한도
-import { describe, expect, it } from 'vitest';
+// 46차 — 시간 조각(sliced): 받기를 조각으로 나눠 돌려도 한 번에 돈 것과 같은 답, 쉰 틈은 한도 시계에서 빠짐, 그만두기,
+// 앱의 partsLater(먼저 null — "≈", 받으면 later() 뒤 같은 짝에 그 답)
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildBvh } from 'opencad-viewer3d/bvh';
 import { closestBetween, type ClosestShape } from 'opencad-viewer3d/closest';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { stepToSceneDeferred } from '../../src/scene';
 import { createDoc } from '../../src/app/doc';
-import { exactParts, type ExactScene } from '../../src/app/exactdist';
-import { bsplineCtrlFor, rho, segRho } from '../../src/app/exactbound';
+import { entRefine, exactParts, exactPartsSliced, partsLater, type ExactScene } from '../../src/app/exactdist';
+import { bsplineCtrlFor, rho, segRho, sliced } from '../../src/app/exactbound';
 import { sampleStepBytes } from '../../src/app/sample';
 import { cylinder, plateWithHole, r, StepText, type P3 } from '../stepText';
 
@@ -104,6 +106,24 @@ function measure(c: ReturnType<typeof assembly>, boundMs = 2000) {
   return { tri, ex, why };
 }
 
+/** 예제 조립의 다듬기 자료와 이름으로 그물 찾기 */
+function sampleScene() {
+  const bytes = sampleStepBytes();
+  const { scene } = stepToSceneDeferred(bytes);
+  const d = createDoc('sample.stp', bytes.length, { scene, ms: 0 } as never);
+  const s: ExactScene = { meshes: new Map(scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces: null };
+  const meshOf = (name: string): Mesh3d => {
+    let id: string | undefined;
+    const walk = (n: (typeof d.products)[number]) => {
+      if (n.name === name && n.meshIds.length) id ??= n.meshIds[0];
+      n.children.forEach(walk);
+    };
+    d.products.forEach(walk);
+    return scene.meshes.find((m) => m.id === id)!;
+  };
+  return { s, meshOf };
+}
+
 describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { timeout: 30_000 }, () => {
   it('축과 선분의 거리(ρ): 점·선분(가장 가까운 자리가 안쪽·끝)', () => {
     const H = { o: [0, 0, 0] as V3, a: [0, 0, 1] as V3 };
@@ -126,19 +146,7 @@ describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { time
   });
 
   it('예제 조립: 받침판 구멍(반지름 2)의 핀(반지름 1.6)은 0.4, 핀을 두른 고리(원환 — 안쪽 반지름 2.1)는 0.5', () => {
-    const bytes = sampleStepBytes();
-    const { scene } = stepToSceneDeferred(bytes);
-    const d = createDoc('sample.stp', bytes.length, { scene, ms: 0 } as never);
-    const s: ExactScene = { meshes: new Map(scene.meshes.map((m) => [m.id, m])), faces: d.faces, edges: d.edges, surfaces: null };
-    const meshOf = (name: string): Mesh3d => {
-      let id: string | undefined;
-      const walk = (n: (typeof d.products)[number]) => {
-        if (n.name === name && n.meshIds.length) id ??= n.meshIds[0];
-        n.children.forEach(walk);
-      };
-      d.products.forEach(walk);
-      return scene.meshes.find((m) => m.id === id)!;
-    };
+    const { s, meshOf } = sampleScene();
     const pin = meshOf('핀');
     for (const [name, want] of [
       ['받침판', 0.4],
@@ -150,6 +158,133 @@ describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { time
       const ex = exactParts(pin.id, other.id, tri, s, 30, 1000, null, 2000);
       expect(Math.abs(ex!.distance - want), name).toBeLessThan(1e-9);
     }
+  });
+
+  describe('시간 조각(46차)', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('예제의 두 오목한 짝을 아주 짧은 조각(0 ms — 쉴 틈마다)으로 나눠 돌려도 한 번에 돈 것과 같은 두 점·값', async () => {
+      const { s, meshOf } = sampleScene();
+      const pin = meshOf('핀');
+      for (const name of ['받침판', '고리']) {
+        const other = meshOf(name);
+        const tri = closestBetween(partShape(pin), partShape(other))!;
+        const once = exactParts(pin.id, other.id, tri, s, 30, 1000, null, 5000)!;
+        const p = exactPartsSliced(pin.id, other.id, tri, s, 30, 1000, null, 5000, 0);
+        expect(p.run, name).toBeDefined();
+        const e = (await p.run!.done)!;
+        expect([e.distance, ...e.a, ...e.b], name).toEqual([once.distance, ...once.a, ...once.b]);
+        // 쉴 틈마다 조각을 끊었다(첫 조각만 부른 자리에서 — 예제 부품은 작아 쉴 틈이 몇 번뿐)
+        expect(p.run!.stats.slices, name).toBeGreaterThan(1);
+      }
+    });
+
+    it('쉰 틈(조각 사이)은 한도 시계에서 빠진다 — 한 걸음 2 ms, 조각 4 ms, 조각 사이 1초여도 한도 9 ms 안에 다섯 걸음', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let t = 0;
+      const steps: number[] = [];
+      const run = sliced(
+        function* (now) {
+          const end = now() + 9;
+          let n = 0;
+          while (now() <= end) {
+            steps.push(now());
+            t += 2;
+            n++;
+            yield;
+          }
+          return n;
+        },
+        4,
+        () => t,
+      );
+      // 첫 조각은 부른 자리에서 두 걸음
+      expect(steps).toEqual([0, 2]);
+      for (let k = 0; k < 5; k++) {
+        t += 1000;
+        vi.runOnlyPendingTimers();
+      }
+      expect(await run.done).toBe(5);
+      expect(steps).toEqual([0, 2, 4, 6, 8]);
+      expect(run.stats).toEqual({ slices: 3, longest: 4, busy: 10 });
+    });
+
+    it('그만두면 더 돌지 않는다', () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let t = 0;
+      let n = 0;
+      const run = sliced(
+        function* () {
+          for (;;) {
+            n++;
+            t += 5;
+            yield;
+          }
+        },
+        4,
+        () => t,
+      );
+      expect(n).toBe(1);
+      vi.runOnlyPendingTimers();
+      expect(n).toBe(2);
+      run.cancel();
+      vi.runAllTimers();
+      expect(n).toBe(2);
+    });
+
+    it('앱의 partsLater: 받기가 끝나기 전에는 null("≈"), 받으면 later() — 같은 짝을 다시 재면 그 답, 다른 짝으로 부르면 앞 받기는 그만둔다', async () => {
+      const { s, meshOf } = sampleScene();
+      const pin = meshOf('핀');
+      const plate = meshOf('받침판');
+      const ring = meshOf('고리');
+      const triP = closestBetween(partShape(pin), partShape(plate))!;
+      const triR = closestBetween(partShape(pin), partShape(ring))!;
+      // 앱 문서처럼 ent가 지금 측정 짝
+      const doc = { ent: {} };
+      const later = vi.fn();
+      expect(partsLater(doc, pin.id, plate.id, triP, s, 30, later)).toBeNull();
+      await vi.waitFor(() => expect(later).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
+      expect(Math.abs(partsLater(doc, pin.id, plate.id, triP, s, 30, later)!.distance - 0.4)).toBeLessThan(1e-9);
+      // 다른 짝(같은 측정 짝이라도 삼각형 답이 다르면)은 새로 — 받기 전 null
+      const later2 = vi.fn();
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later2)).toBeNull();
+      await vi.waitFor(() => expect(later2).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
+      expect(Math.abs(partsLater(doc, pin.id, ring.id, triR, s, 30, later2)!.distance - 0.5)).toBeLessThan(1e-9);
+      // 새 측정 짝은 같은 부품이어도 새로 받는다. 그 받기가 끝나기 전에 또 다른 짝을 부르면 앞 받기는 later를 부르지 않는다
+      const later3 = vi.fn();
+      doc.ent = {};
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later3)).toBeNull();
+      const later4 = vi.fn();
+      const other = { ent: {} };
+      partsLater(other, pin.id, plate.id, triP, s, 30, later4);
+      await vi.waitFor(() => expect(later4).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
+      expect(later3).not.toHaveBeenCalled();
+      // 앱이 받는 다듬기 선택(entRefine): refineParts는 partsLater와 같고, parts(코어 closestPoints)는 같은 측정 짝·같은 두 부품이면 앞 답을 다시 쓴다
+      const app = { ent: {}, scene: { meshes: [...s.meshes.values()] }, faces: s.faces, edges: s.edges };
+      const later6 = vi.fn();
+      const core = { closestPoints: vi.fn(() => triP) };
+      const R = entRefine(app, 30, null, later6, core);
+      expect(R.parts(pin.id, plate.id)).toBe(triP);
+      expect(R.refineParts(pin.id, plate.id, triP)).toBeNull();
+      await vi.waitFor(() => expect(later6).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
+      const R2 = entRefine(app, 30, null, later6, core);
+      expect(R2.parts(pin.id, plate.id)).toBe(triP);
+      expect(core.closestPoints).toHaveBeenCalledTimes(1);
+      expect(Math.abs(R2.refineParts(pin.id, plate.id, triP)!.distance - 0.4)).toBeLessThan(1e-9);
+      // 다른 두 부품·새 측정 짝이면 다시 잰다
+      R2.parts(pin.id, ring.id);
+      expect(core.closestPoints).toHaveBeenCalledTimes(2);
+      app.ent = {};
+      R2.parts(pin.id, ring.id);
+      expect(core.closestPoints).toHaveBeenCalledTimes(3);
+      // 받았을 때 그 문서의 측정 짝이 바뀌었으면(셋째 개체를 누름 등) later를 부르지 않는다
+      const later5 = vi.fn();
+      doc.ent = {};
+      expect(partsLater(doc, pin.id, ring.id, triR, s, 30, later5)).toBeNull();
+      doc.ent = {};
+      await new Promise((r) => setTimeout(r, 300));
+      expect(later5).not.toHaveBeenCalled();
+    });
   });
 
   it('판 구멍(반지름 2)을 지나는 축(반지름 1.5): 삼각형 값은 0.5보다 작고, 받으면 0.5 — 구멍 둘레 평면과 축 옆면이 테두리에서 닿는 짝도 갈린다', () => {
