@@ -145,7 +145,7 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
   it('옮기기를 켜고 마우스로 끌면 고르고 손질해, 끈 점이 커서 아래에 온다 — 코어는 돌지 않고, 최근 문서 항목에 남긴다', async () => {
     tool.move(true);
     expect(log).toEqual(['redraw', 'toast 부품을 끌어 분해 자리를 옮깁니다 — 빈 곳을 끌면 돌려 봅니다.']);
-    expect(tool.state(doc, 'free')).toEqual({ on: true, count: 0, undo: false, redo: false, any: false });
+    expect(tool.state(doc, 'free')).toEqual({ on: true, snapOff: false, count: 0, undo: false, redo: false, any: false });
     const s = projectToScreen(frame, shownB())!;
     const p0 = shownB();
     const c0 = coreCam();

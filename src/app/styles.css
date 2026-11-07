@@ -996,6 +996,9 @@ body.resizing .viewer-host {
   padding: 0 8px 0 calc(6px + var(--depth, 0) * 16px);
   cursor: pointer;
   white-space: nowrap;
+  /* 화면 밖 줄은 모양·배치·그리기를 건너뛴다(큰 조립 나무 3,000줄). 줄 높이가 정해져 있어 스크롤 길이는 같다 */
+  content-visibility: auto;
+  contain-intrinsic-height: auto 28px;
 }
 .tree-row:hover {
   background: var(--bg-hover);
@@ -1509,6 +1512,7 @@ table.grid td.mono {
 @media (pointer: coarse) {
   .tree-row {
     min-height: 36px;
+    contain-intrinsic-height: auto 36px;
   }
   .twisty,
   .eye {

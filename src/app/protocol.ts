@@ -95,10 +95,18 @@ export interface ParseSource {
 }
 
 /**
+ * 해석 워커가 화면으로 옮기는(이전) 버퍼 수 한도. Chrome은 이전 목록이 길면 보내는 쪽 postMessage 시간이 개수의 제곱으로 는다
+ * (작은 버퍼 3.5만 개 0.23초, 7만 개 0.88초, 14만 개 3.4초 — 48차 측정, 이전 없이 복사하면 0.01~0.04초).
+ * 부품이 수천 개인 조립은 그물·면 표·모서리 표마다 작은 형식 배열이라 수만 개가 된다 — 큰 것부터 이만큼만 옮기고 나머지는 복사한다
+ */
+export const TRANSFER_MAX = 4096;
+
+/**
  * 값 안의 모든 ArrayBuffer(형식 배열의 버퍼 포함)를 한 번씩 모은다 — postMessage 이전 목록.
  * 일반 객체·배열·Map·Set을 따라 들어가고, 같은 객체는 한 번만 본다. SharedArrayBuffer와 빈 버퍼는 넣지 않는다.
+ * max보다 많으면 큰 버퍼부터 max개만(나머지는 postMessage가 복사한다 — 구조적 복제는 복사한 버퍼의 공유도 지킨다)
  */
-export function collectTransfers(value: unknown): ArrayBuffer[] {
+export function collectTransfers(value: unknown, max = Infinity): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
   const seen = new Set<object>();
   const stack: unknown[] = [value];
@@ -133,7 +141,8 @@ export function collectTransfers(value: unknown): ArrayBuffer[] {
     }
     for (const x of Object.values(v)) if (x !== null && typeof x === 'object') stack.push(x);
   }
-  return [...out];
+  const all = [...out];
+  return all.length > max ? all.sort((a, b) => b.byteLength - a.byteLength).slice(0, max) : all;
 }
 
 /** 장면에 그릴 것이 있는지(그물·선분·점) */

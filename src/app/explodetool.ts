@@ -30,6 +30,7 @@
  * 붙은 동안 두 면 경계를 안내 선으로 강조하고(코어 setHighlightSegments — 떼거나 풀리면 거둔다. Alt로 고른 면·모서리 강조가 있으면 덮지 않게 그리지 않는다)
  * 거리 글 아래 줄에 "면에 닿음"·"면과 같은 높이"를 적는다.
  * Alt(⌥)를 누르고 있는 동안은 붙잡지 않는다(Rhino의 "끄는 동안 Alt를 누르고 있으면 개체 스냅을 잠시 끈다"와 같은 글쇠 — 누르고 떼면 그 자리에서 바로 다시 본다).
+ * 48차: 분해 막대의 "붙잡기" 단추(snap)로 끄면 끌 때마다 붙잡지 않는다(이 창 동안 — 손가락 기기도). 끄는 중에 다른 손가락으로 눌러도 그 자리에서 다시 본다.
  * 쳐 넣은 거리는 붙잡지 않고 그 거리 그대로다.
  */
 import type { Pick3d, Viewer3d } from 'opencad-viewer3d';
@@ -182,6 +183,8 @@ export class ExplodeTweakTool implements TweakHandlers {
   private g: (DragRec & { p0: number[]; touch: boolean; snap: SnapIndex | null; hit: SnapHit | null; at: [number, number] | null; guided: Viewer3d | null }) | null = null;
   /** 끄는 동안 Alt(⌥)를 누르고 있는지(47차 — 붙잡지 않기) */
   private alt = false;
+  /** 막대의 붙잡기 단추로 껐는지(48차 — 손가락 기기도 끌 수 있게, 이 창 동안) */
+  snapOff = false;
   /** 끄는 동안 Alt 글쇠 듣기 떼기 */
   private unkeys: (() => void) | null = null;
   /** 막 끈 끌기(43차 — 쳐 넣은 거리로 고칠 수 있는 것): 그 끌기의 되돌리기 단계 표지(ExplodeTweaks.lastStep) */
@@ -236,7 +239,15 @@ export class ExplodeTweakTool implements TweakHandlers {
   state(d: StepDoc | null, axis: ExplodeAxis): TweakState {
     const t = d?.tweaks;
     const dist = this.distState();
-    return { on: this.on, count: t?.count(axis) ?? 0, undo: !!t?.canUndo(axis), redo: !!t?.canRedo(axis), any: !!t?.axes().length, ...(dist ? { dist } : {}) };
+    return { on: this.on, snapOff: this.snapOff, count: t?.count(axis) ?? 0, undo: !!t?.canUndo(axis), redo: !!t?.canRedo(axis), any: !!t?.axes().length, ...(dist ? { dist } : {}) };
+  }
+
+  /** 붙잡기 켜고 끄기(48차 — 막대 단추): 끄는 중이면 마지막 포인터 자리에서 바로 다시 본다(다른 손가락으로 눌렀을 때) */
+  snap(on: boolean): void {
+    this.snapOff = !on;
+    const at = this.g?.at;
+    if (at) this.moveTo(at[0], at[1]);
+    else this.emit();
   }
 
   /** 막대의 거리 칸을 단다(막대를 만들 때 한 번) */
@@ -684,7 +695,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     let dd = dragDelta(cam, r.width, r.height, g.path, g.p0, x, y, g.limit);
     if (!dd) return;
     let hit: SnapHit | null = null;
-    if (g.snap && !this.alt && 'line' in g.path) {
+    if (g.snap && !this.alt && !this.snapOff && 'line' in g.path) {
       const a = g.path.line;
       hit = snapAlong(g.snap, dd[0] * a[0] + dd[1] * a[1] + dd[2] * a[2], lineScreen(cam, r.width, r.height, g.p0, a), snapPx(g.touch), g.limit);
       if (hit) dd = [a[0] * hit.s, a[1] * hit.s, a[2] * hit.s];

@@ -9,6 +9,9 @@
  * 43차: 막 끈 뒤와 끄는 동안 쳐 넣기 시작하면 거리 칸("거리 [ ] mm" — 그 끌기로 옮긴 거리, 쳐 넣고 Enter·칸을 떠나면 그 거리로 맞춘다)을 손질 칸 끝에 둔다
  * (좁은 막대에서는 다음 줄로 — 손가락 기기는 이 칸을 눌러 쳐 넣는다). 45차: 끌지 않고 고른 것을 옮기려고 열면(Enter·작업 메뉴) 빈 칸.
  * 손질 도구(explodetool.ts — 손질 계산 explodetweak.ts·끌기 손짓 explodedrag.ts·손질 파일 explodefile.ts를 품는다)도 이 조각으로 받는다(앱은 이 모듈에서 꺼내 쓴다 — 첫 화면 JS 밖).
+ * 48차: 옮기기 옆 "붙잡기" 누름 단추(기본 켬) — 끄면 끄는 동안 다른 부품 면에 붙지 않는다. 마우스의 Alt/⌥(누르는 동안만)와 달리 글쇠가 없는
+ * 손가락 기기에서도 끄고 켤 수 있다(데스크톱 CAD의 수식 글쇠를 화면 단추로 옮긴 꼴 — SketchUp for iPad의 도구 방식, Fusion의 아래 막대 붙잡기 메뉴).
+ * 끄는 동안 다른 손가락으로 눌러도 그 자리에서 바로 다시 본다.
  */
 import type { Scene3d } from 'opencad-viewer3d/types';
 import type { StepDoc } from './doc';
@@ -47,6 +50,8 @@ export interface DistField {
 /** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·다시 하기·모두 되돌리기, 손질 파일 내보내기·불러오기, 쳐 넣은 거리·거리 칸 달기) */
 export interface TweakHandlers {
   move: (on: boolean) => void;
+  /** 붙잡기 켜고 끄기(48차) */
+  snap: (on: boolean) => void;
   undo: () => void;
   redo: () => void;
   reset: () => void;
@@ -62,6 +67,8 @@ export interface TweakHandlers {
 export interface TweakState {
   /** 옮기기(바로 끌기)를 켰는지 */
   on: boolean;
+  /** 붙잡기를 껐는지(48차 — 없으면 켬) */
+  snapOff?: boolean;
   /** 지금 방향에서 손질한 단위 수 */
   count: number;
   /** 되돌릴 단계가 있는지 */
@@ -81,13 +88,22 @@ const DIST_TITLES = {
   free: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(ΔX; ΔY; ΔZ 세 수도 됩니다)',
 } as const;
 
-/** 네 방향 화살표(옮기기) */
-function moveIcon(): SVGSVGElement {
+/** 선 아이콘(16px, 24 격자 경로) */
+function lineIcon(d: string): SVGSVGElement {
   const t = document.createElement('template');
-  t.innerHTML =
-    '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v18M3 12h18M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5"/></svg>';
+  t.innerHTML = `<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${d}"/></svg>`;
   return t.content.firstElementChild as SVGSVGElement;
 }
+/** 네 방향 화살표(옮기기) */
+const MOVE_PATH = 'M12 3v18M3 12h18M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5';
+/** 붙잡기: 큰 블록 면에 작은 블록이 맞닿은 꼴 */
+const SNAP_PATH = 'M3 6h9v12H3zM12 9h9v6h-9';
+
+/** 붙잡기 단추 설명(켜짐·꺼짐) */
+const SNAP_TITLES = {
+  on: '붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)',
+  off: '붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기',
+} as const;
 
 export class ExplodeControls {
   /** 방식 단추 묶음·방향 단추 묶음과 단계 글, 손질 칸(막대의 .explode-opts에 넣는다) */
@@ -96,6 +112,8 @@ export class ExplodeControls {
   private readonly axisBtns = new Map<ExplodeAxis, HTMLButtonElement>();
   private readonly stage: HTMLElement;
   private readonly moveBtn: HTMLButtonElement;
+  /** 붙잡기 누름 단추(48차) */
+  private readonly snapBtn: HTMLButtonElement;
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly resetBtn: HTMLButtonElement;
@@ -147,10 +165,28 @@ export class ExplodeControls {
     this.moveBtn = h(
       'button',
       { type: 'button', class: 'seg-btn explode-move', 'aria-pressed': 'false', title: '옮기기: 켜면 부품을 끌어 분해 자리를 손질합니다(손가락은 켜지 않아도 길게 누른 채 끕니다)' },
-      moveIcon(),
+      lineIcon(MOVE_PATH),
       h('span', {}, '옮기기'),
     );
     this.moveBtn.addEventListener('click', () => tweak.move?.(this.moveBtn.getAttribute('aria-pressed') !== 'true'));
+    this.snapBtn = h('button', { type: 'button', class: 'seg-btn explode-snap on', 'aria-pressed': 'true', title: SNAP_TITLES.on }, lineIcon(SNAP_PATH), h('span', {}, '붙잡기'));
+    // 누르면 단추도 바로 맞춘다(막대 sync는 끄는 동안 부르지 않는다 — 다른 손가락으로 누른 때)
+    const toggle = (): void => {
+      const off = this.snapBtn.getAttribute('aria-pressed') === 'true';
+      tweak.snap?.(!off);
+      this.showSnap(off);
+    };
+    // 첫 손가락으로 끄는 동안 둘째 손가락으로 누르면 브라우저가 누르기(click)를 내지 않아(두 손가락 몸짓) 뗄 때 바로 바꾸고, 뒤따르는 click이 있으면 한 번 거른다
+    let touched = -1;
+    this.snapBtn.addEventListener('pointerup', (e) => {
+      if (e.pointerType !== 'touch' || e.isPrimary) return;
+      touched = e.timeStamp;
+      toggle();
+    });
+    this.snapBtn.addEventListener('click', (e) => {
+      if (touched >= 0 && e.timeStamp - touched < 800) touched = -1;
+      else toggle();
+    });
     // 손질 파일(…): 내보내기(JSON — 손질이 있을 때)·불러오기 메뉴
     const fileBtn = h(
       'button',
@@ -240,8 +276,17 @@ export class ExplodeControls {
       },
     };
     tweak.bind?.(field);
-    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn, fileBtn), this.undoSeg, this.resetSeg, this.distSeg);
+    const tw = h('div', { class: 'explode-tweak', role: 'group', 'aria-label': '분해 손질' }, h('div', { class: 'seg' }, this.moveBtn, this.snapBtn, fileBtn), this.undoSeg, this.resetSeg, this.distSeg);
     this.els = [seg, axes, this.stage, tw];
+  }
+
+  /** 붙잡기 단추 맞추기. 설명은 켜짐이 바뀔 때만 다시 건다(번역층이 옮긴 글을 sync마다 덮지 않게) */
+  private showSnap(off: boolean): void {
+    const pressed = String(!off);
+    if (this.snapBtn.getAttribute('aria-pressed') === pressed) return;
+    this.snapBtn.classList.toggle('on', !off);
+    this.snapBtn.setAttribute('aria-pressed', pressed);
+    this.snapBtn.title = SNAP_TITLES[off ? 'off' : 'on'];
   }
 
   /** 거리 칸 맞추기(null = 숨기기). 쳐 넣는 중(칸에 초점)이면 글은 그대로 두고 보일 값만 기억한다 */
@@ -298,6 +343,7 @@ export class ExplodeControls {
     const tw = tweak ?? { on: false, count: 0, undo: false };
     this.moveBtn.classList.toggle('on', tw.on);
     this.moveBtn.setAttribute('aria-pressed', String(tw.on));
+    this.showSnap(!!tw.snapOff);
     this.undoBtn.hidden = !tw.undo;
     this.redoBtn.hidden = !tw.redo;
     this.resetBtn.hidden = !tw.count;

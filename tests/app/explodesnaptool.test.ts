@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // 분해 끌기의 붙잡기(47차 — 손질 도구, jsdom에 실제 코어 Viewer3d로 끌기): X로만 끄는 부품이 다른 부품 면에 닿는 자리에 붙고(정확히 닿음),
-// 거리 글 아래 줄·강조색 테두리·안내 선(떼면 거둠), Alt(⌥)를 누른 끌기·끄는 중 Alt 글쇠는 붙잡지 않음, 손가락은 붙잡기 거리 14화소, 사방은 붙잡지 않음
+// 거리 글 아래 줄·강조색 테두리·안내 선(떼면 거둠), Alt(⌥)를 누른 끌기·끄는 중 Alt 글쇠는 붙잡지 않음, 손가락은 붙잡기 거리 14화소, 사방은 붙잡지 않음.
+// 48차: 막대의 붙잡기 누름 단추로 끄면(손가락 기기도) 붙지 않고, 끄는 중에 켜고 끄면 그 자리에서 다시 본다
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeFrame, projectToScreen, type CameraState } from 'opencad-viewer3d/camera';
 import type { Pick3d, Viewer3d } from 'opencad-viewer3d';
@@ -10,6 +11,7 @@ import { Fmt } from '../../src/app/display';
 import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, type ExplodeAxis, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeTweakTool, type TweakHost } from '../../src/app/explodetool';
+import { ExplodeControls } from '../../src/app/explodebar';
 import { boxMesh, faceIndexOf } from './snapscene';
 
 const W = 800;
@@ -193,6 +195,94 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     expect(snapRow()).toEqual(['면에 닿음']);
     fire('pointerup', c[0], c[1], 'touch');
     expect(2 + moveB()).toBe(-4.25);
+  });
+
+  it('막대의 붙잡기 단추(48차): 끄면 손가락 끌기도 붙지 않고, 끄는 중 다른 손가락으로 켜고 끄면 그 자리에서 다시 본다', () => {
+    const p0 = shownB();
+    const s = at(p0, 0);
+    const c = at(p0, -8.3);
+    expect(tool.state(doc, 'x').snapOff).toBe(false);
+    tool.snap(false);
+    expect(tool.state(doc, 'x').snapOff).toBe(true);
+    fire('pointerdown', s[0], s[1], 'touch');
+    expect(tool.grab(s[0], s[1], 1)).toBe(true);
+    fire('pointermove', c[0], c[1], 'touch');
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.3, 6);
+    expect(snapRow()).toEqual([]);
+    expect(guides).toEqual([]);
+    // 끄는 중 켜기: 마지막 손가락 자리에서 바로 붙는다(안내 선), 다시 끄면 풀린다
+    tool.snap(true);
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    expect(snapRow()).toEqual(['면에 닿음']);
+    expect(guides.at(-1)).toBe(8);
+    tool.snap(false);
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.3, 6);
+    expect(guides.at(-1)).toBeNull();
+    fire('pointerup', c[0], c[1], 'touch');
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.3, 6);
+    // 꺼 둔 채 다음 마우스 끌기도 붙지 않는다(닿는 자리를 0.4 지나침 — 켜져 있으면 붙는 거리, 끌기 문턱은 넘게 0.6)
+    const p1 = shownB();
+    const s1 = at(p1, 0);
+    const c1 = at(p1, -0.6);
+    fire('pointerdown', s1[0], s1[1]);
+    fire('pointermove', c1[0], c1[1]);
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.9, 6);
+    tool.snap(true);
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    fire('pointerup', c1[0], c1[1]);
+  });
+
+  it('막대(실제 ExplodeControls)의 붙잡기 누름 단추: 기본 켬, 누르면 도구가 끄고 sync가 누름·설명을 맞춘다', () => {
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      tool,
+    );
+    document.body.append(...c.els);
+    const btn = c.els[3]!.querySelector<HTMLButtonElement>('.explode-snap')!;
+    expect([btn.textContent, btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['붙잡기', 'true', true]);
+    expect(btn.title).toMatch(/^붙잡기 켬/);
+    // 누르면 막대 sync 없이도 단추가 바로 맞는다(끄는 동안 다른 손가락으로 누른 때)
+    btn.click();
+    expect(tool.snapOff).toBe(true);
+    expect([btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['false', false]);
+    expect(btn.title).toMatch(/^붙잡기 끔/);
+    c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
+    expect([btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['false', false]);
+    // 같은 상태로 다시 sync해도 설명을 다시 걸지 않는다(번역층이 옮긴 글을 덮지 않게)
+    btn.title = 'Snap off';
+    c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
+    expect(btn.title).toBe('Snap off');
+    btn.click();
+    c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([false, 'true']);
+    // 손가락으로 끄는 동안 둘째 손가락(isPrimary 아님)으로 누름: 뗄 때 바로 바뀌고 그 자리에서 다시 본다, 뒤따르는 click은 한 번 거른다
+    const p0 = shownB();
+    const s = at(p0, 0);
+    const cc = at(p0, -8.3);
+    fire('pointerdown', s[0], s[1], 'touch');
+    expect(tool.grab(s[0], s[1], 1)).toBe(true);
+    fire('pointermove', cc[0], cc[1], 'touch');
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    const second = (type: string, primary: boolean, pointerType = 'touch') => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(e, { pointerId: { value: 2 }, pointerType: { value: pointerType }, isPrimary: { value: primary } });
+      btn.dispatchEvent(e);
+    };
+    second('pointerdown', false);
+    second('pointerup', false);
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([true, 'false']);
+    expect(2 + moveB()).toBeCloseTo(4.25 - 8.3, 6);
+    btn.click();
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([true, 'false']);
+    // 첫 손가락·마우스의 pointerup은 바꾸지 않고(click이 바꾼다), 거른 뒤 click은 다시 바꾼다
+    second('pointerup', true);
+    second('pointerup', false, 'mouse');
+    expect(tool.snapOff).toBe(true);
+    btn.click();
+    expect([tool.snapOff, btn.getAttribute('aria-pressed')]).toEqual([false, 'true']);
+    expect(2 + moveB()).toBeCloseTo(-4.25, 12);
+    fire('pointerup', cc[0], cc[1], 'touch');
   });
 
   it('Alt로 고른 면 강조(같은 선분 강조)가 있으면 안내 선은 그리지 않고 거리 글 아래 줄만', () => {
