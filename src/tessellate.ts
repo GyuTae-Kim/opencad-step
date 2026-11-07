@@ -1611,7 +1611,7 @@ function fixFlatTriangles(tris: number[], xy: number[]): number[] {
  * earcut을 좌표를 돌려 가며 몇 번 시도해, 넓이 0 삼각형이 없고 넓이 합이 다각형 넓이와 맞는 결과를 고른다.
  * (축에 나란한 일직선 경계가 earcut의 수평 다리 광선과 겹치거나, 돌린 좌표의 반올림으로 일직선 점이 볼록 귀로 보이는 경우를 피한다)
  */
-export function triangulateRobust(xy: number[], holeIdx: number[], nv: number): number[] {
+export function triangulateRobust(xy: number[], holeIdx: number[], nv: number, bridges = true): number[] {
   const rings: [number, number][] = [];
   const starts = [0, ...holeIdx, nv];
   for (let i = 0; i + 1 < starts.length; i++) rings.push([starts[i]!, starts[i + 1]!]);
@@ -1649,6 +1649,13 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number): 
     }
     if (!flats && !stray && dev < 1e-9) break;
   }
+  // 폭 0 다리(같은 두 점을 반대로 지나는 고리 변 짝)가 있는 고리는 earcut이 겹친 삼각형을 낸다 — 두 영역을 한 변으로 갔다 오며 이은 면,
+  // 구멍이 바깥 고리에 변으로 닿은 면(이웃 모서리 끝점을 T자 메우기로 넣은 뒤에 생긴다 — 60차 표본 평면 면 47개).
+  // 가장 나은 결과도 넓이가 맞지 않을 때만 다리를 떼어 낸 고리들로 따로 삼각화해 본다(맞던 면은 그대로)
+  if (bridges && best.length && bestScore > 1e-9) {
+    const alt = triangulateBridged(xy, rings);
+    if (alt) return alt;
+  }
   // 경계 선분을 다 쓰지 못했으면(경계가 스스로 엇갈려 earcut이 엇갈린 자리의 고리 점을 뺐다 — 곡선 모서리 둘이 현 높이 안에서
   // 나란히 가는 가는 띠 평면 등) 고리 점을 하나도 빼지 않는 귀 자르기로 다시 해 본다. 이웃 면은 그 점들을 쓰므로 빼면 틈이 된다
   if (best.length && strayBoundaryEdges(best, rings)) {
@@ -1656,6 +1663,138 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number): 
     if (all.length && strayBoundaryEdges(all, rings) === 0) return all;
   }
   return best;
+}
+
+/**
+ * 폭 0 다리를 떼어 낸 고리들(점 번호 목록). 다리는 같은 두 점(좌표가 똑같은 것)을 반대 방향으로 지나는 고리 변 짝이다.
+ * 한 고리 안의 다리는 고리를 둘로 나누고(나란히 붙은 두 변 — 갔다 바로 돌아오는 가시 — 이면 가시만 빠진다), 서로 다른 고리 사이의
+ * 다리(구멍이 바깥 고리에 변으로 닿음)는 두 고리를 하나로 잇는다. 같은 자리의 두 점 가운데 하나만 남긴다. 다리가 없으면 null
+ */
+export function splitBridges(xy: number[], rings: readonly (readonly [number, number])[]): number[][] | null {
+  let rs: number[][] = rings.map(([a, b]) => {
+    const r: number[] = [];
+    for (let i = a; i < b; i++) r.push(i);
+    return r;
+  });
+  const key = (i: number) => `${xy[i * 2]},${xy[i * 2 + 1]}`;
+  let found = false;
+  const limit = rs.reduce((s, r) => s + r.length, 0);
+  for (let guard = 0; guard < limit; guard++) {
+    const seen = new Map<string, [number, number]>();
+    let hit: [number, number, number, number] | null = null;
+    for (let r = 0; r < rs.length && !hit; r++) {
+      const ring = rs[r]!;
+      for (let k = 0; k < ring.length; k++) {
+        const a = key(ring[k]!);
+        const b = key(ring[(k + 1) % ring.length]!);
+        if (a === b) continue;
+        const back = seen.get(`${b}|${a}`);
+        if (back) {
+          hit = [back[0], back[1], r, k];
+          break;
+        }
+        seen.set(`${a}|${b}`, [r, k]);
+      }
+    }
+    if (!hit) break;
+    found = true;
+    const [r1, k1, r2, k2] = hit;
+    if (r1 === r2) {
+      // 변 k1(R[k1]→R[k1+1])과 변 k2(R[k2]→R[k2+1]), k1 < k2: R[k2] ≅ R[k1+1], R[k2+1] ≅ R[k1]
+      const R = rs[r1]!;
+      const n = R.length;
+      const A: number[] = [];
+      for (let k = k1 + 1; k < k2; k++) A.push(R[k]!);
+      const B: number[] = [];
+      for (let k = k2 + 1; k < k1 + n; k++) B.push(R[k % n]!);
+      rs.splice(r1, 1, ...[A, B].filter((x) => x.length >= 3));
+    } else {
+      // 고리 r1의 변 k1과 고리 r2의 변 k2: R1[k1] ≅ R2[k2+1], R1[k1+1] ≅ R2[k2] — R1[k1] 뒤에 R2를 R2[k2+2]부터 R2[k2−1]까지 끼운다
+      const R1 = rs[r1]!;
+      const R2 = rs[r2]!;
+      const n2 = R2.length;
+      const mid: number[] = [];
+      for (let k = k2 + 2; k < k2 + n2; k++) mid.push(R2[k % n2]!);
+      const merged = [...R1.slice(0, k1 + 1), ...mid, ...R1.slice(k1 + 1)];
+      rs = rs.filter((_, i) => i !== r2);
+      rs[rs.indexOf(R1)] = merged;
+    }
+  }
+  return found ? rs : null;
+}
+
+/**
+ * 다리를 떼어 낸 고리들로 삼각화: 바깥 고리(첫 고리)와 같은 쪽으로 도는 고리는 바깥, 반대로 도는 고리는 그것을 품은 가장 작은 바깥의 구멍으로
+ * 묶어 따로 triangulateRobust(다리 없이)를 부른다. 묶음마다 넓이가 맞고 넓이 0 삼각형·남는 경계 선분이 없으며, 모두 합친 넓이가
+ * 처음 다각형 넓이와 맞을 때만 돌려준다(아니면 null — 처음 결과를 쓴다)
+ */
+function triangulateBridged(xy: number[], rings: readonly (readonly [number, number])[]): number[] | null {
+  const rs = splitBridges(xy, rings);
+  if (!rs) return null;
+  const areaOf = (r: readonly number[]) => {
+    let a = 0;
+    for (let k = 0, j = r.length - 1; k < r.length; j = k++) a += xy[r[j]! * 2]! * xy[r[k]! * 2 + 1]! - xy[r[k]! * 2]! * xy[r[j]! * 2 + 1]!;
+    return a / 2;
+  };
+  const [s0, s1] = rings[0]!;
+  const first: number[] = [];
+  for (let i = s0; i < s1; i++) first.push(i);
+  const sign = Math.sign(areaOf(first));
+  if (!sign) return null;
+  let span = 0;
+  for (const r of rs) for (const i of r) span = Math.max(span, Math.abs(xy[i * 2]!), Math.abs(xy[i * 2 + 1]!));
+  const tiny = 1e-12 * span * span;
+  const outers: { ring: number[]; area: number; holes: number[][] }[] = [];
+  const holes: number[][] = [];
+  for (const r of rs) {
+    const a = areaOf(r) * sign;
+    if (a > tiny) outers.push({ ring: r, area: a, holes: [] });
+    else if (a < -tiny) holes.push(r);
+  }
+  if (!outers.length) return null;
+  outers.sort((p, q) => p.area - q.area);
+  const inside = (u: number, v: number, r: readonly number[]) => {
+    let c = false;
+    for (let k = 0, j = r.length - 1; k < r.length; j = k++) {
+      const au = xy[r[k]! * 2]!, av = xy[r[k]! * 2 + 1]!, bu = xy[r[j]! * 2]!, bv = xy[r[j]! * 2 + 1]!;
+      if (av > v !== bv > v && u < ((bu - au) * (v - av)) / (bv - av) + au) c = !c;
+    }
+    return c;
+  };
+  for (const h of holes) {
+    // 구멍 점을 가장 많이 품은 바깥(같으면 작은 것)
+    let target = outers[outers.length - 1]!;
+    let most = -1;
+    for (const o of outers) {
+      let n = 0;
+      for (const i of h) if (inside(xy[i * 2]!, xy[i * 2 + 1]!, o.ring)) n++;
+      if (n > most) {
+        most = n;
+        target = o;
+      }
+    }
+    target.holes.push(h);
+  }
+  const out: number[] = [];
+  for (const o of outers) {
+    const ids = [...o.ring];
+    const hIdx: number[] = [];
+    for (const h of o.holes) {
+      hIdx.push(ids.length);
+      ids.push(...h);
+    }
+    const sub: number[] = [];
+    for (const i of ids) sub.push(xy[i * 2]!, xy[i * 2 + 1]!);
+    const t = triangulateRobust(sub, hIdx, ids.length, false);
+    if (!t.length) return null;
+    const subRings: [number, number][] = [];
+    const st = [0, ...hIdx, ids.length];
+    for (let k = 0; k + 1 < st.length; k++) subRings.push([st[k]!, st[k + 1]!]);
+    if (countFlat(t, sub) || strayBoundaryEdges(t, subRings) || !(deviation(sub, hIdx.length ? hIdx : null, 2, t) < 1e-9)) return null;
+    for (const i of t) out.push(ids[i]!);
+  }
+  const hi = rings.slice(1).map(([a]) => a);
+  return deviation(xy, hi.length ? hi : null, 2, out) < 1e-9 ? out : null;
 }
 
 /**

@@ -7,7 +7,7 @@
  * TRIANGULATED_SURFACE_SET·COMPLEX_TRIANGULATED_SURFACE_SET)은 있는 삼각형을 그대로 쓴다.
  */
 import type { Rgba } from 'opencad-viewer3d/types';
-import { BSplineCurve, CircleCurve, EllipseCurve, LineCurve, type Tol } from './curves';
+import { BSplineCurve, CircleCurve, type Curve, EllipseCurve, LineCurve, type Tol } from './curves';
 import { bsplineRecord, conicRecord, ellipseAxis } from './edgecurve';
 import type { Geometry } from './geometry';
 import { isClosedMesh, orientFaces } from './analysis';
@@ -196,10 +196,19 @@ interface FaceOut {
   exact: number;
   /** 질량 속성 적분 거리(닫힌 껍질 면, 삼각화에 성공했을 때) */
   pj: FaceFluxJob | null;
+  /** 나눈 경계 고리가 서로(또는 스스로) 엇갈린 평면 면이면 엇갈린 곡선 모서리 → 필요한 현 높이 나눗수(crossingEdges) */
+  cross: Map<number, number> | null;
 }
 
 /** 접힌 면 때문에 모서리를 더 잘게 나눠 다시 삼각화하는 최대 횟수 */
 const MAX_REFINE_PASS = 2;
+
+/**
+ * 나눈 경계 고리가 엇갈린 평면 면의 곡선 모서리를 잘게 나눌 때 현 높이 나눗수의 상한(필요한 만큼 한 번만 나눠 보고 풀리지 않으면 되돌린다).
+ * 60차 표본에서 구멍 고리가 바깥 원에 0.002 mm까지 다가간 면(원 반지름 3.56 mm — 20° 현의 처짐 0.054 mm, 64배 필요)이 있어
+ * 접힌 면(4배씩 16배까지)보다 크게 잡았다
+ */
+const CROSS_REFINE_MAX = 256;
 
 /**
  * ORIENTED_EDGE 안의 ORIENTED_EDGE, 방향 껍질 안의 방향 껍질을 벗기는 최대 겹 수(실제 파일은 한두 겹 — 선 형상 wire.ts와 같은 8).
@@ -408,6 +417,12 @@ export class BrepMesher {
   private eps = 1e-6;
   /** 방금 삼각화한 면의 경계 고리가 면 법선과 거꾸로 돌았는지(tessellateFace reversed) */
   private faceReversed = false;
+  /** 방금 삼각화한 평면 면의 나눈 고리가 엇갈렸으면 그 자리의 곡선 모서리(crossingEdges — 없으면 null) */
+  private faceCross: Map<number, number> | null = null;
+  /** 방금 삼각화한 평면 면의 나눈 고리에 곡선 모서리가 낀 엇갈림이 있었는지(풀 수 없는 것 포함 — 잘게 나눠 본 뒤 되돌릴지 볼 때) */
+  private faceCrossed = false;
+  /** 잘게 나눠 본 번: 넓이가 맞아 보여도 엇갈림을 찾는다(되돌릴지 정하려고) */
+  private crossCheckAll = false;
   /** 접힌 면 때문에 더 잘게 나눌 모서리 → 현 높이 나눗수(항목 하나 동안) */
   private readonly edgeRefine = new Map<number, number>();
 
@@ -436,7 +451,13 @@ export class BrepMesher {
    * 반대) 겹치고 단일면 그리기에서 구멍처럼 보인다 — 접힌 면이 있으면 그 면의 모서리를 더 잘게(현 높이 ¼) 나눠 항목을 다시
    * 삼각화한다(두 번까지, 이웃 면도 같은 다각선을 쓰므로 틈이 생기지 않는다). 접힌 면이 없는 항목은 그대로다
    */
-  private meshItemPass(itemId: number, onFace: (() => void) | undefined, pass: number, prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number }): ItemMesh | null {
+  private meshItemPass(
+    itemId: number,
+    onFace: (() => void) | undefined,
+    pass: number,
+    /** 앞 번의 면 결과와 다시 할 면, 접힌 삼각형 수, 앞 번에 엇갈림 때문에 더 잘게 나눈 모서리 → 그 전 나눗수 */
+    prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number; crossTried?: Map<number, number> },
+  ): ItemMesh | null {
     const e = this.f.get(itemId);
     if (!e) return null;
     if (TESS_TYPES.has(e.type)) return this.meshTessellated(itemId);
@@ -542,6 +563,12 @@ export class BrepMesher {
     const suspect: number[] = [];
     /** 다시 삼각화할 수 있으면 면마다 결과를 남긴다(경계가 바뀌지 않은 면은 다음 번에 그대로 쓴다) */
     const outs: FaceOut[] | null = missBefore ? [] : null;
+    /** 나눈 고리가 엇갈린 평면 면과 그 곡선 모서리 */
+    const crossing: number[] = [];
+    const crossEdges = new Map<number, number>();
+    /** 잘게 나눠 본 번에 다시 삼각화한 면 가운데 아직 엇갈린 면(되돌림) */
+    const stillCrossing: number[] = [];
+    this.crossCheckAll = !!prev?.crossTried;
     for (let fi = 0; fi < nf; fi++) {
       const fr = faces[fi]!;
       onFace?.();
@@ -553,6 +580,7 @@ export class BrepMesher {
       if (table) triStart[fi] = b.indices.length / 3;
       let r: string | null;
       let reversed: boolean;
+      let cross: Map<number, number> | null;
       if (cached) {
         for (const x of cached.pos) b.positions.push(x);
         for (const x of cached.nrm) b.normals.push(x);
@@ -560,6 +588,7 @@ export class BrepMesher {
         this.replayEdgeUse(fr.id, edgeUse, seams);
         r = cached.r;
         reversed = cached.reversed;
+        cross = cached.cross;
         if (table) {
           stepIds[fi] = cached.stepId;
           kinds[fi] = cached.kind;
@@ -579,10 +608,14 @@ export class BrepMesher {
           info.exact = false;
         }
         this.faceReversed = false;
+        this.faceCross = null;
+        this.faceCrossed = false;
         const pj: { job: FaceFluxJob | null } | null = pjobs ? { job: null } : null;
         r = this.meshFace(fr, b, edgeUse, seams, table ? info : null, pj);
         if (pjobs && pj) pjobs[fi] = pj.job;
         reversed = this.faceReversed;
+        cross = this.faceCross;
+        if (this.faceCrossed) stillCrossing.push(fi);
         if (table) {
           stepIds[fi] = info.stepId;
           kinds[fi] = info.kind;
@@ -602,6 +635,10 @@ export class BrepMesher {
       }
       if (r) fail(r);
       else if (reversed) suspect.push(fi);
+      if (cross) {
+        crossing.push(fi);
+        for (const [eid, k] of cross) crossEdges.set(eid, Math.max(k, crossEdges.get(eid) ?? 0));
+      }
       if (outs) {
         const t0 = faceTri[fi]! * 3;
         outs.push({
@@ -618,6 +655,7 @@ export class BrepMesher {
           perimeter: table ? perimeters[fi]! : NaN,
           exact: table ? exact[fi]! : 0,
           pj: pjobs ? pjobs[fi]! : null,
+          cross,
         });
       }
     }
@@ -634,8 +672,8 @@ export class BrepMesher {
         if (n) folded.push(fi);
         foldTris += n;
       }
-      if (folded.length && (!prev || foldTris < prev.folded)) {
-        const changed = new Set<number>();
+      const changed = new Set<number>();
+      if (folded.length && (!prev || foldTris < prev.folded))
         for (const fi of folded)
           for (const eid of this.faceEdgeIds(faces[fi]!.id)) {
             const k = this.edgeRefine.get(eid) ?? 1;
@@ -644,14 +682,37 @@ export class BrepMesher {
               changed.add(eid);
             }
           }
-        if (changed.size && outs) {
-          // 바뀐 모서리를 쓰는 면만 다시(이웃 면도 같은 다각선을 써야 틈이 없다), 나머지는 앞 결과 그대로
-          const dirty = new Set<number>();
-          for (let fi = 0; fi < nf; fi++) if (this.faceEdgeIds(faces[fi]!.id).some((eid) => changed.has(eid))) dirty.add(fi);
-          this.unsupported.clear();
-          for (const [k, v] of missBefore) this.unsupported.set(k, v);
-          return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris });
+      // 나눈 경계 고리가 서로 엇갈린 평면 면(곡선의 현이 아주 가까운 다른 고리를 넘어 구멍이 메워지거나 삼각형이 겹친다 — 60차):
+      // 첫 번에 엇갈린 곡선 모서리만 틈에 맞춰 잘게 나눠 다시 해 보고(crossingEdges), 그래도 엇갈리는 면의 모서리는 다음 번에 처음 나눔으로
+      // 되돌린다(그 면과 이웃 면은 예전 그대로). 잘게 나눈 경계에 이웃 곡면의 삼각형이 더 접히면(접힌 삼각형이 늘면) 모두 되돌린다
+      const tried = prev?.crossTried;
+      if (tried) {
+        const revert = (eid: number) => {
+          const k = tried.get(eid);
+          if (k === undefined || changed.has(eid)) return;
+          if (k === 1) this.edgeRefine.delete(eid);
+          else this.edgeRefine.set(eid, k);
+          changed.add(eid);
+        };
+        if (foldTris > prev.folded) for (const eid of tried.keys()) revert(eid);
+        else for (const fi of stillCrossing) for (const eid of this.faceEdgeIds(faces[fi]!.id)) revert(eid);
+      }
+      let crossTried: Map<number, number> | undefined;
+      if (crossing.length && pass === 0)
+        for (const [eid, need] of crossEdges) {
+          const k = this.edgeRefine.get(eid) ?? 1;
+          if (changed.has(eid) || need <= k) continue;
+          (crossTried ??= new Map()).set(eid, k);
+          this.edgeRefine.set(eid, need);
+          changed.add(eid);
         }
+      if (changed.size && outs) {
+        // 바뀐 모서리를 쓰는 면만 다시(이웃 면도 같은 다각선을 써야 틈이 없다), 나머지는 앞 결과 그대로
+        const dirty = new Set<number>();
+        for (let fi = 0; fi < nf; fi++) if (this.faceEdgeIds(faces[fi]!.id).some((eid) => changed.has(eid))) dirty.add(fi);
+        this.unsupported.clear();
+        for (const [k, v] of missBefore) this.unsupported.set(k, v);
+        return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris, ...(crossTried ? { crossTried } : {}) });
       }
     }
     // 모서리 선(과 모서리 표: 선분 범위·곡선 종류·원 중심·반지름·길이)
@@ -1215,10 +1276,108 @@ export class BrepMesher {
     if (r.error) return r.error;
     if (r.reversed) this.faceReversed = true;
     if (!r.triangles) return '삼각형 없음';
+    if (surf instanceof PlaneSurface) this.faceCross = this.crossingEdges(surf, loopEdges, loops, facetArea(b, triStart));
     if (info) this.faceMetrics(surf, loopEdges, loopOuter, inFace, acc.area, facetArea(b, triStart), info);
     // 질량 속성: 해석적 곡면은 매개변수 공간 다각형의 경계 적분, 그 밖은 삼각형 — 적분 거리만 남긴다(propsjob.ts)
     if (pj) pj.job = { surf, polys: acc.polys, uv: acc.uv, loopEdges, loopOrient, inFace, reversed, sameSense, edgeParams: this.edgeParams };
     return null;
+  }
+
+  /**
+   * 평면 면의 나눈 경계 고리가 서로(또는 스스로) 엇갈리는지. 삼각형 넓이가 나눈 고리의 넓이(평면 좌표 신발끈 합 — 바깥 − 구멍)와 맞으면 보지 않는다.
+   * 엇갈린 선분 짝마다 곡선 모서리 쪽 현이 걸친 참 곡선 토막과 상대 선분 사이 거리(틈)를 재, 현 높이를 그 틈의 0.8배 아래로 줄이는 나눗수를
+   * 곡선 모서리마다 돌려준다(2의 거듭제곱, CROSS_REFINE_MAX까지) — 곡선의 현이 아주 가까운 다른 고리를 넘은 것이라 그만큼 잘게 나누면 풀린다
+   * (B-rep 고리는 서로 엇갈리지 않는다 — ISO 10303-42 face_bound). 참 곡선이 상대 선분에 닿거나 넘으면(두 곡선이 접하는 자리 등) 나눠도
+   * 풀리지 않아 넣지 않는다. 구멍 고리가 바깥 고리를 넘으면 삼각화가 구멍을 빼지 못해 메우고, 이웃 면과 경계 점이 어긋나 틈이 생겼다
+   * (60차 표본 평면 면 21개)
+   */
+  private crossingEdges(surf: PlaneSurface, loopEdges: LoopEdge[][], loops: V3[][], facet: number): Map<number, number> | null {
+    const fr = surf.f;
+    const to2 = (p: V3): [number, number] => {
+      const d = sub(p, fr.o);
+      return [dot(d, fr.x), dot(d, fr.y)];
+    };
+    let sum = 0;
+    for (const l of loops) {
+      if (l.length < 3) continue;
+      let a = 0;
+      for (let i = 0, j = l.length - 1; i < l.length; j = i++) {
+        const p = to2(l[j]!);
+        const q = to2(l[i]!);
+        a += p[0] * q[1] - q[0] * p[1];
+      }
+      sum += a / 2;
+    }
+    const area = Math.abs(sum);
+    if (!this.crossCheckAll && !(Math.abs(facet - area) > 1e-6 * Math.max(area, facet))) return null;
+    interface Seg {
+      a: [number, number];
+      b: [number, number];
+      a3: V3;
+      b3: V3;
+      eid: number;
+      /** 직선이 아닌 곡선 모서리의 곡선(매개변수를 아는 것만) */
+      c: Curve | null;
+      x0: number;
+      x1: number;
+    }
+    const segs: Seg[] = [];
+    for (const l of loopEdges)
+      for (const e of l) {
+        const ep = this.edgeParams.get(e.eid);
+        const c = ep && !(ep.c instanceof LineCurve) ? ep.c : null;
+        for (let i = 0; i + 1 < e.poly.length; i++) {
+          const a = to2(e.poly[i]!);
+          const b = to2(e.poly[i + 1]!);
+          segs.push({ a, b, a3: e.poly[i]!, b3: e.poly[i + 1]!, eid: e.eid, c, x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) });
+        }
+      }
+    if (segs.length > 20_000) return null;
+    segs.sort((s, t) => s.x0 - t.x0);
+    /** 현 s가 걸친 참 곡선 토막과 선분 t 사이 가장 짧은 거리(곡선이 t를 넘으면 0) */
+    const gap = (s: Seg, t: Seg): number => {
+      const c = s.c!;
+      const ta = c.project(s.a3);
+      let d = c.project(s.b3, ta) - ta;
+      if (c.period > 0) d -= Math.round(d / c.period) * c.period;
+      const ux = t.b[0] - t.a[0];
+      const uy = t.b[1] - t.a[1];
+      const l2 = ux * ux + uy * uy;
+      let g = Infinity;
+      let side = 0;
+      for (let k = 0; k <= 8; k++) {
+        const q = to2(c.point(ta + (d * k) / 8));
+        const wx = q[0] - t.a[0];
+        const wy = q[1] - t.a[1];
+        const h = l2 > 0 ? Math.min(1, Math.max(0, (wx * ux + wy * uy) / l2)) : 0;
+        g = Math.min(g, Math.hypot(wx - h * ux, wy - h * uy));
+        if (h > 0 && h < 1) {
+          const sd = Math.sign(ux * wy - uy * wx);
+          if (sd && side && sd !== side) return 0;
+          if (sd) side = sd;
+        }
+      }
+      return g;
+    };
+    const out = new Map<number, number>();
+    const need = (s: Seg, t: Seg) => {
+      if (!s.c) return;
+      const g = gap(s, t);
+      if (!(g > this.eps * 10) || !(this.tol.chord > 0.8 * g)) return;
+      const k = 2 ** Math.max(1, Math.ceil(Math.log2(this.tol.chord / (0.8 * g))));
+      if (k <= CROSS_REFINE_MAX && k > (out.get(s.eid) ?? 0)) out.set(s.eid, k);
+    };
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i]!;
+      for (let j = i + 1; j < segs.length && segs[j]!.x0 <= s.x1; j++) {
+        const t = segs[j]!;
+        if (!(s.c || t.c) || !properCross(s.a, s.b, t.a, t.b)) continue;
+        this.faceCrossed = true;
+        need(s, t);
+        need(t, s);
+      }
+    }
+    return out.size ? out : null;
   }
 
   /**
@@ -1500,6 +1659,17 @@ function boxOf(pos: number[]): [V3, V3] | null {
       hi[k] = Math.max(hi[k]!, pos[i + k]!);
     }
   return [lo, hi];
+}
+
+/** 두 평면 선분이 끝점이 아닌 곳에서 엇갈리는지(끝점이 다른 선분 위에 닿기만 한 것은 아님 — 길이에 맞춘 여유) */
+function properCross(p: readonly number[], q: readonly number[], a: readonly number[], b: readonly number[]): boolean {
+  const o = (x: readonly number[], y: readonly number[], z: readonly number[]) => (y[0]! - x[0]!) * (z[1]! - x[1]!) - (y[1]! - x[1]!) * (z[0]! - x[0]!);
+  const d1 = o(p, q, a);
+  const d2 = o(p, q, b);
+  const d3 = o(a, b, p);
+  const d4 = o(a, b, q);
+  const scale = Math.max(Math.abs(q[0]! - p[0]!) + Math.abs(q[1]! - p[1]!), Math.abs(b[0]! - a[0]!) + Math.abs(b[1]! - a[1]!)) ** 2 * 1e-12;
+  return ((d1 > scale && d2 < -scale) || (d1 < -scale && d2 > scale)) && ((d3 > scale && d4 < -scale) || (d3 < -scale && d4 > scale));
 }
 
 /** 이번 면이 더한 삼각형(색인 triStart부터)의 넓이 */
