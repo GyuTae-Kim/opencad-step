@@ -16,12 +16,17 @@ export const FILE_TEXT_MAX = 1000;
 
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
-/** 파일 글 → 화면 글: 제어 문자를 기호로, FILE_TEXT_MAX자를 넘으면 앞부분 + '…'(서로게이트 짝을 가르지 않는다) */
+/**
+ * 파일 글 → 화면 글: 제어 문자를 기호로, FILE_TEXT_MAX자를 넘으면 앞부분 + '…'(서로게이트 짝을 가르지 않고, 자른 앞부분에 열린 채 남은 가둠(FSI 등 —
+ * 이름 조각마다 가둔 경로 글)은 PDI로 닫는다)
+ */
 export function clipText(s: string, max = FILE_TEXT_MAX): string {
   let t = s;
   if (t.length > max) {
     const c = t.charCodeAt(max - 1);
-    t = `${t.slice(0, c >= 0xd800 && c < 0xdc00 ? max - 1 : max)}…`;
+    t = t.slice(0, c >= 0xd800 && c < 0xdc00 ? max - 1 : max);
+    const open = (t.match(/[\u{2066}-\u{2068}]/gu)?.length ?? 0) - (t.match(/\u{2069}/gu)?.length ?? 0);
+    t = `${t}${'\u{2069}'.repeat(Math.max(0, open))}…`;
   }
   return t.replace(CONTROL, (x) => String.fromCharCode(x === '\u007f' ? 0x2421 : 0x2400 + x.charCodeAt(0)));
 }

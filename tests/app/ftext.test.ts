@@ -24,6 +24,8 @@ describe('파일 글 화면 글로', () => {
     const emoji = `${'a'.repeat(FILE_TEXT_MAX - 1)}\u{1f600}tail`;
     expect(clipText(emoji)).toBe(`${'a'.repeat(FILE_TEXT_MAX - 1)}…`);
     expect(clipText('abcdef', 3)).toBe('abc…');
+    // 조각마다 가둔 글(경로)을 가운데서 자르면 열린 가둠을 닫고 "…"
+    expect(clipText(`${FSI}ab${PDI} › ${FSI}cdef${PDI}`, 9)).toBe(`${FSI}ab${PDI} › ${FSI}c${PDI}…`);
   });
 
   it('제어 문자(C0·DEL)는 보이는 기호(U+2400 묶음)로, 탭·줄바꿈과 다른 글자는 그대로', () => {
