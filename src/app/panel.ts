@@ -142,6 +142,12 @@ const propRow = (r: PropRow): HTMLElement =>
 const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
 
+/**
+ * 표 줄의 보이기 확인 칸을 라벨로 감싼다: 손가락 기기에서 라벨이 44×44 누르는 자리가 된다(styles.css `.cb-hit`).
+ * 이름은 옆의 이름 단추(강조)가 따로 누르므로 라벨에 넣지 않고, 칸의 이름은 칸의 aria-label 그대로
+ */
+const cbHit = (cb: HTMLInputElement): HTMLElement => h('label', { class: 'cb-hit' }, cb);
+
 export class Panel {
   readonly el: HTMLElement;
   private readonly tabsEl: HTMLElement;
@@ -393,6 +399,7 @@ export class Panel {
         this.renderBody();
       }, 160);
     });
+    // Esc는 거르기를 지운다(↓로 첫 줄, Ctrl·⌘+F로 이 칸에 오기는 나무 조각 — treeview.ts)
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && input.value) {
         ev.preventDefault();
@@ -400,9 +407,6 @@ export class Panel {
         input.value = '';
         d.treeFilter = '';
         this.renderBody();
-      } else if (ev.key === 'ArrowDown') {
-        ev.preventDefault();
-        this.tree?.focusAt(0);
       }
     });
     const search = h('label', { class: 'tree-search' }, icon('search', 15), input);
@@ -435,7 +439,7 @@ export class Panel {
           host: this.host,
           scroller: this.body,
           redraw: () => this.renderBody(),
-          toFilter: () => input.focus(),
+          filter: input,
         })
       : null;
     let more: HTMLElement | null = null;
@@ -646,7 +650,7 @@ export class Panel {
         h(
           'tr',
           { class: on ? '' : 'off' },
-          h('td', {}, h('span', { class: 'check' }, cb, nameBtn, fileHidden ? h('span', { class: 'chip dim-chip', title: '파일이 숨긴 레이어(INVISIBILITY)' }, '숨김') : null)),
+          h('td', {}, h('span', { class: 'check' }, cbHit(cb), nameBtn, fileHidden ? h('span', { class: 'chip dim-chip', title: '파일이 숨긴 레이어(INVISIBILITY)' }, '숨김') : null)),
           h('td', { class: 'num' }, fmtCount(ids.length)),
         ),
       );
@@ -687,7 +691,7 @@ export class Panel {
           if (ev.detail === 2) this.host.selectItems([p.id], `PMI ${label}`, true);
           else if (ev.detail <= 1) this.host.selectItems(selected ? null : [p.id], `PMI ${label}`);
         });
-        tbody.append(h('tr', { class: on && !v.pmiOff ? '' : 'off' }, h('td', {}, h('span', { class: 'check' }, cb, nameBtn)), h('td', { class: 'dim small' }, p.plane ?? pmiTypeLabel(p.type))));
+        tbody.append(h('tr', { class: on && !v.pmiOff ? '' : 'off' }, h('td', {}, h('span', { class: 'check' }, cbHit(cb), nameBtn)), h('td', { class: 'dim small' }, p.plane ?? pmiTypeLabel(p.type))));
       }
       this.body.append(
         section(
