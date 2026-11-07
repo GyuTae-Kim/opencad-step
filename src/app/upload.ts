@@ -7,6 +7,10 @@
  * 58차 측정(같은 부품 8만 자리, M1 Pro Metal): 그물 하나 올리기 약 4~5 µs·그리기 약 3 µs — 8 ms 몫이면 프레임 40~50번을 다시 그려 다 올리기 5~6초.
  * 그물 1,000개마다 1 ms 몫이면 프레임 대여섯 번이다(한 프레임 가장 긴 작업은 몫 + 한 번 그리기로 거의 그대로). 몫은 8 ms(예전 값 — 그물이 적고
  * 삼각형만 많은 장면) ~ 100 ms.
+ *
+ * 59차: 58차 몫은 첫 걸음부터 커서 첫 그림이 0.35초 늦었다. 앞 두 걸음만 8 ms로 올리고(첫 그림 — 첫 프레임과 그다음 프레임이 57차와 같다)
+ * 그다음부터 그물 수에 맞춘 몫이다(stepBudgetMs). 열 때 가장 긴 작업은 마지막 프레임(남은 것 올리기 + 장면 전체 그리기)이라 몫을 끝으로 갈수록 줄여도
+ * 줄지 않았다 — 끝을 작게 나누면 프레임마다 장면 전체를 다시 그려 다 올리기가 늘었다(8만 자리: 두 판을 재 봄 — README 개발 절 "큰 조립의 화면 쪽 한계").
  */
 
 /** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
@@ -15,10 +19,17 @@ export const BIG_MESHES = 3000;
 /** 나눠 올리기 몫의 아래·위 한도(ms) */
 export const UPLOAD_BUDGET_MIN = 8;
 export const UPLOAD_BUDGET_MAX = 100;
+/** 첫 그림을 빨리 보이려고 8 ms로 올리는 앞 걸음 수 */
+export const UPLOAD_FIRST_STEPS = 2;
 
 /** 그물 수에 맞춘 나눠 올리기 몫(ms): 그물 1,000개마다 1 ms, 8~100 ms */
 export function uploadBudgetMs(meshes: number): number {
   return Math.min(UPLOAD_BUDGET_MAX, Math.max(UPLOAD_BUDGET_MIN, Math.round(meshes / 1000)));
+}
+
+/** 걸음 step(0 = 첫 걸음)의 몫(ms): 앞 두 걸음은 8 ms, 그다음은 그물 수에 맞춘 몫 */
+export function stepBudgetMs(step: number, meshes: number): number {
+  return step < UPLOAD_FIRST_STEPS ? UPLOAD_BUDGET_MIN : uploadBudgetMs(meshes);
 }
 
 /** 장면 삼각형 수와 나눠 올리기 몫(작은 장면은 null — 한 번에 올린다) */
@@ -26,4 +37,15 @@ export function sceneUpload(meshes: readonly { positions: ArrayLike<number>; ind
   let triangles = 0;
   for (const m of meshes) triangles += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
   return { triangles, budgetMs: triangles > BIG_TRIANGLES || meshes.length > BIG_MESHES ? uploadBudgetMs(meshes.length) : null };
+}
+
+/**
+ * 나눠 올리는 중인 뷰어의 몫을 바꾼다. 코어 0.37.0에는 도중에 몫을 바꾸는 공개 API가 없어 뷰어의 나눠 올리기 상태(upload.budget — 코어가 프레임마다 읽는다,
+ * tests/app/upload.test.ts가 코어 소스로 확인)를 고친다. 꼴이 다르면(코어가 바뀜) 아무것도 하지 않고 false — 부르는 쪽은 setScene에 준 몫 그대로 둔다
+ */
+export function setUploadBudget(viewer: object, ms: number): boolean {
+  const u = (viewer as { upload?: unknown }).upload;
+  if (!u || typeof u !== 'object' || typeof (u as { budget?: unknown }).budget !== 'number') return false;
+  (u as { budget: number }).budget = ms;
+  return true;
 }
