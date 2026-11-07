@@ -138,6 +138,19 @@ input::placeholder {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
+/*
+ * 다시 흐르기(55차 — WCAG 1.4.10): 1280px 창을 400%로 확대하면 320×256(800px 높이면 320×200) CSS px — 제목·도구·상태 막대가 높이의 절반쯤을 쓰고
+ * 시트(나무 탭) 본문이 3px만 남아 거르기 칸·나무 도구·나무 줄에 닿을 수 없었다. 높이 320px 이하 마우스 기기(휴대폰 가로는 손가락 기기라 그대로)에서는
+ * 앱을 480px 높이로 두고 쪽 전체를 세로로만 굴린다(3D 보기와 시트가 함께 자리를 얻는다)
+ */
+@media (pointer: fine) and (max-height: 320px) {
+  body {
+    overflow-y: auto;
+  }
+  #app.app {
+    min-height: 480px;
+  }
+}
 
 /* ───────────── 단추 ───────────── */
 .btn {
@@ -620,9 +633,13 @@ input::placeholder {
   border-radius: 6px;
   overflow: hidden;
 }
+/*
+ * 갈래 단추 높이는 최소 높이로(55차 — WCAG 1.4.4): 묶음(.seg)이 넘침을 자르므로 높이를 못 박으면 글만 키운 화면(Firefox 글자만 확대 200%)에서
+ * 단추 글의 위아래가 잘렸다. 보통 글 크기에서는 그대로
+ */
 .seg-btn {
   min-width: 28px;
-  height: 26px;
+  min-height: 26px;
   padding: 0 6px;
   border: 0;
   background: transparent;
@@ -640,6 +657,16 @@ input::placeholder {
 .seg-btn.on {
   background: var(--accent-fill);
   color: var(--accent-text);
+}
+/*
+ * 갈래 묶음(.seg)은 둥근 모서리로 넘침을 자르므로 바깥으로 그린 초점 테두리가 잘린다 — 혼자 남은 단추(분해 막대 "옮기기"는 되돌리기가 없을 때)는
+ * 초점이 하나도 보이지 않았다(55차 점검). 안쪽으로 그린다(패널 탭과 같이). 고른 단추의 채움 위에서는 채움 위 글 색으로(강조색 테두리는 채움과 같은 색)
+ */
+.seg-btn:focus-visible {
+  outline-offset: -2px;
+}
+.seg-btn.on:focus-visible {
+  outline-color: var(--accent-text);
 }
 .section-slider {
   flex: 1 1 160px;
@@ -806,7 +833,7 @@ input::placeholder {
   display: none;
 }
 .mb-kind .seg-btn {
-  height: 38px;
+  min-height: 38px;
   padding: 0 10px;
   font-size: 13px;
 }
@@ -1022,11 +1049,13 @@ body.resizing .viewer-host {
   color: var(--text-dim);
   font-style: italic;
 }
+/* 도움말 안의 긴 낱말(STEP 엔터티 이름 PRESENTATION_LAYER_ASSIGNMENT 등)도 줄을 바꾼다 — 글만 키우면 패널 폭을 넘어 옆으로 굴려야 보였다(55차) */
 .empty,
 .hint {
   margin: 6px 0;
   color: var(--text-faint);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .empty {
   padding: 12px;
@@ -1458,12 +1487,13 @@ table.grid td.mono {
 }
 
 /* ───────────── 상태 막대 ───────────── */
+/* 높이는 최소 높이로(55차 — 글만 키운 화면에서 막대 글이 위로 넘쳐 3D 보기·시작 화면 글과 겹쳤다) */
 .statusbar {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  height: 26px;
+  min-height: 26px;
   padding: 0 10px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   box-sizing: content-box;
@@ -1754,13 +1784,21 @@ table.grid td.mono {
     padding-inline: 4px;
   }
 }
-@media (pointer: coarse) and (max-width: 359.98px) {
+/*
+ * 55차: 마우스 기기도(1280px 창을 400%로 확대하면 320px — WCAG 1.4.10 다시 흐르기) — 전에는 손가락 기기만이라 320px 마우스 막대가 345px로 넘쳐
+ * 측정·패널 단추가 막대를 옆으로 밀어야 보였다
+ */
+@media (max-width: 359.98px) {
   .toolbar {
     gap: 0;
     padding-inline: 2px;
   }
   .toolbar .tool-sep {
     display: none;
+  }
+  /* 패널 탭 다섯이 320px 시트 한 줄에(마우스 기기의 좌우 틈 12px로는 3px 넘쳐 끝 탭을 옆으로 굴려야 했다 — 손가락 기기는 이미 8px) */
+  .tab {
+    padding-inline: 8px;
   }
 }
 @media (max-width: 420px) {
@@ -1833,7 +1871,7 @@ table.grid td.mono {
   }
   .seg-btn {
     min-width: 44px;
-    height: 44px;
+    min-height: 44px;
   }
   /*
    * 52차: 패널 탭의 좌우 틈 12 → 8px(폭은 44px 이상, 글보다 좁게 줄지 않음) — 영어·독일어·일본어 탭 줄이 375px 시트에서 넘쳐 옆으로 굴려야
@@ -1891,9 +1929,11 @@ table.grid td.mono {
     min-height: 44px;
   }
   /* 3D 보기 위 띠: 측정 띠·고른 부품 카드 단추, 측정 종류 */
-  .mb-btn,
-  .mb-kind .seg-btn {
+  .mb-btn {
     height: 44px;
+  }
+  .mb-kind .seg-btn {
+    min-height: 44px;
   }
   .mb-btn.icon {
     width: 44px;
@@ -1986,7 +2026,16 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
  * 375px보다 좁으면(360px — 44px 단추 여섯 개 뒤 글 자리가 60px 안쪽이라 영어·일본어 이름이 잘리고, 320px은 "STE…"만 보이던 자리) 아이콘만.
  * 화면 읽기 프로그램은 이름 전체를 읽는다
  */
-@media (pointer: coarse) and (max-width: 374.98px) {
+/*
+ * 55차: 마우스 기기도(400% 확대한 320px 창 — WCAG 1.4.10) — 전에는 "OpenCAD STEP 뷰어"가 제목 막대 단추 옆 자리에 들어가지 않아 절반이 잘렸다
+ */
+@media (max-width: 374.98px) {
+  .brand-icon {
+    display: block;
+    flex: none;
+    margin-right: 2px;
+  }
+  .brand b,
   .brand > span {
     position: absolute;
     width: 1px;
@@ -2300,7 +2349,7 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
   }
   .explode-bar .seg-btn {
     min-width: 44px;
-    height: 44px;
+    min-height: 44px;
     padding: 0 10px;
     font-size: 13px;
   }
@@ -2463,4 +2512,121 @@ tr.sel td {
 .toast-act {
   flex: none;
   align-self: center;
+}
+
+/* ───────────── 움직임 줄이기(55차 — WCAG 2.3.3, prefers-reduced-motion: reduce) ───────────── */
+/*
+ * 운영 체제·브라우저의 "동작 줄이기"를 켠 사용자에게는 전환을 끈다(진행 막대 채움이 0.15초 동안 늘어나는 것, 패널 손잡이 색이 0.12초 동안 바뀌는 것).
+ * 3D 보기 카메라를 0.32초 동안 날려 옮기는 것(표준 뷰·전체 보기·뷰 큐브·홈 뷰·면 정면·저장된 보기)은 motion.ts와 코어 animate 선택이 끈다
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ───────────── 강제 색(Windows 고대비 등 — forced-colors: active, 55차) ───────────── */
+/*
+ * 강제 색에서는 브라우저가 글·바탕·테두리 색을 시스템 색(Canvas·CanvasText 등)으로 바꾸고 그림자(box-shadow)를 지운다. 투명한 테두리도 글 색으로 그린다.
+ * 그래서 바탕색·안쪽 그림자로만 보이던 것이 사라졌다(헤드리스 Chrome 강제 색 흉내 — 상태를 끈 그림과 켠 그림이 화소까지 같았다):
+ * 눌린 도구 단추(모든 단추에 같은 테두리), 고른 갈래 단추(측정 종류·단면 축·분해 방식·방향)·켠 붙잡기, 나무에서 고른 줄, 고른 탭(모든 탭에 밑줄 — 굵은 글만 다름),
+ * 진행 막대와 시트 손잡이 막대. 초점은 메뉴 항목(안쪽 그림자)·패널 손잡이(::after 막대)·거르기 칸(감싼 칸 테두리 색만 바뀜)이 보이지 않았다.
+ * 작성자가 쓴 시스템 색(Highlight·HighlightText·CanvasText·Canvas)은 강제 색에서도 그대로 그려지므로 그것으로 다시 그린다
+ */
+@media (forced-colors: active) {
+  /*
+   * 켬·고름: 시스템 고른 색으로 채운다(아이콘·글은 고른 글 색). 강제 색은 글 뒤에 바탕 색 받침(backplate)을 깔아 고른 색 채움 위 글이
+   * 흰 바탕 상자로 가려지므로(밝은 고대비) 이 단추들만 강제 색을 끄고(forced-color-adjust: none) 색을 모두 시스템 색으로 준다
+   */
+  .btn.on:not(:disabled),
+  .seg-btn.on,
+  .mb-btn.mb-lock.on,
+  .section-bar .icon-btn.on {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+  .btn.on:not(:disabled):focus-visible,
+  .mb-btn.mb-lock.on:focus-visible,
+  .section-bar .icon-btn.on:focus-visible {
+    outline-color: CanvasText;
+  }
+  .seg-btn.on:focus-visible {
+    outline-color: HighlightText;
+  }
+  /* 메뉴가 열리는 단추의 ▾(테두리로 그린 세모): 강제 색은 투명한 좌우 테두리도 칠해 네모 막대가 되므로 이것만 강제 색을 끈다(위 테두리는 단추 글 색 그대로) */
+  .toolbar .btn.has-menu::after {
+    forced-color-adjust: none;
+  }
+  /* 고른 탭만 밑줄(다른 탭의 투명 밑줄은 바탕 색으로) */
+  .tab {
+    border-bottom-color: Canvas;
+  }
+  .tab.active {
+    border-bottom-color: Highlight;
+  }
+  /*
+   * 고른 줄(나무·PMI 표·간섭 쌍 이름 단추·표 줄): 보통 색의 왼쪽 강조 막대(안쪽 그림자)를 왼쪽 테두리로 — 줄 글은 강제 글 색 그대로 두어
+   * 고른 색 채움 위에 강제 글 색이 얹히지 않게. 테두리만큼 왼쪽 여백을 줄여 자리는 그대로. 몸체 일부만 고른 줄은 점선
+   */
+  .tree-row.sel,
+  .tree-row.part-sel {
+    border-left: 3px solid Highlight;
+    padding-left: calc(3px + var(--depth, 0) * 16px);
+  }
+  .tree-row.part-sel {
+    border-left-style: dashed;
+  }
+  .vgrid-row.sel {
+    border-left: 3px solid Highlight;
+    padding-left: 1px;
+  }
+  .link-btn.sel {
+    border-left: 2px solid Highlight;
+    padding-left: 2px;
+  }
+  tr.sel td:first-child {
+    border-left: 3px solid Highlight;
+  }
+  /* 초점: 그림자·바탕·감싼 칸 테두리 색으로만 보이던 것에 바깥선 */
+  .menu-item:focus-visible,
+  .panel-resizer:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .tree-search:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+  /* 그림: 진행 막대(바닥은 테두리, 채움은 고른 색), 이름 거르기에 맞은 줄 표시 점, 구분선, 패널 손잡이를 끄는 동안의 막대 */
+  .busy-bar {
+    border: 1px solid CanvasText;
+  }
+  .busy-fill {
+    background: Highlight;
+  }
+  .tree-row.match .tree-name::before,
+  .tree-row.match .tree-name-gen::before {
+    background: CanvasText;
+  }
+  .tool-sep,
+  .menu-sep {
+    background: GrayText;
+  }
+  .panel-resizer:hover::after,
+  .panel-resizer.active::after {
+    background: Highlight;
+  }
+}
+/* 좁은 화면 시트의 손잡이 막대(끌어 높이를 바꾸는 단추의 모양) */
+@media (forced-colors: active) and (max-width: 759.98px) {
+  .panel-resizer::after {
+    background: CanvasText;
+  }
 }

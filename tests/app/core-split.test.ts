@@ -84,7 +84,9 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './keynav', './physics', './pmiview', './trackdir', './treeview', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './keynav', './motion', './physics', './pmiview', './trackdir', './treeview', 'opencad-viewer3d']);
+    // 카메라 옮기기·움직임 줄이기(55차 — motion.ts, 홈 뷰·면 정면·저장된 보기는 뷰어가 있어야 쓴다)도 그 조각에만
+    expect(files.has(join(ROOT, 'src/app/motion.ts'))).toBe(false);
     // PMI 탭 본문(54차 — pmiview.ts, 표현·의미 PMI 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져온다
     expect(files.has(join(ROOT, 'src/app/pmiview.ts'))).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('pmiview'))).toBe(false);

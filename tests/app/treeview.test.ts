@@ -11,6 +11,7 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import { siblingInfo, type TreeView } from '../../src/app/treeview';
 import { Fmt } from '../../src/app/display';
+import { h } from '../../src/app/dom';
 
 const VIEW = 280;
 const TREE_TOP = 120;
@@ -94,6 +95,69 @@ describe('형제 차례(aria-setsize·aria-posinset)', () => {
     expect([...parent]).toEqual([-1, 0, 1, 1, 0, 4, -1]);
     expect([...pos]).toEqual([1, 1, 1, 2, 2, 1, 2]);
     expect([...size]).toEqual([2, 2, 2, 2, 2, 1, 2]);
+  });
+});
+
+describe('줄 높이 다시 재기(55차)', () => {
+  it('잰 줄의 크기가 바뀌면(문서를 연 뒤 글자만 확대) 줄 높이를 다시 재 줄이 겹치지 않고, 잰 줄이 빠지면 다음 줄을 지켜본다', () => {
+    const observers: { cb: () => void; els: Set<Element> }[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        els = new Set<Element>();
+        constructor(public cb: () => void) {
+          observers.push(this);
+        }
+        observe(e: Element) {
+          this.els.add(e);
+        }
+        unobserve(e: Element) {
+          this.els.delete(e);
+        }
+        disconnect() {
+          this.els.clear();
+        }
+      },
+    );
+    // 프레임은 바로 돌리고 0을 돌려준다(예약이 남지 않게)
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    let rowHeight = 28;
+    let top = 0;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const at = (t: number, height: number) => ({ top: t, bottom: t + height, height, left: 0, right: 300, width: 300, x: 0, y: t, toJSON: () => ({}) }) as DOMRect;
+      if (this.dataset.i !== undefined) return at(0, rowHeight);
+      if (this.classList.contains('vlist')) return at(-top, parseFloat(this.style.height) || 0);
+      return at(0, 280);
+    });
+    const scroller = document.createElement('div');
+    const list = document.createElement('div');
+    scroller.append(list);
+    document.body.append(scroller);
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 280 });
+    const v = new TV.VList(list, scroller, 200, (i) => h('div', {}, `줄 ${i}`), 28);
+    v.update();
+    const ro = observers[0]!;
+    const first = list.firstElementChild!;
+    expect(v.rowH).toBe(28);
+    expect(ro.els.has(first)).toBe(true);
+    // 글자만 확대: 줄이 56px로 — 지켜보던 줄의 크기 알림으로 다시 잰다
+    rowHeight = 56;
+    ro.cb();
+    expect(v.rowH).toBe(56);
+    expect(list.style.height).toBe(`${200 * 56}px`);
+    for (const [i, el] of v.shown) expect(el.style.top, `줄 ${i}`).toBe(`${i * 56}px`);
+    // 굴려서 잰 줄이 빠지면 다음에 그린 줄을 지켜본다
+    top = 100 * 56;
+    ro.cb();
+    expect(first.isConnected).toBe(false);
+    expect(ro.els.has(first)).toBe(false);
+    expect(ro.els.has(v.shown.values().next().value!)).toBe(true);
+    v.dispose();
+    expect(ro.els.size).toBe(0);
+    vi.unstubAllGlobals();
   });
 });
 

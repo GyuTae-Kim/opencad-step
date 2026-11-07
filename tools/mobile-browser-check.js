@@ -63,5 +63,22 @@ async (page) => {
   assert((await state()).docName === null, 'A missing ?open file shows an alert and leaves the start screen usable');
   await page.locator('.start').getByRole('button', {name:'예제 열기', exact:true}).click();
   await loaded('opencad-sample.stp');
+  // Windows high contrast (forced colors) keeps the pressed tool and the keyboard focus in a menu visible; reduced motion turns transitions off
+  await page.locator('.toolbar button[title^="두 점 거리"]').click();
+  await page.emulateMedia({forcedColors:'active', reducedMotion:'reduce'});
+  assert(await page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement('i'));
+    probe.style.background = 'Highlight';
+    const highlight = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const pressed = [...document.querySelectorAll('.toolbar .btn.on')].filter(b => b.offsetParent);
+    return pressed.length > 0 && pressed.every(b => getComputedStyle(b).backgroundColor === highlight) && getComputedStyle(document.querySelector('.busy-fill')).transitionDuration === '0s';
+  }), 'Forced colors fill the pressed measure tool with Highlight and reduced motion turns transitions off');
+  await page.locator('.toolbar button[aria-haspopup]').first().focus();
+  await page.keyboard.press('ArrowDown');
+  await page.locator('.menu .menu-item:focus-visible').waitFor();
+  assert(await page.evaluate(() => { const s = getComputedStyle(document.activeElement); return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2; }), 'Forced colors keep an outline on the focused menu item');
+  await page.keyboard.press('Escape');
+  await page.emulateMedia({forcedColors:'none', reducedMotion:'no-preference'});
   return 'MOBILE_BROWSER_CHECK_PASSED';
 }
