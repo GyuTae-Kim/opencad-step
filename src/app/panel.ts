@@ -9,7 +9,7 @@ import { h, icon } from './dom';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, wireLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
+import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, sceneCounts, schemaSummary, selectedBody, subtreeMeshIds, unitLabel, type PanelTab, type StepDoc, TREE_LIMIT } from './doc';
 import { nodePath, partRows, type PropRow } from './partinfo';
 import { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 import { sceneMm } from './display';
@@ -20,8 +20,12 @@ import { faceKindLabel, type FacePick } from './faces';
 import { formatBytes, formatMs, fmtCount } from './format';
 import { edgeSummary, edgeTitle, entityHint, faceSummary, lineValue, panelMeasureHint } from './measure';
 import { snapPair } from './snap';
-import { allExpandableKeys, filterRows, nodeInstances, nodeLabel, nodeVisible, toggleKey, visibleRows, type TreeRow } from './tree';
+import { allExpandableKeys, filterRows, nodeLabel, visibleRows } from './tree';
+import type { TreeView, VList } from './treeview';
 import { NO_LAYER } from './visibility';
+
+/** 나무 조각(treeview.ts — 제품 나무·부품별 보이기 표의 가상 목록, 뷰어 조각에 든다): 앱이 뷰어를 만들 때 넣는다 */
+export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'>;
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
@@ -144,10 +148,13 @@ export class Panel {
   private readonly body: HTMLElement;
   private readonly foot: HTMLElement;
   private doc: StepDoc | null = null;
+  /** 나무 조각(문서를 보이기 전에 앱이 넣는다 — 없으면 나무 줄·부품별 보이기 표를 그리지 않는다) */
+  kit: TreeKit | null = null;
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
-  /** 지금 그린 나무 줄(열쇠 → 줄 — 고르기만 바뀔 때 줄 표시를 고친다) */
-  private drawnRows = new Map<string, TreeRow>();
+  /** 지금 그린 나무(가상 목록)와 부품별 보이기 표 */
+  private tree: TreeView | null = null;
+  private groupList: VList | null = null;
   private filterTimer = 0;
   /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
   private interferenceEl: HTMLElement | null = null;
@@ -191,9 +198,10 @@ export class Panel {
     if (d.panelTab === 'tree') {
       if (!this.patchTreeSelection()) this.renderBody();
     } else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
-    // 고른 줄(몸체 줄이 있으면 그 줄 — 부품 줄의 일부 고름 표시보다 먼저)
-    if (reveal) (this.body.querySelector('.tree-row.sel') ?? this.body.querySelector('.tree-row.part-sel'))?.scrollIntoView({ block: 'nearest' });
+    // 아래 띠를 먼저 고친다(처음 고르면 띠가 나타나 본문이 줄어든다 — 그 뒤에 재야 고른 줄이 띠 뒤에 숨지 않는다)
     this.renderFoot();
+    // 고른 줄(몸체 줄이 있으면 그 줄 — 부품 줄의 일부 고름 표시보다 먼저)이 화면 밖이면 스크롤해 만든다
+    if (reveal && d.panelTab === 'tree') this.tree?.reveal();
   }
 
   onMeasure(): void {
@@ -208,6 +216,8 @@ export class Panel {
       const el = this.interferenceSection(d);
       this.interferenceEl.replaceWith(el);
       this.interferenceEl = el;
+      // 아래 부품별 보이기 표의 자리가 바뀌었다 — 보이는 줄을 다시 센다
+      this.groupList?.update();
     } else this.renderBody();
   }
 
@@ -280,6 +290,7 @@ export class Panel {
     const d = this.doc;
     this.tabsEl.innerHTML = '';
     if (!d) {
+      this.dropLists();
       this.body.innerHTML = '';
       this.renderFoot();
       this.el.hidden = true;
@@ -308,9 +319,11 @@ export class Panel {
     const d = this.doc;
     if (!d) return;
     const scroll = this.body.scrollTop;
-    // 거르기 칸에 초점이 있으면 다시 그린 뒤 돌려준다
+    // 거르기 칸·나무 줄(눈 단추)에 초점이 있으면 다시 그린 뒤 돌려준다(펼치기·고르기·보이기를 글쇠로 바꿔도 초점이 그 줄에 남게)
     const active = document.activeElement as HTMLInputElement | null;
     const refocus = active?.classList?.contains('tree-filter') ? { start: active.selectionStart, end: active.selectionEnd } : null;
+    const rowKey = this.body.contains(active) ? active?.closest<HTMLElement>('.tree-row')?.dataset.key : undefined;
+    this.dropLists();
     this.body.innerHTML = '';
     this.drawnExpanded = null;
     if (d.panelTab === 'tree') this.renderTree(d);
@@ -319,13 +332,23 @@ export class Panel {
     else if (d.panelTab === 'props') this.renderProps(d);
     else this.renderInfo(d);
     this.body.scrollTop = scroll;
+    // 가상 목록은 자리가 정해진 뒤 보이는 줄을 만든다
+    this.tree?.list.update();
+    this.groupList?.update();
     if (refocus) {
       const inp = this.body.querySelector<HTMLInputElement>('.tree-filter');
       if (inp) {
         inp.focus();
         inp.setSelectionRange(refocus.start, refocus.end);
       }
-    }
+    } else if (rowKey) this.tree?.focusKey(rowKey, !!active?.classList.contains('eye'));
+  }
+
+  /** 앞서 그린 가상 목록을 놓는다(스크롤 듣기를 뗀다) */
+  private dropLists(): void {
+    this.tree?.list.dispose();
+    this.groupList?.dispose();
+    this.tree = this.groupList = null;
   }
 
   // ───────────────────────── 제품 탭 ─────────────────────────
@@ -339,16 +362,7 @@ export class Panel {
     if (!d || !this.drawnExpanded || d.treeFilter.trim()) return false;
     if (this.drawnExpanded.size !== d.expanded.size) return false;
     for (const k of d.expanded) if (!this.drawnExpanded.has(k)) return false;
-    const picked = treePicked(d);
-    let found = !d.selKey && !selectedBody(d);
-    for (const el of this.body.querySelectorAll<HTMLElement>('.tree-row')) {
-      const r = this.drawnRows.get(el.dataset.key ?? '');
-      if (!r) continue;
-      const [sel, part] = rowMarks(d, r, picked);
-      if (sel || part) found = true;
-      markRow(el, sel, part);
-    }
-    return found;
+    return !!this.tree?.patch();
   }
 
   private renderTree(d: StepDoc): void {
@@ -357,7 +371,6 @@ export class Panel {
       this.body.append(h('p', { class: 'empty' }, '이 파일에는 제품 구조 정보가 없습니다.'));
       return;
     }
-    const counts = instanceCounts(d.info);
     const filtering = !!d.treeFilter.trim();
     const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit, (n, i) => bodyName(n, itemById(d.scene, nodeItems(n)[i]!)?.[0], i >= n.meshIds.length)) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
     const { rows, truncated, total } = res;
@@ -389,7 +402,7 @@ export class Panel {
         this.renderBody();
       } else if (ev.key === 'ArrowDown') {
         ev.preventDefault();
-        (this.body.querySelector('.tree-row') as HTMLElement | null)?.focus();
+        this.tree?.focusAt(0);
       }
     });
     const search = h('label', { class: 'tree-search' }, icon('search', 15), input);
@@ -413,10 +426,18 @@ export class Panel {
     mk('모두 보이기', '숨긴 부품을 모두 다시 보입니다(레이어로 끈 것은 레이어 탭에서 켭니다)', () => this.host.showAll());
     if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가거나 한 부품이 다른 부품 안에 든 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
 
-    const list = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
-    const picked = treePicked(d);
-    this.drawnRows = new Map(rows.map((r) => [r.key, r]));
-    for (const r of rows) list.append(this.treeRow(d, r, counts, picked));
+    // 나무 줄은 나무 조각의 가상 목록이 보이는 것만 만든다(renderBody가 자리를 잡은 뒤 update)
+    const kit = this.kit;
+    this.tree = kit
+      ? kit.treeView({
+          d,
+          rows,
+          host: this.host,
+          scroller: this.body,
+          redraw: () => this.renderBody(),
+          toFilter: () => input.focus(),
+        })
+      : null;
     let more: HTMLElement | null = null;
     if (truncated) {
       const btn = h('button', { type: 'button', class: 'btn small' }, `${fmtCount(Math.min(TREE_LIMIT, total - rows.length))}줄 더 보기`);
@@ -431,7 +452,7 @@ export class Panel {
         btn,
       );
     }
-    this.body.append(section('제품 나무', search, filterInfo, tools, list, more));
+    this.body.append(section('제품 나무', search, filterInfo, tools, this.tree?.el ?? null, more));
     if (!filtering) this.drawnExpanded = new Set(d.expanded);
     this.interferenceEl = null;
     if (d.interference) {
@@ -440,125 +461,13 @@ export class Panel {
     }
 
     // 부품별(묶음): 같은 이름의 부품 자리를 한꺼번에 숨기고 보인다
+    // (표도 나무 조각의 가상 목록 — 이름이 모두 다른 큰 조립은 수천 줄)
     const groups = this.host.groups();
-    if (groups.length > 1) {
-      const tbody = h('tbody');
-      for (const g of groups) {
-        const cb = h('input', { type: 'checkbox', 'aria-label': `${g.name} 보이기` });
-        cb.checked = g.visible;
-        cb.addEventListener('change', () => this.host.setGroupVisible(g.name, cb.checked));
-        tbody.append(h('tr', { class: g.visible ? '' : 'off' }, h('td', {}, h('label', { class: 'check' }, cb, h('span', { translate: 'no' }, g.name))), h('td', { class: 'num' }, fmtCount(g.count))));
-      }
-      this.body.append(section('부품별 보이기', h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, '부품'), h('th', { class: 'num' }, '자리'))), tbody)));
+    if (groups.length > 1 && kit) {
+      const g = kit.groupGrid(groups, this.body, (name, on) => this.host.setGroupVisible(name, on));
+      this.groupList = g.list;
+      this.body.append(section('부품별 보이기', g.el));
     }
-  }
-
-  private treeRow(d: StepDoc, r: TreeRow, counts: Map<string, number>, picked: Set<string> | null): HTMLElement {
-    const bodyId = r.body === undefined ? null : r.itemIds[0]!;
-    const found = bodyId ? itemById(d.scene, bodyId) : undefined;
-    // 몸체 줄 이름: 형상 항목 이름(파일 글), 없으면 "몸체 2"·"선 형상 1"(부품 마디 바로 아래라 부품 이름은 되풀이하지 않는다 — 말풍선에 "부품 · 몸체 2")
-    const bname = bodyId ? bodyName(r.node, found?.[0], r.wire !== undefined) : '';
-    const generic = r.wire !== undefined ? wireLabel(r.node, undefined, found?.[1], r.wire) : `몸체 ${r.body}`;
-    const { name, instance } = bodyId ? { name: bname || generic, instance: '' } : nodeLabel(r.node);
-    const visible = nodeVisible(r.itemIds, (id) => this.host.isVisible(id));
-    // 고름 · 이 부품의 몸체 일부만 고름(몸체 단위 고르기·몸체 줄·여러 개 고르기 — 줄에 옅게 표시)
-    const [sel, part] = rowMarks(d, r, picked);
-    const tog = h('button', { type: 'button', class: `twisty${bodyId ? ' body-mark' : ''}`, tabindex: '-1', 'aria-hidden': 'true', disabled: !r.hasChildren });
-    if (r.hasChildren) tog.append(icon(r.open ? 'chevronDown' : 'chevronRight', 14));
-    else if (bodyId) tog.append(icon(r.wire !== undefined ? 'wire' : 'body', 13));
-    tog.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      d.expanded = toggleKey(d.expanded, r.key);
-      this.renderBody();
-    });
-    const eye = h('button', {
-      type: 'button',
-      class: `eye${visible ? '' : ' off'}`,
-      title: visible ? '숨기기' : '보이기',
-      'aria-label': `${name} ${visible ? '숨기기' : '보이기'}`,
-      'aria-pressed': String(!visible),
-      disabled: !r.itemIds.length,
-    });
-    eye.append(icon(visible ? 'eye' : 'eyeOff', 15));
-    eye.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      this.host.setItemsVisible(r.itemIds, !visible);
-    });
-    const n = bodyId ? 0 : nodeInstances(r.node, counts);
-    const lines = r.node.lineIds?.length ?? 0;
-    // 말풍선은 bodyTitle과 같은 글("부품 / 항목" 또는 "부품 · 몸체 2") — 줄마다 나무를 다시 훑지 않게 줄의 마디로 바로 만든다
-    const tip = bodyId
-      ? r.wire !== undefined
-        ? [bname ? `${r.node.name} / ${bname}` : `${r.node.name} · ${generic}`, '두 번 누르면 이 선 형상으로 맞춰 봅니다']
-        : [bname ? found![0].name! : `${r.node.name} · ${generic}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
-      : [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
-    const item = h(
-      'div',
-      {
-        class: `tree-row${bodyId ? ' body-row' : ''}${sel ? ' sel' : part ? ' part-sel' : ''}${visible ? '' : ' hidden-node'}${r.match ? ' match' : ''}`,
-        role: 'treeitem',
-        'aria-level': String(r.depth + 1),
-        'aria-selected': String(sel),
-        'aria-expanded': r.hasChildren ? String(r.open) : null,
-        tabindex: '0',
-        style: `--depth:${r.depth}`,
-        title: tip.filter(Boolean).join(' · '),
-        'data-key': r.key,
-      },
-      tog,
-      eye,
-      // 이름 없는 몸체 줄의 "몸체 2"·"선 형상 1"은 화면 글이라 번역층이 옮긴다(파일 이름인 .tree-name은 건너뛴다)
-      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: 'tree-name', translate: bname ? 'no' : null }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
-      n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
-    );
-    // 이 줄 고르기·맞춰 보기(몸체 줄은 그 몸체 하나, 마디 줄은 그 마디 아래 통째)
-    const isSel = () => (bodyId ? selectedBody(d) === bodyId : d.selKey === r.key);
-    const select = (on: boolean) => (bodyId ? this.host.selectBody(on ? bodyId : null) : this.host.selectKey(on ? r.key : null));
-    const fit = () => (bodyId ? this.host.fitBody(bodyId) : this.host.fitKey(r.key));
-    // 첫 누르기에 나무를 다시 그릴 수 있으므로 dblclick 대신 누른 횟수(detail)로 두 번 누르기를 가린다
-    item.addEventListener('click', (ev) => {
-      // Ctrl·⌘·Shift + 누르기(여러 개 고르기 모드면 그냥 누르기): 이 마디 아래 형상(몸체 줄은 그 몸체)을 여러 개 고르기에 더하거나 뺀다
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey || this.host.multiPick) {
-        if (ev.detail <= 1) this.host.toggleInSelection(r.itemIds);
-        return;
-      }
-      if (ev.detail === 2) fit();
-      else if (ev.detail <= 1) select(!isSel());
-    });
-    // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
-    item.addEventListener('contextmenu', (ev) => {
-      ev.preventDefault();
-      // 여러 개 고르기 중에는 이 마디를 모은 것에 더해(이미 있으면 그대로) 메뉴가 모은 것 전체에 쓰이게 한다
-      if (this.host.multiPick) {
-        if (!rowMarks(d, r, treePicked(d))[0]) this.host.toggleInSelection(r.itemIds);
-      } else if (!isSel()) select(true);
-      this.host.openContextMenu(ev.clientX, ev.clientY);
-    });
-    item.addEventListener('keydown', (ev) => {
-      const refocus = () => (this.body.querySelector(`.tree-row[data-key="${r.key}"]`) as HTMLElement | null)?.focus();
-      if (ev.key === 'Enter') {
-        // Enter: 고르기, 이미 골랐으면 맞춰 보기
-        ev.preventDefault();
-        if (isSel()) fit();
-        else select(true);
-        refocus();
-      } else if (ev.key === ' ') {
-        ev.preventDefault();
-        select(!isSel());
-        refocus();
-      } else if ((ev.key === 'ArrowRight' && r.hasChildren && !r.open) || (ev.key === 'ArrowLeft' && r.open)) {
-        ev.preventDefault();
-        d.expanded = toggleKey(d.expanded, r.key);
-        this.renderBody();
-        refocus();
-      } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-        ev.preventDefault();
-        const sib = ev.key === 'ArrowDown' ? item.nextElementSibling : item.previousElementSibling;
-        if (sib) (sib as HTMLElement).focus();
-        else if (ev.key === 'ArrowUp') this.body.querySelector<HTMLInputElement>('.tree-filter')?.focus();
-      }
-    });
-    return item;
   }
 
   // ───────────────────────── 속성 탭 ─────────────────────────
@@ -1005,27 +914,4 @@ function faceLines(fp: FacePick, f: Fmt): HTMLElement[] {
   const approx = fp.exact ? '' : '≈ ';
   out.push(h('div', { class: 'dim', title: fp.exact ? null : '화면용 삼각형으로 잰 근삿값입니다(B-스플라인 등).' }, `넓이 ${approx}${f.area(fp.area)} · 둘레 ${approx}${f.len(fp.perimeter)}`));
   return out;
-}
-
-/** 나무 줄 표시에 쓰는 고른 항목: 여러 개 고르기 묶음이나 몸체 하나(마디를 통째로 고른 것은 열쇠로 따로), 없으면 null */
-function treePicked(d: StepDoc): Set<string> | null {
-  if (d.selKey) return null;
-  if (d.items) return new Set(d.items.ids);
-  const b = selectedBody(d);
-  return b ? new Set([b]) : null;
-}
-
-/**
- * 줄 표시 [고름, 일부 고름]: 마디를 통째로 골랐거나 줄 아래 항목이 모두 고른 것에 들면 고름,
- * 아니면 부품 줄에 바로 놓인 몸체 가운데 고른 것이 있으면 일부 고름(몸체 단위·몸체 줄·여러 개 고르기)
- */
-function rowMarks(d: StepDoc, r: TreeRow, picked: Set<string> | null): [boolean, boolean] {
-  const sel = d.selKey === r.key || (!!picked && r.itemIds.length > 0 && r.itemIds.every((id) => picked.has(id)));
-  return [sel, !sel && !!picked && r.body === undefined && nodeItems(r.node).some((id) => picked.has(id))];
-}
-
-function markRow(el: HTMLElement, sel: boolean, part: boolean): void {
-  el.classList.toggle('sel', sel);
-  el.classList.toggle('part-sel', part);
-  el.setAttribute('aria-selected', String(sel));
 }

@@ -84,7 +84,10 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', './gpucontext', './trackdir', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './entpick', './gpucontext', './trackdir', './treeview', 'opencad-viewer3d']);
+    // 나무 조각(49차 — 제품 나무·부품별 보이기 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져오고 앱이 뷰어를 만들 때 넣는다
+    expect(files.has(join(ROOT, 'src/app/treeview.ts'))).toBe(false);
+    expect(dynamic.some((d) => d.spec.endsWith('treeview'))).toBe(false);
     // 정밀 조준(aim.ts — 뷰어를 만들 때 단다)과 그래픽 문맥 잃음·되찾음 안내(gpucontext.ts — 코어 0.25.0)도 그 조각에만(첫 화면 JS 밖)
     expect(files.has(join(ROOT, 'src/app/aim.ts'))).toBe(false);
     expect(files.has(join(ROOT, 'src/app/gpucontext.ts'))).toBe(false);
@@ -148,5 +151,9 @@ describe('코어 나눠 받기', () => {
     // 같은 조각의 개체 측정 계산(앱은 뷰어를 만들기 전에 이 모듈을 쥔다)
     const ent = await import('../../src/app/entpick');
     for (const k of ['measurePicked', 'pickedAnnotations', 'pickedClosest', 'pickedFace', 'pickedEdge', 'pickedPoint', 'pickedSection', 'armSize'] as const) expect(m[k], k).toBe(ent[k]);
+    // 같은 조각의 나무 조각(앱이 뷰어를 만들 때 패널에 넣는다)
+    const tv = await import('../../src/app/treeview');
+    expect(m.treeView).toBe(tv.treeView);
+    expect(m.groupGrid).toBe(tv.groupGrid);
   });
 });

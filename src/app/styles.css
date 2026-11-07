@@ -984,9 +984,16 @@ body.resizing .viewer-host {
   margin-bottom: 6px;
 }
 .tree {
-  display: flex;
-  flex-direction: column;
   margin: 0 -10px;
+}
+/* 가상 목록(treeview.ts — 나무·부품별 보이기 표): 높이는 줄 수 × 줄 높이, 보이는 줄만 그 자리에 absolute로 놓는다(줄 높이는 모두 같다) */
+.vlist {
+  position: relative;
+}
+.vlist > * {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 .tree-row {
   display: flex;
@@ -996,9 +1003,6 @@ body.resizing .viewer-host {
   padding: 0 8px 0 calc(6px + var(--depth, 0) * 16px);
   cursor: pointer;
   white-space: nowrap;
-  /* 화면 밖 줄은 모양·배치·그리기를 건너뛴다(큰 조립 나무 3,000줄). 줄 높이가 정해져 있어 스크롤 길이는 같다 */
-  content-visibility: auto;
-  contain-intrinsic-height: auto 28px;
 }
 .tree-row:hover {
   background: var(--bg-hover);
@@ -1077,23 +1081,44 @@ table.grid {
   border-collapse: collapse;
 }
 table.grid th,
-table.grid td {
+table.grid td,
+.vgrid-row {
   padding: 3px 4px;
   border-bottom: 1px solid var(--border-soft);
   text-align: left;
   vertical-align: middle;
 }
-table.grid th {
+table.grid th,
+.vgrid-head {
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 600;
 }
-table.grid .num {
+table.grid .num,
+.vgrid .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-table.grid tr.off td {
+table.grid tr.off td,
+.vgrid-row.off > * {
   opacity: 0.55;
+}
+/* 부품별 보이기 표(가상 목록 — ARIA table, 줄 높이가 같게 한 줄로 두고 긴 이름은 말줄임) */
+.vgrid-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.vgrid-row > :first-child,
+.vgrid-row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vgrid-row > .num {
+  flex: none;
 }
 label.check {
   display: flex;
@@ -1512,7 +1537,6 @@ table.grid td.mono {
 @media (pointer: coarse) {
   .tree-row {
     min-height: 36px;
-    contain-intrinsic-height: auto 36px;
   }
   .twisty,
   .eye {

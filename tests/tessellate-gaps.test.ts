@@ -9,6 +9,54 @@ import { stepToScene, type StepMeta } from '../src/index';
 import { clipAll, EdgeHash, triangulateRobust } from '../src/tessellate';
 import { StepText, type P3 } from './stepText';
 
+describe('큰 조립 해석 빠르게 하기(49차) — 결과는 앞 판과 같게', () => {
+  it('T자 이음 메우기: 큰 면의 모서리 한 줄 위에 이웃 두 면의 꼭짓점이 놓이면 그 점을 다각선에 넣어 틈이 없다(겹 Map 격자)', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    const V = (p: P3) => w.vertex(p);
+    const E = (a: number, pa: P3, b: number, pb: P3) => w.edge(a, b, w.line(pa, pb));
+    const p: Record<string, P3> = { a: [0, 0, 0], m: [5, 0, 0], b: [10, 0, 0], c: [10, 10, 0], d: [0, 10, 0], e: [0, -5, 0], f: [5, -5, 0], g: [10, -5, 0] };
+    const v = Object.fromEntries(Object.entries(p).map(([k, x]) => [k, V(x)])) as Record<string, number>;
+    const ab = E(v.a!, p.a!, v.b!, p.b!);
+    const bc = E(v.b!, p.b!, v.c!, p.c!);
+    const cd = E(v.c!, p.c!, v.d!, p.d!);
+    const da = E(v.d!, p.d!, v.a!, p.a!);
+    const ae = E(v.a!, p.a!, v.e!, p.e!);
+    const ef = E(v.e!, p.e!, v.f!, p.f!);
+    const fm = E(v.f!, p.f!, v.m!, p.m!);
+    const ma = E(v.m!, p.m!, v.a!, p.a!);
+    const fg = E(v.f!, p.f!, v.g!, p.g!);
+    const gb = E(v.g!, p.g!, v.b!, p.b!);
+    const bm = E(v.b!, p.b!, v.m!, p.m!);
+    const pl = w.plane([0, 0, 0]);
+    const face = (oes: [number, boolean][]) => w.face([w.bound(w.loop(oes.map(([e, f]) => w.oe(e, f))))], pl);
+    // 위 큰 면(아래 모서리 a–b 한 줄) · 아래 두 면(위 모서리가 m에서 나뉨)
+    const top = face([[ab, true], [bc, true], [cd, true], [da, true]]);
+    const left = face([[ae, true], [ef, true], [fm, true], [ma, true]]);
+    const right = face([[fg, true], [gb, true], [bm, true], [fm, false]]);
+    const shell = w.add('OPEN_SHELL', `'',(#${top},#${left},#${right})`);
+    w.product('tee', [w.add('SHELL_BASED_SURFACE_MODEL', `'',(#${shell})`)], ctx, 'MANIFOLD_SURFACE_SHAPE_REPRESENTATION');
+    const s = stepToScene(w.bytes(), { chordTolerance: 0.05 });
+    expect((s.meta as unknown as StepMeta).stats.failedFaces).toBe(0);
+    const m = s.meshes[0]!;
+    const P = m.positions;
+    const I = m.indices!;
+    const k3 = (i: number) => `${P[i * 3]},${P[i * 3 + 1]},${P[i * 3 + 2]}`;
+    const cnt = new Map<string, number>();
+    for (let t = 0; t < I.length; t += 3)
+      for (let e = 0; e < 3; e++) {
+        const [x, y] = [k3(I[t + e]!), k3(I[t + ((e + 1) % 3)]!)].sort();
+        cnt.set(`${x}|${y}`, (cnt.get(`${x}|${y}`) ?? 0) + 1);
+      }
+    const boundary = [...cnt].filter(([, c]) => c === 1).map(([k]) => k);
+    // 바깥 둘레 7토막만 한 번 쓰이고(a–m·m–b는 위·아래 면이 함께 씀), 틈(a–b 한 줄)은 없다
+    expect(boundary).toHaveLength(7);
+    expect(cnt.get(['0,0,0', '5,0,0'].sort().join('|'))).toBe(2);
+    expect(cnt.get(['10,0,0', '5,0,0'].sort().join('|'))).toBe(2);
+    expect(cnt.has(['0,0,0', '10,0,0'].sort().join('|'))).toBe(false);
+  });
+});
+
 /** 고리(차례대로 이은 점 번호)의 선분 가운데 삼각형이 정확히 한 번 쓰지 않은 것 + 고리에 없는데 한 번만 쓰인 모서리 */
 function boundaryMismatch(tris: number[], rings: number[][]): { missing: number; stray: number } {
   const key = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
