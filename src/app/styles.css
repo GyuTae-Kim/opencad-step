@@ -1900,6 +1900,16 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .explode-dist-key {
   color: var(--text-dim);
 }
+/* 다른 부품 면에 붙은 동안(47차): 테두리를 강조색으로, 아래 줄에 붙은 종류 */
+.explode-dist.snapped {
+  border-color: var(--accent);
+}
+.explode-dist-snap > span:first-child {
+  font-weight: 600;
+}
+.explode-dist-snap > span + span {
+  margin-left: 8px;
+}
 /* 옮기기를 켠 동안 3D 보기 커서(부품을 끌면 옮기고, 빈 곳은 돌려 본다) */
 .viewer-host.explode-moving canvas {
   cursor: move;

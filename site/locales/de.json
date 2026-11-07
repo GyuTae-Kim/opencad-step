@@ -1000,5 +1000,8 @@
   "손질 줄이 너무 많은 파일이라 불러오지 않았습니다(한도 {0}개).": "Die Datei enthält zu viele Anpassungszeilen und wurde nicht geladen (Grenze {0}).",
   "손질이 너무 많아 파일로 내보내지 못했습니다(한도 {0}개).": "Zu viele Anpassungen – sie konnten nicht als Datei exportiert werden (Grenze {0}).",
   "값이 범위를 벗어난 손질 {0}개는 건너뛰었습니다.": "{0} Anpassungen mit Werten außerhalb des zulässigen Bereichs wurden übersprungen.",
-  "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument (anderer Name oder andere Größe), daher wurden nur Teile übernommen, deren Position und Teil (Name, Anzahl der Körper, Größe) passen."
+  "다른 문서(이름·크기가 다름)에서 내보낸 손질이라 자리와 부품(이름·묶음 수·크기)이 맞는 것만 받았습니다.": "Diese Anpassungen stammen aus einem anderen Dokument (anderer Name oder andere Größe), daher wurden nur Teile übernommen, deren Position und Teil (Name, Anzahl der Körper, Größe) passen.",
+  "면에 닿음": "Berührt Fläche",
+  "면과 같은 높이": "Bündig mit Fläche",
+  "Alt/⌥로 풀기": "Alt/⌥ zum Lösen"
 }
