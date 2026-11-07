@@ -32,7 +32,6 @@ import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
-import { TRUNCATED_WARNING } from '../messages';
 import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
@@ -78,9 +77,6 @@ const APP_TITLE = document.title;
 /** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
 const WIDE_CUBE = 112;
 const NARROW_CUBE = 76;
-/** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
-const BIG_TRIANGLES = 400_000;
-const BIG_MESHES = 3000;
 /** 고른 면 경계 색(청록) */
 const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
 /** 화면 방향 분해(가로·세로·평면 — 카메라 각으로 방향을 정한다. explode.ts isScreenAxis와 같다: 첫 화면에 분해 조각을 들이지 않게 따로 둔다) */
@@ -789,9 +785,9 @@ export class StepApp {
       // 다 열었음을 화면 읽기 프로그램에 알린다(53차 — 단계 알림 뒤 끝을 알리지 않았다. 문장 하나라 번역 사전의 "{0}을(를) 열었습니다."로 옮긴다)
       this.sayEl.replaceChildren(`${name}을(를) 열었습니다.`);
       this.startProps(doc);
-      const w = res.scene.warnings?.length ?? 0;
-      if (res.scene.warnings?.includes(TRUNCATED_WARNING)) this.toast('파일이 중간에 끊긴 것 같습니다 — 읽은 데까지만 보입니다. 파일을 다시 받아 여십시오.', 'warn', 6000);
-      else if (w) this.toast(`해석기 경고 ${w}개 — 패널의 "정보" 탭에서 볼 수 있습니다.`, 'warn');
+      // 끊긴 파일·조립 자리 상한·그 밖의 경고 알림(뷰어 조각의 opennotice.ts — 58차에 앱 입구에서 옮김)
+      const note = this.ent!.openNotice(res.scene.warnings ?? []);
+      if (note) this.toast(note.text, 'warn', note.ms);
       attempt.success();
       return true;
     } catch (e) {
@@ -849,16 +845,15 @@ export class StepApp {
     this.checkWorker = null;
     // 부품을 끄는 중이면 앞 문서에서 취소한다(장면을 바꾸기 전에 — 앞 자리로)
     this.tweakTool?.cancel();
-    // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다
-    let tris = 0;
-    for (const m of doc.scene.meshes) tris += (m.indices ? m.indices.length : m.positions.length / 3) / 3;
-    const big = tris > BIG_TRIANGLES || doc.scene.meshes.length > BIG_MESHES;
+    // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다. 몫은 그물 수에 맞춘다(뷰어 조각의 upload.ts — 프레임마다
+    // 올린 그물을 다시 그리므로 고정 8 ms면 그물 수의 제곱으로 늘었다. 뷰어를 만들며 조각을 받았다)
+    const { triangles: tris, budgetMs } = this.ent!.sceneUpload(doc.scene.meshes);
     this.upload = null;
     v.setScene(doc.scene, {
       keepView: !!carry,
-      ...(big
+      ...(budgetMs
         ? {
-            incremental: { budgetMs: 8 },
+            incremental: { budgetMs },
             onProgress: (done: number, total: number) => {
               this.upload = done < total ? done / Math.max(1, total) : null;
               this.updateStatus();

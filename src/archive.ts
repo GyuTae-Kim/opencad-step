@@ -5,6 +5,10 @@
  * - ZIP 꾸러미는 끝의 목록(중앙 디렉터리, ZIP64 포함)을 직접 읽어 안의 .stp·.step·.p21(또는 그 gzip)을 찾고,
  *   저장(방식 0)은 그대로, deflate(방식 8)는 `DecompressionStream('deflate-raw')`로 풀어 CRC-32를 맞춰 본다.
  * - STEP-XML(ISO 10303-28, .stpx)은 지원하지 않으므로 알아보고 알기 쉬운 이유로 거절한다.
+ * - 58차: 풀린 크기를 미리 알 수 있으면(ZIP 목록의 크기·gzip 끝 ISIZE) 믿지 않고 deflate가 낼 수 있는 크기인지 본 뒤 그만큼 한 번에 잡아 그 안에 푼다
+ *   (덩이를 모은 뒤 잇느라 최고 메모리가 풀린 크기의 두 배가 되던 것을 한 배로). ZIP 목록의 크기가 상한을 넘으면 풀기 전에 거절한다.
+ *   앞 64 KiB를 풀었을 때 STEP·gzip·ZIP이 아니면(0바이트 폭탄 등) 더 풀지 않는다 — 앞 64 KiB만으로 거절이 정해지므로 알림 글은 같다.
+ *   압축 바이트는 64 KiB씩 넣는다(브라우저 DecompressionStream이 넣은 조각 하나를 한꺼번에 풀어 줄 세우므로 — 폭탄이면 1 MiB가 1 GB).
  */
 
 /** 파일 앞부분으로 가린 종류 */
@@ -12,6 +16,35 @@ export type ContainerKind = 'step' | 'gzip' | 'zip' | 'xml' | 'unknown' | 'empty
 
 /** 압축을 푼 결과 크기 상한(바이트). 해석기 색인이 32비트 위치를 쓰고, 브라우저 메모리도 한계가 있다 */
 export const MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024 - 1;
+
+/**
+ * deflate가 압축 바이트 하나에서 낼 수 있는 가장 큰 배수(RFC 1951 — 길이 258 일치 하나가 고정 허프만으로 2비트 남짓이라 이론 최대 약 1032:1).
+ * 풀린 크기 예상값(ZIP 목록·gzip ISIZE)이 압축 크기 × 이 배수 + 머리 몫을 넘으면 나올 수 없는 값이라 쓰지 않는다
+ */
+export const MAX_DEFLATE_RATIO = 1032;
+
+/** 판정에 쓰는 앞부분 길이(sniffContainer·앱 sniffStep이 보는 64 KiB) */
+const HEAD_BYTES = 64 * 1024;
+
+/** 압축 바이트 n개가 deflate로 풀려 나올 수 있는 가장 큰 크기 */
+export function maxInflatedSize(packed: number): number {
+  return packed * MAX_DEFLATE_RATIO + HEAD_BYTES;
+}
+
+/** 상한 넘음 알림(풀다가 넘었을 때와 ZIP 목록의 크기로 미리 알았을 때 같은 글) */
+function overLimitError(limit: number): Error {
+  return new Error(`압축을 푼 크기가 ${Math.round(limit / 1024 / 1024)} MB를 넘어 열 수 없습니다.`);
+}
+
+/**
+ * 앞부분만 풀고 멈췄다(InflateOptions.accept가 false — 앞 64 KiB로 STEP·압축이 아님이 정해짐). head는 그때까지 푼 앞부분(64 KiB 넘게)
+ */
+export class InflateStopped extends Error {
+  constructor(readonly head: Uint8Array) {
+    super('앞부분만 풀고 멈췄습니다.');
+    this.name = 'InflateStopped';
+  }
+}
 
 /** STEP-XML 안내 */
 export const STEP_XML_MESSAGE =
@@ -101,22 +134,61 @@ export interface InflateOptions {
   limit?: number;
   /** 넣은 압축 바이트 비율(0~1) */
   onProgress?: (fraction: number) => void;
+  /**
+   * 풀린 크기 예상값(ZIP 목록의 크기·gzip 끝 ISIZE). 믿지 않는다: 상한 안이고 압축 크기로 나올 수 있는 값(maxInflatedSize)일 때만
+   * 그만큼 한 번에 잡아 그 안에 푼다(최고 메모리 한 배). 넘치면 나머지 덩이를 모아 끝에 잇고, 모자라면 푼 만큼만 잘라 돌려준다
+   */
+  sizeHint?: number;
+  /** 앞 64 KiB를 풀었을 때 계속 풀지(false면 더 풀지 않고 InflateStopped를 던진다 — head에 앞부분). 64 KiB보다 짧은 결과는 묻지 않는다 */
+  accept?: (head: Uint8Array) => boolean;
 }
 
 /**
  * gzip·deflate-raw 바이트를 푼다(DecompressionStream). 상한을 넘으면 멈추고 오류.
  * gzip 뒤에 붙은 군더더기(일부 내보내기)는 이미 푼 내용이 있으면 무시한다.
+ * 결과는 sizeHint로 잡은 버퍼에 바로 채우거나(맞으면 최고 메모리 한 배), 없으면 덩이를 모아 끝에 한 번 잇는다(두 배).
  */
 export async function inflate(data: Uint8Array, format: 'gzip' | 'deflate-raw', opts: InflateOptions = {}): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') throw new Error('이 브라우저는 압축 풀기(DecompressionStream)를 지원하지 않습니다. 압축을 푼 .stp 파일을 여십시오.');
   const limit = opts.limit ?? MAX_UNPACKED_BYTES;
+  const hint = opts.sizeHint ?? 0;
+  /** 예상 크기로 잡은 결과 버퍼(앞에서부터 filled만큼 찼다) — 예상값이 없거나 나올 수 없는 값이면 null */
+  let out: Uint8Array | null = null;
+  if (hint > 0 && hint <= limit && hint <= maxInflatedSize(data.length)) {
+    try {
+      out = new Uint8Array(hint);
+    } catch {
+      // 메모리가 모자라 한 번에 잡지 못하면 덩이를 모은다(예전 길)
+      out = null;
+    }
+  }
+  let filled = 0;
+  /** out을 다 채운 뒤(또는 out이 없을 때) 모은 덩이 */
+  const rest: Uint8Array[] = [];
   const ds = new DecompressionStream(format);
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
-  const chunks: Uint8Array[] = [];
   let total = 0;
   let readError: unknown = null;
   let overLimit = false;
+  let asked = !opts.accept;
+  let stoppedHead: Uint8Array | null = null;
+  /** 지금까지 푼 앞 n바이트 */
+  const firstBytes = (n: number): Uint8Array => {
+    const h = new Uint8Array(Math.min(n, total));
+    let p = 0;
+    if (out) {
+      p = Math.min(filled, h.length);
+      h.set(out.subarray(0, p));
+    }
+    for (const c of rest) {
+      if (p >= h.length) break;
+      const k = Math.min(c.length, h.length - p);
+      h.set(c.subarray(0, k), p);
+      p += k;
+    }
+    return h;
+  };
   const readAll = (async () => {
     try {
       for (;;) {
@@ -128,37 +200,75 @@ export async function inflate(data: Uint8Array, format: 'gzip' | 'deflate-raw', 
           await reader.cancel();
           break;
         }
-        chunks.push(value);
+        let v = value;
+        if (out && filled < out.length) {
+          const k = Math.min(out.length - filled, v.length);
+          out.set(k === v.length ? v : v.subarray(0, k), filled);
+          filled += k;
+          v = v.subarray(k);
+        }
+        if (v.length) rest.push(v);
+        if (!asked && total >= HEAD_BYTES) {
+          asked = true;
+          const head = firstBytes(HEAD_BYTES);
+          if (!opts.accept!(head)) {
+            stoppedHead = head;
+            await reader.cancel();
+            break;
+          }
+        }
       }
     } catch (e) {
       readError = e;
     }
   })();
-  const CHUNK = 1 << 20;
+  // 압축 바이트를 64 KiB씩 넣는다: 브라우저의 DecompressionStream은 넣은 조각 하나를 다 풀어 덩이들을 한꺼번에 줄 세우므로(받는 쪽이 읽기 전에),
+  // 압축 폭탄(약 1000:1)이면 1 MiB 조각 하나가 1 GB 덩이가 되어 최고 메모리가 그만큼 늘었다(58차 헤드리스 Chrome — 앞 64 KiB에서 멈춰도 1.2 GB).
+  // 64 KiB면 한 번에 66 MB 안쪽
+  const CHUNK = 64 * 1024;
   let writeError: unknown = null;
   try {
-    for (let off = 0; off < data.length && !overLimit && !readError; off += CHUNK) {
+    for (let off = 0; off < data.length && !overLimit && !stoppedHead && !readError; off += CHUNK) {
       await writer.write(data.subarray(off, Math.min(data.length, off + CHUNK)) as Uint8Array<ArrayBuffer>);
       opts.onProgress?.(Math.min(1, (off + CHUNK) / data.length));
     }
-    if (!overLimit && !readError) await writer.close();
+    if (!overLimit && !stoppedHead && !readError) await writer.close();
   } catch (e) {
     writeError = e;
   }
   await readAll;
-  if (overLimit) throw new Error(`압축을 푼 크기가 ${Math.round(limit / 1024 / 1024)} MB를 넘어 열 수 없습니다.`);
+  if (overLimit) throw overLimitError(limit);
+  if (stoppedHead) throw new InflateStopped(stoppedHead);
   const err = readError ?? writeError;
   if (err && !(total > 0 && /junk|trailing|extra|after end/i.test(String((err as Error)?.message ?? err)))) {
     throw new Error(`압축을 풀지 못했습니다(파일이 손상되었거나 잘렸을 수 있습니다). ${String((err as Error)?.message ?? err)}`.trim());
   }
-  if (chunks.length === 1) return chunks[0]!;
-  const out = new Uint8Array(total);
+  if (out && !rest.length) return filled === out.length ? out : out.slice(0, filled);
+  if (!out && rest.length === 1) return rest[0]!;
+  // 예상값이 없었거나 모자랐다(여러 조각 gzip 등): 덩이를 잇는다
+  const all = new Uint8Array(total);
   let p = 0;
-  for (const c of chunks) {
-    out.set(c, p);
+  if (out) {
+    all.set(out.subarray(0, filled));
+    p = filled;
+    out = null;
+  }
+  for (const c of rest) {
+    all.set(c, p);
     p += c.length;
   }
-  return out;
+  return all;
+}
+
+/** gzip 끝 ISIZE(풀린 크기 mod 2^32 — 뒤에 군더더기가 붙었으면 아무 값). 예상값으로만 쓴다 */
+export function gzipSizeHint(b: Uint8Array): number {
+  return b.length >= 18 ? u32(b, b.length - 4) : 0;
+}
+
+/** 앞 64 KiB로 계속 풀지: STEP 글·gzip·ZIP이면 끝까지 풀어야 안다. 그 밖(XML·알 수 없음)은 앞부분만으로 거절이 정해진다 */
+function worthUnpacking(head: Uint8Array): boolean {
+  const k = sniffContainer(head);
+  return k === 'step' || k === 'gzip' || k === 'zip';
 }
 
 // ───────────────────────── ZIP ─────────────────────────
@@ -290,8 +400,13 @@ export async function zipEntryData(b: Uint8Array, e: ZipEntry, opts: InflateOpti
   const raw = b.subarray(start, end);
   let out: Uint8Array;
   if (e.method === 0) out = raw;
-  else if (e.method === 8) out = await inflate(raw, 'deflate-raw', opts);
-  else throw new Error(`ZIP 압축 방식 ${e.method}${ZIP_METHODS[e.method] ? `(${ZIP_METHODS[e.method]})` : ''}은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.`);
+  else if (e.method === 8) {
+    // 목록의 크기는 압축 크기로 나올 수 있는 값일 때만 믿는다: 상한을 넘으면 풀기 전에 거절하고, 아니면 그만큼 잡아 그 안에 푼다
+    const limit = opts.limit ?? MAX_UNPACKED_BYTES;
+    const plausible = e.size > 0 && e.size <= maxInflatedSize(raw.length);
+    if (plausible && e.size > limit) throw overLimitError(limit);
+    out = await inflate(raw, 'deflate-raw', plausible ? { ...opts, sizeHint: e.size } : opts);
+  } else throw new Error(`ZIP 압축 방식 ${e.method}${ZIP_METHODS[e.method] ? `(${ZIP_METHODS[e.method]})` : ''}은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.`);
   if (crc32(out) !== e.crc) throw new Error(`ZIP 항목 ${e.name}이(가) 손상되었습니다(CRC 불일치).`);
   return out;
 }
@@ -334,7 +449,13 @@ export async function unpackStep(bytes: Uint8Array, onProgress?: (fraction: numb
     }
     if (kind === 'gzip') {
       out.containers.push('gzip');
-      out.bytes = await inflate(out.bytes, 'gzip', { onProgress });
+      try {
+        out.bytes = await inflate(out.bytes, 'gzip', { onProgress, sizeHint: gzipSizeHint(out.bytes), accept: worthUnpacking });
+      } catch (e) {
+        // 앞 64 KiB가 STEP·압축이 아니다: 그 앞부분으로 다음 차례가 거절을 정한다(다 푼 것과 같은 판정·같은 글)
+        if (!(e instanceof InflateStopped)) throw e;
+        out.bytes = e.head;
+      }
       continue;
     }
     if (kind !== 'zip') return out;
@@ -356,7 +477,12 @@ export async function unpackStep(bytes: Uint8Array, onProgress?: (fraction: numb
       out.notes.push(`ZIP 안 STEP 파일 ${cands.length}개 가운데 가장 큰 ${pick.name}을(를) 열었습니다(나머지: ${rest.slice(0, 5).join(', ')}${rest.length > 5 ? `, … +${rest.length - 5}` : ''}).`);
     }
     out.entry = pick.name;
-    out.bytes = await zipEntryData(out.bytes, pick, { onProgress });
+    try {
+      out.bytes = await zipEntryData(out.bytes, pick, { onProgress, accept: worthUnpacking });
+    } catch (e) {
+      if (!(e instanceof InflateStopped)) throw e;
+      out.bytes = e.head;
+    }
   }
   return out;
 }

@@ -13,6 +13,8 @@ export interface ZipFile {
   badCrc?: boolean;
   /** 압축 방식 번호를 이 값으로 적는다(지원하지 않는 방식 시험) */
   fakeMethod?: number;
+  /** 목록·머리에 적을 풀린 크기를 이 값으로(실제와 다른 크기 — 미리 거절·예상값 시험) */
+  fakeSize?: number;
 }
 
 export function makeZip(files: ZipFile[], opts: { zip64?: boolean } = {}): Uint8Array {
@@ -34,7 +36,7 @@ export function makeZip(files: ZipFile[], opts: { zip64?: boolean } = {}): Uint8
     lh.setUint16(8, m, true);
     lh.setUint32(14, crc, true);
     lh.setUint32(18, body.length, true);
-    lh.setUint32(22, f.data.length, true);
+    lh.setUint32(22, f.fakeSize ?? f.data.length, true);
     lh.setUint16(26, name.length, true);
     parts.push(new Uint8Array(lh.buffer), name, body);
     const ch = new DataView(new ArrayBuffer(46));
@@ -45,7 +47,7 @@ export function makeZip(files: ZipFile[], opts: { zip64?: boolean } = {}): Uint8
     ch.setUint16(10, m, true);
     ch.setUint32(16, crc, true);
     ch.setUint32(20, body.length, true);
-    ch.setUint32(24, f.data.length, true);
+    ch.setUint32(24, f.fakeSize ?? f.data.length, true);
     ch.setUint16(28, name.length, true);
     ch.setUint32(42, offset, true);
     central.push(new Uint8Array(ch.buffer), name);

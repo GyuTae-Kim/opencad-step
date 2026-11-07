@@ -12,7 +12,9 @@ import { STEP_XML_MESSAGE, stepToScene, TRUNCATED_WARNING } from '../src/index';
 import { crc32 } from '../src/archive';
 import { STEP_EXTENSIONS as APP_STEP_EXTENSIONS } from '../src/app/files';
 import { IFC_MESSAGE } from '../src/app/protocol';
-import { errorCode, failReasons, sceneClass, schemaLabel, warningCode } from '../scripts/sweep/classify';
+import { droppedParts, dropErrorCode, errorCode, failReasons, sceneClass, schemaLabel, warningCode } from '../scripts/sweep/classify';
+import { BrepMesher } from '../src/brep';
+import { MAX_PLACEMENTS } from '../src/scene';
 import { areaMismatch, itemQuality, massPropsStats, propsSignature, sceneQuality, transferStats } from '../scripts/sweep/metrics';
 import { qualityOptions } from '../scripts/sweep/quality';
 import { sweepOne } from '../scripts/sweep/worker';
@@ -49,6 +51,15 @@ describe('훑기: 분류 코드', () => {
     expect(warningCode('삼각화하지 못한 면 2개 / 10개 (지원하지 않는 곡면 2)')).toBe('failed-faces');
     expect(warningCode('그릴 형상을 찾지 못했다(B-rep·삼각형 형식 없음)')).toBe('no-geometry');
     expect(warningCode('새 경고 12개와 3.5')).toBe('other:새 경고 N개와 N');
+    expect(warningCode('읽지 못해 뺀 부분 3곳(형상·선·PMI·색·레이어·속성 — 읽다가 오류가 났거나 좌표가 잘못됨)')).toBe('parts-dropped');
+    expect(warningCode(`조립 자리가 ${MAX_PLACEMENTS}개를 넘어 나머지는 놓지 않았다(같은 하위 조립을 층마다 거듭 쓴 파일일 수 있음)`)).toBe('placements-capped');
+  });
+  it('읽지 못해 뺀 부분: 곳 수와 잡은 예외 코드(58차)', () => {
+    expect(droppedParts(['다른 경고', '읽지 못해 뺀 부분 3곳(형상)', '읽지 못해 뺀 부분 2곳(선)'])).toBe(5);
+    expect(droppedParts([])).toBe(0);
+    expect(dropErrorCode(new TypeError("Cannot read properties of undefined (reading '12')"))).toBe("TypeError: Cannot read properties of undefined (reading 'N')");
+    expect(dropErrorCode(new Error('끊긴 고리 7'))).toBe('끊긴 고리 N');
+    expect(dropErrorCode('글 하나')).toBe('글 하나');
   });
   it('실패 면 이유를 모은다', () => {
     expect(failReasons(['삼각화하지 못한 면 5개 / 10개 (지원하지 않는 곡면 3, 읽지 못함 2)', '다른 경고'])).toEqual({ '지원하지 않는 곡면': 3, '읽지 못함': 2 });
@@ -245,7 +256,8 @@ describe('훑기: 표본 고르기와 CLI', () => {
   it('일꾼 한 파일: 앱 해석 길(압축 풀기·STEP 가리기)', async () => {
     const s = join(dir, 'samples');
     const ok = await sweepOne(join(s, 'cyl.stp.gz'), 'normal', {});
-    expect(ok).toMatchObject({ class: 'ok', container: 'gzip', ap: 'AP214', failedFaces: 0, warnings: [] });
+    expect(ok).toMatchObject({ class: 'ok', container: 'gzip', ap: 'AP214', failedFaces: 0, warnings: [], dropped: 0 });
+    expect(ok.dropErrors).toBeUndefined();
     expect(ok.q).toMatchObject({ solids: 1, windingSolids: 0 });
     const zip = await sweepOne(join(s, 'pack.zip'), 'normal', {});
     expect(zip).toMatchObject({ class: 'ok', container: 'zip' });
@@ -255,6 +267,27 @@ describe('훑기: 표본 고르기와 CLI', () => {
     expect(empty).toMatchObject({ class: 'empty', warnings: ['no-geometry'] });
     const fine = await sweepOne(join(s, 'cyl.p21'), 'fine', qualityOptions('fine'));
     expect(fine.triangles!).toBeGreaterThan(ok.triangles!);
+  });
+
+  it('일꾼: 덧붙은 부분을 읽다 잡은 예외는 뺀 곳 수와 예외 코드로 남는다(58차 — 앱은 경고만)', async () => {
+    const w = new StepText();
+    w.product('two', [cube(w, 1).solid, cube(w, 1, [3, 0, 0], 'b').solid], w.context());
+    const file = join(dir, 'two-solids.stp');
+    writeFileSync(file, w.toString());
+    const orig = BrepMesher.prototype.meshItem;
+    let calls = 0;
+    BrepMesher.prototype.meshItem = function (this: BrepMesher, ...args: Parameters<typeof orig>) {
+      if (calls++ === 0) throw new RangeError('시험용 예외 1');
+      return orig.apply(this, args);
+    };
+    try {
+      const r = await sweepOne(file, 'normal', {});
+      expect(r).toMatchObject({ class: 'warning', meshes: 1, warnings: ['parts-dropped'], dropped: 1, dropErrors: { 'RangeError: 시험용 예외 N': 1 } });
+    } finally {
+      BrepMesher.prototype.meshItem = orig;
+    }
+    // 다음 파일에는 앞 파일의 예외가 섞이지 않는다
+    expect(await sweepOne(file, 'normal', {})).toMatchObject({ class: 'ok', meshes: 2, dropped: 0 });
   });
 
   it('인자: 폴더가 없으면 쓰는 법만, 환경 변수로도 받는다', () => {
@@ -355,6 +388,19 @@ describe('훑기: 요약과 비교', () => {
     expect(q.summary.windingFiles).toEqual([0, 1]);
     expect(formatCompare(res)).toContain('분류가 바뀐 파일 1개');
     expect(compareRecords(before, before).changed).toBe(false);
+  });
+
+  it('요약·비교: 읽지 못해 뺀 부분(곳 수·파일 수·잡은 예외 — 옛 결과에 없으면 비교하지 않음)', () => {
+    const s = summarize([rec('a', { dropped: 2, dropErrors: { 'TypeError: x': 2 } }), rec('b', { dropped: 0 }), rec('c'), rec('d', { dropped: 1, dropErrors: { 'TypeError: x': 1, 'RangeError: y': 1 } })]);
+    const n = s.byQuality.normal!;
+    expect(n.quality).toMatchObject({ droppedParts: 3, droppedFiles: 2 });
+    expect(n.dropErrors).toEqual({ 'TypeError: x': 3, 'RangeError: y': 1 });
+    expect(formatSummary(s)).toContain('읽지 못해 뺀 부분 3곳(파일 2) — 잡은 예외: TypeError: x 3, RangeError: y 1');
+    expect(formatSummary(summarize([rec('a')]))).toContain('읽지 못해 뺀 부분 0곳(파일 0)');
+    const q = compareRecords([rec('a', { dropped: 0 }), rec('b')], [rec('a', { dropped: 1 }), rec('b', { dropped: 4 })]).qualities.normal!;
+    expect(q.metricChanged).toBe(1);
+    expect(q.top[0]!.diff).toEqual({ dropped: [0, 1] });
+    expect(q.summary.droppedParts).toEqual([0, 5]);
   });
 
   it('비교: 질량 속성 값 지문·구한 길이 바뀐 파일(옛 결과에 없으면 건너뜀)', () => {

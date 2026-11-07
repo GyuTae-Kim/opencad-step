@@ -59,7 +59,12 @@ export function summarizeQuality(records) {
     nonFiniteFiles: 0,
     emptyFiles: 0,
     exceptions: 0,
+    // 58차: 경고 "읽지 못해 뺀 부분"의 곳 수 합과 그 경고가 난 파일 수(멀쩡한 표본에서 0이어야 — 아니면 해석기 버그 후보)
+    droppedParts: 0,
+    droppedFiles: 0,
   };
+  /** 뺀 부분을 읽다 잡은 예외 코드 → 수(기록의 dropErrors — 옛 결과에는 없다) */
+  const dropErrors = {};
   /** 닫힌 입체의 질량 속성(metrics.ts massPropsStats) 합 — 옛 결과에는 없다 */
   const mp = { files: 0, solids: 0, exact: 0, approx: 0, triangles: 0, timeout: 0, maxRelBound: 0, maxRelChange: 0 };
   const times = [];
@@ -94,6 +99,9 @@ export function summarizeQuality(records) {
     q.faces += r.faces ?? 0;
     q.failedFaces += r.failedFaces ?? 0;
     if (r.failedFaces) q.failedFaceFiles++;
+    q.droppedParts += r.dropped ?? 0;
+    if (r.dropped) q.droppedFiles++;
+    for (const [k, v] of Object.entries(r.dropErrors ?? {})) count(dropErrors, k, v);
     const m = r.q;
     if (!m) continue;
     q.closedShells += m.closedShells;
@@ -133,6 +141,7 @@ export function summarizeQuality(records) {
     errors: sortedObject(errors),
     warnings: sortedObject(warnings),
     failReasons: sortedObject(failReasons),
+    dropErrors: sortedObject(dropErrors),
     time: {
       totalMs: times.reduce((a, b) => a + b, 0),
       p50: percentile(times, 50),
@@ -201,6 +210,10 @@ export function formatSummary(summary) {
       `  접힌 삼각형: 0.1% 넘는 파일 ${q.foldedFiles}(하나라도 ${q.foldedAnyFiles}), 최대 개수 비율 ${(q.foldedMaxRatio * 100).toFixed(2)}%, 최대 넓이 비율 ${(q.foldedMaxAreaRatio * 100).toFixed(3)}%`,
     );
     lines.push(`  넓이가 다른 면 ${q.areaMismatchFaces}(파일 ${q.areaMismatchFiles}), 유한하지 않은 좌표 파일 ${q.nonFiniteFiles}`);
+    const de = Object.entries(s.dropErrors ?? {});
+    lines.push(
+      `  읽지 못해 뺀 부분 ${q.droppedParts ?? 0}곳(파일 ${q.droppedFiles ?? 0})${de.length ? ` — 잡은 예외: ${de.slice(0, 5).map(([k, n]) => `${k} ${n}`).join(', ')}` : ''}`,
+    );
     const mp = s.massProps;
     if (mp)
       lines.push(

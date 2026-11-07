@@ -22,7 +22,27 @@ const WARNING_CODES: [RegExp, string | ((m: RegExpExecArray) => string)][] = [
   [/^PMI 글자/, 'pmi-text-missing'],
   [/^그릴 형상을 찾지 못했다/, 'no-geometry'],
   [/^ZIP 안 STEP 파일 \d+개 가운데/, 'zip-several-steps'],
+  // 57차 견고성 경고: 덧붙은 부분을 읽다 예외가 났거나 좌표가 잘못돼 뺀 곳, 조립 자리 상한(MAX_PLACEMENTS)
+  [/^읽지 못해 뺀 부분 \d+곳/, 'parts-dropped'],
+  [/^조립 자리가 \d+개를 넘어/, 'placements-capped'],
 ];
+
+/** "읽지 못해 뺀 부분 N곳(…)" 경고의 N(없으면 0) — 멀쩡한 파일에서 0이 아니면 해석기 버그 후보라 훑기가 센다(58차) */
+export function droppedParts(warnings: readonly string[]): number {
+  let n = 0;
+  for (const w of warnings) {
+    const m = /^읽지 못해 뺀 부분 (\d+)곳/.exec(w);
+    if (m) n += Number(m[1]);
+  }
+  return n;
+}
+
+/** 덧붙은 부분을 읽다 잡은 예외 → 짧은 코드(오류 이름과 글, 숫자는 N, 앞 60자) */
+export function dropErrorCode(e: unknown): string {
+  const text = String((e as Error)?.message ?? e);
+  const name = (e as Error)?.name;
+  return generic(name && name !== 'Error' && !text.startsWith(name) ? `${name}: ${text}` : text);
+}
 
 /** 해석기·압축 풀기 경고 글 → 코드 */
 export function warningCode(text: string): string {
