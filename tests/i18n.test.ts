@@ -91,6 +91,111 @@ describe('language URLs and UI presentation', () => {
     expect(translate('삼각화 못 한 면', 'en')).toBe('Faces that could not be triangulated');
     expect(translate('삼각형 1,234', 'en')).toBe('Triangles 1,234');
   });
+  it('keeps CAD homonyms, negations and one term per concept in every catalog (56th review)', () => {
+    const codes = ['en', 'ja', 'zh-CN', 'de'];
+    // [한국어 열쇠에 든 말, 언어(*는 넷 다), 있어야 할 말(없으면 null), 없어야 할 말] — 56차 점검에서 찾은 오역·들쭉날쭉한 용어
+    const rules: [string, string, RegExp | null, RegExp][] = [
+      // 동음이의: 고름(고른 것)→고름(膿), 풀다(압축)→풀(草·Zellstoff·泵), 쪽(side)→쪽(page), 정의역→正義駅, 세다(count)→세다(強い),
+      // 외(그 밖)→바깥, 맞는(matching)→옳은, 자리 이름(instance)→자리 표시(placeholder)·레이아웃, 무늬(texture)→무늬(pattern), 법선→보통,
+      // 핀(pin)→압정·전자 핀, 원환→Tron, 엔티티→기업, 그물(mesh)→그물(net)·격자, 넘기다(hand over)→합격·책장 넘기기, 합성(synthetic)→작곡·복합,
+      // 반각(원뿔)→반각(半角 글자), 표현 PMI→식(expression)·라벨, 구간(range)→section·部分
+      ['고름:', '*', null, /Pus|Eiter|膿|脓|更正/],
+      ['푼 크기', '*', null, /Unfold|Zellstoff|草|泵/],
+      ['쪽을', '*', null, /\bpage\b|Seite ausschneiden|Umblätter|页面|翻页|ページ/],
+      ['정의역', '*', null, /正義|Domäne/],
+      ['센 삼각형', 'ja', null, /強い|三角数/],
+      ['외 {', '*', null, /Außerhalb|外部|Outside/],
+      ['맞는 마디', '*', null, /correct|korrekt|正确|尺寸/],
+      ['자리 이름', '*', null, /Platzhalter|占位|レイアウト|layout/i],
+      ['무늬', '*', null, /Pattern|Muster|柄|图案|パターン|模様/],
+      ['법선', '*', null, /普通|正常/],
+      ['법선', 'de', /Normale/, /Normal\b/],
+      ['핀', '*', null, /图钉|引脚|Anheften|Bundle/],
+      ['원환', '*', null, /Tron/],
+      ['엔티티', 'de', null, /Unternehmen/],
+      ['그물', '*', null, /\bnets?\b|网络|グリッド/],
+      ['결과 넘기는', '*', null, /Passing|Bestanden|めくる|翻转/],
+      ['합성 장면', '*', null, /Composite|Komposition|複合/],
+      ['반각', '*', null, /^半角|[^頂]半角/],
+      ['표현', '*', null, /Ausdruck|表达式|ラベル|Annotations?:/],
+      ['구간', '*', null, /\bsection\b|部分/],
+      ['상자', '*', null, /\bFeld\b|Quadrat|方框|框$/],
+      // 부정·조건 뒤집힘: "끝이 없는"을 非无限(끝이 있는)으로, "허용"을 容差(공차)로
+      ['끝이 없는', 'zh-CN', null, /非无限/],
+      ['허용', 'zh-CN', null, /容差/],
+      // 같은 개념은 한 말로(Autodesk·SOLIDWORKS·Siemens NX 해당 언어 도움말의 말): 독일어 Ebene는 평면(YZ-Ebene)이라 레이어는 Layer,
+      // 독일어 Linienform은 선의 윤곽도(⌒)라 선 형상은 Liniengeometrie, 중국어 线型은 선 종류(linetype)라 线形状
+      ['선 형상', 'de', /geometrie/i, /Linienform/],
+      ['선 형상', 'zh-CN', /线形状/, /线型/],
+      ['레이어', 'de', /Layer/, /Ebene|Schicht/],
+      ['단면', 'en', /[Ss]ection/, /Cross/],
+      ['단면', 'de', /Schnitt/, /Querschnitt/],
+      ['단면', 'zh-CN', /剖/, /截面/],
+      ['조립', 'ja', /アセンブリ/, /組立|組み立て/],
+      ['조립', 'de', /[Bb]augruppe/, /Assembly|Montage/],
+      ['ZIP 항목', 'en', /entry/, /\bitem\b/],
+      ['ZIP 항목', 'de', /Eintrag/, /Element|ZIP-Datei/],
+      ['ZIP 항목', 'ja', /エントリ/, /項目/],
+      ['ZIP 항목', 'zh-CN', /条目/, /项目|文件 \(/],
+      ['그리기 모드', 'en', /Display mode/, /Drawing/],
+      ['뷰 큐브', 'de', /Ansichtswürfel/, /Würfel anzeigen/],
+      ['뷰 큐브', 'zh-CN', /视图立方体/, /查看立方体|立方体视图/],
+    ];
+    for (const [term, lang, need, ban] of rules)
+      for (const code of lang === '*' ? codes : [lang])
+        for (const [key, value] of Object.entries(catalogs[code])) {
+          if (!key.includes(term)) continue;
+          if (need) expect(value, `${code}: ${key}`).toMatch(need);
+          expect(value, `${code}: ${key}`).not.toMatch(ban);
+        }
+    // 열쇠와 상관없이 나오면 안 되는 말: 구(球)를 구역으로, 칸을 커널·거르다를 여과로, 초(second)를 둘째(第二)로, 보이지 않는 글자
+    for (const code of codes)
+      for (const [key, value] of Object.entries(catalogs[code]))
+        expect(value, `${code}: ${key}`).not.toMatch(/District|Bezirk|正義駅|カーネル|ろ過|第二$|[​-‍﻿]/);
+    expect(codes.map((code) => translate('구', code))).toEqual(['Sphere', '球', '球体', 'Kugel']);
+    expect(codes.map((code) => translate('허용', code))).toEqual(['Allow', '許可', '允许', 'Zulassen']);
+    expect(codes.map((code) => translate('(원점)', code))).toEqual(['(origin)', '(原点)', '（原点）', '(Ursprung)']);
+    expect(codes.map((code) => translate('X축에 수직인 평면', code))).toEqual(['Plane perpendicular to the X axis', 'X軸に垂直な平面', '垂直于 X 轴的平面', 'Ebene senkrecht zur X-Achse']);
+  });
+  it('keeps parameters, code names, numbers and brackets where the Korean source has them', () => {
+    // 코드·STEP 낱말(ANNOTATION_TEXT·INVISIBILITY·createImageBitmap 등)은 옮기지 않는다(createImageBitmap을 "创建图像位图"으로, INVISIBILITY를 UNSICHTBAR로 옮긴 것)
+    const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
+    const depth = (text: string) => [...text].reduce((n, ch) => n + Number('(（'.includes(ch)) - Number(')）'.includes(ch)), 0);
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        expect(value, `${code}: ${key}`).not.toMatch(/[가-힣]/);
+        for (const name of key.match(identifier) ?? []) expect(value, `${code}: ${key}`).toContain(name);
+        // 문장 끝에 덧붙는 {0}(" 빈 ZIP입니다." 같은 설명)은 옮긴 글에서도 끝에 둔다("ZIP.{0} 中没有…"처럼 가운데로 간 것)
+        const tail = key.match(/[.。](\{\d+\})$/);
+        if (tail) expect(value, `${code}: ${key}`).toMatch(new RegExp(`\\${tail[1].slice(0, -1)}\\}$`));
+        // 괄호 짝(독일어 "Doppelklicken) Grundlagen)"·중국어 "双击“基本”）"처럼 깨진 글)
+        if (depth(key) === 0) expect(depth(value), `${code}: ${key}`).toBe(0);
+        // 원문의 수(60MB·4096·20배 등)는 그대로(검색 제목의 "3D"만 뺀다)
+        if (key !== 'OpenCAD 무료 STEP 뷰어 | STP·STEP 3D 모델 열기')
+          for (const n of key.replace(/\{\d+\}/g, '').match(/\d+/g) ?? []) expect(value.replace(/\{\d+\}/g, '').replace('三维', '3D'), `${code}: ${key}`).toContain(n);
+      }
+  });
+  it('leaves no Korean in messages the app builds from Korean pieces, and uses singular forms for one', () => {
+    const hangul = /[가-힣]/;
+    // 상태 막대 "읽기 1.25초", 말풍선 "해석 … · 워커 전체 …"(초·분이 틀 자리에 잡혀 한국어로 남던 것), ZIP 설명 꼬리, 내보내기 알림, 정보 탭
+    const built = ['읽기 1.25초', '읽기 2분 5초', '읽기 850 ms', '해석 1.25초 · 삼각화 850 ms · 워커 전체 2.5초 · 화면까지 3분 9초', '워커 전체 1분 · 화면까지 1분 2초',
+      'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 빈 ZIP입니다.', 'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a.txt, b.pdf',
+      'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a, b, c, d, e, f 외 3개', 'ZIP 압축 방식 99(AES 암호)은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.',
+      'STL로 내보냈습니다: 그물 3개 · 삼각형 1,234개 · 단위 모름', '정보 (경고 3)', '정보', '1분 5초', '2.5초'];
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const text of built) expect(translate(text, code), `${code}: ${text}`).not.toMatch(hangul);
+    expect(translate('해석 1.25초 · 삼각화 850 ms · 워커 전체 2.5초 · 화면까지 3분 9초', 'en')).toBe('Parse 1.25 s · Triangulation 850 ms · Worker total 2.5 s · To screen 3 min 9 s');
+    expect(translate('읽기 2분 5초', 'de')).toBe('Gelesen 2 min 5 s');
+    expect(translate('정보', 'en')).toBe('Info');
+    expect(translate('ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a, b 외 3개', 'zh-CN')).toBe('ZIP 中没有 STEP 文件（.stp·.step·.p21）。包含的文件：a, b 等，另有 3 个');
+    // 1개일 때 영어·독일어 단수(1 warnings·1 minutes처럼 복수로 남던 것)
+    const one: [string, string, string][] = [['경고 1개', '1 warning', '1 Warnung'], ['그물 1개', '1 mesh', '1 Netz'], ['레이어 1개', '1 layer', '1 Layer'],
+      ['간섭 1쌍을 찾았습니다.', 'Found 1 interfering pair.', '1 kollidierendes Paar gefunden.'], ['1줄 더 보기', '1 more line', '1 weitere Zeile'],
+      ['저장된 보기 1개', '1 saved view', '1 gespeicherte Ansicht'], ['1분 1초', '1 min 1 s', '1 min 1 s']];
+    for (const [ko, en, de] of one) expect([translate(ko, 'en'), translate(ko, 'de')], ko).toEqual([en, de]);
+    expect(translate('경고 2개', 'en')).toBe('2 warnings');
+    expect(translate('OBJ로 내보냈습니다: 그물 1개 · 삼각형 12개 · 단위 mm', 'en')).toBe('Exported as OBJ: meshes 1 · triangles 12 · unit mm');
+  });
   it('translates each line of a multi-line message, even when a trailing {0} would swallow the next line', () => {
     // 줄바꿈으로 이은 글: "…: {0}"의 {0}이 다음 줄까지 잡아 둘째 줄이 한국어로 남던 것(공용 번역기 맞춤)
     const tip = '그림을 저장하지 못했습니다: part.png\n최근 문서에서 지우기: part.step';

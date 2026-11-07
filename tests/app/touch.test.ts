@@ -338,4 +338,21 @@ describe('패널 탭 줄: 고른 탭을 보이게', () => {
     expect(translate('해석기 경고 {0}개 — 패널의 "정보" 탭에서 볼 수 있습니다.', 'en')).toContain('"Info" tab');
     expect(translate('해석기 경고 {0}개 — 패널의 "정보" 탭에서 볼 수 있습니다.', 'de')).toContain('Info-Tab');
   });
+
+  it('56차: 도구 막대 이름표는 그 언어의 이름표가 다 들어가는 폭보다 좁으면 숨긴다(오른쪽 단추가 화면 밖으로 밀리지 않게)', () => {
+    // 헤드리스 Chrome 1280px에서 잰 도구 막대 길이(이름표를 다 보일 때): 한국어 1,247·중국어 1,279·영어 1,515·일본어 1,537·독일어 1,719px —
+    // 전에는 920px 이하에서만 숨겨 1024px 한국어와 1280px 영어·일본어·독일어에서 측정·내보내기·패널 단추가 화면 밖이었다
+    const need: [string, number][] = [['.toolbar .btn-label', 1247], [':lang(zh) .toolbar .btn-label', 1279], [':lang(en) .toolbar .btn-label', 1515],
+      [':lang(ja) .toolbar .btn-label', 1537], [':lang(de) .toolbar .btn-label', 1719]];
+    const rules = mediaRules(/max-width/);
+    for (const [sel, width] of need) {
+      // 폭 하나로만 거는 규칙 가운데 가장 넓은 것(휴대폰 규칙 "(max-width: 759.98px), (pointer: coarse) and …"은 따로)
+      const hides = rules.filter((r) => r.sel === sel && /^\(max-width:\s*[\d.]+px\)$/.test(r.media) && r.style.getPropertyValue('position') === 'absolute' && /rect\(0/.test(r.style.getPropertyValue('clip')));
+      expect(hides.length, sel).toBeGreaterThan(0);
+      const max = Math.max(...hides.map((r) => parseFloat(r.media.match(/max-width:\s*([\d.]+)px/)![1]!)));
+      // 다 들어가는 폭보다 넓은 데까지 숨기되(글꼴 차이 여유), 그보다 훨씬 넓은 화면에서는 이름표를 보인다
+      expect(max, sel).toBeGreaterThanOrEqual(width + 10);
+      expect(max, sel).toBeLessThan(width + 120);
+    }
+  });
 });
