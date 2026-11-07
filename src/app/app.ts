@@ -59,7 +59,7 @@ import { animateCamera, cameraBack, cameraLooking, faceBox, faceSectionPlane, fa
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
-import { LookSync, OPACITY_STEPS, translucentView } from './looks';
+import { LookSync, translucentView } from './looks';
 import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
 
@@ -248,8 +248,8 @@ export class StepApp {
   private tangents: TangentLock | null = null;
   /** 측정 첫 점(43차 — 접점 붙잡기의 첫 점과 그 세대, 뷰어마다 — 접선 조각을 받으면) */
   private measureFirst: InstanceType<typeof import('./tangent').MeasureFirst> | null = null;
-  /** 개체 측정 계산(entpick.ts — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다) */
-  private ent: typeof import('./entpick') | null = null;
+  /** 뷰어 조각(viewerkit.ts): 개체 측정 계산(entpick.ts)과 작업 메뉴 항목(ctxmenu.ts — 52차). 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다 */
+  private ent: typeof import('./viewerkit') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
   private trackDirEdgeOf: typeof import('./trackdir').straightEdgeFilter | null = null;
   /** 같은 조각의 끌어온 점 안내 선이 만나는 점 이름(trackdir.ts trackDirMeetLabel — 코어 0.29.0 trackDirs { meets }, 만나는 점이 아니면 null) */
@@ -393,7 +393,8 @@ export class StepApp {
     this.sectionBar = new SectionBar(this);
     // ── 측정 띠(좁은 화면·터치에서 측정·면 고르기 중): 안내·결과를 크게 보이고, Esc 대신 다시 재기·끝내기 단추 ──
     this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
-    this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기' }, icon('reset', 16), h('span', {}, '다시 재기'));
+    // 좁은 휴대폰은 아이콘만(52차 — 이름은 aria-label)
+    this.measureClear = h('button', { type: 'button', class: 'mb-btn', title: '찍은 점과 결과 지우기', 'aria-label': '다시 재기' }, icon('reset', 16), h('span', {}, '다시 재기'));
     this.measureClear.addEventListener('click', () => {
       if (this.entMeasuring) this.clearEntities();
       else this.viewer?.clearMeasure();
@@ -1533,7 +1534,7 @@ export class StepApp {
     this.updateStatus();
   }
 
-  private clearSelection(): boolean {
+  clearSelection(): boolean {
     const d = this.doc;
     if (!d || (!d.selKey && !d.pick && !d.body && !d.items && !d.face && !d.edge)) return false;
     this.selectKey(null);
@@ -1757,21 +1758,6 @@ export class StepApp {
     this.applyLooks();
   }
 
-  /** 고른 것의 불투명도 메뉴(작업 메뉴를 연 자리에 다시 연다) */
-  private openOpacityMenu(x: number, y: number): void {
-    const d = this.doc;
-    if (!d) return;
-    const ids = selectionItemIds(d);
-    const vals = new Set(ids.map((id) => d.opacity.get(id) ?? 1));
-    const cur = vals.size === 1 ? [...vals][0]! : NaN;
-    openMenuAt(
-      x,
-      y,
-      OPACITY_STEPS.map((a, i): MenuItem => ({ label: i === 0 ? '100% (불투명)' : `${Math.round(a * 100)}%`, checked: Math.abs(cur - a) < 1e-6, run: () => this.setSelectionOpacity(a) })),
-      '불투명도',
-    );
-  }
-
   /** 부품 색 구분 켜고 끄기(같은 제품은 같은 색) */
   togglePartColors(on = !this.partColors): void {
     this.partColors = on;
@@ -1941,56 +1927,12 @@ export class StepApp {
     return true;
   }
 
-  /** 작업 메뉴 항목(고른 것이 있으면 그것에 대해) */
-  contextItems(): MenuItem[] {
-    const d = this.doc;
-    if (!d) return [];
-    const has = selectionItemIds(d).length > 0;
-    const iso = !!d.vis.isolated || !!d.dim;
-    const items: MenuItem[] = [];
-    if (has) {
-      items.push({ label: '맞춰 보기', run: () => this.fitSelection() });
-      items.push({ label: '숨기기', hint: 'H', run: () => this.hideSelection() });
-      if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
-      else {
-        items.push({ label: '이것만 보기', hint: 'I', run: () => this.isolateSelection('hide') });
-        items.push({ label: '나머지 흐리게', run: () => this.isolateSelection('dim') });
-      }
-      const at = this.ctxAt;
-      items.push({ label: '불투명도…', run: () => this.openOpacityMenu(at.x, at.y) });
-      items.push({ label: '속성', run: () => this.showProps() });
-      const face = this.ctxFace ?? d.face;
-      if (face && (face.normal || face.axis)) {
-        items.push({ label: '정면으로 보기', sep: true, run: () => this.lookAtFace(face) });
-        items.push({ label: face.normal ? '이 면으로 자르기' : '축을 지나게 자르기', run: () => this.sectionByFace(face) });
-      }
-    } else {
-      items.push({ label: '전체 보기', hint: 'F', run: () => this.fit() });
-      if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => this.unisolate() });
-    }
-    // 손가락 기기에서 여러 개 고르기를 켜는 길(길게 누르기 → 메뉴). 켜 있으면 끄기
-    if (!this.faceMode) items.push({ label: '여러 개 고르기', checked: this.multiPick, toggle: true, sep: true, run: () => this.toggleMultiPick() });
-    items.push({ label: '모두 보이기', sep: true, disabled: !iso && !d.vis.userHidden.size && !this.groups().some((g) => !g.visible), run: () => this.showAll() });
-    if (d.opacity.size) items.push({ label: '불투명도 모두 되돌리기', run: () => this.resetOpacity() });
-    if (has) items.push({ label: '고르기 풀기', run: () => void this.clearSelection() });
-    // 분해 막대가 열렸으면 손질 항목(분해 조각이 만든다 — 손가락 기기에서도 길게 누르기 → 메뉴): 되돌리기·다시 하기는 끝에, 고른 것을 거리로 옮기기는 맨 위에
-    const tw = this.explodeOpen ? this.tweakTool : null;
-    const mv = tw?.moveItem(d);
-    if (tw) items.push(...tw.menuItems(d, this.explodeAxis));
-    if (mv) {
-      if (items[0]) items[0].sep = true;
-      items.unshift(mv);
-    }
-    return items;
-  }
-
-  /** 작업 메뉴를 연 화면 점(불투명도 메뉴를 같은 자리에 연다) */
-  private ctxAt = { x: 0, y: 0 };
-
-  /** 작업 메뉴 열기(화면 점, 나무 줄에서도 쓴다) */
+  /**
+   * 작업 메뉴 열기(화면 점, 나무 줄에서도 쓴다). 항목은 뷰어 조각의 ctxmenu.ts가 만든다(52차 — 뷰어가 있어야 열리므로 첫 화면 JS 밖,
+   * 손가락 기기에서 고른 것이 있으면 덜 쓰는 항목을 "그 밖의 작업…"으로 접는다)
+   */
   openContextMenu(clientX: number, clientY: number): void {
-    this.ctxAt = { x: clientX, y: clientY };
-    const items = this.contextItems();
+    const items = this.ent?.contextItems(this, this.ctxFace, { x: clientX, y: clientY }) ?? [];
     if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴');
   }
 

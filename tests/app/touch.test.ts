@@ -69,7 +69,7 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.mb-btn', 'height', null],
       ['.mb-kind .seg-btn', 'height', null],
       ['.mb-btn.icon', 'height', 'width'],
-      ['.measure-bar:not(.measuring) .mb-btn', 'height', 'min-width'],
+      ['.measure-bar .mb-btn', 'height', 'min-width'],
       ['.section-slider', 'height', null],
       ['.section-num', 'height', null],
       ['.explode-slider', 'height', null],
@@ -171,6 +171,40 @@ describe('손가락 기기 규칙(styles.css)', () => {
     expect(plain?.style.getPropertyValue('display')).toBe('none');
   });
 
+  it('52차: 패널 탭은 좌우 틈 8px(폭 44px 이상, 줄지 않아 글이 이웃 탭에 붙지 않음) — 넓은 화면(마우스)은 12px 그대로', () => {
+    const tab = last.get('.tab')!;
+    expect([tab.padding?.replace(/^0px/, '0'), px(tab['min-width']), px(tab.height)]).toEqual(['0 8px', 44, 44]);
+    // 줄지 않는다(min-width가 44px라 줄면 "Eigenschaften"·"プロパティ" 글이 탭보다 넓어져 이웃 글에 붙었다 — 넘치면 줄을 굴린다)
+    expect(tab['flex-shrink'] ?? tab.flex).toMatch(/^(0|none)/);
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const plain = [...el.sheet!.cssRules].find((r): r is CSSStyleRule => r instanceof CSSStyleRule && r.selectorText === '.tab');
+    el.remove();
+    expect(plain?.style.getPropertyValue('padding').replace(/^0px/, '0')).toBe('0 12px');
+  });
+
+  it('52차: 좁은 휴대폰 측정 띠 — "다시 재기"도 아이콘만(44px), 결과는 한 줄로 흐르고, 정밀 조준 중에는 측정 종류를 숨긴다', () => {
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const rules: { media: string; sel: string; style: CSSStyleDeclaration }[] = [];
+    for (const r of [...el.sheet!.cssRules])
+      if (r instanceof CSSMediaRule) for (const s of [...r.cssRules]) if (s instanceof CSSStyleRule) rules.push({ media: r.media.mediaText, sel: s.selectorText, style: s.style });
+    el.remove();
+    const find = (sel: string, media: RegExp) => rules.find((x) => x.sel === sel && media.test(x.media))?.style;
+    // 479.98px 이하: 측정 중이든 아니든 띠 단추 이름 글은 숨긴다(이름은 aria-label·title)
+    expect(find('.measure-bar .mb-btn > span', /^\(max-width:\s*479\.98px\)$/)?.getPropertyValue('display')).toBe('none');
+    expect(px(last.get('.measure-bar .mb-btn')?.['min-width'])).toBe(44);
+    const text = find('.measure-bar.measuring .mb-text', /^\(max-width:\s*759\.98px\)$/)!;
+    expect([text.getPropertyValue('flex-direction'), text.getPropertyValue('flex-wrap'), text.getPropertyValue('flex-basis')]).toEqual(['row', 'wrap', '100%']);
+    const aim = rules.find((x) => /aim-reticle/.test(x.sel))!;
+    expect(aim.media).toMatch(/pointer:\s*coarse/);
+    expect(aim.media).toMatch(/max-width:\s*479\.98px/);
+    expect(aim.sel).toBe('.view:has(.aim-reticle:not([hidden])) .measure-bar > .mb-kind');
+    expect(aim.style.getPropertyValue('display')).toBe('none');
+  });
+
   it('51차: 375~389px 일본어·중국어 제목 막대는 아이콘을 빼고 앱 이름 전체를 보인다', () => {
     const r = all.filter((x) => /min-width:\s*375px/.test(x.media) && /max-width:\s*389\.98px/.test(x.media));
     expect(r.map((x) => x.sel).sort()).toEqual([':lang(ja) .brand-icon', ':lang(zh) .brand-icon']);
@@ -219,5 +253,68 @@ describe('레이어·PMI 표의 보이기 칸', () => {
     const plab = panel.el.querySelector<HTMLLabelElement>('tbody label.cb-hit')!;
     plab.click();
     expect(calls).toContain('pmi p1 false');
+  });
+});
+
+/**
+ * 52차: 탭을 누르면 탭 줄을 새로 만들어 굴린 자리가 0으로 돌아갔다 — 좁은 화면에서 넘치는 탭 줄(51차 판 375px 영어·독일어·일본어 등)의 끝 탭을 누르면
+ * 그 탭이 줄 밖으로 사라졌다. jsdom에는 배치가 없어 탭 폭 80px, 탭 줄 폭 262px(320px 시트), 줄 왼쪽 6px로 흉내 낸다
+ */
+describe('패널 탭 줄: 고른 탭을 보이게', () => {
+  const W = 80, LEFT = 6, CW = 262;
+  const saved = (['offsetLeft', 'offsetWidth', 'clientWidth'] as const).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k) ?? Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+  afterEach(() => {
+    for (const [k, d] of saved) if (d) Object.defineProperty(k === 'clientWidth' ? Element.prototype : HTMLElement.prototype, k, d);
+    document.body.innerHTML = '';
+  });
+
+  it('끝 탭을 고르면 그 탭 오른쪽 끝이 줄 오른쪽 끝에 오게 굴리고(번역 뒤 폭 — 마이크로태스크), 첫 탭이면 0, 닫았다 열어도 맞춘다', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'offsetLeft', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.classList.contains('tabs')) return LEFT;
+        return this.classList.contains('tab') ? LEFT + W * [...this.parentElement!.children].indexOf(this) : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.classList.contains('tab') ? W : 0; } });
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get(this: Element) { return this.classList.contains('tabs') ? CW : 0; } });
+    const host = new Proxy({ measuring: false, measureKind: 'points', touch: true, multiPick: false, fmt: new Fmt('mm'), isVisible: () => true, groups: () => [] } as Record<string, unknown>, {
+      get: (t, k) => (k in t ? t[k as string] : () => {}),
+    }) as unknown as PanelHost;
+    const meta = { products: [], layers: [{ name: 'L1', meshIds: ['m1'] }], pmi: { presentations: [{ id: 'p1', name: '치수 1', type: 'annotation_curve_occurrence', stepId: 9 }] } };
+    const d = createDoc('l.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
+    const panel = new Panel(host);
+    document.body.append(panel.el);
+    const strip = panel.el.querySelector<HTMLElement>('.tabs')!;
+    let sl = 0;
+    Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => sl, set: (v: number) => (sl = v) });
+    panel.show(d);
+    panel.setOpen(true);
+    expect([...strip.children].map((t) => t.id)).toEqual(['tab-tree', 'tab-props', 'tab-layers', 'tab-pmi', 'tab-info']);
+    await Promise.resolve();
+    expect(sl).toBe(0);
+    panel.setTab('info');
+    // 탭 줄을 새로 만든 뒤(번역층이 글을 바꾼 다음) 굴린다
+    await Promise.resolve();
+    expect(sl).toBe(4 * W + W - CW);
+    panel.setTab('tree');
+    await Promise.resolve();
+    expect(sl).toBe(0);
+    // 닫혀 있는 동안 고른 탭이 바뀌어도 열 때 맞춘다
+    panel.setOpen(false);
+    panel.setTab('pmi');
+    sl = 0;
+    await Promise.resolve();
+    expect(sl).toBe(0);
+    panel.setOpen(true);
+    expect(sl).toBe(3 * W + W - CW);
+  });
+
+  it('영어·독일어 정보 탭은 낱말 하나 "Info"(앱 안내 글이 부르는 이름과 같게)', async () => {
+    const { translate } = await import('../../site/i18n.mjs');
+    expect(translate('정보', 'en').trim()).toBe('Info');
+    expect(translate('정보', 'de').trim()).toBe('Info');
+    expect(translate('해석기 경고 {0}개 — 패널의 "정보" 탭에서 볼 수 있습니다.', 'en')).toContain('"Info" tab');
+    expect(translate('해석기 경고 {0}개 — 패널의 "정보" 탭에서 볼 수 있습니다.', 'de')).toContain('Info-Tab');
   });
 });

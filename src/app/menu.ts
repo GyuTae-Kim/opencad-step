@@ -17,6 +17,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** 앞에 구분선 */
   sep?: boolean;
+  /** 덜 쓰는 항목: 손가락 기기 작업 메뉴에서 끝의 "그 밖의 작업…" 아래로 보낸다(ctxmenu.ts foldMenu — 52차) */
+  more?: boolean;
   run: () => void;
 }
 
