@@ -90,3 +90,50 @@ describe('폭 0 다리 고리(60차)', () => {
     expect(meta.faceTables![0]!.area![0]).toBeCloseTo(7.8, 6);
   });
 });
+
+describe('엇갈린 고리(60차)', () => {
+  /** 반지름 10 원판에서 꼭짓점이 반지름 r인 정사각형 구멍을 뺀 평면 면 */
+  function disk(r: number) {
+    const w = new StepText();
+    const ctx = w.context();
+    const vc = w.vertex([10, 0, 0]);
+    const outer = w.bound(w.loop([w.oe(w.edge(vc, vc, w.circle([0, 0, 0], 10)), true)]));
+    // 구멍은 시계 방향(45° → 315° → 225° → 135°)
+    const c = [45, 315, 225, 135].map((d): P3 => [r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180), 0]);
+    const vs = c.map((p) => w.vertex(p));
+    const hole = w.bound(w.loop(c.map((p, i) => w.oe(w.edge(vs[i]!, vs[(i + 1) % 4]!, w.line(p, c[(i + 1) % 4]!)), true))), false);
+    const face = w.face([outer, hole], w.plane([0, 0, 0]));
+    const shell = w.add('OPEN_SHELL', `'',(#${face})`);
+    w.product('disk', [w.add('SHELL_BASED_SURFACE_MODEL', `'',(#${shell})`)], ctx, 'MANIFOLD_SURFACE_SHAPE_REPRESENTATION');
+    return stepToScene(w.bytes(), { chordTolerance: 0.5 });
+  }
+
+  it('구멍 꼭짓점이 원을 나눈 현 밖(반지름 9.99 — 20° 현의 처짐 0.15)이어도 원을 더 잘게 나눠 구멍을 뺀다', () => {
+    const s = disk(9.99);
+    const meta = s.meta as unknown as StepMeta;
+    const m = s.meshes[0]!;
+    const hole = 2 * 9.99 * 9.99;
+    // B-rep 넓이(정확)와 삼각형 넓이가 현 높이 차 안에서 맞는다(구멍을 메우면 π·100 쪽)
+    expect(meta.faceTables![0]!.area![0]).toBeCloseTo(Math.PI * 100 - hole, 6);
+    expect(meshArea(m.positions, m.indices!)).toBeGreaterThan(Math.PI * 100 - hole - 0.5);
+    expect(meshArea(m.positions, m.indices!)).toBeLessThan(Math.PI * 100 - hole);
+    // 구멍 꼭짓점을 모두 쓴다
+    const P = m.positions;
+    const used = new Set<string>();
+    for (const i of m.indices!) used.add(`${Math.round(P[i * 3]! * 1e3)},${Math.round(P[i * 3 + 1]! * 1e3)}`);
+    const key = (d: number) => `${Math.round(9.99 * Math.cos((d * Math.PI) / 180) * 1e3)},${Math.round(9.99 * Math.sin((d * Math.PI) / 180) * 1e3)}`;
+    expect([45, 135, 225, 315].filter((d) => !used.has(key(d)))).toEqual([]);
+  });
+
+  it('구멍 꼭짓점이 원 위에 닿으면(나눠도 풀리지 않는 엇갈림) 원을 더 나누지 않는다(예전 나눔 그대로)', () => {
+    const m = disk(10).meshes[0]!;
+    expect(m.positions.length / 3).toBeLessThanOrEqual(22);
+  });
+
+  it('구멍이 원에서 넉넉히 떨어지면(반지름 8) 예전처럼 한 번에 그린다(원 나눔 그대로)', () => {
+    const m = disk(8).meshes[0]!;
+    // 원 18토막(20°) + 구멍 4점 — 다시 나누지 않았다. 넓이는 정18각형 − 구멍
+    expect(m.positions.length / 3).toBe(22);
+    expect(meshArea(m.positions, m.indices!)).toBeCloseTo(9 * 100 * Math.sin(Math.PI / 9) - 2 * 64, 4);
+  });
+});
