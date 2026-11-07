@@ -9,6 +9,7 @@
  */
 import type { GroupInfo } from 'opencad-viewer3d';
 import { h, icon } from './dom';
+import { fileSpan, isolateText } from './ftext';
 import { bodyName, instanceCounts, itemById, nodeItems, selectedBody, wireLabel, type StepDoc } from './doc';
 import { fmtCount } from './format';
 import { isTextTarget } from './keys';
@@ -320,6 +321,10 @@ export function treeView(o: TreeOpts): TreeView {
     const bname = bodyId ? bodyName(r.node, found?.[0], r.wire !== undefined) : '';
     const generic = r.wire !== undefined ? wireLabel(r.node, undefined, found?.[1], r.wire) : `몸체 ${r.body}`;
     const { name, instance } = bodyId ? { name: bname || generic, instance: '' } : nodeLabel(r.node);
+    // 이름이 파일 글인지(몸체 줄은 항목 이름, 마디 줄은 이름·제품 번호 — "몸체 2"·"(이름 없음)"은 화면 글). 화면 글과 섞이는 말풍선·이름은 FSI…PDI(ftext.ts)
+    const isFile = bodyId ? !!bname : !!(r.node.name || r.node.productId);
+    const an = isFile ? isolateText(name) : name;
+    const nn = isolateText(r.node.name);
     const visible = nodeVisible(r.itemIds, (id) => host.isVisible(id));
     // 고름 · 이 부품의 몸체 일부만 고름(몸체 단위 고르기·몸체 줄·여러 개 고르기 — 줄에 옅게 표시)
     const [sel, part] = rowMarks(d, r, picked);
@@ -335,7 +340,7 @@ export function treeView(o: TreeOpts): TreeView {
       type: 'button',
       class: `eye${visible ? '' : ' off'}`,
       title: visible ? '숨기기' : '보이기',
-      'aria-label': `${name} ${visible ? '숨기기' : '보이기'}`,
+      'aria-label': `${an} ${visible ? '숨기기' : '보이기'}`,
       'aria-pressed': String(!visible),
       tabindex: tab,
       disabled: !r.itemIds.length,
@@ -350,9 +355,9 @@ export function treeView(o: TreeOpts): TreeView {
     // 말풍선은 bodyTitle과 같은 글("부품 / 항목" 또는 "부품 · 몸체 2") — 줄마다 나무를 다시 훑지 않게 줄의 마디로 바로 만든다
     const tip = bodyId
       ? r.wire !== undefined
-        ? [bname ? `${r.node.name} / ${bname}` : `${r.node.name} · ${generic}`, '두 번 누르면 이 선 형상으로 맞춰 봅니다']
-        : [bname ? found![0].name! : `${r.node.name} · ${generic}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
-      : [r.node.productId ? `제품 번호 ${r.node.productId}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
+        ? [bname ? `${nn} / ${an}` : `${nn} · ${generic}`, '두 번 누르면 이 선 형상으로 맞춰 봅니다']
+        : [bname ? isolateText(found![0].name!) : `${nn} · ${generic}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
+      : [r.node.productId ? `제품 번호 ${isolateText(r.node.productId)}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
     const item = h(
       'div',
       {
@@ -371,7 +376,8 @@ export function treeView(o: TreeOpts): TreeView {
       tog,
       eye,
       // 이름 없는 몸체 줄의 "몸체 2"·"선 형상 1"은 화면 글이라 번역층이 옮긴다(파일 이름인 .tree-name은 건너뛴다)
-      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: 'tree-name', translate: bname ? 'no' : null }, name, instance ? h('span', { class: 'dim' }, ` · ${instance}`) : null),
+      // 59차: 이름·자리 이름 조각마다 방향을 가두고 길이 한도(ftext.ts — 닫지 않은 RLO가 " · 자리 이름"을 뒤집었다)
+      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: 'tree-name', translate: bname ? 'no' : null }, isFile ? fileSpan(name) : name, instance ? h('span', { class: 'dim' }, ' · ', fileSpan(instance)) : null),
       n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
     );
     // 이 줄 고르기·맞춰 보기(몸체 줄은 그 몸체 하나, 마디 줄은 그 마디 아래 통째)
@@ -458,13 +464,13 @@ export function groupGrid(groups: readonly GroupInfo[], scroller: HTMLElement, o
   );
   const make = (i: number): HTMLElement => {
     const g = groups[i]!;
-    const cb = h('input', { type: 'checkbox', 'aria-label': `${g.name} 보이기` });
+    const cb = h('input', { type: 'checkbox', 'aria-label': `${isolateText(g.name)} 보이기` });
     cb.checked = g.visible;
     cb.addEventListener('change', () => onToggle(g.name, cb.checked));
     return h(
       'div',
       { class: `vgrid-row${g.visible ? '' : ' off'}`, role: 'row', 'aria-rowindex': String(i + 2) },
-      h('label', { class: 'check', role: 'cell' }, cb, h('span', { translate: 'no', title: g.name }, g.name)),
+      h('label', { class: 'check', role: 'cell' }, cb, fileSpan(g.name, '', g.name)),
       h('span', { class: 'num', role: 'cell' }, fmtCount(g.count)),
     );
   };

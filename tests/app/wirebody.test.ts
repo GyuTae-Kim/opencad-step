@@ -161,7 +161,7 @@ describe('패널: 선 형상 몸체 줄', () => {
     const w1 = row(panel, '0/0.2');
     expect(w1.classList.contains('body-row')).toBe(true);
     expect(w1.querySelector('.tree-name-gen')!.textContent).toBe('선 형상 1');
-    expect(w1.title).toBe('bracket · 선 형상 1 · 두 번 누르면 이 선 형상으로 맞춰 봅니다');
+    expect(w1.title).toBe('\u{2068}bracket\u{2069} · 선 형상 1 · 두 번 누르면 이 선 형상으로 맞춰 봅니다');
     // 이름 있는 선 형상은 파일 글(번역하지 않음)
     expect(row(panel, '0/1.2').querySelector('.tree-name')!.textContent).toBe('rails');
     expect(row(panel, '0/1.2').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
@@ -179,7 +179,7 @@ describe('패널: 선 형상 몸체 줄', () => {
     expect(row(panel, '0/0.2').classList.contains('sel')).toBe(true);
     expect(row(panel, '0/0').classList.contains('part-sel')).toBe(true);
     panel.redraw();
-    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 bracket · 선 형상 1');
+    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 \u{2068}bracket\u{2069} · 선 형상 1');
     // 속성 탭: 부품 속성과 "선 형상에는 부피·질량이 없습니다" 안내
     panel.setTab('props');
     expect(panel.el.textContent).toContain('선 형상에는 부피·질량이 없습니다');
