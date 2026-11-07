@@ -6,6 +6,8 @@ import { bodyTitle, carryDocState, createDoc, multiLabel, selectedBody, selectio
 import { multiHint } from '../../src/app/measure';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
+// 물리 속성 계산도 뷰어 조각에 들어 있어(53차) 앱이 뷰어를 만들 때 패널에 넣는다
+import * as PHYS from '../../src/app/physics';
 import { Fmt } from '../../src/app/display';
 import { StepText, cube } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -118,6 +120,7 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     const { host, calls } = panelHost(d, multi);
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
     const row = (name: string) => [...panel.el.querySelectorAll<HTMLElement>('.tree-row')].find((r) => r.querySelector('.tree-name')?.textContent?.startsWith(name))!;
@@ -137,6 +140,7 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     const [, b] = scene.meshes;
     d.pick = { kind: 'mesh', id: b!.id, index: 0, point: [0, 0, 0] } as unknown as Pick3d;
@@ -167,6 +171,7 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     const [a, b] = scene.meshes;
     d.pick = { kind: 'mesh', id: b!.id, index: 0, point: [0, 0, 0] } as unknown as Pick3d;
@@ -202,6 +207,7 @@ describe('제품 나무 몸체 줄', () => {
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
     // 처음에는 접혀 있다(펼침 단추만)
@@ -232,6 +238,7 @@ describe('제품 나무 몸체 줄', () => {
     const { host, calls } = panelHost(d, multi);
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
     const [a, b] = scene.meshes.map((m) => m.id);
@@ -252,6 +259,7 @@ describe('제품 나무 몸체 줄', () => {
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     const [, b, c] = scene.meshes;
     d.body = c!.id;
@@ -303,6 +311,7 @@ describe('간섭 검사 결과: 안에 든 쌍', () => {
     const { host, calls } = panelHost(d, { on: false });
     const panel = new Panel(host);
     panel.kit = TV;
+    panel.phys = PHYS;
     document.body.append(panel.el);
     const [a, , , o] = scene.meshes.map((m) => m.id);
     const inner = { a: o!, b: a!, count: 0, trisA: [], trisB: [], inside: true as const };

@@ -262,6 +262,8 @@ export class Toolbar {
 
   private add(ic: IconName, label: string, title: string, run: () => void, refresh: () => void = () => {}, cls = ''): Tool {
     const el = iconButton(ic, label, { title, cls: `tool ${cls}`.trim() });
+    // 패널을 닫으면 초점을 돌려줄 단추를 찾는 이름(keynav.ts — 53차)
+    el.dataset.tool = ic;
     el.addEventListener('click', run);
     const t = { el, refresh };
     this.tools.push(t);

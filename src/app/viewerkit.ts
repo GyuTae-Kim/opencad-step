@@ -9,6 +9,8 @@
  *   그 선이 만나는 점의 이름(trackDirMeetLabel — 코어 0.29.0 trackDirs { meets })도 같은 모듈에 — 상태 막대·측정 띠·결과 이름을 고를 때 쓴다
  * - 나무 조각(treeview.ts — 49차, 제품 나무·부품별 보이기 표를 보이는 줄만 그리는 가상 목록): 뷰어를 만들 때 패널에 넣는다(패널은 문서를 보일 때 나무를 그린다)
  * - 작업 메뉴 항목·불투명도 메뉴(ctxmenu.ts — 52차): 작업 메뉴는 뷰어가 있어야 열린다(3D 오른쪽 누르기·길게 누르기, 나무 줄, 여러 개 고르기 띠)
+ * - 키보드 길잡이(keynav.ts — 53차): 패널 탭·라디오 묶음·도구 막대의 화살표와 띠·막대·패널을 닫을 때 초점 돌려주기 — 모두 문서가 있어야 쓴다
+ * - 물리 속성 계산(physics.ts — 53차에 첫 화면 JS에서 옮김): 속성 탭의 부피·질량·무게중심·관성은 문서가 있어야 그린다(앱이 패널에 넣는다)
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -16,5 +18,7 @@ export { TouchAim } from './aim';
 export { contextItems } from './ctxmenu';
 export * from './entpick';
 export { watchGraphicsContext } from './gpucontext';
+export { installKeyNav } from './keynav';
+export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
 export { groupGrid, treeView } from './treeview';

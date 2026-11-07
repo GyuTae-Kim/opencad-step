@@ -61,6 +61,11 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     closeMenu();
     return;
   }
+  // 닫을 때 초점을 돌려줄 곳: 연 단추(도구 막대 단추는 Tab 멈춤이 아니어도 — keynav.ts), 화면 점 메뉴(보이지 않는 기준점)면 열 때 초점이 있던 것
+  // (나무 줄·3D 보기 — 53차, 전에는 초점이 사라진 메뉴 항목과 함께 body로 날아갔다)
+  const was = document.activeElement;
+  const opener = anchor.tagName === 'BUTTON' || anchor.tabIndex >= 0 ? anchor : was instanceof HTMLElement && was !== document.body && !was.closest('.menu') ? was : null;
+  const back = () => opener?.isConnected && opener.focus({ preventScroll: true });
   closeMenu();
   const el = h('div', { class: 'menu', role: 'menu', 'aria-label': label });
   const buttons: HTMLButtonElement[] = [];
@@ -76,10 +81,10 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     );
     b.addEventListener('click', () => {
       // 항목을 고르면 메뉴가 사라지므로 초점을 연 단추로 돌려준다(키보드로 고른 뒤 초점이 문서 처음으로 날아가지 않게,
-      // 그 명령이 대화 상자를 열면 닫을 때 이 단추로 돌아온다). 화면 점 메뉴의 보이지 않는 기준점은 초점을 받지 않는다
+      // 그 명령이 대화 상자를 열면 닫을 때 이 단추로 돌아온다). 화면 점 메뉴의 보이지 않는 기준점은 초점을 받지 않으므로 연 때 초점이 있던 곳으로
       const hadFocus = el.contains(document.activeElement);
       closeMenu();
-      if (hadFocus && anchor.isConnected && anchor.tabIndex >= 0) anchor.focus({ preventScroll: true });
+      if (hadFocus) back();
       it.run();
     });
     buttons.push(b);
@@ -122,12 +127,16 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       e.preventDefault();
       e.stopPropagation();
       closeMenu();
-      anchor.focus();
+      back();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = usable.length;
       const next = e.key === 'ArrowDown' ? (i + 1 + n) % n : (i - 1 + n) % n;
       usable[i < 0 ? 0 : next]?.focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      // APG Menu: 처음·끝 항목(53차 — 전에는 Home이 창 글쇠로 넘어가 메뉴를 연 채 3D 보기가 홈 뷰로 돌았다)
+      e.preventDefault();
+      usable[e.key === 'Home' ? 0 : usable.length - 1]?.focus();
     } else if (e.key === 'Tab') closeMenu();
   };
   // 휴대폰 주소 막대가 숨고 나타날 때(높이만 바뀜)는 닫지 않는다

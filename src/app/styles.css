@@ -913,6 +913,11 @@ body.resizing .viewer-host {
   color: var(--text);
   font-weight: 600;
 }
+/* 탭 줄은 가로로 굴러(overflow) 바깥으로 그린 초점 테두리의 위아래가 잘린다 — 안쪽으로(53차). 탭 본문(속성·정보 탭은 Tab 멈춤)도 */
+.tab:focus-visible,
+.panel-body:focus-visible {
+  outline-offset: -2px;
+}
 .panel-body {
   flex: 1;
   min-height: 0;
@@ -1241,6 +1246,8 @@ table.grid td.mono {
 }
 .tree-search:focus-within {
   border-color: var(--accent);
+  /* 1px 테두리 색만 바뀌면 옅다 — 2px로(53차) */
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .tree-filter {
   flex: 1;
@@ -1318,6 +1325,10 @@ table.grid td.mono {
 .menu-item:focus-visible {
   background: var(--bg-hover);
   outline: none;
+}
+/* 키보드 초점은 배경(옅은 회색, 흰 메뉴와 1.1:1)만으로는 잘 보이지 않아 안쪽 테두리를 더한다(53차 — WCAG 2.4.7·1.4.11) */
+.menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .menu-check {
   width: 12px;
@@ -1813,6 +1824,9 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .language-trigger { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0; border: 1px solid var(--border-soft, currentColor); border-radius: 5px; color: inherit; background: transparent; cursor: pointer; }
 .language-trigger:hover, .language-trigger[aria-expanded="true"] { background: var(--bg-hover, ButtonFace); }
 .language-trigger:focus-visible, .language-list button:focus-visible { outline: 2px solid Highlight; outline-offset: 1px; }
+/* 시스템 강조색(Highlight)은 밝은 막대 위에서 옅다(헤드리스 Chrome 1.5:1) — 앱의 초점 색으로(53차 — WCAG 1.4.11) */
+.language-trigger:focus-visible { outline-color: var(--accent); }
+.language-list button:focus-visible { outline-color: var(--accent); outline-offset: -2px; }
 .language-control-floating { position: fixed; top: 8px; right: 12px; z-index: 100; }
 .language-list { position: fixed; z-index: 10001; width: 184px; max-width: calc(100vw - 16px); padding: 4px; border: 1px solid var(--border-soft, currentColor); border-radius: 7px; background: var(--bg-panel, Canvas); color: var(--text, CanvasText); box-shadow: 0 6px 24px #0003; font: 14px/1.4 system-ui, sans-serif; }
 .language-list[hidden] { display: none; }
