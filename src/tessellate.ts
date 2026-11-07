@@ -601,7 +601,7 @@ class FaceDomain {
     const out: UV[] = [];
     for (let i = 0; i + 1 < all.length; i++) {
       if (i > 0) out.push(all[i]!);
-      out.push(...this.cutSamples(all[i]!, all[i + 1]!));
+      for (const q of this.cutSamples(all[i]!, all[i + 1]!)) out.push(q);
     }
     return out;
   }
@@ -813,6 +813,24 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSpl
   let memoWant = new Uint8Array(64);
   /** 삼각형 자리마다 앞 번에 "그대로 두어도 됨"으로 본 것(1) — 자리의 세 정점이 그대로일 때만 이어 쓴다 */
   let triOk = new Uint8Array(tris.length / 3);
+  /**
+   * 곡면에서 현 높이보다 먼 고리 점(1): 곡선을 읽지 못해 현으로 대신한 모서리, 곡면 밖 꼭짓점(깨진·끊긴 파일).
+   * 그런 점에 닿은 모서리·삼각형은 가운데가 곡면에서 먼 것을 나눠도 풀리지 않아(경계가 곡면 밖이다) 나누기를 현 높이의 ¼까지
+   * 되풀이했다 — 면 하나에 삼각형 수십만 개, 끊긴 파일에서 수십 초(57차 퍼징). 그런 곳은 곡면 오차로는 나누지 않는다
+   * (실제 파일의 고리 점은 곡면에 투영한 점이라 이 표시가 없다 — 결과가 같다)
+   */
+  const ringOff = new Uint8Array(nRing);
+  let far = false;
+  for (let i = 0; i < nRing; i++) {
+    const d = dist(s.point(vs.u[i]!, vs.v[i]!), vs.P(i));
+    if (d > tol.chord) ringOff[i] = 1;
+    if (d > 10 * tol.chord) far = true;
+  }
+  // 고리 점이 곡면에서 현 높이의 열 배 넘게 먼 면(곡면 자리·축이 깨진 파일 — 경계와 곡면이 서로 다른 곳에 있다)은 무엇을 그려도 맞지 않는다.
+  // 다듬기를 고리 점 수에 맞춘 상한까지만 한다(57차 퍼징: 그런 면 하나가 삼각형 20만 개·수 초). 실제 파일의 고리 점은 곡면 위에 있다
+  // (투영한 점 — 표본 하나에서 현 높이의 0.0033배 안쪽, 훑기 1,765쌍에서 결과가 바뀐 파일 없음)
+  if (far) maxTris = Math.min(maxTris, Math.max(2048, 8 * nRing));
+  const offRing = (a: number) => a < nRing && ringOff[a] === 1;
   const want = (a: number, b: number): boolean => {
     const Pa = vs.P(a);
     const Pb = vs.P(b);
@@ -825,7 +843,7 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSpl
     const vm = (vs.v[a]! + vs.v[b]!) / 2;
     const pm = s.point(um, vm);
     const err = dist(pm, [(Pa[0] + Pb[0]) / 2, (Pa[1] + Pb[1]) / 2, (Pa[2] + Pb[2]) / 2]);
-    if (err > tol.chord) return true;
+    if (err > tol.chord && !offRing(a) && !offRing(b)) return true;
     return dot(vs.N(a), vs.N(b)) < cosLim && l > tol.chord;
   };
   for (let round = 0; round < 14; round++) {
@@ -885,7 +903,7 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSpl
       // 접힌 삼각형(3D 법선이 곡면 법선과 반대 — 굽은 띠에서 현 높이 안의 긴 안쪽 모서리가 맞은편 줄을 넘어간 것)도 나눈다.
       // 세 정점이 모두 안쪽 점일 때만: 경계 현 때문에 접힌 것은 안쪽을 나눠도 풀리지 않고 경계 가까이 점만 늘린다
       // (그런 면은 BrepMesher가 경계 모서리를 더 잘게 나눠 다시 삼각화한다)
-      const off = dist(s.point(uc, vc), flat) > tol.chord;
+      const off = dist(s.point(uc, vc), flat) > tol.chord && !offRing(a) && !offRing(b) && !offRing(c);
       if (!off && (a < nRing || b < nRing || c < nRing || foldDot(Pa, Pb, Pc, vs.N(a), vs.N(b), vs.N(c)) * sign >= 0)) {
         triOk[t] = 1;
         continue;
@@ -1549,9 +1567,12 @@ function fixFlatTriangles(tris: number[], xy: number[]): number[] {
     for (let e = 0; e < 3; e++) dir.set(tris[t + e]! * KEY + tris[t + ((e + 1) % 3)]!, t);
   };
   for (let t = 0; t < tris.length; t += 3) reg(t);
+  // 나눌 때마다 삼각형이 하나 는다. 좌표가 터무니없으면(1E308 등 — 넓이·길이가 무한) 나눈 것이 다시 넓이 0으로 보여 끝없이 늘었다(57차 퍼징).
+  // 넓이 0 삼각형은 드물어 실제 파일은 몇 개만 는다 — 처음의 두 배를 넘으면 그만둔다
+  const limit = tris.length * 2 + 300;
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;
-    for (let t = 0; t < tris.length; t += 3) {
+    for (let t = 0; t < tris.length && tris.length < limit; t += 3) {
       if (!flat(t)) continue;
       // 가장 긴 모서리 a→b와 가운데 점 c
       let best = 0;
@@ -1825,7 +1846,8 @@ export function earcutSimplified(xy: number[], holeIdx: number[], nv: number): n
       continue;
     }
     if (r > 0) holes.push(keep.length);
-    keep.push(...ring);
+    // 펼침 인자(push(...ring))는 고리 점이 십만 개쯤을 넘으면 호출 스택을 넘친다(57차 퍼징 — 아주 긴 경계)
+    for (const i of ring) keep.push(i);
   }
   const data: number[] = [];
   for (const i of keep) data.push(xy[i * 2]!, xy[i * 2 + 1]!);

@@ -333,7 +333,8 @@ export class StepFile {
         while (j < len && (isSpace(b[j]!) || (b[j] === C_SLASH && b[j + 1] === C_STAR))) j = isSpace(b[j]!) ? j + 1 : this.skipComment(j);
         const stmtEnd = this.scanToSemicolon(j);
         if (stmtEnd >= len) cut = true;
-        if (b[j] !== C_EQ || j === i + 1) {
+        // 번호는 32비트 색인에 담는다 — 2^32을 넘는 번호(깨진 파일)는 다른 번호로 접혀 엉뚱한 개체를 가리키므로 문법 오류로 건너뛴다
+        if (b[j] !== C_EQ || j === i + 1 || id > 0xffffffff) {
           skipped++;
           i = stmtEnd + 1;
           continue;

@@ -16,7 +16,7 @@ import {
   TrimmedCurve,
 } from './curves';
 import { type Frame, len, makeFrame, normalize, scale, type V3 } from './math';
-import { bezierKnots, expandKnots, NurbsCurve, NurbsSurface, quasiUniformKnots, uniformKnots } from './nurbs';
+import { bezierKnots, expandKnots, MAX_DEGREE, NurbsCurve, NurbsSurface, quasiUniformKnots, uniformKnots } from './nurbs';
 import { bool, enumOf, list, num, numList, partOf, refId, refList, StepRef, StepTyped, type StepEntity, type StepFile, type StepValue } from './part21';
 import {
   BSplineSurface,
@@ -32,6 +32,24 @@ import {
 } from './surfaces';
 
 const CONICS = new Set(['CIRCLE', 'ELLIPSE', 'PARABOLA', 'HYPERBOLA']);
+
+/**
+ * 점 좌표 절댓값 상한(모형 단위). 화면은 좌표를 float32(최대 약 3.4e38)로 넘기고 단위 배율·상자 계산을 거치므로
+ * 그보다 넉넉히 작은 1e30을 넘는 좌표는 읽지 못한 점으로 본다(실제 CAD 좌표는 1e7 mm 안쪽 — 깨진 파일의 1E300·1E999 등)
+ */
+export const MAX_COORD = 1e30;
+
+/** 형상에 쓸 수 있는 실수(NaN·무한이 아니고 절댓값이 MAX_COORD 안) — 좌표·반지름·크기·잘림 매개변수 */
+const real = (x: number): boolean => Math.abs(x) <= MAX_COORD;
+
+/**
+ * 좌표 목록의 앞 세 수(없으면 0, 수가 아니면 NaN — numList와 같은 값). 앞 셋만 본다: 방향은 캐시하지 않아 좌표틀마다 다시 읽는데,
+ * 깨진 파일의 좌표 100만 개짜리 DIRECTION을 그때마다 통째로 옮겨 13초가 걸렸다(57차 퍼징)
+ */
+function xyz(v: StepValue | undefined): V3 {
+  const l = list(v);
+  return [l.length > 0 ? num(l[0]) : 0, l.length > 1 ? num(l[1]) : 0, l.length > 2 ? num(l[2]) : 0];
+}
 
 export class Geometry {
   /** 평면각 단위 → 라디안 배율(원뿔 반각, 원뿔 곡선 잘림 매개변수) */
@@ -60,57 +78,71 @@ export class Geometry {
     return null;
   }
 
+  /** 점(CARTESIAN_POINT·VERTEX_POINT). 좌표가 수가 아니거나(NaN·무한) 절댓값이 MAX_COORD를 넘으면 읽지 못한 점(null) */
   point(id: number): V3 | null {
     const hit = this.pts.get(id);
     if (hit !== undefined) return hit;
     const e = this.f.get(id);
     let p: V3 | null = null;
     if (e && e.type === 'CARTESIAN_POINT') {
-      const c = numList(e.args[1]);
-      p = [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0];
-    } else if (e && e.type === 'VERTEX_POINT') p = this.point(refId(e.args[1]));
+      p = xyz(e.args[1]);
+      if (!(Math.abs(p[0]) <= MAX_COORD && Math.abs(p[1]) <= MAX_COORD && Math.abs(p[2]) <= MAX_COORD)) p = null;
+    } else if (e && e.type === 'VERTEX_POINT') {
+      // 자기·순환 참조(깨진 파일)는 null로 끝나게 먼저 적어 둔다
+      this.pts.set(id, null);
+      p = this.point(refId(e.args[1]));
+    }
     this.pts.set(id, p);
     return p;
   }
 
-  direction(id: number): V3 | null {
+  /** 방향(DIRECTION, VECTOR면 방향 × 크기). 성분이 수가 아니면 null. VECTOR 안의 VECTOR(깨진 파일의 자기 참조 포함)는 몇 겹까지만 */
+  direction(id: number, depth = 0): V3 | null {
     const e = this.f.get(id);
     if (!e) return null;
     if (e.type === 'DIRECTION') {
-      const c = numList(e.args[1]);
-      return [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0];
+      const d = xyz(e.args[1]);
+      return real(d[0]) && real(d[1]) && real(d[2]) ? d : null;
     }
-    if (e.type === 'VECTOR') return this.vector(id);
+    if (e.type === 'VECTOR' && depth < 4) return this.vector(id, depth + 1);
     return null;
   }
 
-  /** VECTOR: 방향 × 크기 */
-  vector(id: number): V3 | null {
+  /** VECTOR: 방향 × 크기(크기가 수가 아니거나 MAX_COORD를 넘으면 null) */
+  vector(id: number, depth = 0): V3 | null {
     const e = this.f.get(id);
     if (!e) return null;
-    if (e.type === 'DIRECTION') return this.direction(id);
+    if (e.type === 'DIRECTION') return this.direction(id, depth);
     if (e.type !== 'VECTOR') return null;
-    const d = this.direction(refId(e.args[1]));
-    if (!d) return null;
-    return scale(normalize(d), num(e.args[2], 1));
+    const d = this.direction(refId(e.args[1]), depth + 1);
+    const m = num(e.args[2], 1);
+    if (!d || !real(m)) return null;
+    return scale(normalize(d), m);
   }
 
   /** AXIS2_PLACEMENT_3D/2D, AXIS1_PLACEMENT → 좌표계 */
   frame(id: number): Frame | null {
     const e = this.f.get(id);
     if (!e) return null;
-    const o = this.point(refId(e.args[1])) ?? [0, 0, 0];
+    // 원점·방향을 가리키는데 그 개체를 읽지 못하면(없거나 값이 잘못됨 — 끊긴 파일 등) 틀 전체를 읽지 못한 것으로 본다.
+    // 원점 (0,0,0)·기본 방향으로 채우면 곡선·곡면이 엉뚱한 자리에 생겨 면이 터무니없이 잘게 나뉘었다(57차 퍼징)
+    const o = this.point(refId(e.args[1]));
+    if (!o) return null;
+    const dir = (v: StepValue | undefined): V3 | null | undefined => (v instanceof StepRef ? (this.direction(v.id) ?? undefined) : null);
     if (e.type === 'AXIS2_PLACEMENT_3D') {
-      const z = e.args[2] instanceof StepRef ? this.direction(refId(e.args[2])) : null;
-      const x = e.args[3] instanceof StepRef ? this.direction(refId(e.args[3])) : null;
+      const z = dir(e.args[2]);
+      const x = dir(e.args[3]);
+      if (z === undefined || x === undefined) return null;
       return makeFrame(o, z, x);
     }
     if (e.type === 'AXIS2_PLACEMENT_2D') {
-      const x = e.args[2] instanceof StepRef ? this.direction(refId(e.args[2])) : null;
+      const x = dir(e.args[2]);
+      if (x === undefined) return null;
       return makeFrame(o, [0, 0, 1], x ? [x[0], x[1], 0] : null);
     }
     if (e.type === 'AXIS1_PLACEMENT') {
-      const z = e.args[2] instanceof StepRef ? this.direction(refId(e.args[2])) : null;
+      const z = dir(e.args[2]);
+      if (z === undefined) return null;
       return makeFrame(o, z, null);
     }
     return null;
@@ -146,19 +178,19 @@ export class Geometry {
       }
       case 'CIRCLE': {
         const f = this.frame(refId(a[1]));
-        return f ? new CircleCurve(f, num(a[2])) : null;
+        return f && real(num(a[2])) ? new CircleCurve(f, num(a[2])) : null;
       }
       case 'ELLIPSE': {
         const f = this.frame(refId(a[1]));
-        return f ? new EllipseCurve(f, num(a[2]), num(a[3])) : null;
+        return f && real(num(a[2])) && real(num(a[3])) ? new EllipseCurve(f, num(a[2]), num(a[3])) : null;
       }
       case 'PARABOLA': {
         const f = this.frame(refId(a[1]));
-        return f ? new ParabolaCurve(f, num(a[2])) : null;
+        return f && real(num(a[2])) ? new ParabolaCurve(f, num(a[2])) : null;
       }
       case 'HYPERBOLA': {
         const f = this.frame(refId(a[1]));
-        return f ? new HyperbolaCurve(f, num(a[2]), num(a[3])) : null;
+        return f && real(num(a[2])) && real(num(a[3])) ? new HyperbolaCurve(f, num(a[2]), num(a[3])) : null;
       }
       case 'POLYLINE': {
         const pts = refList(a[1])
@@ -203,14 +235,27 @@ export class Geometry {
           if (pt && (Number.isNaN(par) || enumOf(a[5]) !== 'PARAMETER')) return basis.project(pt);
           return par;
         };
-        const t1 = trim(a[2]);
+        let t1 = trim(a[2]);
         let t2 = trim(a[3]);
-        if (Number.isNaN(t1) || Number.isNaN(t2)) return basis;
+        // 수가 아니거나(NaN·무한) 터무니없는 매개변수(깨진 파일의 1E300 등)는 자르지 않은 바탕 곡선으로
+        if (!real(t1) || !real(t2)) return basis;
         const sense = bool(a[4], true);
         if (basis.period > 0) {
           const P = basis.period;
+          if (Math.abs(t1 - basis.t0) > 16 * P || Math.abs(t2 - t1) > 16 * P) {
+            // 주기의 16배 넘게 먼 매개변수(깨진 파일)는 한 주기 안으로 당긴다 — 그대로 두면 정밀도를 잃고 매듭·나눔 고리가 끝나지 않는다
+            const d = (t2 - t1) % P;
+            t1 = basis.wrap(t1);
+            t2 = t1 + d;
+          }
           if (sense && t2 <= t1) t2 += Math.ceil((t1 - t2) / P + 1e-12) * P;
           if (!sense && t2 >= t1) t2 -= Math.ceil((t2 - t1) / P + 1e-12) * P;
+        } else if (Number.isFinite(basis.t0) && Number.isFinite(basis.t1)) {
+          // 구간이 유한한 바탕(꺾은선·합성 곡선·B-스플라인): 구간 밖으로 구간 길이보다 멀리 나간 매개변수는 거기서 멈춘다
+          // (꺾은선·합성 곡선 나눔은 매개변수 정수마다 점을 넣는다 — 1E9면 점 10억 개)
+          const L = basis.t1 - basis.t0;
+          t1 = Math.min(Math.max(t1, basis.t0 - L), basis.t1 + L);
+          t2 = Math.min(Math.max(t2, basis.t0 - L), basis.t1 + L);
         }
         return new TrimmedCurve(basis, t1, t2);
       }
@@ -274,7 +319,8 @@ export class Geometry {
       else return null;
     }
     const ctrl = ctrlIds.map((i) => this.point(i)).filter((p): p is V3 => !!p);
-    if (ctrl.length < 2 || !(degree >= 1)) return null;
+    // 읽지 못한 조절점이 있으면(끊긴 파일 등) 곡선 전체를 읽지 못한 것으로 본다 — 빼고 이으면 매듭·무게가 어긋난 엉뚱한 곡선이 된다
+    if (ctrl.length !== ctrlIds.length || ctrl.length < 2 || !(degree >= 1 && degree <= MAX_DEGREE)) return null;
     const n = ctrl.length;
     const U =
       kind === 'knots'
@@ -285,6 +331,8 @@ export class Geometry {
             ? uniformKnots(degree, n)
             : quasiUniformKnots(degree, n);
     if (U.length !== n + degree + 1) return null;
+    // 무게는 양의 실수(ISO 10303-42) — 0·음수·NaN이면 동차 좌표를 나눌 때 점이 무한·NaN이 된다
+    if (weights && !weights.every(goodWeight)) return null;
     return new NurbsCurve(degree, U, ctrl, weights);
   }
 
@@ -313,26 +361,27 @@ export class Geometry {
       }
       case 'CYLINDRICAL_SURFACE': {
         const f = this.frame(refId(a[1]));
-        return f ? new CylinderSurface(f, num(a[2])) : null;
+        return f && real(num(a[2])) ? new CylinderSurface(f, num(a[2])) : null;
       }
       case 'CONICAL_SURFACE': {
         const f = this.frame(refId(a[1]));
-        return f ? new ConeSurface(f, num(a[2]), num(a[3]) * this.angleFactor) : null;
+        return f && real(num(a[2])) && real(num(a[3])) ? new ConeSurface(f, num(a[2]), num(a[3]) * this.angleFactor) : null;
       }
       case 'SPHERICAL_SURFACE': {
         const f = this.frame(refId(a[1]));
-        return f ? new SphereSurface(f, num(a[2])) : null;
+        return f && real(num(a[2])) ? new SphereSurface(f, num(a[2])) : null;
       }
       case 'TOROIDAL_SURFACE':
       case 'DEGENERATE_TOROIDAL_SURFACE': {
         const f = this.frame(refId(a[1]));
-        return f ? new TorusSurface(f, num(a[2]), num(a[3])) : null;
+        return f && real(num(a[2])) && real(num(a[3])) ? new TorusSurface(f, num(a[2]), num(a[3])) : null;
       }
       case 'SURFACE_OF_REVOLUTION': {
         const c = this.curve(refId(a[1]), true);
         const ax = this.f.get(refId(a[2]));
         if (!c || !ax) return null;
-        const o = this.point(refId(ax.args[1])) ?? [0, 0, 0];
+        const o = this.point(refId(ax.args[1]));
+        if (!o) return null;
         const d = ax.args[2] instanceof StepRef ? this.direction(refId(ax.args[2])) : ([0, 0, 1] as V3);
         if (!d || len(d) === 0) return null;
         return new RevolutionSurface(c, o, normalize(d), curveSize(c) * 1e-6 + 1e-12);
@@ -344,7 +393,7 @@ export class Geometry {
       }
       case 'OFFSET_SURFACE': {
         const b = this.surface(refId(a[1]));
-        return b ? new OffsetSurface(b, num(a[2], 0)) : null;
+        return b && real(num(a[2], 0)) ? new OffsetSurface(b, num(a[2], 0)) : null;
       }
       case 'RECTANGULAR_TRIMMED_SURFACE':
       case 'CURVE_BOUNDED_SURFACE':
@@ -412,17 +461,31 @@ export class Geometry {
       else if (e.type === 'QUASI_UNIFORM_SURFACE') kind = 'quasi';
       else return null;
     }
-    const rows = list(ctrlV).map((row) => refList(row).map((i) => this.point(i) ?? ([0, 0, 0] as V3)));
+    // 읽지 못한 조절점(없거나 좌표가 잘못됨 — 끊긴 파일 등)이 있으면 곡면 전체를 읽지 못한 것으로 본다(원점으로 채우면 곡면이 원점까지 늘어난다)
+    let unreadable = false;
+    const rows = list(ctrlV).map((row) =>
+      refList(row).map((i) => {
+        const p = this.point(i);
+        if (!p) unreadable = true;
+        return p ?? ([0, 0, 0] as V3);
+      }),
+    );
     const nu = rows.length;
     const nv = rows[0]?.length ?? 0;
-    if (nu < 2 || nv < 2 || !(du >= 1) || !(dv >= 1) || rows.some((r) => r.length !== nv)) return null;
+    if (unreadable || nu < 2 || nv < 2 || !(du >= 1 && du <= MAX_DEGREE) || !(dv >= 1 && dv <= MAX_DEGREE) || rows.some((r) => r.length !== nv)) return null;
     const mk = (deg: number, n: number, m: number[] | null, k: number[] | null) =>
       kind === 'knots' ? expandKnots(m!, k!, deg, n) : kind === 'bezier' ? bezierKnots(deg, n) : kind === 'uniform' ? uniformKnots(deg, n) : quasiUniformKnots(deg, n);
     const U = mk(du, nu, um, uk);
     const V = mk(dv, nv, vm, vk);
     if (U.length !== nu + du + 1 || V.length !== nv + dv + 1) return null;
+    if (w && !w.every((row) => row.every(goodWeight))) return null;
     return new NurbsSurface(du, dv, U, V, rows, w);
   }
+}
+
+/** 유리 B-스플라인 무게로 쓸 수 있는 값(양의 유한 실수) */
+function goodWeight(x: number): boolean {
+  return x > 0 && x <= MAX_COORD;
 }
 
 function curveSize(c: Curve): number {

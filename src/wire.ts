@@ -292,7 +292,7 @@ export class WireSampler {
         const s = numList(fan);
         for (let i = 1; i + 1 < s.length; i++) tris.push(s[0]!, s[i]!, s[i + 1]!);
       }
-    } else for (const tr of list(e.args[5])) tris.push(...numList(tr));
+    } else for (const tr of list(e.args[5])) for (const v of numList(tr)) tris.push(v);
     const count = new Map<string, number>();
     const key = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
     for (let i = 0; i + 2 < tris.length; i += 3) {

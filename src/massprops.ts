@@ -63,6 +63,11 @@ const G8: readonly (readonly [number, number])[] = [
 ];
 /** 토막을 나누는 각(라디안) */
 const STEP_ANGLE = Math.PI / 8;
+/**
+ * 주기 곡면·곡선의 매듭을 주기만큼 옮겨 찾을 때 옮김 수 상한(복합 곡선은 토막 수 × 이것). 실제 경계는 한두 주기 안이다.
+ * 깨진 파일의 터무니없는 매개변수에서 옮김 고리가 끝나지 않아(2^53을 넘으면 1 더하기도 그대로) 적분 워커가 멈추지 않게 한다
+ */
+const MAX_SHIFTS = 1024;
 /** 삼각 다항식 안쪽 적분 표본 수(4차까지 정확) */
 const NF = 9;
 const SJ = Array.from({ length: NF }, (_, j) => (2 * Math.PI * j) / NF);
@@ -687,6 +692,7 @@ export function faceFlux(s: Surface, polys: readonly Polygon[], c: V3, seg: (a: 
       for (const x0 of inner.vBreaks) {
         const n0 = Pv > 0 ? Math.ceil((lo - x0) / Pv) : 0;
         const n1 = Pv > 0 ? Math.floor((hi - x0) / Pv) : 0;
+        if (!(n1 - n0 <= MAX_SHIFTS)) continue;
         for (let n = n0; n <= n1; n++) {
           const x = x0 + n * Pv;
           if (x > lo && x < hi) cuts.push((x - av) / dv);
@@ -1219,6 +1225,7 @@ function curveKnots(c: BoundaryCurve, t0: number, t1: number, out: number[]): vo
   } else if (c instanceof SurfaceMappedCurve) curveKnots(c.c2, lo, hi, out);
   else if (c instanceof CompositeCurve) {
     const n = c.segs.length;
+    if (!(Math.ceil(hi) - Math.floor(lo) <= MAX_SHIFTS * Math.max(1, n))) return;
     for (let k = Math.floor(lo); k <= Math.ceil(hi); k++) {
       if (k > lo + margin && k < hi - margin) out.push(k);
       const sg = c.segs[((k % n) + n) % n];
@@ -1232,6 +1239,7 @@ function curveKnots(c: BoundaryCurve, t0: number, t1: number, out: number[]): vo
     for (const x0 of c.bp) {
       const n0 = P > 0 ? Math.ceil((lo - x0) / P) : 0;
       const n1 = P > 0 ? Math.floor((hi - x0) / P) : 0;
+      if (!(n1 - n0 <= MAX_SHIFTS)) continue;
       for (let m = n0; m <= n1; m++) {
         const x = x0 + m * P;
         if (x > lo + margin && x < hi - margin) out.push(x);
@@ -1247,6 +1255,7 @@ function crossings(a: number, b: number, breaks: readonly number[], P: number, o
   for (const x0 of breaks) {
     const n0 = P > 0 ? Math.ceil((lo - x0) / P) : 0;
     const n1 = P > 0 ? Math.floor((hi - x0) / P) : 0;
+    if (!(n1 - n0 <= MAX_SHIFTS)) continue;
     for (let m = n0; m <= n1; m++) {
       const x = x0 + m * P;
       if (x > lo && x < hi) out.push(x);

@@ -3,14 +3,32 @@
  */
 import type { V3 } from './math';
 
-/** 매듭 배수·값에서 전체 매듭 벡터를 만든다. 개수가 맞지 않으면 양 끝을 늘이거나 줄여 맞춘다 */
+/**
+ * 받는 B-스플라인 차수 상한. ISO 10303-42는 상한을 두지 않지만 CAD 커널은 25쯤에서 막고(Open CASCADE 25), 로컬 표본 872개의 최고 차수는 11이다.
+ * 깨진 파일의 차수 1E9는 매듭 벡터·기저 계산 배열(차수²)이 끝없이 커진다
+ */
+export const MAX_DEGREE = 64;
+
+/**
+ * 매듭 배수·값에서 전체 매듭 벡터를 만든다. 개수가 맞지 않으면 양 끝을 늘이거나 줄여 맞춘다.
+ * 배수 합이 필요한 수(조절점 수 + 차수 + 1)와 터무니없이 다르면(깨진 파일의 배수 1E9, 조절점만 백만 개로 불어난 목록 등) 빈 벡터 —
+ * 부르는 쪽이 개수를 보고 버린다(그대로 두면 배열이 끝없이 커지거나 양 끝 늘이기가 제곱 시간이 된다)
+ */
 export function expandKnots(mults: number[], knots: number[], degree: number, nCtrl: number): Float64Array {
+  const need = nCtrl + degree + 1;
+  let total = 0;
+  for (let i = 0; i < knots.length; i++) {
+    const m = Math.max(0, Math.round(mults[i] ?? 1));
+    if (m > 0) total += m;
+    // 매듭 값은 유한하고 줄지 않아야 한다(ISO 10303-42) — NaN·무한·거꾸로 간 매듭은 기저 계산이 NaN이 된다
+    if (!Number.isFinite(knots[i]!) || (i > 0 && knots[i]! < knots[i - 1]!)) return new Float64Array(0);
+  }
+  if (total > 2 * need + 64 || 2 * total + 64 < need) return new Float64Array(0);
   const out: number[] = [];
   for (let i = 0; i < knots.length; i++) {
     const m = Math.max(0, Math.round(mults[i] ?? 1));
     for (let k = 0; k < m; k++) out.push(knots[i]!);
   }
-  const need = nCtrl + degree + 1;
   while (out.length < need && out.length > 0) {
     // 끝 매듭이 하나 모자란 파일(clamped인데 배수 p): 양 끝을 번갈아 늘인다
     if (out.length % 2 === 0) out.push(out[out.length - 1]!);
