@@ -1491,6 +1491,15 @@ table.grid td.mono {
 .menu-label {
   flex: 1;
 }
+/* 겹친 것 고르기 목록(64차)의 이름(부품 나무 이름 — 파일 글): 종류 뒤에, 길면 말줄임 */
+.menu-file {
+  min-width: 0;
+  max-width: 22em;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .menu-item:disabled {
   opacity: 0.42;
   cursor: default;

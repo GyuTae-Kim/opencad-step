@@ -146,9 +146,10 @@ export type MeasureKind = 'points' | 'entities';
 
 export class StepApp {
   doc: StepDoc | null = null;
-  private viewer: Viewer3d | null = null;
+  /** 뷰어(뷰어 조각의 작업 메뉴 contextAt도 쓴다 — 그 밖은 앱만) */
+  viewer: Viewer3d | null = null;
   private readonly client = new ParseClient();
-  private loading: Loading | null = null;
+  loading: Loading | null = null;
   private loadSeq = 0;
   private abort: AbortController | null = null;
   private lastError: string | null = null;
@@ -215,8 +216,8 @@ export class StepApp {
   private readonly selMore: HTMLButtonElement;
   private readonly faceLook: HTMLButtonElement;
   private readonly faceCut: HTMLButtonElement;
-  /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기) */
-  private ctxFace: FacePick | null = null;
+  /** 작업 메뉴를 연 자리의 B-rep 면(정면으로 보기·면으로 자르기 — 뷰어 조각 ctxmenu.ts contextAt이 잡는다) */
+  ctxFace: FacePick | null = null;
   /** 문서마다 두 점 측정 붙잡기 점(원·원호 중심) */
   private readonly snapCenters = new WeakMap<StepDoc, SnapPoint[]>();
   /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
@@ -279,14 +280,14 @@ export class StepApp {
   private get lookMoves(): ReadonlyMap<string, readonly [number, number, number]> {
     return this.lookSync.moves();
   }
-  /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다) */
-  private pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
+  /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다). 64차: 겹친 것 고르기 목록에서 고른 것도 이리로(ctxmenu.ts) */
+  pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
   /** 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다 */
   private keySnap: { sync(): void } | null = null;
   /** 마우스·펜이 3D 보기 위에 있는지(62차 — 3D 보기가 받은 화살표를 방향 잠금과 가상 커서가 나눠 쓴다, keys.ts arrowOwner) */
   private pointerIn = false;
   /** 누르기·측정이 반투명 그물 너머를 고르는지(코어 0.23.0 throughTranslucent — looks.ts translucentView) */
-  private pickThrough = false;
+  pickThrough = false;
   // ── 분해 막대 ──
   private readonly explodeBar: HTMLElement;
   private readonly explodeSlider: HTMLInputElement;
@@ -990,6 +991,8 @@ export class StepApp {
         if (a.reason === 'commit' && v.measureMode) this.refreshBar();
         this.scheduleHoverSnap();
       },
+      // 64차: 커서를 켠 동안 Shift+F10·메뉴 키는 커서 자리 작업 메뉴(겹친 것 고르기…)
+      menuAt: (x, y) => this.contextMenuAt(x, y, 'keyboard'),
     });
     v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
@@ -1025,7 +1028,7 @@ export class StepApp {
       // 터치 길게 누르기의 contextmenu는 TouchAim이 이미 다뤘다
       if ((e as PointerEvent).pointerType === 'touch') return;
       // 누르기 없이 온 것(3D 보기에 초점이 있을 때 메뉴 글쇠·Shift+F10 — 53차, 전에는 버렸다): 고른 것(없으면 빈 자리)의 작업 메뉴를 3D 보기 가운데에.
-      // 3D 보기 안의 점을 글쇠로 가리킬 길은 없어 그 자리를 고르지는 않는다(고르기는 제품 나무에서)
+      // 그 자리를 고르지는 않는다. 가상 커서를 켠 동안은 그 키를 keysnap.ts가 먼저 받아 커서 자리 메뉴를 연다(64차 — 메뉴로 초점이 옮겨 여기는 건너뛴다)
       if (e.timeStamp - downAt > 1000 && document.activeElement === v.canvas) {
         if (this.doc && !this.loading && !v.measureMode && !this.entMeasuring) {
           const r = v.canvas.getBoundingClientRect();
@@ -1089,7 +1092,7 @@ export class StepApp {
 
   // ───────────────────────── 고르기 ─────────────────────────
 
-  private onPick(p: Pick3d | null, wantFace = this.faceMode): void {
+  onPick(p: Pick3d | null, wantFace = this.faceMode): void {
     const d = this.doc;
     if (!d) return;
     if (this.viewer?.measureMode) return;
@@ -1156,7 +1159,7 @@ export class StepApp {
   }
 
   /** 누른 삼각형의 B-rep 면(면 표가 없거나 못 찾으면 null) */
-  private findFace(d: StepDoc, p: Pick3d) {
+  findFace(d: StepDoc, p: Pick3d) {
     const fx = d.faces;
     const ti = fx?.tableOf.get(p.id);
     if (!fx || ti === undefined) return null;
@@ -1986,22 +1989,12 @@ export class StepApp {
     this.syncExplode();
   }
 
-  /** 화면 점(client 좌표)에서 작업 메뉴: 그 자리 항목을 고르고(없으면 고르기 그대로) 메뉴를 연다. 열었으면 true */
-  contextMenuAt(clientX: number, clientY: number): boolean {
-    const v = this.viewer;
-    const d = this.doc;
-    if (!v || !d || this.loading || v.measureMode || this.entMeasuring) return false;
-    const r = v.canvas.getBoundingClientRect();
-    const p = v.pick(clientX - r.left, clientY - r.top, { pointerType: 'touch', throughTranslucent: this.pickThrough });
-    // 여러 개 고르기 중에는 누른 것을 고른 것에 더해 메뉴가 모은 것 전체에 쓰이게 한다(바꾸지 않는다)
-    if (p && !selectionItemIds(d).includes(p.id)) {
-      if (this.multiPick && !this.faceMode) this.toggleInSelection(unitItemIds(d.products, p.id, this.pickUnit));
-      else this.onPick(p, this.faceMode);
-    }
-    // 그 자리 B-rep 면(정면으로 보기·면으로 자르기)
-    this.ctxFace = p && p.kind === 'mesh' && !p.section ? this.findFace(d, p) : null;
-    this.openContextMenu(clientX, clientY);
-    return true;
+  /**
+   * 화면 점(client 좌표)에서 작업 메뉴: 그 자리 항목을 고르고(이미 고른 것이 그 자리 겹친 후보면 그대로) 메뉴를 연다 — 겹친 후보가 둘 이상이면 맨 위에 "겹친 것 고르기…".
+   * 64차: 뷰어 조각 ctxmenu.ts contextAt으로 옮겼다(pointerType은 후보 허용 거리 — 가상 커서 자리면 'keyboard'). 열었으면 true
+   */
+  contextMenuAt(clientX: number, clientY: number, pointerType?: string): boolean {
+    return !!this.ent?.contextAt(this, clientX, clientY, pointerType);
   }
 
   /**

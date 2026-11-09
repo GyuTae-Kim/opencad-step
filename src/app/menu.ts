@@ -1,9 +1,10 @@
 /**
  * 단추 아래에 펼치는 작은 메뉴. 도구 막대가 가로로 스크롤될 수 있어(overflow) body에 붙이고 fixed로 놓는다.
  * 바깥 누르기·Esc·항목 고르기·창 폭 바뀜에 닫히고, 위아래 화살표로 (쓸 수 있는) 항목을 옮긴다.
- * 항목: 명령(menuitem) · 하나 고르기(checked, menuitemradio) · 켜고 끄기(toggle, menuitemcheckbox), 앞 구분선(sep)·흐리게(disabled).
+ * 항목: 명령(menuitem) · 하나 고르기(checked, menuitemradio) · 켜고 끄기(toggle, menuitemcheckbox), 앞 구분선(sep)·흐리게(disabled), 이름 뒤 파일 글(file).
  */
 import { h } from './dom';
+import { fileSpan } from './ftext';
 
 export interface MenuItem {
   label: string;
@@ -19,6 +20,8 @@ export interface MenuItem {
   sep?: boolean;
   /** 덜 쓰는 항목: 손가락 기기 작업 메뉴에서 끝의 "그 밖의 작업…" 아래로 보낸다(ctxmenu.ts foldMenu — 52차) */
   more?: boolean;
+  /** 이름 뒤에 붙일 파일 글(64차 겹친 것 고르기 목록의 부품 이름 — 번역하지 않는다, ftext.ts fileSpan) */
+  file?: string;
   run: () => void;
 }
 
@@ -77,6 +80,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       { type: 'button', class: `menu-item${it.checked ? ' checked' : ''}`, role, 'aria-checked': it.checked === undefined ? null : String(it.checked), disabled: !!it.disabled, tabindex: '-1' },
       h('span', { class: `menu-check${it.toggle ? ' tick' : ''}`, 'aria-hidden': 'true' }, it.checked ? (it.toggle ? '✓' : '●') : ''),
       h('span', { class: 'menu-label' }, it.label),
+      it.file ? fileSpan(it.file, 'menu-file') : null,
       it.hint ? h('kbd', {}, it.hint) : null,
     );
     b.addEventListener('click', () => {

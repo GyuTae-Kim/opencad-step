@@ -1087,5 +1087,10 @@
   "전체 보기 · 표준 뷰": "View all · Standard Views",
   "3D 보기를 Tab으로 고른 뒤 화살표를 누르면 가상 커서가 켜집니다. 마우스처럼 측정 점을 붙잡고 면·모서리를 고르며, 바뀔 때마다 화면 읽기 프로그램에 알립니다.": "Focus the 3D view with Tab, then press an arrow key to turn on the virtual cursor. Like the mouse, it snaps to measure points and selects faces and edges, and every change is announced to screen readers.",
   "두 점 측정에서 가상 커서가 꺼져 있고 마우스가 3D 보기 위에 있으면 화살표는 방향 잠금입니다(→ X축 · ← Y축 · ↑ Z축 · ↓ 지금 방향).": "In two-point measuring, when the virtual cursor is off and the mouse is over the 3D view, the arrow keys lock the direction (→ X axis · ← Y axis · ↑ Z axis · ↓ current direction).",
-  "주변 가림": "Ambient occlusion"
+  "주변 가림": "Ambient occlusion",
+  "겹친 것 고르기…": "Select overlapping…",
+  "겹친 것 고르기": "Select overlapping",
+  "부품 전체": "Whole part",
+  "선 형상": "Line shape",
+  "점 형상": "Point shape"
 }
