@@ -192,6 +192,8 @@ export function measureSnapOptions(
     ...(withFirst ? { pointsForFirst: true } : {}),
     ...(curve ? { refine: (c: SnapRefineInput) => curve.refine(c) } : {}),
     ...(curve?.refineFace ? { refineFace: (c: SnapRefineFaceInput) => curve.refineFace!(c) } : {}),
+    // 61차(코어 0.39.0): 선이 칸·현을 얕게 뚫는 자리에서 커서가 그물 교차 쪽이어도 같은 교차의 곡면·곡선 교점으로 옮긴다(44차 남은 꼴 — "면 위"를 떼지 않고 만나는 점을 지킨다)
+    ...(curve ? { refineSnapToExact: true } : {}),
   };
 }
 

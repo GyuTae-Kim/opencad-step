@@ -1,6 +1,6 @@
 /**
  * 두 점 측정의 곡선–면 교차점 붙잡기(46차 — 순수, DOM 없음, 접선 조각): 커서 아래 B-rep 모서리 곡선이 다른 면(평면·곡면, 다른 부품 포함)을 뚫는 점을
- * 앱 점(코어 pointsFor — kind 'intersection', 이름 "교차점")으로 준다. BricsCAD의 3D 개체 스냅 ZINTersection("모서리·선과 면의 교차")과 같은 자리이고,
+ * 앱 점(코어 pointsFor — kind 'intersection', 이름 "교차점", 61차부터 우선 'fallback' — 다른 붙잡기가 없을 때만)으로 준다. BricsCAD의 3D 개체 스냅 ZINTersection("모서리·선과 면의 교차")과 같은 자리이고,
  * AutoCAD 3D 개체 스냅(꼭짓점·모서리 가운데·면 가운데·매듭·수직·면에 가장 가까운 점)과 SOLIDWORKS 측정에는 없는 자리라 이 앱이 더한다
  * (SOLIDWORKS는 참조 점 "교차"로 두 개체가 만나는 점을 따로 만든다).
  *
@@ -241,7 +241,9 @@ export function crossingsOf(
       st.why?.push(`outline ${P}`);
       continue;
     }
-    out.push({ point: P, kind: 'intersection', id: h.m.id });
+    // 61차(코어 0.41.0 priority 'fallback'): 다른 붙잡기(점·축·나란함·끌어온 점 등)가 하나도 없을 때만 붙는다 — 46차가 곡선–면 교차점으로 바꾼 자리 가운데
+    // 다른 붙잡기였던 자리(축 방향·가운데 점·수직 발)는 예전 붙잡기로 돌아가고, 붙잡지 않던 자리만 교차점이다
+    out.push({ point: P, kind: 'intersection', id: h.m.id, priority: 'fallback' });
     st.faces?.push(h.f);
   }
   st.points = out.length;

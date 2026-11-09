@@ -95,6 +95,8 @@ describe('곡선–면 교차점 붙잡기(46차)', () => {
     for (const y of [5.5, 6.1]) for (const s of [-1, 1]) want.push([5 + s * Math.sqrt(2.25 - (y - 5) ** 2), y, 3]);
     expectSame(pts, want, 1e-9);
     expect(pts.every((p) => p.kind === 'intersection' && p.id === rod.id)).toBe(true);
+    // 61차(코어 0.41.0): 다른 붙잡기가 하나도 없을 때만 붙는다
+    expect(pts.every((p) => p.priority === 'fallback')).toBe(true);
     expect(st.truncated).toBe(false);
   });
 
