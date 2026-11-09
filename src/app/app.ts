@@ -2328,6 +2328,7 @@ export class StepApp {
     const d = this.doc;
     const v = this.viewer;
     if (d) d.ent = { picks: [], result: null };
+    this.entClosest?.cancel();
     v?.setAnnotations(null);
     v?.highlightRanges(null);
     this.panel.onMeasure();
@@ -2361,21 +2362,24 @@ export class StepApp {
     if (!picked) return;
     if (d.ent.picks.length >= 2) d.ent = { picks: [], result: null };
     d.ent.picks.push(picked);
-    if (d.ent.picks.length === 2) {
-      const [a, b] = d.ent.picks as [Picked, Picked];
-      this.measureEntityPair(d, false);
-      const rows = d.ent.result!.lines.map((l): EntityRecord => ({ type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title }));
-      for (const r of rows) logMeasure(d, r);
-      this.entLogged.set(d.ent, rows);
-    } else d.ent.result = null;
+    if (d.ent.picks.length === 2) this.measureEntityPair(d, false);
+    else {
+      d.ent.result = null;
+      this.entClosest?.cancel();
+    }
     this.showEntities();
     this.panel.onMeasure();
     this.updateStatus();
   }
 
+  /** 개체 측정 최소 거리 나눠 돌리기(62차 — viewerkit 조각 EntClosest, 측정 짝마다) */
+  private entClosest: InstanceType<typeof import('./viewerkit').EntClosest> | null = null;
+
   /**
    * 누른 두 개체를 잰다(해석적으로 못 재는 최소 거리는 곡선 접선 조각을 받았으면 B-rep 곡면·곡선 정의로 다듬는다 — exactdist.ts).
-   * show면 강조·덧그림·패널도 다시(곡면 정의를 받은 뒤 다시 잴 때)
+   * 62차: 그 최소 거리(고른 두 개체 사이·부품 사이)는 코어 나눠 돌리기(EntClosest — closestPointsAsync)로 구한다 — 구하는 동안은 결과 없이(누른 개체 이름만)
+   * 두고, 다 구하면 다시 잰다(46차 받기와 같은 꼴). 짝을 처음 잴 때 측정 기록에 남기고, 다시 재면 그 줄 값을 고친다.
+   * show면 강조·덧그림·패널도 다시(곡면 정의를 받은 뒤·최소 거리를 다 구한 뒤 다시 잴 때)
    */
   private measureEntityPair(d: StepDoc, show = true): void {
     const v = this.viewer;
@@ -2384,16 +2388,26 @@ export class StepApp {
     const [a, b] = d.ent.picks as [Picked, Picked];
     const diag = this.sceneDiag(d);
     const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
+    const again = () => this.doc === d && this.measureEntityPair(d);
+    const near = (this.entClosest ??= new E.EntClosest()).get(d.ent, a, b, v, meshOf, again);
+    if (!near) {
+      d.ent.result = null;
+      if (show) this.showEntities();
+      return;
+    }
     d.ent.result = E.measurePicked(a, b, {
       size: E.armSize(a, b, diag),
-      closest: (x, y) => E.pickedClosest(x, y, meshOf),
-      parts: (x, y) => v.closestPoints(x, y),
-      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다 — 그때 부품 사이 삼각형 답은 앞 것을 다시 씀)
-      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, () => this.doc === d && this.measureEntityPair(d), v),
+      ...near,
+      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다 — 그때 최소 거리는 EntClosest가 기억한 답)
+      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, again),
     });
-    // 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
+    // 처음 잰 짝이면 측정 기록에 남기고, 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
     const rows = this.entLogged.get(d.ent);
-    if (rows)
+    if (!rows) {
+      const fresh = d.ent.result.lines.map((l): EntityRecord => ({ type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title }));
+      for (const r of fresh) logMeasure(d, r);
+      this.entLogged.set(d.ent, fresh);
+    } else
       d.ent.result.lines.forEach((l, i) => {
         const r = rows[i];
         if (r?.label !== l.label) return;

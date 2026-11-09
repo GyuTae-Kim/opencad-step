@@ -259,24 +259,15 @@ describe('부품 사이 최소 거리의 오목한 자리 받기(45차)', { time
       partsLater(other, pin.id, plate.id, triP, s, 30, later4);
       await vi.waitFor(() => expect(later4).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
       expect(later3).not.toHaveBeenCalled();
-      // 앱이 받는 다듬기 선택(entRefine): refineParts는 partsLater와 같고, parts(코어 closestPoints)는 같은 측정 짝·같은 두 부품이면 앞 답을 다시 쓴다
+      // 앱이 받는 다듬기 선택(entRefine): refineParts는 partsLater와 같다(62차 — 부품 사이 삼각형 답은 entpick EntClosest가 짝마다 기억한다: entclosest.test.ts)
       const app = { ent: {}, scene: { meshes: [...s.meshes.values()] }, faces: s.faces, edges: s.edges };
       const later6 = vi.fn();
-      const core = { closestPoints: vi.fn(() => triP) };
-      const R = entRefine(app, 30, null, later6, core);
-      expect(R.parts(pin.id, plate.id)).toBe(triP);
+      const R = entRefine(app, 30, null, later6);
+      expect('parts' in R).toBe(false);
       expect(R.refineParts(pin.id, plate.id, triP)).toBeNull();
       await vi.waitFor(() => expect(later6).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 20 });
-      const R2 = entRefine(app, 30, null, later6, core);
-      expect(R2.parts(pin.id, plate.id)).toBe(triP);
-      expect(core.closestPoints).toHaveBeenCalledTimes(1);
+      const R2 = entRefine(app, 30, null, later6);
       expect(Math.abs(R2.refineParts(pin.id, plate.id, triP)!.distance - 0.4)).toBeLessThan(1e-9);
-      // 다른 두 부품·새 측정 짝이면 다시 잰다
-      R2.parts(pin.id, ring.id);
-      expect(core.closestPoints).toHaveBeenCalledTimes(2);
-      app.ent = {};
-      R2.parts(pin.id, ring.id);
-      expect(core.closestPoints).toHaveBeenCalledTimes(3);
       // 받았을 때 그 문서의 측정 짝이 바뀌었으면(셋째 개체를 누름 등) later를 부르지 않는다
       const later5 = vi.fn();
       doc.ent = {};

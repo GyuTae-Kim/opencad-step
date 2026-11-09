@@ -4,15 +4,19 @@
  * - 면: 평면(면 가운데·법선), 원기둥·원뿔(축 — 면 가운데에서 축에 내린 발을 기준점으로), 구(중심 점), 원환(중심·축 원)
  * - 모서리: 직선(선분), 원·원호·타원(중심·법선 원 — 중심으로 잰다). 끝점·가운데 점 가까이 누르면 그 점(꼭짓점·가운데 점)
  * - 잘린 면(단면 채움): 단면 평면, 선·점 형상: 누른 점
- * - 해석적으로 못 재는 것(B-스플라인 면·곡선 모서리 등)이 끼면 고른 면·모서리의 화면용 삼각형·선분 사이 최소 거리(≈, 코어 closestBetween),
- *   두 개체가 다른 부품이면 부품 사이 최소 거리(코어 Viewer3d.closestPoints)도 함께 보인다. 40차부터 앱이 곡선 접선 조각(exactdist.ts)을 받았으면
+ * - 해석적으로 못 재는 것(B-스플라인 면·곡선 모서리 등)이 끼면 고른 면·모서리의 화면용 삼각형·선분 사이 최소 거리(≈),
+ *   두 개체가 다른 부품이면 부품 사이 최소 거리도 함께 보인다. 40차부터 앱이 곡선 접선 조각(exactdist.ts)을 받았으면
  *   그 두 값을 B-rep 곡면·곡선 정의로 다듬어 받으면 "≈" 없이 보인다.
+ *   62차: 두 최소 거리는 코어 나눠 돌리기로 구한다(EntClosest — 면 짝은 뷰어 closestPointsAsync의 면 구간, 부품 사이는 뷰어 closestPointsAsync).
+ *   면 모양은 앱이 면 삼각형을 세계 좌표로 복사하지 않고 코어 closestPart(면 표의 이어진 삼각형 구간 — 뷰어 구간 모양과 같은 나무)로 만든다
  * 값은 장면 단위(길이)·도(각)로 두고, 화면 글은 Fmt로 만든다(단위·소수 자리·언어가 바뀌면 다시 만든다).
  * 첫 화면 JS 밖: 코어와 함께 받는 viewerkit.ts 조각에만 든다(앱은 뷰어를 만들 때 받은 그 모듈로 부른다 — 값 줄 글 lineValue는 measure.ts).
  */
+import type { Viewer3d } from 'opencad-viewer3d';
 import type { Annotation3d } from 'opencad-viewer3d/annotate';
 import { buildBvh } from 'opencad-viewer3d/bvh';
-import { closestBetween, type ClosestShape } from 'opencad-viewer3d/closest';
+import { closestBetween, closestBetweenAsync, closestPart, type ClosestResult, type ClosestShape, type ClosestSliceStats } from 'opencad-viewer3d/closest';
+import { modelMatrix } from 'opencad-viewer3d/math';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import type { Fmt } from './display';
 import { isFullCircle, type EdgePick } from './edges';
@@ -103,42 +107,29 @@ export function pickedPoint(meshId: string, point: V3, title = '점'): Picked {
 
 const translation = (o: readonly number[]): number[] => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, o[0]!, o[1]!, o[2]!, 1];
 
-/** 그물 정점 i의 세계 좌표 */
-function worldVertex(m: Mesh3d, i: number): V3 {
-  const P = m.positions;
-  const o = m.origin ?? [0, 0, 0];
-  const x = P[i * 3]! + o[0];
-  const y = P[i * 3 + 1]! + o[1];
-  const z = P[i * 3 + 2]! + o[2];
-  const M = m.matrix;
-  if (!M) return [x, y, z];
-  return [M[0]! * x + M[4]! * y + M[8]! * z + M[12]!, M[1]! * x + M[5]! * y + M[9]! * z + M[13]!, M[2]! * x + M[6]! * y + M[10]! * z + M[14]!];
-}
+/** 면 표의 이어진 삼각형 구간(코어 IndexRange — 그물 삼각형 번호) */
+const faceRange = (p: Picked): { start: number; count: number } | null => (p.what === 'face' && p.face ? { start: p.face.triStart, count: p.face.triangles } : null);
 
 /**
- * 누른 개체의 최근접점용 모양: 면은 그 면 삼각형만, 모서리는 그 선분만, 점은 점 하나(세계 좌표를 기준점에서 뺀 float32 + 이동 행렬).
+ * 누른 개체의 최근접점용 모양: 면은 그 면 삼각형 구간만(62차 — 코어 closestPart: 번호 배열의 subarray로 복사 없이, 그물 정점·자리 행렬 그대로 —
+ * 뷰어 closestPointsAsync의 rangeA·rangeB 모양과 같은 나무라 같은 답), 모서리는 그 선분만, 점은 점 하나(이동 행렬).
  * mesh는 면을 고를 때 쓴 그물(자리 변환 반영). 만들 수 없으면 null
  */
 export function pickedShape(p: Picked, mesh: Mesh3d | undefined): ClosestShape | null {
-  if (p.what === 'face' && p.face && mesh) {
-    const f = p.face;
-    const c = f.center;
-    const I = mesh.indices;
-    const pos = new Float32Array(f.triangles * 9);
-    for (let t = 0; t < f.triangles; t++)
-      for (let k = 0; k < 3; k++) {
-        const vi = I ? I[(f.triStart + t) * 3 + k]! : (f.triStart + t) * 3 + k;
-        const w = worldVertex(mesh, vi);
-        for (let q = 0; q < 3; q++) pos[t * 9 + k * 3 + q] = w[q]! - c[q]!;
-      }
-    return { kind: 'triangle', positions: pos, bvh: buildBvh('triangle', pos), model: translation(c) };
+  const range = faceRange(p);
+  if (range && mesh) {
+    const part = closestPart('triangle', mesh.positions, mesh.indices, [range]);
+    if (!part) return null;
+    const s: ClosestShape = { kind: 'triangle', positions: part.positions, bvh: part.bvh, model: modelMatrix(mesh.matrix, mesh.origin) ?? null, offset: part.offset, map: part.map };
+    if (part.indices) s.indices = part.indices;
+    return s;
   }
   if (p.what === 'edge' && p.edge) return { kind: 'segment', positions: p.edge.segs, bvh: buildBvh('segment', p.edge.segs), model: translation(p.edge.segOrigin) };
   const pos = new Float32Array(3);
   return { kind: 'point', positions: pos, bvh: buildBvh('point', pos), model: translation(p.point) };
 }
 
-/** 두 개체의 최소 거리(화면용 삼각형·선분, 못 재면 null) */
+/** 두 개체의 최소 거리(화면용 삼각형·선분, 한 번에 — 못 재면 null). 앱은 EntClosest로 나눠 돌린다 — 같은 모양·같은 답 */
 export function pickedClosest(a: Picked, b: Picked, meshOf: (id: string) => Mesh3d | undefined): { a: V3; b: V3; distance: number } | null {
   const A = pickedShape(a, meshOf(a.meshId));
   const B = pickedShape(b, meshOf(b.meshId));
@@ -150,9 +141,118 @@ export function pickedClosest(a: Picked, b: Picked, meshOf: (id: string) => Mesh
 /** 최소 거리 답(두 점 — 세계, 거리) */
 type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
 
+/** EntClosest가 쓰는 뷰어(코어 0.41.0·0.45.0 나눠 돌리는 최근접점 — 시험은 가짜) */
+export type ClosestViewer = Pick<Viewer3d, 'closestPointsAsync'>;
+
+/** 나눠 돌리기 사이 쉬기(코어 closestPointsAsync와 같은 길 — MessageChannel: 브라우저 setTimeout 0은 다섯 번째부터 4 ms 넘게 미뤄진다. 없으면 setTimeout 0) */
+function nextTask(): Promise<void> {
+  return new Promise((res) => {
+    if (typeof MessageChannel !== 'function') return void setTimeout(res, 0);
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      res();
+    };
+    ch.port2.postMessage(0);
+  });
+}
+
+/** 측정 짝 하나의 할 일: 고른 두 개체 사이(closest)·부품 사이(parts) 최근접점이 필요한지 — measurePicked가 부르는 것과 같은 조건 */
+export function closestNeeds(A: Picked, B: Picked): { closest: boolean; parts: boolean } {
+  const closest = !(A.entity && B.entity);
+  return { closest, parts: closest && A.meshId !== B.meshId };
+}
+
+/**
+ * 개체 측정의 최소 거리 두 줄(고른 두 개체 사이·부품 사이)을 코어 나눠 돌리기로 구한다(62차 — 코어 0.41.0·0.45.0, 46차 받기와 같은 꼴):
+ * - 고른 두 개체: 둘 다 면이면 뷰어 closestPointsAsync(두 그물, { rangeA·rangeB: 면 표의 이어진 삼각형 구간, indices, signal }) — 구간 BVH는 뷰어가 기억한다.
+ *   모서리·점·단면이 끼면 순수 closestBetweenAsync(pickedShape — 면은 같은 구간 모양)
+ * - 다른 그물이면 부품 사이: 뷰어 closestPointsAsync(두 그물, { indices, signal })
+ * 측정 짝(key — 앱의 d.ent)마다 한 번 시작하고 차례로(고른 개체 → 부품 사이) 돌린다. 짝이 바뀌거나 cancel()이면 signal로 멈춘다.
+ * 구하는 동안 get은 null이고, 다 구하면 later()를 부른다(그 짝이 그대로일 때만) — 앱이 다시 재면 그 답을 measurePicked의 closest·parts로 돌려준다.
+ * 답은 한 번에 부른 closestPoints·closestBetween과 바이트까지 같다(코어 — 같은 차례로 같은 쌍을 본다)
+ */
+export class EntClosest {
+  private key: object | null = null;
+  private ac: AbortController | null = null;
+  private picked: Closest | null = null;
+  private parts: Closest | null = null;
+  private busy = false;
+  /** 마지막 짝의 나눠 돌리기 기록(조각 수·가장 긴 조각 ms·꺼낸 마디 쌍·다시 찾은 횟수 — 두 찾기를 합친 것) */
+  stats: ClosestSliceStats = { slices: 0, longest: 0, visited: 0, restarts: 0 };
+
+  /** 지금 짝의 찾기를 멈춘다(새 짝·지우기·문서 바꾸기) */
+  cancel(): void {
+    this.ac?.abort();
+    this.ac = null;
+    this.key = null;
+    this.busy = false;
+  }
+
+  /**
+   * 짝 key의 두 개체 A·B: 다 구했으면 measurePicked에 줄 { closest, parts }(앞 답을 돌려주는 함수), 구하는 중이면 null(처음 부르면 시작).
+   * 해석적으로 재는 짝이면 찾지 않고 곧바로 빈 선택. sliceMs는 한 조각 시간(기본 코어 8 ms)
+   */
+  get(
+    key: object,
+    A: Picked,
+    B: Picked,
+    v: ClosestViewer,
+    meshOf: (id: string) => Mesh3d | undefined,
+    later: () => void,
+    sliceMs?: number,
+  ): { closest?: (a: Picked, b: Picked) => Closest | null; parts?: (idA: string, idB: string) => Closest | null } | null {
+    if (key !== this.key) this.start(key, A, B, v, meshOf, later, sliceMs);
+    if (this.busy) return null;
+    const { picked, parts } = this;
+    const need = closestNeeds(A, B);
+    return { ...(need.closest ? { closest: () => picked } : {}), ...(need.parts ? { parts: () => parts } : {}) };
+  }
+
+  private start(key: object, A: Picked, B: Picked, v: ClosestViewer, meshOf: (id: string) => Mesh3d | undefined, later: () => void, sliceMs?: number): void {
+    this.cancel();
+    this.key = key;
+    this.picked = this.parts = null;
+    this.stats = { slices: 0, longest: 0, visited: 0, restarts: 0 };
+    const need = closestNeeds(A, B);
+    if (!need.closest) return;
+    const ac = (this.ac = new AbortController());
+    const signal = ac.signal;
+    const stats = this.stats;
+    this.busy = true;
+    const opts = { indices: true, signal, stats, ...(sliceMs ? { sliceMs } : {}) };
+    const ra = faceRange(A);
+    const rb = faceRange(B);
+    const pickedJob = (): Promise<ClosestResult | null> => {
+      if (ra && rb) return v.closestPointsAsync(A.meshId, B.meshId, { ...opts, rangeA: ra, rangeB: rb });
+      const sa = pickedShape(A, meshOf(A.meshId));
+      const sb = pickedShape(B, meshOf(B.meshId));
+      return sa && sb ? closestBetweenAsync(sa, sb, { ...opts, wait: nextTask }) : Promise.resolve(null);
+    };
+    // 멈춘 것이 아닌 실패(없는 묶음 등)는 답 없음 — 앞 판처럼 누른 점 사이 거리로 잰다
+    const orNull = (e: unknown): Promise<null> => (signal.aborted ? Promise.reject(e) : Promise.resolve(null));
+    const run = async (): Promise<[ClosestResult | null, ClosestResult | null]> => {
+      const p = await pickedJob().catch(orNull);
+      signal.throwIfAborted();
+      return [p, need.parts ? await v.closestPointsAsync(A.meshId, B.meshId, opts).catch(orNull) : null];
+    };
+    run().then(
+      ([p, q]) => {
+        // 그사이 짝이 바뀌었으면(멈춘 뒤 끝난 조각) 버린다
+        if (this.ac !== ac) return;
+        this.picked = p;
+        this.parts = q;
+        this.busy = false;
+        later();
+      },
+      () => undefined,
+    );
+  }
+}
+
 /**
  * 두 개체 측정. 둘 다 해석적으로 잴 수 있으면 entmeasure, 아니면 closest(고른 면·모서리 사이 최소 거리 ≈).
- * parts를 주고 두 개체가 다른 그물이면 부품 사이 최소 거리(코어 closestPoints)를 덧붙인다(해석적으로 못 잴 때만).
+ * parts를 주고 두 개체가 다른 그물이면 부품 사이 최소 거리를 덧붙인다(해석적으로 못 잴 때만 — 앱은 둘 다 EntClosest가 나눠 돌려 구한 답을 준다, closestNeeds와 같은 조건).
  * refine·refineParts(40차 — 곡선 접선 조각의 exactdist.ts)를 주면 그 삼각형 답을 B-rep 곡면·곡선 정의로 다듬어, 받으면 "≈" 없이 그 값·두 점으로 보인다.
  * size는 각 덧그림 팔 길이 기준(장면 단위)
  */
