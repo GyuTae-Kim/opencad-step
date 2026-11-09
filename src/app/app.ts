@@ -33,8 +33,7 @@ import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
-import { dirToAngles } from 'opencad-viewer3d/camera';
-import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
+import { boxIsEmpty } from 'opencad-viewer3d/bounds';
 import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './format';
@@ -55,7 +54,6 @@ import type { MeasureRecord } from './export';
 import { decodeViewLink, viewUrl, type ViewLink } from './viewlink';
 import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair } from './interference';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
-import { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
@@ -1209,25 +1207,28 @@ export class StepApp {
   /** 면을 정면으로 보기(평면은 바깥 법선 쪽에서, 축이 있는 면은 축 방향에서). 분해 보기면 옮겨 그린 자리의 면을 본다 */
   lookAtFace(face: FacePick | null = this.doc?.face ?? null): boolean {
     const v = this.viewer;
-    if (!v || !face) return false;
+    // 63차: 면 기준 보기·자르기 계산(viewhelp.ts)은 뷰어 조각에서(첫 화면 JS 밖 — 뷰어가 있으면 조각도 있다)
+    const E = this.ent;
+    if (!v || !E || !face) return false;
     const move = this.lookMoves.get(face.meshId);
-    if (move) face = movedFace(face, move);
+    if (move) face = E.movedFace(face, move);
     const cam = v.getCamera();
-    const dir = faceViewDir(face, cameraBack(cam));
+    const dir = E.faceViewDir(face, E.cameraBack(cam));
     if (!dir) {
       this.toast('이 면은 정면 방향을 정할 수 없습니다(평면과 원기둥·원뿔·원환 면만).', 'warn');
       return false;
     }
     // 카메라 옮기기는 코어 flyTo(0.32초 — 움직임 줄이기면 바로, 61차에 앱 고리에서 옮김)
-    void v.flyTo(cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
+    void v.flyTo(E.cameraLooking(cam, dir, E.faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
     return true;
   }
 
   /** 면으로 자르기(평면은 그 자리에서, 축이 있는 면은 축을 지나며 눈 쪽 절반을). 분해 보기면 접고 제자리 형상에서 자른다(측정과 같이) */
   sectionByFace(face: FacePick | null = this.doc?.face ?? null): boolean {
     const v = this.viewer;
-    if (!v || !face) return false;
-    const pl = faceSectionPlane(face, cameraBack(v.getCamera()));
+    const E = this.ent;
+    if (!v || !E || !face) return false;
+    const pl = E.faceSectionPlane(face, E.cameraBack(v.getCamera()));
     if (!pl) {
       this.toast('이 면으로는 자를 평면을 정할 수 없습니다(평면이거나 축이 있는 면만).', 'warn');
       return false;
@@ -1477,10 +1478,11 @@ export class StepApp {
   applySavedView(view: StepSavedView): void {
     const v = this.viewer;
     const d = this.doc;
-    if (!v || !d) return;
+    const E = this.ent;
+    if (!v || !d || !E) return;
     const cam = v.getCamera();
-    // 위·아래에서 똑바로 보는 보기는 방향만으로 돌림(yaw)을 정할 수 없다 — 보기의 위쪽(up)이 화면 위가 되게
-    const a = dirToAngles(view.dir, Math.atan2(-view.up[0], view.up[1]));
+    // 위·아래에서 똑바로 보는 보기는 방향만으로 돌림(yaw)을 정할 수 없다 — 보기의 위쪽(up)이 화면 위가 되게(63차: 코어 dirToAngles는 뷰어 조각에서)
+    const a = E.dirToAngles(view.dir, Math.atan2(-view.up[0], view.up[1]));
     let distance = view.distance;
     if (view.projection === 'orthographic' || !(distance > 0)) distance = view.height > 0 ? view.height / 2 / Math.tan(cam.fovY / 2) : cam.distance;
     v.setProjection(view.projection);
@@ -2466,7 +2468,8 @@ export class StepApp {
   private sceneDiag(d: StepDoc): number {
     let r = this.diagOf.get(d);
     if (r === undefined) {
-      const b = d.scene.bounds && !boxIsEmpty(d.scene.bounds) ? d.scene.bounds : sceneBounds(d.scene);
+      // 63차: 코어 sceneBounds는 뷰어 조각에서(개체 측정 중에만 부른다 — 조각을 받은 뒤)
+      const b = d.scene.bounds && !boxIsEmpty(d.scene.bounds) ? d.scene.bounds : this.ent!.sceneBounds(d.scene);
       r = boxIsEmpty(b) ? 0 : Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
       this.diagOf.set(d, r);
     }
