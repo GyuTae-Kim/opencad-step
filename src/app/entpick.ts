@@ -19,10 +19,11 @@ import { closestBetween, closestBetweenAsync, closestPart, type ClosestResult, t
 import { modelMatrix } from 'opencad-viewer3d/math';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import type { Fmt } from './display';
+import { h } from './dom';
 import { isFullCircle, type EdgePick } from './edges';
 import { measureEntities, type Entity, type EntityMeasure, type MeasureLine, type V3 } from './entmeasure';
 import { faceKindLabel, type FacePick } from './faces';
-import { edgeTitle, lineValue } from './measure';
+import { edgeSummary, edgeTitle, entityHint, faceSummary, lineValue } from './measure';
 
 /** 누른 개체 하나 */
 export interface Picked {
@@ -323,6 +324,29 @@ export function pickedAnnotations(picks: readonly Picked[], m: PickedMeasure | n
       const parts = l?.label === '부품 사이 최소 거리';
       out.push({ kind: a.kind, a: a.a, ...(a.b ? { b: a.b } : {}), ...(a.c ? { c: a.c } : {}), label: l ? lineValue(l, f) : '', ...(parts ? { color: PARTS_COLOR } : {}) });
     }
+  return out;
+}
+
+/**
+ * 측정 띠의 개체 측정 글(62차 — 앱 입구 app.ts에서 옮김): 안내, 첫 개체(이름·주요 치수), 결과(첫 줄 굵게, 나머지와 두 개체 이름).
+ * 두 개체를 눌렀어도 최소 거리를 구하는 동안(결과 없음)은 첫 개체와 안내
+ */
+export function entityBar(ent: { picks: readonly Picked[]; result: PickedMeasure | null }, fm: Fmt, touch: boolean): HTMLElement[] {
+  const { picks, result } = ent;
+  if (result && picks.length === 2) {
+    const [first, ...rest] = result.lines;
+    const sub: (Node | string)[] = [];
+    for (const l of rest) sub.push(h('span', {}, l.label), ` ${lineValue(l, fm)} · `);
+    sub.push(h('span', {}, picks[0]!.title), ' ↔ ', h('span', {}, picks[1]!.title));
+    return [...(first ? [h('b', { class: 'mb-value' }, h('span', {}, first.label), ` ${lineValue(first, fm)}`)] : []), h('span', { class: 'mb-sub' }, ...sub)];
+  }
+  const p = picks[0];
+  const out: HTMLElement[] = [];
+  if (p) {
+    const main = p.face ? faceSummary(p.face, fm).main : p.edge && p.what === 'edge' ? edgeSummary(p.edge, fm).main : null;
+    out.push(h('b', { class: 'mb-value' }, h('span', {}, p.title), main ? ` ${main}` : null));
+  }
+  out.push(h('span', { class: p ? 'mb-sub' : 'mb-hint' }, entityHint(picks.length, touch)));
   return out;
 }
 

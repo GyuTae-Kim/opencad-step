@@ -84,6 +84,8 @@ export interface ToolbarHost {
   /** 홈 뷰로, 지금 보기를 홈으로 */
   goHome(): void;
   setHome(): void;
+  /** 키보드로 3D 보기 다루기 도움말(62차 — 가상 커서 키 표, 뷰어가 있을 때만) */
+  showKeyHelp?(): void;
   setProjection(p: Projection): void;
   setRenderMode(m: RenderMode): void;
   toggleHiddenEdges(): void;
@@ -131,6 +133,7 @@ export class Toolbar {
           { label: '홈 뷰', hint: 'Home', run: () => H.goHome() },
           ...VIEW_MENU.map((v, i): MenuItem => ({ label: VIEW_LABELS[v], hint: viewKeyOf(v), sep: i === 0, run: () => H.setView(v) })),
           { label: '지금 보기를 홈 뷰로', sep: true, run: () => H.setHome() },
+          ...(H.showKeyHelp ? [{ label: '키보드로 3D 보기 다루기', run: () => H.showKeyHelp!() }] : []),
         ],
         '표준 뷰',
       ),

@@ -65,6 +65,14 @@ export function routeKey(k: KeyInput): KeyAction | null {
   return 'viewer';
 }
 
+/**
+ * 3D 보기(캔버스)가 받은 화살표의 임자(62차 — 코어 0.46.0 가상 커서와 두 점 측정 방향 잠금이 나눠 쓴다): 'core' = 코어(가상 커서 켜기·옮기기), 'lock' = 앱 방향 잠금.
+ * 가상 커서가 켜져 있으면 코어, 꺼져 있고 마우스·펜이 3D 보기 위에 있으면 앱(마우스로 첫 점을 찍고 화살표로 잠그던 흐름 그대로), 아니면 코어
+ */
+export function arrowOwner(cursorOn: boolean, pointerIn: boolean): 'core' | 'lock' {
+  return !cursorOn && pointerIn ? 'lock' : 'core';
+}
+
 /** 키보드로 값을 바꾸는 조작 칸 */
 export type Control = 'range' | 'radio';
 
