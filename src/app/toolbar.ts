@@ -5,11 +5,10 @@
  * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
  */
 import type { Projection, RenderMode, SectionAxis, ViewName } from 'opencad-viewer3d';
-import { VIEW_LABELS } from 'opencad-viewer3d/camera';
 import { h, iconButton } from './dom';
 import type { PickUnit } from './doc';
 import type { IconName } from './icons';
-import { VIEW_KEYS, VIEW_MENU, viewKeyOf } from './keys';
+import { VIEW_KEYS, VIEW_LABELS, VIEW_MENU, viewKeyOf } from './keys';
 import { openMenu, type MenuItem } from './menu';
 
 export const SECTION_AXES: [SectionAxis | null, string][] = [

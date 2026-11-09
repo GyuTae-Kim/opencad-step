@@ -19,6 +19,8 @@
  *   나눠 올리기 걸음마다 몫(upload.ts stepBudgetMs — 59차, 앞 두 걸음 8 ms)과 다시 그리기 간격(61차 — 코어 0.51.0 공개 선택으로, uploadOptions)도 같은 모듈
  * - 키보드로 3D 붙잡기·고르기(keysnap.ts — 62차, 코어 0.46.0·0.47.0 setKeyboardSnap): 뷰어를 만들 때 켜고 알림 영역·캔버스 키 안내를 단다, 도움말 키 표도
  * - 큰 그림 저장 대화 상자 본문(imagedlg.ts — 62차, 앱 입구에서 옮김): 뷰어가 있어야 연다
+ * - 면 기준 보기·자르기 계산(viewhelp.ts — 63차, 앱 입구에서 옮김)과 저장된 보기의 방향 → 각(코어 camera dirToAngles), 개체 측정의 장면 범위(코어 sceneBounds —
+ *   코어 입구가 내보낸다): 모두 뷰어가 있어야 쓴다
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -39,3 +41,7 @@ export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
 export { groupGrid, treeView } from './treeview';
 export { sceneUpload, uploadOptions } from './upload';
+// 면 기준 보기·자르기 계산(viewhelp.ts — 63차에 첫 화면 JS에서 옮김: 면을 고른 뒤에만 쓴다)과 저장된 보기 방향 → 각(코어 camera dirToAngles —
+// 첫 화면은 같은 모듈의 뷰 이름·숫자 키 표만 쓴다)
+export { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
+export { dirToAngles } from 'opencad-viewer3d/camera';

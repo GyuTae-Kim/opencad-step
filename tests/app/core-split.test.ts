@@ -10,8 +10,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { VIEW_KEYS as CORE_VIEW_KEYS } from 'opencad-viewer3d';
-import { VIEW_KEYS } from '../../src/app/keys';
+import { VIEW_KEYS as CORE_VIEW_KEYS, VIEW_LABELS as CORE_VIEW_LABELS } from 'opencad-viewer3d';
+import { VIEW_KEYS, VIEW_LABELS } from '../../src/app/keys';
 
 const ROOT = join(__dirname, '../..');
 const ENTRY = join(ROOT, 'src/app/main.ts');
@@ -77,14 +77,18 @@ describe('코어 나눠 받기', () => {
     expect(core.filter((m) => !SMALL.has(m))).toEqual([]);
     // 시험이 헛돌지 않게: 앱 화면 모듈과 작은 코어 모듈에 실제로 닿았다
     expect(files.has(join(ROOT, 'src/app/app.ts'))).toBe(true);
-    expect(core).toContain('camera');
+    expect(core).toContain('bounds');
+    // 63차: 코어 camera 모듈은 첫 화면에서 가져오지 않는다 — 뷰어 조각과 함께 쓰는 모듈은 번들러가 통째로(카메라 계산 모두) 첫 화면 JS에 두었다.
+    // 표준 뷰 이름·숫자 키 표는 keys.ts가 같은 값을 들고(아래 시험), 면 기준 보기 계산(viewhelp.ts)·저장된 보기 각(dirToAngles)은 뷰어 조각에서
+    expect(core).not.toContain('camera');
+    expect(files.has(join(ROOT, 'src/app/viewhelp.ts'))).toBe(false);
     // 코어 입구는 viewerkit.ts가 값으로 다시 내보내고, 그 조각은 core.ts의 import()로만 받는다(앱 입구에서 정적으로 닿지 않는다)
     const coreDyn = dynamic.filter((d) => d.spec === 'opencad-viewer3d' || d.spec.startsWith('opencad-viewer3d/'));
     expect(coreDyn).toEqual([]);
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './imagedlg', './infoview', './keynav', './keysnap', './opennotice', './physics', './pmiview', './trackdir', './treeview', './upload', 'opencad-viewer3d', 'opencad-viewer3d/viewcube']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './imagedlg', './infoview', './keynav', './keysnap', './opennotice', './physics', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
     // 뷰 큐브 면 글(코어 viewcube — 0.44.0 손가락 큐브로 커짐)은 61차부터 이 조각에서 받아 앱이 바꾼다(첫 화면 번역층은 가져오지 않는다)
     expect(core).not.toContain('viewcube');
     const appText = readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8');
@@ -140,8 +144,16 @@ describe('코어 나눠 받기', () => {
     expect(readFileSync(join(ROOT, 'src/app/tangent.ts'), 'utf8')).toMatch(/=> import\('\.\.\/facesurf'\)/);
   });
 
-  it('앱의 숫자 키 표는 코어 VIEW_KEYS 그 객체(작은 camera 모듈 — 코어 0.10.0)', () => {
-    expect(VIEW_KEYS).toBe(CORE_VIEW_KEYS);
+  it('앱의 숫자 키 표·뷰 이름 표는 코어 VIEW_KEYS·VIEW_LABELS와 같은 값(63차 — 첫 화면이 코어 camera 모듈을 가져오지 않으려고 앱에 같은 표를 둔다)', () => {
+    expect(VIEW_KEYS).toEqual(CORE_VIEW_KEYS);
+    expect(Object.keys(VIEW_KEYS)).toEqual(Object.keys(CORE_VIEW_KEYS));
+    // 앱 표는 화면 언어로 고쳐질 수 있으니(i18n.ts) 원문은 코어 표와 견준다 — 코어 표는 앱이 고치지 않는다
+    expect(Object.keys(VIEW_LABELS).sort()).toEqual(Object.keys(CORE_VIEW_LABELS).sort());
+    expect(readFileSync(join(ROOT, 'src/app/keys.ts'), 'utf8')).toContain(
+      Object.entries(CORE_VIEW_LABELS)
+        .map(([k, v]) => `  ${k}: '${v}',`)
+        .join('\n'),
+    );
   });
 
   it('곡선 접선 잠금 조각을 한 번만 받는다', async () => {
@@ -157,9 +169,13 @@ describe('코어 나눠 받기', () => {
     expect(loadViewerCore()).toBe(a);
     const m = await a;
     expect(typeof m.Viewer3d).toBe('function');
-    // 앱이 바로 가져온 작은 모듈과 코어가 같은 객체를 쓴다(뷰 이름 번역이 코어 그림에도 닿게)
-    const { VIEW_LABELS } = await import('opencad-viewer3d/camera');
-    expect(m.VIEW_LABELS).toBe(VIEW_LABELS);
+    // 조각의 코어 입구와 작은 camera 모듈은 같은 객체를 내보낸다(63차: 저장된 보기 각 dirToAngles도 이 조각에서 — 첫 화면은 camera 모듈을 가져오지 않는다)
+    const cam = await import('opencad-viewer3d/camera');
+    expect(m.VIEW_LABELS).toBe(cam.VIEW_LABELS);
+    expect(m.dirToAngles).toBe(cam.dirToAngles);
+    // 같은 조각의 면 기준 보기·자르기 계산(63차 — viewhelp.ts를 첫 화면 JS에서 옮김)
+    const vh = await import('../../src/app/viewhelp');
+    for (const k of ['cameraBack', 'cameraLooking', 'faceBox', 'faceSectionPlane', 'faceViewDir', 'movedFace'] as const) expect(m[k], k).toBe(vh[k]);
     // 같은 조각의 정밀 조준(뷰어를 만들 때 캔버스에 단다)
     expect(m.TouchAim).toBe((await import('../../src/app/aim')).TouchAim);
     // 같은 조각의 그래픽 문맥 잃음·되찾음 안내(뷰어를 만들 때 단다)

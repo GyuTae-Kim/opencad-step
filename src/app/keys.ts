@@ -4,13 +4,27 @@
  * F·1~7 같은 뷰어 키의 뜻은 앱이 따로 들지 않고 `Viewer3d.handleKey`에 넘겨 코어 규칙을 그대로 쓴다.
  */
 import type { ViewName } from 'opencad-viewer3d';
-import { VIEW_KEYS } from 'opencad-viewer3d/camera';
 
 /**
- * 숫자 키 → 표준 뷰: 코어 표(VIEW_KEYS) 그대로. 코어 입구(opencad-viewer3d)는 문서를 열 때 나눠 받으므로(core.ts)
- * 첫 화면 메뉴·도움말 글은 작은 camera 모듈(코어 0.10.0부터 같은 객체를 내보냄)에서 가져온다
+ * 숫자 키 → 표준 뷰: 코어 표(camera 모듈의 VIEW_KEYS — Viewer3d.handleKey 규칙)와 같은 값. 첫 화면 메뉴·도움말 글에 쓴다.
+ * 63차: 전에는 코어 camera 모듈에서 가져왔지만, 뷰어 조각이 같은 모듈을 쓰므로 번들러가 모듈 전체(카메라 계산 7 kB 남짓)를 첫 화면 JS에 두었다.
+ * 그래서 표 둘(이것과 VIEW_LABELS)만 앱에 두고 첫 화면에서 camera 모듈을 가져오지 않는다 — 값이 코어 표와 같은지는 tests/app/core-split.test.ts가 본다
  */
-export { VIEW_KEYS };
+export const VIEW_KEYS: Readonly<Record<string, ViewName>> = { '1': 'front', '2': 'back', '3': 'left', '4': 'right', '5': 'top', '6': 'bottom', '7': 'seIso' };
+
+/** 표준 뷰 이름(한국어 원문 — 코어 camera 모듈의 VIEW_LABELS와 같은 값. 화면 언어 번역은 i18n.ts가 이 표를 고친다) */
+export const VIEW_LABELS: Record<ViewName, string> = {
+  top: '위',
+  bottom: '아래',
+  front: '앞',
+  back: '뒤',
+  left: '왼쪽',
+  right: '오른쪽',
+  swIso: '남서 등각',
+  seIso: '남동 등각',
+  neIso: '북동 등각',
+  nwIso: '북서 등각',
+};
 
 /** 표준 뷰 메뉴 순서 */
 export const VIEW_MENU: ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'seIso', 'swIso', 'neIso', 'nwIso'];
