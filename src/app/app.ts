@@ -37,9 +37,9 @@ import { dirToAngles } from 'opencad-viewer3d/camera';
 import { boxIsEmpty, sceneBounds } from 'opencad-viewer3d/bounds';
 import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
-import { formatBytes, fmtCount, fmtPercent, imageFileName, imageSizeLabel, stageLabel } from './format';
-import { controlOf, isTextTarget, routeKey } from './keys';
-import { edgeSummary, edgeTitle, entityHint, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
+import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './format';
+import { arrowOwner, controlOf, isTextTarget, routeKey } from './keys';
+import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
@@ -283,6 +283,10 @@ export class StepApp {
   }
   /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다) */
   private pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
+  /** 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다 */
+  private keySnap: { sync(): void } | null = null;
+  /** 마우스·펜이 3D 보기 위에 있는지(62차 — 3D 보기가 받은 화살표를 방향 잠금과 가상 커서가 나눠 쓴다, keys.ts arrowOwner) */
+  private pointerIn = false;
   /** 누르기·측정이 반투명 그물 너머를 고르는지(코어 0.23.0 throughTranslucent — looks.ts translucentView) */
   private pickThrough = false;
   // ── 분해 막대 ──
@@ -317,6 +321,8 @@ export class StepApp {
       void this.refreshRecent();
       // 수 꼴(소수점·자리 구분)을 새 언어로
       this.refreshFmt();
+      // 키보드 붙잡기 알림 글 틀도(62차)
+      this.keySnap?.sync();
     });
     this.root = root;
     this.systemDark = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
@@ -957,6 +963,8 @@ export class StepApp {
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: 'auto' });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
+      // 62차: 가상 커서 Enter(pointerType 'keyboard')로 고른 것은 초점을 3D 보기에 둔다(패널로 옮기지 않는다 — 이어서 화살표·Tab)
+      if (e.pointerType === 'keyboard') queueMicrotask(() => document.activeElement !== v.canvas && v.canvas.focus({ preventScroll: true }));
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
       if (this.entMeasuring) {
         this.onEntityPick(p, e.pointerType);
@@ -969,12 +977,22 @@ export class StepApp {
         if (p && e.clicks <= 1 && this.doc) this.toggleInSelection(unitItemIds(this.doc.products, p.id, this.pickUnit), this.bodyPick ? p.id : undefined);
         return;
       }
-      this.onPick(p, this.faceMode || e.altKey);
+      // 가상 커서 Tab으로 겹친 것을 돌려 고른 둘째 이후 후보(코어 0.47.0 e.cycle — 앞 면 뒤의 면·모서리)는 B-rep 면·모서리 선택으로(면 표로 그 면 통째)
+      this.onPick(p, this.faceMode || e.altKey || !!e.cycle);
       // 두 번 누르기: 나무에서처럼 그 부품으로 맞춰 본다
       if (p && e.clicks === 2 && !v.measureMode) this.fitSelection();
     };
     this.pickThrough = translucentView(this.doc);
     v.onPick(this.pickCb, { throughTranslucent: this.pickThrough });
+    // 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화살표 가상 커서·Tab 후보·Enter 찍기, 알림은 화면 밖 알림 영역에(화면 언어 틀)
+    this.keySnap = core.installKeySnap(v, {
+      tr: translateUi,
+      pickThrough: () => this.pickThrough,
+      announced: (a) => {
+        if (a.reason === 'commit' && v.measureMode) this.refreshBar();
+        this.scheduleHoverSnap();
+      },
+    });
     v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
     v.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
@@ -1034,9 +1052,13 @@ export class StepApp {
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
     this.hostEl.addEventListener('pointermove', (e) => {
       if (!e.shiftKey) this.tangentShift(false);
+      this.pointerIn = e.pointerType !== 'touch';
       this.scheduleHoverSnap();
     });
-    this.hostEl.addEventListener('pointerleave', () => this.scheduleHoverSnap());
+    this.hostEl.addEventListener('pointerleave', () => {
+      this.pointerIn = false;
+      this.scheduleHoverSnap();
+    });
     this.viewer = v;
     // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(코어 포인터 맡기 훅 — 길게 눌러 잡은 손가락은 정밀 조준 뒤 같은 캡처 단계에서 듣는다)
     this.tweakTool?.attach(v);
@@ -1234,6 +1256,12 @@ export class StepApp {
     if (!v || !d) return;
     d.home = v.getCamera();
     this.toast('지금 보기를 홈 뷰로 정했습니다.');
+  }
+
+  /** 키보드로 3D 보기 다루기(62차 — 가상 커서 키 표는 viewerkit 조각 keysnap.ts) */
+  showKeyHelp(): void {
+    const v = this.viewer;
+    if (v && this.ent) openDialog('키보드로 3D 보기 다루기', this.ent.keyHelpBody(v));
   }
 
   /** 고르기 단위(도구 막대 "고르기" 메뉴): 면은 면 고르기 모드, 부품·몸체는 면 고르기를 끄고 그 단위로 */
@@ -1779,6 +1807,8 @@ export class StepApp {
     if (!v || on === this.pickThrough) return;
     this.pickThrough = on;
     if (this.pickCb) v.onPick(this.pickCb, { throughTranslucent: on });
+    // 가상 커서의 겹친 것 고르기도 같은 선택으로(62차 — 코어 0.47.0 pickCycle)
+    this.keySnap?.sync();
     syncMeasurePickThrough(v, on, () => this.syncMeasureSnap());
   }
 
@@ -2060,6 +2090,14 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  /** 주변 가림(62차 — 코어 0.49.0 화면 공간 SSAO, 기본 끔): 구석·틈을 어둡게. 카메라를 옮기는 동안은 그리지 않는다(0.50.0 moving 'off' — 휴대폰·큰 조립) */
+  ambientOcclusion = false;
+  toggleAmbientOcclusion(on = !this.ambientOcclusion): void {
+    this.ambientOcclusion = on;
+    this.viewer?.setAmbientOcclusion(on ? { moving: 'off' } : null);
+    this.toolbar.refresh();
+  }
+
   // 격자·뷰 큐브·좌표축 상태는 뷰어(코어)가 든다. 뷰어가 아직 없으면 코어 기본값(켜짐)
 
   get gridOn(): boolean {
@@ -2328,6 +2366,7 @@ export class StepApp {
     const d = this.doc;
     const v = this.viewer;
     if (d) d.ent = { picks: [], result: null };
+    this.entClosest?.cancel();
     v?.setAnnotations(null);
     v?.highlightRanges(null);
     this.panel.onMeasure();
@@ -2361,21 +2400,24 @@ export class StepApp {
     if (!picked) return;
     if (d.ent.picks.length >= 2) d.ent = { picks: [], result: null };
     d.ent.picks.push(picked);
-    if (d.ent.picks.length === 2) {
-      const [a, b] = d.ent.picks as [Picked, Picked];
-      this.measureEntityPair(d, false);
-      const rows = d.ent.result!.lines.map((l): EntityRecord => ({ type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title }));
-      for (const r of rows) logMeasure(d, r);
-      this.entLogged.set(d.ent, rows);
-    } else d.ent.result = null;
+    if (d.ent.picks.length === 2) this.measureEntityPair(d, false);
+    else {
+      d.ent.result = null;
+      this.entClosest?.cancel();
+    }
     this.showEntities();
     this.panel.onMeasure();
     this.updateStatus();
   }
 
+  /** 개체 측정 최소 거리 나눠 돌리기(62차 — viewerkit 조각 EntClosest, 측정 짝마다) */
+  private entClosest: InstanceType<typeof import('./viewerkit').EntClosest> | null = null;
+
   /**
    * 누른 두 개체를 잰다(해석적으로 못 재는 최소 거리는 곡선 접선 조각을 받았으면 B-rep 곡면·곡선 정의로 다듬는다 — exactdist.ts).
-   * show면 강조·덧그림·패널도 다시(곡면 정의를 받은 뒤 다시 잴 때)
+   * 62차: 그 최소 거리(고른 두 개체 사이·부품 사이)는 코어 나눠 돌리기(EntClosest — closestPointsAsync)로 구한다 — 구하는 동안은 결과 없이(누른 개체 이름만)
+   * 두고, 다 구하면 다시 잰다(46차 받기와 같은 꼴). 짝을 처음 잴 때 측정 기록에 남기고, 다시 재면 그 줄 값을 고친다.
+   * show면 강조·덧그림·패널도 다시(곡면 정의를 받은 뒤·최소 거리를 다 구한 뒤 다시 잴 때)
    */
   private measureEntityPair(d: StepDoc, show = true): void {
     const v = this.viewer;
@@ -2384,16 +2426,26 @@ export class StepApp {
     const [a, b] = d.ent.picks as [Picked, Picked];
     const diag = this.sceneDiag(d);
     const meshOf = (id: string) => d.scene.meshes.find((m) => m.id === id);
+    const again = () => this.doc === d && this.measureEntityPair(d);
+    const near = (this.entClosest ??= new E.EntClosest()).get(d.ent, a, b, v, meshOf, again);
+    if (!near) {
+      d.ent.result = null;
+      if (show) this.showEntities();
+      return;
+    }
     d.ent.result = E.measurePicked(a, b, {
       size: E.armSize(a, b, diag),
-      closest: (x, y) => E.pickedClosest(x, y, meshOf),
-      parts: (x, y) => v.closestPoints(x, y),
-      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다 — 그때 부품 사이 삼각형 답은 앞 것을 다시 씀)
-      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, () => this.doc === d && this.measureEntityPair(d), v),
+      ...near,
+      // 곡면·곡선 다듬기(접선 조각 exactdist.ts entRefine — 부품 사이 오목한 자리 받기는 시간 조각으로, 받으면 다시 잰다 — 그때 최소 거리는 EntClosest가 기억한 답)
+      ...this.exactOf?.entRefine(d, diag, this.surfDocs.has(d) ? (t, f) => this.faceSurfaceAt(d, t, f) : null, again),
     });
-    // 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
+    // 처음 잰 짝이면 측정 기록에 남기고, 곡면 정의를 받은 뒤 다시 쟀으면 이 짝의 측정 기록 줄도 그 값으로(CSV에 앞의 "≈" 값이 남지 않게)
     const rows = this.entLogged.get(d.ent);
-    if (rows)
+    if (!rows) {
+      const fresh = d.ent.result.lines.map((l): EntityRecord => ({ type: 'entity', label: l.label, unit: l.unit, value: l.value, ...(l.approx ? { approx: true } : {}), a: a.title, b: b.title }));
+      for (const r of fresh) logMeasure(d, r);
+      this.entLogged.set(d.ent, fresh);
+    } else
       d.ent.result.lines.forEach((l, i) => {
         const r = rows[i];
         if (r?.label !== l.label) return;
@@ -2460,49 +2512,17 @@ export class StepApp {
   /** 큰 그림 저장 선택(이 세션 동안 기억) */
   private imageOpts = { scale: 2, transparent: false, overlays: true };
 
-  /** 그림 저장 크기 글(배율 k의 실제 화소) */
-  private imageSizeLabel(k: number): string {
-    const v = this.viewer;
-    return v ? imageSizeLabel(k, v.snapshotSize({ scale: k })) : `${k}배`;
-  }
-
-  /** 그림 저장 대화 상자: 크기(1~4배, 실제 화소 — 4096² 한도), 바탕(테마·투명), 덧그림(측정·좌표축·단면 표시) */
+  /** 그림 저장 대화 상자: 크기(1~4배, 실제 화소 — 4096² 한도), 바탕(테마·투명), 덧그림(측정·좌표축·단면 표시) — 본문은 viewerkit 조각(imagedlg.ts, 62차) */
   showImageDialog(): void {
     const v = this.viewer;
-    if (!v || !this.doc) return;
-    const o = { ...this.imageOpts };
-    const scale = selectRow(
-      '크기',
-      [1, 2, 3, 4].map((k): [string, string] => [String(k), this.imageSizeLabel(k)]),
-      String(o.scale),
-      (x) => (o.scale = Number(x) || 1),
-      '화면 화소의 몇 배로 다시 그립니다. 선 굵기·글자도 같은 비율로 커지고, 아주 크면 기기 한도(4096 × 4096 화소)에 맞춰 줄입니다.',
+    if (!v || !this.doc || !this.ent) return;
+    openDialog(
+      '그림 저장',
+      this.ent.imageDialogBody(v, this.imageOpts, (o) => {
+        this.imageOpts = o;
+        void this.saveImage(o);
+      }),
     );
-    const bg = selectRow(
-      '바탕',
-      [
-        ['theme', '화면 바탕'],
-        ['transparent', '투명(PNG 알파)'],
-      ],
-      o.transparent ? 'transparent' : 'theme',
-      (x) => (o.transparent = x === 'transparent'),
-    );
-    const ov = selectRow(
-      '덧그림',
-      [
-        ['on', '측정·좌표축·단면 표시 담기'],
-        ['off', '형상만'],
-      ],
-      o.overlays ? 'on' : 'off',
-      (x) => (o.overlays = x === 'on'),
-    );
-    const save = h('button', { type: 'button', class: 'btn primary' }, icon('image', 16), h('span', {}, '저장'));
-    save.addEventListener('click', () => {
-      this.imageOpts = { ...o };
-      closeDialog();
-      void this.saveImage(o);
-    });
-    openDialog('그림 저장', [scale, bg, ov, h('div', { class: 'dlg-actions' }, save)]);
   }
 
   /** 화면 밖에서 다시 그린 큰·투명 그림 저장(손가락 기기는 공유 시트) */
@@ -2844,7 +2864,11 @@ export class StepApp {
       (ev) => {
         if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (ev.key === 'Shift' && !ev.repeat && !isTextTarget(ev.target)) this.tangentShift(true);
-        else if (this.tweakTool?.key(ev.key, ev.target)) {
+        else if (
+          this.tweakTool?.key(ev.key, ev.target) ||
+          // 62차: 3D 보기가 받은 화살표는 코어 가상 커서가 쓴다 — 두 점 측정에서 가상 커서가 꺼져 있고 마우스·펜이 3D 보기 위면 방향 잠금이 먼저(코어보다 앞, keys.ts arrowOwner)
+          (ev.target === this.viewer?.canvas && arrowOwner(!!this.viewer.keyboardCursor, this.pointerIn) === 'lock' && this.arrowMeasureLock(ev))
+        ) {
           ev.preventDefault();
           ev.stopPropagation();
         }
@@ -3126,7 +3150,8 @@ export class StepApp {
     const t = h('div');
     if (mode === 'measure' && this.entMeasuring) {
       this.measureLock.hidden = true;
-      this.entityBarText(d, t);
+      // 개체 측정 글(viewerkit 조각 entpick.ts entityBar — 62차에 앱 입구에서 옮김. 개체 측정은 뷰어가 있어야 켠다)
+      if (this.ent) t.append(...this.ent.entityBar(d.ent, fm, this.touch));
       this.measureClear.disabled = !d.ent.picks.length;
     } else if (mode === 'measure') {
       if (d.measure) {
@@ -3170,27 +3195,6 @@ export class StepApp {
       this.barSrc = src;
       this.measureText.replaceChildren(...t.childNodes);
     }
-  }
-
-  /** 측정 띠의 개체 측정 글: 안내, 첫 개체(이름·주요 치수), 결과(첫 줄 굵게, 나머지와 두 개체 이름) */
-  private entityBarText(d: StepDoc, t: HTMLElement): void {
-    const fm = this.fmt;
-    const { picks, result } = d.ent;
-    if (result && picks.length === 2) {
-      const [first, ...rest] = result.lines;
-      if (first) t.append(h('b', { class: 'mb-value' }, h('span', {}, first.label), ` ${lineValue(first, fm)}`));
-      const sub: (Node | string)[] = [];
-      for (const l of rest) sub.push(h('span', {}, l.label), ` ${lineValue(l, fm)} · `);
-      sub.push(h('span', {}, picks[0]!.title), ' ↔ ', h('span', {}, picks[1]!.title));
-      t.append(h('span', { class: 'mb-sub' }, ...sub));
-      return;
-    }
-    const p = picks[0];
-    if (p) {
-      const main = p.face ? faceSummary(p.face, fm).main : p.edge && p.what === 'edge' ? edgeSummary(p.edge, fm).main : null;
-      t.append(h('b', { class: 'mb-value' }, h('span', {}, p.title), main ? ` ${main}` : null));
-    }
-    t.append(h('span', { class: p ? 'mb-sub' : 'mb-hint' }, entityHint(picks.length, this.touch)));
   }
 
   /**

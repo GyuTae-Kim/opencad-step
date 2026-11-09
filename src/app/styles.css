@@ -1503,6 +1503,26 @@ table.grid td.mono {
   margin: 4px 6px;
   background: var(--border-soft);
 }
+/* 키보드 도움말 표(62차 — 가상 커서 키) */
+.key-help {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.key-help th {
+  padding: 4px 12px 4px 0;
+  font-weight: normal;
+  text-align: start;
+  white-space: nowrap;
+}
+.key-help td {
+  padding: 4px 0;
+}
+.key-help kbd {
+  padding: 0 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  font: 12px/18px var(--mono);
+}
 .menu kbd {
   padding: 0 5px;
   border: 1px solid var(--border-soft);

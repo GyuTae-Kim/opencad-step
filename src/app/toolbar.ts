@@ -75,6 +75,8 @@ export interface ToolbarHost {
   readonly profiles: boolean;
   /** 부품 색 구분 */
   readonly partColors: boolean;
+  /** 주변 가림(62차 — 코어 0.49.0, 기본 끔) */
+  readonly ambientOcclusion: boolean;
   /** 분해 막대가 열려 있는지 */
   readonly explodeOpen: boolean;
   fit(): void;
@@ -84,11 +86,14 @@ export interface ToolbarHost {
   /** 홈 뷰로, 지금 보기를 홈으로 */
   goHome(): void;
   setHome(): void;
+  /** 키보드로 3D 보기 다루기 도움말(62차 — 가상 커서 키 표, 뷰어가 있을 때만) */
+  showKeyHelp?(): void;
   setProjection(p: Projection): void;
   setRenderMode(m: RenderMode): void;
   toggleHiddenEdges(): void;
   toggleProfiles(): void;
   togglePartColors(): void;
+  toggleAmbientOcclusion(): void;
   toggleExplode(): void;
   toggleGrid(): void;
   toggleCube(): void;
@@ -131,6 +136,7 @@ export class Toolbar {
           { label: '홈 뷰', hint: 'Home', run: () => H.goHome() },
           ...VIEW_MENU.map((v, i): MenuItem => ({ label: VIEW_LABELS[v], hint: viewKeyOf(v), sep: i === 0, run: () => H.setView(v) })),
           { label: '지금 보기를 홈 뷰로', sep: true, run: () => H.setHome() },
+          ...(H.showKeyHelp ? [{ label: '키보드로 3D 보기 다루기', run: () => H.showKeyHelp!() }] : []),
         ],
         '표준 뷰',
       ),
@@ -246,15 +252,18 @@ export class Toolbar {
 
   /**
    * 그리기 모드 메뉴(넓은 화면 그리기 모드 단추, 좁은 화면 보기 설정 메뉴의 "그리기 모드…"): 여섯 모드, 숨은 모서리 점선(숨은선 모드에서만),
-   * 외곽선, 부품 색 구분, 분해 보기
+   * 외곽선, 주변 가림(62차 — 음영 계열 모드에서만 그린다), 부품 색 구분, 분해 보기
    */
   private modeMenu(at: HTMLElement): void {
     const H = this.host;
+    const noAo = isLineMode(H.renderMode) || H.renderMode === 'xray';
     openMenu(at, [
       ...RENDER_MODES.map(([m, label]): MenuItem => ({ label, checked: H.renderMode === m, run: () => H.setRenderMode(m) })),
       { label: '숨은 모서리 점선', checked: H.hiddenEdges, toggle: true, sep: true, disabled: H.renderMode !== 'hiddenLine', run: () => H.toggleHiddenEdges() },
       // 선 모드(와이어프레임·숨은선)는 1화소 외곽선을 늘 그린다(모서리 없는 매끈한 면이 사라지지 않게) — 켜진 채 잠근다
       { label: '외곽선 강조', checked: H.profiles || isLineMode(H.renderMode), toggle: true, disabled: isLineMode(H.renderMode), run: () => H.toggleProfiles() },
+      // 코어는 와이어프레임·X-ray·숨은선에서 가림을 그리지 않는다 — 그 모드에서는 끈 채 잠근다(켜 둔 값은 음영으로 돌아오면 그대로)
+      { label: '주변 가림', checked: H.ambientOcclusion && !noAo, toggle: true, disabled: noAo, run: () => H.toggleAmbientOcclusion() },
       { label: '부품 색 구분', checked: H.partColors, toggle: true, sep: true, run: () => H.togglePartColors() },
       { label: '분해 보기', checked: H.explodeOpen, toggle: true, run: () => H.toggleExplode() },
     ], '그리기 모드');
