@@ -27,6 +27,9 @@ export { watchGraphicsContext } from './gpucontext';
 export { infoView } from './infoview';
 export { installKeyNav } from './keynav';
 export { openNotice, sceneIssueLines } from './opennotice';
+// 뷰 큐브 면 글(코어가 캔버스에 그린다 — 앱이 화면 언어로 바꾼다, app.ts relabelCube). 61차: 코어 0.44.0에서 커진 viewcube 모듈을 첫 화면 JS에서 빼려고
+// i18n.ts에서 이 조각으로 옮겼다(코어 뷰어가 이미 이 모듈을 쓴다)
+export { CUBE_FACES } from 'opencad-viewer3d/viewcube';
 export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';

@@ -243,6 +243,8 @@ export class StepApp {
   private lockFailClose: (() => void) | null = null;
   /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
   private tangents: TangentLock | null = null;
+  /** 뷰 큐브 면(코어 CUBE_FACES — 뷰어 조각)과 그 한국어 글(61차 — 뷰어 조각을 받은 뒤 화면 언어로 바꾼다, relabelCube) */
+  private cube: { faces: readonly { label: string }[]; ko: string[] } | null = null;
   /** 뷰어 조각(viewerkit.ts): 개체 측정 계산(entpick.ts)과 작업 메뉴 항목(ctxmenu.ts — 52차). 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다 */
   private ent: typeof import('./viewerkit') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
@@ -309,6 +311,7 @@ export class StepApp {
 
   constructor(root: HTMLElement) {
     root.addEventListener('languagechange', () => {
+      this.relabelCube();
       if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize);
       // 시각 표기(오후 3:04 ↔ 3:04 PM)를 새 언어로
       void this.refreshRecent();
@@ -946,6 +949,9 @@ export class StepApp {
     this.panel.kit = core;
     // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
     this.panel.phys = core;
+    // 뷰 큐브 면 글을 화면 언어로(61차 — 첫 화면의 번역층 i18n.ts에서 옮김: 코어 viewcube 모듈은 이 조각에만)
+    this.cube ??= { faces: core.CUBE_FACES, ko: core.CUBE_FACES.map((f) => f.label) };
+    this.relabelCube();
     // 움직임 줄이기(55차 — WCAG 2.3.3)를 켠 사용자에게는 카메라를 날리지 않고 바로 옮긴다. 61차: 코어 0.48.0 animate 'auto'가 선호를 듣고
     // 연 뒤 설정을 바꿔도 따른다 — 표준 뷰·전체 보기·뷰 큐브와 앱이 옮기는 홈 뷰·면 정면·저장된 보기(flyTo) 모두
     const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: 'auto' });
@@ -1048,6 +1054,12 @@ export class StepApp {
       },
       () => undefined,
     );
+  }
+
+  /** 뷰 큐브 면 글을 지금 화면 언어로(뷰어 조각을 받기 전에는 할 일 없음 — 61차, 60차까지 i18n.ts canvasLabels) */
+  private relabelCube(): void {
+    const c = this.cube;
+    if (c) c.faces.forEach((f, i) => (f.label = translateUi(c.ko[i]!)));
   }
 
   /** 뷰 큐브 크기: 휴대폰(좁은 화면·낮은 가로 화면)에서는 작게 */
