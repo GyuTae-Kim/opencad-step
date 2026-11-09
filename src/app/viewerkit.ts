@@ -16,7 +16,7 @@
  * - 큰 장면 나눠 올리기(upload.ts — 58차, 앱 입구에서 옮김): 문서를 뷰어에 올릴 때 나눠 올릴지와 그물 수에 맞춘 몫
  * - 연 뒤 알림(opennotice.ts — 58차, 앱 입구에서 옮김): 끊긴 파일·조립 자리 상한·경고 수
  * - 패널 정보 탭 본문(infoview.ts — 59차, panel.ts에서 옮김): 문서·파일 머리·단위·통계·경고 — 나무 조각과 함께 패널에 넣는다.
- *   나눠 올리기 걸음마다 몫(upload.ts stepBudgetMs·setUploadBudget — 59차, 앞 두 걸음 8 ms)도 같은 모듈
+ *   나눠 올리기 걸음마다 몫(upload.ts stepBudgetMs — 59차, 앞 두 걸음 8 ms)과 다시 그리기 간격(61차 — 코어 0.51.0 공개 선택으로, uploadOptions)도 같은 모듈
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -32,4 +32,4 @@ export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } 
 export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
 export { groupGrid, treeView } from './treeview';
-export { sceneUpload, setUploadBudget, stepBudgetMs } from './upload';
+export { sceneUpload, uploadOptions } from './upload';

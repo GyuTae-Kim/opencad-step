@@ -851,26 +851,22 @@ export class StepApp {
     this.tweakTool?.cancel();
     // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다. 몫은 그물 수에 맞춘다(뷰어 조각의 upload.ts — 프레임마다
     // 올린 그물을 다시 그리므로 고정 8 ms면 그물 수의 제곱으로 늘었다. 뷰어를 만들며 조각을 받았다)
-    // 59차: 앞 두 걸음은 8 ms로 올려 첫 그림을 57차만큼 빨리 보이고 그다음부터 그물 수에 맞춘 몫(stepBudgetMs). setScene에는 그물 수에 맞춘 몫(58차)을 주고
-    // 곧바로 첫 몫으로 바꾼다 — 코어가 바뀌어 몫을 못 바꾸면 58차 그대로 간다
+    // 59차: 앞 두 걸음은 8 ms로 올려 첫 그림을 57차만큼 빨리 보이고 그다음부터 그물 수에 맞춘 몫(stepBudgetMs).
+    // 61차: 걸음마다 몫·다시 그리기 간격을 코어 0.51.0 공개 선택(incremental.budgetMs 함수·redrawMs — upload.ts uploadOptions)으로 준다
     const { triangles: tris, budgetMs } = this.ent!.sceneUpload(doc.scene.meshes);
     this.upload = null;
-    const n = doc.scene.meshes.length;
-    let step = 0;
     v.setScene(doc.scene, {
       keepView: !!carry,
       ...(budgetMs
         ? {
-            incremental: { budgetMs },
+            incremental: this.ent!.uploadOptions(),
             onProgress: (done: number, total: number) => {
               this.upload = done < total ? done / Math.max(1, total) : null;
-              if (step && done < total) this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(step++, n));
               this.updateStatus();
             },
           }
         : {}),
     });
-    if (budgetMs && this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(0, n))) step = 1;
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.lookSync.clear();
