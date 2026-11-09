@@ -84,10 +84,15 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './infoview', './keynav', './motion', './opennotice', './physics', './pmiview', './trackdir', './treeview', './upload', 'opencad-viewer3d']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './infoview', './keynav', './opennotice', './physics', './pmiview', './trackdir', './treeview', './upload', 'opencad-viewer3d', 'opencad-viewer3d/viewcube']);
+    // 뷰 큐브 면 글(코어 viewcube — 0.44.0 손가락 큐브로 커짐)은 61차부터 이 조각에서 받아 앱이 바꾼다(첫 화면 번역층은 가져오지 않는다)
+    expect(core).not.toContain('viewcube');
+    const appText = readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8');
+    expect(appText).toMatch(/this\.cube \?\?= \{ faces: core\.CUBE_FACES, ko: core\.CUBE_FACES\.map\(\(f\) => f\.label\) \};\n\s*this\.relabelCube\(\);/);
+    expect(appText).toMatch(/addEventListener\('languagechange', \(\) => \{\n\s*this\.relabelCube\(\);/);
     // 큰 장면 나눠 올리기·연 뒤 알림(58차 — upload.ts·opennotice.ts, 문서를 뷰어에 올릴 때만 쓴다)과 패널 정보 탭 본문(59차 — infoview.ts)도 그 조각에만
     for (const m of ['src/app/upload.ts', 'src/app/opennotice.ts', 'src/app/infoview.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
-    // 카메라 옮기기·움직임 줄이기(55차 — motion.ts, 홈 뷰·면 정면·저장된 보기는 뷰어가 있어야 쓴다)도 그 조각에만
+    // 카메라 옮기기·움직임 줄이기는 61차부터 코어(0.48.0 animate 'auto'·0.49.0 flyTo — 뷰어 조각의 코어 입구)가 맡는다(55~60차 motion.ts는 뺐다)
     expect(files.has(join(ROOT, 'src/app/motion.ts'))).toBe(false);
     // PMI 탭 본문(54차 — pmiview.ts, 표현·의미 PMI 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져온다
     expect(files.has(join(ROOT, 'src/app/pmiview.ts'))).toBe(false);

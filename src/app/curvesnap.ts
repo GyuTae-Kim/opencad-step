@@ -17,11 +17,12 @@
  *   축이 아닌 잠근 선(line.axis 없음 — 나란함·앱이 정한 방향·곡선 접선)도 같은 계산이다(line.origin·line.dir만 읽는다)
  * - 그 밖의 종류(코어가 뒤에 더할 것)는 null
  * - 앱이 주는 곡선 가운데 점(pointsFor — 앱 점이라 코어가 다듬지 않는다)은 곡선 길이 가운데(curveMidpoint): 원은 각 가운데, 타원·B-스플라인은 길이 적분
- * - 앱이 주는 접점(43차 — pointsFor, 첫 점을 찍은 뒤): 첫 점에서 그은 직선이 곡선에 접하는 점(curveTangents — 원·타원은 닫힌 식, B-스플라인은 매개변수 뉴턴)
+ * - 앱이 주는 접점(43차 — pointsFor, 첫 점을 찍은 뒤): 첫 점에서 그은 직선이 곡선에 접하는 점(curveTangents — 원·타원은 닫힌 식, B-스플라인은 매개변수 뉴턴).
+ *   61차(코어 0.38.0): 첫 점은 코어가 pointsFor 둘째 인자(ctx.first)로 주고, pointsForFirst로 첫 점이 바뀌면 같은 고르기도 다시 부른다(접점 kind 'tangent')
  * - 앱이 주는 곡선–면 교차점(46차 — pointsFor): 고른 모서리 곡선이 다른 면을 뚫는 점(edgecross.ts — 개체 측정 최소 거리의 뉴턴 길을 다시 쓴다)
  * 결과는 넘긴 값과 모서리 표·그물로만 정해진다(같은 입력에 같은 점 — 코어가 앞 결과를 다시 쓴다). 문서가 바뀌면 앱이 setMeasureSnap을 다시 준다.
  */
-import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment, Viewer3d } from 'opencad-viewer3d';
+import type { SnapRefineFaceInput, SnapRefineInput, SnapSegment } from 'opencad-viewer3d';
 import type { Mesh3d, SnapPoint } from 'opencad-viewer3d/types';
 import { arcCuts, arcMidParam, bsplineBreaks, bsplineEval, bsplineSamples, type CurveEval, edgeCurve, type EdgeCurve, ellipseEval, nearestParam, rtsafe } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
@@ -509,35 +510,6 @@ export function tangentsOnArc(arc: EdgeArc, F: readonly number[], tol: number): 
 }
 
 /**
- * 측정 첫 점과 그 세대(snap.ts TangentFirst — 앱이 뷰어마다 하나): 접점은 첫 점으로 정해지는데 코어는 바로 앞과 같은 고르기면 pointsFor 결과를 다시 쓴다
- * (0.10.0 — 결과는 고른 것으로만 정해진다는 약속). 그래서 찍은 점이 바뀔 때마다(코어 onMeasure — 둘째 점·지우기·새 측정) 세대를 올리고,
- * 접점에 차례 값 −세대(SnapPoint.order)를 달아 붙잡기 한도(setMeasureSnapLimit(1 − 세대) — 차례 < 한도만 붙는다)로 다시 쓴 앞 세대 접점을 거른다.
- * 차례가 없는 다른 앱 점(끝점·가운데 점·중심)과 늘 후보인 원 중심은 한도와 상관없다. 첫 점을 처음 찍을 때(점 0 → 1)는 알림이 없지만
- * 그 앞에는 접점이 없어 거를 것이 없다. 붙잡기 선택을 다시 주면(setMeasureSnap) 코어가 한도와 앞 결과 기억을 함께 비운다
- */
-export class MeasureFirst {
-  private gen = 1;
-
-  constructor(private readonly v: Pick<Viewer3d, 'measurePointCount' | 'measurePoints' | 'setMeasureSnapLimit'>) {}
-
-  /** 첫 점만 찍었으면 그 점(세계), 아니면 null */
-  point(): readonly number[] | null {
-    return this.v.measurePointCount === 1 ? (this.v.measurePoints[0]?.point ?? null) : null;
-  }
-
-  /** 지금 세대 접점의 차례 값 */
-  get order(): number {
-    return -this.gen;
-  }
-
-  /** 찍은 점이 바뀌었다(코어 onMeasure): 앞 세대 접점을 거른다 */
-  changed(): void {
-    this.gen++;
-    this.v.setMeasureSnapLimit(1 - this.gen);
-  }
-}
-
-/**
  * 그물 mesh의 모서리 e(곡선 모서리)에서 세계 점 F에서 그은 접선의 접점들(세계 — tangentsOnArc). 허용치는 F와 곡선 크기를 더한 값의 1e-6배
  * (두 곡선의 교차점 허용치와 같은 꼴 — float32 윤곽선 꼭짓점에 찍은 첫 점도 평면 위로 본다). 곡선 정의가 없거나 직선이면 빈 목록
  */
@@ -565,21 +537,15 @@ export function curveTangents(mesh: Mesh3d, table: StepEdgeTable, e: number, kin
 }
 
 /**
- * 접점 붙잡기 점(snap.ts CurveSnap.tangents — 고른 곡선 모서리마다): 첫 점에서 그은 접선의 접점(curveTangents)을 kind 'point'·그 세대 차례 값으로.
+ * 접점 붙잡기 점(snap.ts CurveSnap.more — 고른 곡선 모서리마다): 측정 첫 점 first(세계 — 코어 pointsFor의 ctx.first)에서 그은 접선의 접점(curveTangents)을
+ * kind 'tangent'(코어 0.38.0 — 접점 표식, 61차까지는 'point'와 세대 차례 값)로.
  * known(그 모서리의 끝점·가운데 점·중심 — 앞 차례 앱 점)과 좌표 크기의 1e-6배 안으로 겹치는 접점은 뺀다(그 점 붙잡기가 맡아 예전 차례와 결과가 그대로)
  */
-export function tangentSnapPoints(
-  mesh: Mesh3d,
-  table: StepEdgeTable,
-  e: number,
-  kinds: readonly string[],
-  first: { point: readonly number[]; order: number },
-  known: readonly SnapPoint[],
-): SnapPoint[] {
+export function tangentSnapPoints(mesh: Mesh3d, table: StepEdgeTable, e: number, kinds: readonly string[], first: readonly number[], known: readonly SnapPoint[]): SnapPoint[] {
   const near = (q: readonly number[], p: readonly number[]): boolean => dist(q, p) <= 1e-6 * (1 + Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[2]!)));
-  return curveTangents(mesh, table, e, kinds, first.point)
+  return curveTangents(mesh, table, e, kinds, first)
     .filter((q) => !known.some((s) => near(q, s.point)))
-    .map((q) => ({ point: q, kind: 'point' as const, id: mesh.id, order: first.order }));
+    .map((q) => ({ point: q, kind: 'tangent' as const, id: mesh.id }));
 }
 
 /** 코어가 넘긴 윤곽선 토막의 그물·모서리 표·모서리 번호와 모서리 안 토막 번호 k, 모서리 꼭짓점(묶음 좌표 float32 — 0 = 시작 … n = 끝) */

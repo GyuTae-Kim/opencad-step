@@ -2,7 +2,7 @@
  * 면을 기준으로 보기·자르기(순수 계산 + 카메라 움직임):
  * - 정면으로 보기(Look At): 평면은 바깥 법선 쪽에서, 원기둥·원뿔·원환은 축 방향(지금 보는 쪽)에서 그 면을 맞춰 본다.
  * - 이 면으로 자르기: 평면은 그 면 자리에서 바깥 쪽을 잘라 내고, 축이 있는 면은 축을 지나며 눈 쪽 절반을 잘라 낸다(구멍 안이 보인다).
- * - 카메라를 부드럽게 옮기기(animateCamera)는 55차부터 뷰어 조각의 motion.ts(움직임 줄이기 설정을 따른다).
+ * - 카메라를 부드럽게 옮기기는 61차부터 코어 flyTo(0.32초 — 뷰어를 animate 'auto'로 만들어 움직임 줄이기 설정을 코어가 따른다).
  */
 import type { CameraState } from 'opencad-viewer3d';
 import { basisFromAngles, dirToAngles, fitCamera } from 'opencad-viewer3d/camera';

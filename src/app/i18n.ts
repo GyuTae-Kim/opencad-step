@@ -1,6 +1,5 @@
 import { createLanguageMenu } from 'opencad-site-kit/i18n/language-menu';
 import { VIEW_LABELS } from 'opencad-viewer3d/camera';
-import { CUBE_FACES } from 'opencad-viewer3d/viewcube';
 /** Localize only presentation DOM. CAD data, input values and command keys stay intact. */
 import { currentLanguage, languages, languageUrl, metadataForLanguage, registerCatalog, sourceMessage, translate } from '../../site/i18n-core.mjs';
 
@@ -16,10 +15,10 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
   let language = currentLanguage(location.href);
   await loadLanguage(language);
   const originalViews = Object.entries(VIEW_LABELS);
-  const originalFaces = CUBE_FACES.map(face => face.label);
+  // View cube face labels (core viewcube module) are relabeled by the app once the viewer chunk is loaded (app.ts relabelCube — 61st round:
+  // keeps the core viewcube module out of the first-screen bundle)
   function canvasLabels(): void {
     for (const [view,label] of originalViews) VIEW_LABELS[view as keyof typeof VIEW_LABELS] = translate(label,language);
-    CUBE_FACES.forEach((face,index) => { face.label=translate(originalFaces[index]!,language); });
   }
   canvasLabels();
   const presentationRoot = document.body;
@@ -140,6 +139,5 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
   return () => {
     observer.disconnect(); titleObserver.disconnect(); control.dispose();
     for (const [view,label] of originalViews) VIEW_LABELS[view as keyof typeof VIEW_LABELS]=label;
-    CUBE_FACES.forEach((face,index) => { face.label=originalFaces[index]!; });
   };
 }

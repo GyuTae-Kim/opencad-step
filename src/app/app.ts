@@ -243,8 +243,8 @@ export class StepApp {
   private lockFailClose: (() => void) | null = null;
   /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
   private tangents: TangentLock | null = null;
-  /** 측정 첫 점(43차 — 접점 붙잡기의 첫 점과 그 세대, 뷰어마다 — 접선 조각을 받으면) */
-  private measureFirst: InstanceType<typeof import('./tangent').MeasureFirst> | null = null;
+  /** 뷰 큐브 면(코어 CUBE_FACES — 뷰어 조각)과 그 한국어 글(61차 — 뷰어 조각을 받은 뒤 화면 언어로 바꾼다, relabelCube) */
+  private cube: { faces: readonly { label: string }[]; ko: string[] } | null = null;
   /** 뷰어 조각(viewerkit.ts): 개체 측정 계산(entpick.ts)과 작업 메뉴 항목(ctxmenu.ts — 52차). 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다 */
   private ent: typeof import('./viewerkit') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
@@ -311,6 +311,7 @@ export class StepApp {
 
   constructor(root: HTMLElement) {
     root.addEventListener('languagechange', () => {
+      this.relabelCube();
       if (this.viewer) this.viewer.setViewCubeSize(this.viewer.viewCubeSize);
       // 시각 표기(오후 3:04 ↔ 3:04 PM)를 새 언어로
       void this.refreshRecent();
@@ -851,26 +852,29 @@ export class StepApp {
     this.tweakTool?.cancel();
     // 아주 큰 장면은 GPU 올리기를 프레임마다 나눠(코어 incremental) 화면이 멈추지 않게 한다. 몫은 그물 수에 맞춘다(뷰어 조각의 upload.ts — 프레임마다
     // 올린 그물을 다시 그리므로 고정 8 ms면 그물 수의 제곱으로 늘었다. 뷰어를 만들며 조각을 받았다)
-    // 59차: 앞 두 걸음은 8 ms로 올려 첫 그림을 57차만큼 빨리 보이고 그다음부터 그물 수에 맞춘 몫(stepBudgetMs). setScene에는 그물 수에 맞춘 몫(58차)을 주고
-    // 곧바로 첫 몫으로 바꾼다 — 코어가 바뀌어 몫을 못 바꾸면 58차 그대로 간다
+    // 59차: 앞 두 걸음은 8 ms로 올려 첫 그림을 57차만큼 빨리 보이고 그다음부터 그물 수에 맞춘 몫(stepBudgetMs).
+    // 61차: 걸음마다 몫·다시 그리기 간격을 코어 0.51.0 공개 선택(incremental.budgetMs 함수·redrawMs — upload.ts uploadOptions)으로 준다
     const { triangles: tris, budgetMs } = this.ent!.sceneUpload(doc.scene.meshes);
     this.upload = null;
-    const n = doc.scene.meshes.length;
-    let step = 0;
+    // 61차: 코어가 깨진 입력(해석기가 거르지 못한 NaN·한도 밖 좌표, 없는 정점 색인 등)을 빼거나 고쳐 그리면(코어 0.50.0 — setScene 안에서 알린다)
+    // 그 알림을 이 문서의 경고 목록 끝에 더한다(정보 탭·연 뒤 알림의 경고 수)
+    const offIssues = v.onSceneIssues((list) => {
+      const lines = this.ent!.sceneIssueLines(list);
+      if (lines.length) doc.scene.warnings = [...(doc.scene.warnings ?? []), ...lines];
+    });
     v.setScene(doc.scene, {
       keepView: !!carry,
       ...(budgetMs
         ? {
-            incremental: { budgetMs },
+            incremental: this.ent!.uploadOptions(),
             onProgress: (done: number, total: number) => {
               this.upload = done < total ? done / Math.max(1, total) : null;
-              if (step && done < total) this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(step++, n));
               this.updateStatus();
             },
           }
         : {}),
     });
-    if (budgetMs && this.ent!.setUploadBudget(v, this.ent!.stepBudgetMs(0, n))) step = 1;
+    offIssues();
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.lookSync.clear();
@@ -945,8 +949,12 @@ export class StepApp {
     this.panel.kit = core;
     // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
     this.panel.phys = core;
-    // 움직임 줄이기(55차 — motion.ts)를 켠 사용자에게는 표준 뷰·전체 보기·뷰 큐브로 카메라를 날리지 않고 바로 옮긴다
-    const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: !core.reducedMotion() });
+    // 뷰 큐브 면 글을 화면 언어로(61차 — 첫 화면의 번역층 i18n.ts에서 옮김: 코어 viewcube 모듈은 이 조각에만)
+    this.cube ??= { faces: core.CUBE_FACES, ko: core.CUBE_FACES.map((f) => f.label) };
+    this.relabelCube();
+    // 움직임 줄이기(55차 — WCAG 2.3.3)를 켠 사용자에게는 카메라를 날리지 않고 바로 옮긴다. 61차: 코어 0.48.0 animate 'auto'가 선호를 듣고
+    // 연 뒤 설정을 바꿔도 따른다 — 표준 뷰·전체 보기·뷰 큐브와 앱이 옮기는 홈 뷰·면 정면·저장된 보기(flyTo) 모두
+    const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: 'auto' });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
@@ -967,11 +975,7 @@ export class StepApp {
     };
     this.pickThrough = translucentView(this.doc);
     v.onPick(this.pickCb, { throughTranslucent: this.pickThrough });
-    // 찍은 점이 바뀌면(둘째 점·지우기·새 측정) 앞 첫 점의 접점을 거른다(43차 — 접선 조각의 MeasureFirst)
-    v.onMeasure((m) => {
-      this.measureFirst?.changed();
-      this.onMeasure(m);
-    });
+    v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
     v.setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi));
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
@@ -1018,9 +1022,13 @@ export class StepApp {
       this.contextMenuAt(e.clientX, e.clientY);
     });
     // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
+    // 손가락으로 뷰 큐브를 펴고 접으면(코어 0.44.0 — 편 동안 224화소) 거리 글상자가 비킬 큐브 자리를 다시 알린다(61차 — 코어는 펴고 접을 때 알리지 않는다).
+    // 누르기 뒤 코어가 펴고, 다시 누르기·3D 보기 누르기·Esc 뒤 접는다
     this.hostEl.addEventListener('pointerup', () => {
       if (v.measureMode) this.refreshBar();
+      this.labelAvoid?.syncCube();
     });
+    this.hostEl.addEventListener('keyup', () => this.labelAvoid?.syncCube());
     // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
     // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
@@ -1040,14 +1048,18 @@ export class StepApp {
         // 거리 글상자가 측정 띠·위 띠·단면 막대·뷰 큐브를 비켜 그리게(휴대폰에서 띠·큐브 밑으로 들어가던 것)
         this.labelAvoid ??= new m.LabelAvoid(v, this.viewEl);
         this.exactOf ??= m;
-        // 측정 첫 점과 그 세대(43차 — 접점 붙잡기, 이 조각의 curvesnap.ts): 붙잡기 선택을 다시 줄 때 접점 계산과 함께 넘긴다
-        this.measureFirst ??= new m.MeasureFirst(v);
         if (this.curveSnapOf) return;
         this.curveSnapOf = m.curveSnap;
         this.syncMeasureSnap();
       },
       () => undefined,
     );
+  }
+
+  /** 뷰 큐브 면 글을 지금 화면 언어로(뷰어 조각을 받기 전에는 할 일 없음 — 61차, 60차까지 i18n.ts canvasLabels) */
+  private relabelCube(): void {
+    const c = this.cube;
+    if (c) c.faces.forEach((f, i) => (f.label = translateUi(c.ko[i]!)));
   }
 
   /** 뷰 큐브 크기: 휴대폰(좁은 화면·낮은 가로 화면)에서는 작게 */
@@ -1184,8 +1196,8 @@ export class StepApp {
       this.toast('이 면은 정면 방향을 정할 수 없습니다(평면과 원기둥·원뿔·원환 면만).', 'warn');
       return false;
     }
-    // 카메라 옮기기는 뷰어 조각(motion.ts — 움직임 줄이기면 바로). 뷰어가 있으면 조각도 받아 둔 뒤다
-    this.ent?.animateCamera(v, cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
+    // 카메라 옮기기는 코어 flyTo(0.32초 — 움직임 줄이기면 바로, 61차에 앱 고리에서 옮김)
+    void v.flyTo(cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
     return true;
   }
 
@@ -1211,7 +1223,7 @@ export class StepApp {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
-    if (d.home) this.ent?.animateCamera(v, d.home);
+    if (d.home) void v.flyTo(d.home);
     else v.fit();
   }
 
@@ -1444,7 +1456,7 @@ export class StepApp {
     let distance = view.distance;
     if (view.projection === 'orthographic' || !(distance > 0)) distance = view.height > 0 ? view.height / 2 / Math.tan(cam.fovY / 2) : cam.distance;
     v.setProjection(view.projection);
-    this.ent?.animateCamera(v, { ...v.getCamera(), target: [...view.target], distance, yaw: a.yaw, pitch: a.pitch, projection: view.projection });
+    void v.flyTo({ ...v.getCamera(), target: [...view.target], distance, yaw: a.yaw, pitch: a.pitch, projection: view.projection });
     if (view.pmiIds?.length) {
       const show = new Set(view.pmiIds);
       d.vis.pmiOff = false;
@@ -2105,7 +2117,8 @@ export class StepApp {
     if (!centers) this.snapCenters.set(d, (centers = circleCenters(d.scene.meshes, d.edges)));
     // 기준 선분 거르기는 모서리 표가 있을 때만(붙잡기 선택을 다시 줄 때마다 새로 — 코어도 그때 받은 기준을 잊는다)
     const edge = d.edges && this.trackDirEdgeOf ? this.trackDirEdgeOf(d.edges) : null;
-    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge, this.measureFirst));
+    // 접점(43차)은 접선 조각을 받은 뒤 곡선 붙잡기(curveSnapFor)와 함께 — 첫 점은 코어가 pointsFor에 넘긴다(61차 — 코어 0.38.0 pointsForFirst)
+    v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge, true));
   }
 
   /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */

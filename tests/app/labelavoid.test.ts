@@ -7,6 +7,8 @@
  * - 코어 자리 고르기(placeMeasureLabel)에 넘기면: 휴대폰(375×700 캔버스)에서 띠·큐브 밑으로 들어가던 글상자가 비키고,
  *   겹치지 않던 자리는 그대로다(헤드리스에서 잰 띠·큐브·글상자 크기)
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MeasureLabelAvoid, MeasureLabelRect } from 'opencad-viewer3d';
 import { placeMeasureLabel, rectsOverlap } from 'opencad-viewer3d/measurelabel';
@@ -108,6 +110,8 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
       get viewCubeRect(): MeasureLabelRect | null {
         return this.cubeRect ? { ...this.cubeRect } : null;
       },
+      // 코어 0.44.0 손가락으로 편 큐브(편 동안 viewCubeRect도 편 자리)
+      viewCubeExpanded: false,
       setMeasureLabelAvoid: (a: MeasureLabelAvoid | readonly MeasureLabelRect[] | null) => void calls.push(a as MeasureLabelAvoid | null),
     };
     return { view, canvas, cube, section, bar, toasts, rects, calls, viewer };
@@ -170,6 +174,27 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
     d.viewer.cubeRect = { x: 263, y: 8, width: 104, height: 104 };
     la.update();
     expect(d.calls.at(-1)).toEqual({ rects: [{ x: 263, y: 8, width: 104, height: 104 }] });
+  });
+
+  it('손가락으로 뷰 큐브를 펴고 접으면(코어 0.44.0 viewCubeExpanded — 편 동안 224화소 자리) syncCube가 다시 알리고, 그대로면 알리지 않는다(61차)', () => {
+    const d = viewDom();
+    const la = new LabelAvoid(d.viewer, d.view);
+    const n = d.calls.length;
+    expect(la.syncCube()).toBe(false);
+    expect(d.calls).toHaveLength(n);
+    // 손가락 누르기로 편 큐브: 위·오른쪽에서 8화소, 한 변 224
+    d.viewer.viewCubeExpanded = true;
+    d.viewer.cubeRect = { x: 143, y: 8, width: 224, height: 224 };
+    expect(la.syncCube()).toBe(true);
+    expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 143, y: 8, width: 224, height: 224 });
+    expect(la.syncCube()).toBe(false);
+    // 고르거나 3D 보기를 누르면 접는다
+    d.viewer.viewCubeExpanded = false;
+    d.viewer.cubeRect = { x: 291, y: 8, width: 76, height: 76 };
+    expect(la.syncCube()).toBe(true);
+    expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 291, y: 8, width: 76, height: 76 });
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app.match(/this\.labelAvoid\?\.syncCube\(\)/g)).toHaveLength(2);
   });
 
   it('ResizeObserver가 없는 브라우저에서도 만들 때 한 번 알린다', () => {

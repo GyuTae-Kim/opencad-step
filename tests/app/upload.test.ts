@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BIG_MESHES, BIG_TRIANGLES, sceneUpload, setUploadBudget, stepBudgetMs, UPLOAD_BUDGET_MAX, UPLOAD_BUDGET_MIN, UPLOAD_FIRST_STEPS, uploadBudgetMs } from '../../src/app/upload';
+import type { Mesh3d, Viewer3d } from 'opencad-viewer3d';
+import { BIG_MESHES, BIG_TRIANGLES, sceneUpload, stepBudgetMs, UPLOAD_BUDGET_MAX, UPLOAD_BUDGET_MIN, UPLOAD_FIRST_STEPS, UPLOAD_REDRAW_MS, uploadBudgetMs, uploadOptions } from '../../src/app/upload';
+import { jsdomViewer } from './jsdomview';
 
 /**
  * 코어 나눠 올리기 흉내: 프레임마다 몫(ms)만큼 그물을 올리고(그물 하나 upUs µs) 그때까지 올린 그물을 모두 그린다(그물 하나 drawUs µs).
@@ -96,19 +99,43 @@ describe('걸음마다 몫(59차)', () => {
   });
 });
 
-describe('나눠 올리는 중 몫 바꾸기', () => {
-  it('뷰어의 나눠 올리기 상태(upload.budget)가 있을 때만 바꾼다', () => {
-    const v = { upload: { budget: 80, cb: null } };
-    expect(setUploadBudget(v, 8)).toBe(true);
-    expect(v.upload.budget).toBe(8);
-    expect(setUploadBudget({ upload: null }, 8)).toBe(false);
-    expect(setUploadBudget({}, 8)).toBe(false);
-    expect(setUploadBudget({ upload: { budgetMs: 8 } }, 8)).toBe(false);
+describe('걸음마다 몫·다시 그리기 간격을 코어 공개 선택으로(61차 — 코어 0.51.0 incremental.budgetMs 함수·redrawMs)', () => {
+  it('선택은 몫 함수 stepBudgetMs 그대로와 간격 250 ms', () => {
+    const o = uploadOptions();
+    expect(o.budgetMs).toBe(stepBudgetMs);
+    expect(o.redrawMs).toBe(UPLOAD_REDRAW_MS);
+    expect(UPLOAD_REDRAW_MS).toBe(250);
+    // 코어 setScene 선택 타입에 그대로 들어간다(코어가 이름을 바꾸면 typecheck가 깨진다)
+    const inc: Exclude<NonNullable<Parameters<Viewer3d['setScene']>[1]>['incremental'], boolean | undefined> = o;
+    expect(inc).toBe(o);
   });
 
-  it('코어(opencad-viewer3d)는 프레임마다 upload.budget을 읽는다 — 코어를 올려 이름이 바뀌면 이 시험이 알린다', () => {
-    const src = readFileSync(join(__dirname, '../../node_modules/opencad-viewer3d/src/viewer.ts'), 'utf8');
-    expect(src).toMatch(/private upload: \{ budget: number;/);
-    expect(src).toMatch(/this\.pumpUpload\(this\.renderer\.uploadProgress \? \(this\.upload\?\.budget \?\? 8\)/);
+  it('실제 코어(가짜 WebGL): 장면 그물 수와 0부터 센 걸음으로 몫 함수를 부르고, 다 올리면 끝 알림이 온다', () => {
+    const { viewer, restore } = jsdomViewer();
+    try {
+      const n = BIG_MESHES + 1;
+      const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+      const meshes: Mesh3d[] = Array.from({ length: n }, (_, i) => ({ id: `m${i}`, positions, indices: new Uint32Array([0, 1, 2]), color: [0.6, 0.6, 0.6, 1] }));
+      const calls: [number, number][] = [];
+      const o = uploadOptions();
+      const progress: [number, number][] = [];
+      viewer.setScene(
+        { name: 'big', units: 'mm', meshes, lines: [], bounds: { min: [0, 0, 0], max: [1, 1, 0] } },
+        { incremental: { ...o, budgetMs: (s, m) => (calls.push([s, m]), o.budgetMs(s, m)) }, onProgress: (d, t) => progress.push([d, t]) },
+      );
+      for (let k = 0; k < 400 && !(progress.length && progress[progress.length - 1]![0] === progress[progress.length - 1]![1]); k++) viewer.renderNow();
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.map(([s]) => s)).toEqual(calls.map((_, i) => i));
+      expect(calls.every(([, m]) => m === n)).toBe(true);
+      expect(progress[progress.length - 1]).toEqual([n, n]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('앱은 코어 비공개 나눠 올리기 상태(upload.budget)를 더 고치지 않는다', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toMatch(/incremental: this\.ent!\.uploadOptions\(\)/);
+    expect(app).not.toMatch(/setUploadBudget|\.upload\.budget/);
   });
 });

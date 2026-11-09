@@ -633,7 +633,7 @@ describe('42차 보통 거리에서 이웃 칸을 얕게 뚫는 안내 선(코�
 });
 
 describe('44차 칸을 얕게 뚫는 안내 선의 그물 교점과 곡면 교점 사이(코어 0.37.0 — 0.36.0은 현 위 그물 교점 "· 면 위")', () => {
-  it('거리 15에서 그물을 뚫는 점 X와 곡면 교점 Q가 화면에서 붙잡기 거리(10화소)보다 떨어지면, 둘 사이는 Q(원기둥 위 다듬은 교점), X 쪽은 X 그대로(남은 한계)', () => {
+  it('거리 15에서 그물을 뚫는 점 X와 곡면 교점 Q가 화면에서 붙잡기 거리(10화소)보다 떨어지면, 둘 사이는 Q(원기둥 위 다듬은 교점), X 쪽도 Q(61차 — 코어 0.39.0 refineSnapToExact, 60차까지 X 그대로)', () => {
     // 낮은 원기둥, 높이 5: φ 칸 반각의 2.75배로 스치는 선 — 곡면 교점 Q 곁에서 선이 이웃 칸을 얕게 뚫는다(42차 겨눈 훑기에서 0.36.0이 X에 붙던 꼴)
     const angs = rimAngles(lowScene, LOW_H, LOW_R);
     const lo = Math.max(...angs.filter((t) => t < LOW_PHI));
@@ -695,13 +695,14 @@ describe('44차 칸을 얕게 뚫는 안내 선의 그물 교점과 곡면 교�
     expect(dist(h.point, [P[0] + LOW_E[0] * k, P[1] + LOW_E[1] * k, z])).toBeLessThan(1e-9);
     expect(dist(h.point, Q)).toBeLessThan(1e-6);
     expect(trackDirMeetLabel(h)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
-    // X 쪽: Q가 커서에서 붙잡기 거리 밖이라 코어 교차(현 위 X — 다듬지 않음) 그대로
+    // X 쪽: Q가 커서에서 붙잡기 거리 밖이라 60차(코어 0.37.0)까지는 코어 교차(현 위 X — 다듬지 않음) 그대로였다.
+    // 61차: 코어 0.39.0 refineSnapToExact로 같은 교차의 곡면 교점 Q로 옮긴다(X에서 그 칸 크기 안·화면 3 × 붙잡기 거리 안)
     const hx = hover(xs.x, xs.y);
     v.v.dispose();
     expect(trackDirMeet(hx)).toBe('face');
-    expect(hx.refined).toBeFalsy();
-    expect(dist(hx.point, Xp)).toBeLessThan(1e-3);
-    expect(Math.hypot(hx.point[0], hx.point[1])).toBeLessThan(LOW_R - 0.01);
+    expect(hx.refined).toBe(true);
+    expect(dist(hx.point, Q)).toBeLessThan(1e-6);
+    expect(Math.abs(Math.hypot(hx.point[0], hx.point[1]) - LOW_R)).toBeLessThan(1e-9);
     expect(trackDirMeetLabel(hx)).toBe(`${TRACK_PARALLEL_LABEL} · 면 위`);
   });
 });

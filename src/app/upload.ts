@@ -11,6 +11,10 @@
  * 59차: 58차 몫은 첫 걸음부터 커서 첫 그림이 0.35초 늦었다. 앞 두 걸음만 8 ms로 올리고(첫 그림 — 첫 프레임과 그다음 프레임이 57차와 같다)
  * 그다음부터 그물 수에 맞춘 몫이다(stepBudgetMs). 열 때 가장 긴 작업은 마지막 프레임(남은 것 올리기 + 장면 전체 그리기)이라 몫을 끝으로 갈수록 줄여도
  * 줄지 않았다 — 끝을 작게 나누면 프레임마다 장면 전체를 다시 그려 다 올리기가 늘었다(8만 자리: 두 판을 재 봄 — README 개발 절 "큰 조립의 화면 쪽 한계").
+ *
+ * 61차(코어 0.51.0): 걸음마다 몫을 코어 공개 선택(setScene incremental.budgetMs 함수 — stepBudgetMs를 그대로)으로 주고, 59차가 고치던 코어 비공개 상태
+ * (upload.budget)는 쓰지 않는다. 다시 그리기 간격(incremental.redrawMs — UPLOAD_REDRAW_MS)을 주면 올리기 걸음만으로 생긴 다시 그리기를 그 간격에 한 번만 하고
+ * (첫 걸음은 그린다 — 첫 그림), 다 올린 걸음과 장면 전체 그리기를 두 프레임으로 나눈다(가장 긴 작업이 둘의 합이 아니게).
  */
 
 /** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
@@ -39,13 +43,10 @@ export function sceneUpload(meshes: readonly { positions: ArrayLike<number>; ind
   return { triangles, budgetMs: triangles > BIG_TRIANGLES || meshes.length > BIG_MESHES ? uploadBudgetMs(meshes.length) : null };
 }
 
-/**
- * 나눠 올리는 중인 뷰어의 몫을 바꾼다. 코어 0.37.0에는 도중에 몫을 바꾸는 공개 API가 없어 뷰어의 나눠 올리기 상태(upload.budget — 코어가 프레임마다 읽는다,
- * tests/app/upload.test.ts가 코어 소스로 확인)를 고친다. 꼴이 다르면(코어가 바뀜) 아무것도 하지 않고 false — 부르는 쪽은 setScene에 준 몫 그대로 둔다
- */
-export function setUploadBudget(viewer: object, ms: number): boolean {
-  const u = (viewer as { upload?: unknown }).upload;
-  if (!u || typeof u !== 'object' || typeof (u as { budget?: unknown }).budget !== 'number') return false;
-  (u as { budget: number }).budget = ms;
-  return true;
+/** 나눠 올리는 동안 올리기 걸음만으로 생긴 다시 그리기 간격(ms — 코어 0.51.0 incremental.redrawMs): 올라온 부품이 4번/초 보인다 */
+export const UPLOAD_REDRAW_MS = 250;
+
+/** 코어 setScene의 나눠 올리기 선택(코어 0.51.0): 걸음마다 몫 함수(stepBudgetMs)와 다시 그리기 간격 */
+export function uploadOptions(): { budgetMs: (step: number, meshes: number) => number; redrawMs: number } {
+  return { budgetMs: stepBudgetMs, redrawMs: UPLOAD_REDRAW_MS };
 }

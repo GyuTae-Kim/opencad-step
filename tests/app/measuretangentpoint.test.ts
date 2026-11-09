@@ -1,8 +1,9 @@
 /**
- * 43차 측정 접점(첫 점에서 곡선 모서리에 그은 접선이 닿는 점 — AutoCAD 접점 붙잡기): 코어 0.36.0의 기존 앱 점 길(pointsFor·SnapPoint.order·setMeasureSnapLimit)만으로 붙는다.
+ * 43차 측정 접점(첫 점에서 곡선 모서리에 그은 접선이 닿는 점 — AutoCAD 접점 붙잡기). 61차부터 코어 0.38.0 길: 첫 점은 pointsFor 둘째 인자(ctx.first),
+ * pointsForFirst로 첫 점을 찍거나 지우면 같은 고르기도 다시 부르고, 접점은 kind 'tangent'(43~60차는 'point'와 첫 점 세대 차례 값·붙잡기 한도).
  * - 계산(curvesnap.ts curveTangents·tangentsOnArc): 원·타원은 닫힌 식, B-스플라인은 매개변수 뉴턴 — 기댓값은 시험 장면(curvescene.ts)의 식으로 따로 구한다
- * - 실제 코어(가짜 DOM): 첫 점을 찍은 뒤 접점 둘레를 가리키면 앱 점 'point'("접점")로 붙고 찍으면 "끝점 → 접점",
- *   둘째 점·지우기 뒤 같은 자리를 다시 보면(코어가 앞 pointsFor 결과를 다시 쓴다) 앞 첫 점의 접점은 붙지 않는다(MeasureFirst 세대 한도)
+ * - 실제 코어(가짜 DOM): 첫 점을 찍은 뒤 접점 둘레를 가리키면 앱 점 'tangent'("접점")로 붙고 찍으면 "끝점 → 접점",
+ *   둘째 점·지우기 뒤 같은 자리를 다시 보면 앞 첫 점의 접점은 붙지 않는다(코어가 첫 점이 바뀐 고르기를 다시 묻는다)
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Viewer3d, type MeasureResult } from 'opencad-viewer3d';
@@ -11,7 +12,7 @@ import { stepToScene } from '../../src/index';
 import type { StepEdgeTable } from '../../src/scene';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { circleCenters, edgeSnapPoints, hoverSnapLabel, measureSnapOptions, snapPair, TANGENT_POINT_LABEL } from '../../src/app/snap';
-import { curveSnap, curveTangents, type EdgeArc, MeasureFirst, tangentsOnArc } from '../../src/app/curvesnap';
+import { curveSnap, curveTangents, type EdgeArc, tangentsOnArc } from '../../src/app/curvesnap';
 import { bsplineEval, edgeCurve, type BsplineDef } from '../../src/edgecurve';
 import { translate } from '../../site/i18n.mjs';
 import { type FakeElement, installDom } from './fakeview';
@@ -157,52 +158,44 @@ describe('첫 점에서 그은 접선의 접점(curveTangents)', () => {
     });
   });
 
-  it('붙잡기 점(edgeSnapPoints): 첫 점이 있으면 곡선 모서리의 끝점·가운데 점·중심 뒤에 접점(kind point·그 세대 차례 값), 첫 점이 없거나 곧은 모서리면 예전 그대로', () => {
+  it('붙잡기 점(edgeSnapPoints): 첫 점이 있으면 곡선 모서리의 끝점·가운데 점·중심 뒤에 접점(kind tangent, 차례 값 없음), 첫 점이 없거나 곧은 모서리면 예전 그대로', () => {
     const cs = curveSnap(scene.meshes, ex)!;
     const byId = new Map(scene.meshes.map((m) => [m.id, m] as const));
     const segOf = (c: (typeof edges)[number]) => c.table.segStart[c.e]! + 1;
     const pick = (c: (typeof edges)[number]): Pick3d => ({ kind: 'edge', id: c.mesh.id, index: segOf(c), raw: segOf(c), point: [0, 0, 0] });
     const plain = edgeSnapPoints(pick(bottom), byId, ex, cs)!;
-    const withF = edgeSnapPoints(pick(bottom), byId, ex, cs, { point: [40, 0, 0], order: -3 })!;
+    const withF = edgeSnapPoints(pick(bottom), byId, ex, cs, [40, 0, 0])!;
     expect(withF.slice(0, plain.length)).toEqual(plain);
     expect(withF.slice(plain.length).map((p) => [p.kind, p.order, p.id])).toEqual([
-      ['point', -3, bottom.mesh.id],
-      ['point', -3, bottom.mesh.id],
+      ['tangent', undefined, bottom.mesh.id],
+      ['tangent', undefined, bottom.mesh.id],
     ]);
     // 타원 호 끝의 접선 위 첫 점: 그 끝점 자리 접점은 끝점과 겹쳐 더하지 않는다
     const T = ellTangent(ELL_T1);
     const G: V3 = [ELL_END[0] + 9 * T[0], ELL_END[1] + 9 * T[1], 0];
-    const ep = edgeSnapPoints(pick(ellipse), byId, ex, cs, { point: G, order: -1 })!;
-    expect(ep.filter((p) => p.kind === 'point').every((p) => dist(p.point, ELL_END) > 1e-3)).toBe(true);
+    const ep = edgeSnapPoints(pick(ellipse), byId, ex, cs, G)!;
+    expect(ep.filter((p) => p.kind === 'tangent').every((p) => dist(p.point, ELL_END) > 1e-3)).toBe(true);
     expect(ep.filter((p) => p.kind === 'endpoint')).toHaveLength(2);
   });
-});
 
-describe('측정 첫 점 세대(MeasureFirst)', () => {
-  it('첫 점만 찍었을 때만 그 점, 찍은 점이 바뀔 때마다 세대를 올려 붙잡기 한도를 1 − 세대로(지금 세대 차례 −세대만 붙는다)', () => {
-    let count = 0;
-    const limits: (number | null)[] = [];
-    const v = {
-      get measurePointCount() {
-        return count;
-      },
-      get measurePoints() {
-        return count ? [{ point: [1, 2, 3] as V3, snap: null }] : [];
-      },
-      setMeasureSnapLimit: (n: number | null) => void limits.push(n),
-    };
-    const f = new MeasureFirst(v as never);
-    expect(f.point()).toBeNull();
-    count = 1;
-    expect(f.point()).toEqual([1, 2, 3]);
-    expect(f.order).toBe(-1);
-    f.changed();
-    expect([f.order, limits]).toEqual([-2, [-1]]);
-    // 지금 세대(−2) < 한도(−1), 앞 세대(−1)는 한도에 걸린다
-    expect(-2 < limits[0]!).toBe(true);
-    expect(-1 < limits[0]!).toBe(false);
-    count = 2;
-    expect(f.point()).toBeNull();
+  it('붙잡기 선택(measureSnapOptions): 접점을 켜면 코어가 넘긴 첫 점(ctx.first)으로 접점을 더하고 pointsForFirst를 켠다, 끄면 0.37.0 꼴 그대로', () => {
+    const cs = curveSnap(scene.meshes, ex)!;
+    const segOf = (c: (typeof edges)[number]) => c.table.segStart[c.e]! + 1;
+    const p: Pick3d = { kind: 'edge', id: bottom.mesh.id, index: segOf(bottom), raw: segOf(bottom), point: [0, 0, 0] };
+    const on = measureSnapOptions(scene.meshes, ex, [], cs, false, null, true);
+    const off = measureSnapOptions(scene.meshes, ex, [], cs);
+    expect(on.pointsForFirst).toBe(true);
+    expect('pointsForFirst' in off).toBe(false);
+    const kinds = (o: typeof on, first: V3 | null) => o.pointsFor!(p, { first })!.map((s) => s.kind);
+    expect(kinds(on, null)).toEqual(kinds(off, null));
+    expect(kinds(on, [40, 0, 0]).filter((k) => k === 'tangent')).toHaveLength(2);
+    expect(kinds(off, [40, 0, 0])).toEqual(kinds(off, null));
+    // 같은 고르기·같은 첫 점이면 한 번 구한 목록을 그대로, 첫 점이 바뀌면 새로
+    const a = on.pointsFor!(p, { first: [40, 0, 0] });
+    expect(on.pointsFor!(p, { first: [40, 0, 0] })).toBe(a);
+    expect(on.pointsFor!(p, { first: [0, 40, 0] })).not.toBe(a);
+    // 곡선 붙잡기(접선 조각)가 없으면 첫 점을 묻지 않는다
+    expect('pointsForFirst' in measureSnapOptions(scene.meshes, ex, [], null, false, null, true)).toBe(false);
   });
 });
 
@@ -219,12 +212,9 @@ describe('실제 코어로 접점 붙잡기(가짜 DOM)', () => {
     v.fit(false);
     v.renderNow();
     v.setMeasureMode(true);
-    const mf = first ? new MeasureFirst(v) : null;
-    v.setMeasureSnap(measureSnapOptions(scene.meshes, ex, circleCenters(scene.meshes, ex), curveSnap(scene.meshes, ex), false, null, mf));
+    v.setMeasureSnap(measureSnapOptions(scene.meshes, ex, circleCenters(scene.meshes, ex), curveSnap(scene.meshes, ex), false, null, first));
     const got: MeasureResult[] = [];
-    // 앱(app.ts)처럼: 찍은 점이 바뀌면 세대를 올린다
     v.onMeasure((m) => {
-      mf?.changed();
       if (m) got.push(m);
     });
     return { v, canvas: v.canvas as unknown as FakeElement, got };
@@ -257,38 +247,42 @@ describe('실제 코어로 접점 붙잡기(가짜 DOM)', () => {
     // 첫 점 전에는 그 자리에 접점이 없다
     const q = at(w, Q);
     const h0 = hoverXY(w, q.x + 0.7, q.y - 0.4);
-    expect(h0?.snap).not.toBe('point');
+    expect(h0?.snap).not.toBe('tangent');
     clickXY(w, c.x + 0.3, c.y - 0.2);
     expect(w.v.measurePointCount).toBe(1);
     close(w.v.measurePoints[0]!.point, F, 1e-6);
     const h = hoverXY(w, q.x + 0.7, q.y - 0.4)!;
-    expect(h.snap).toBe('point');
+    expect(h.snap).toBe('tangent');
     close(h.point, Q, 1e-9);
     expect(hoverSnapLabel(h)).toBe(TANGENT_POINT_LABEL);
     clickXY(w, q.x + 0.7, q.y - 0.4);
     const m = w.got.at(-1)!;
     expect(snapPair(m)).toEqual(['끝점', '접점']);
     expect(m.distance).toBeCloseTo(Math.sqrt(40 ** 2 - RIM_R ** 2), 6);
-    // 둘째 점 뒤 같은 자리(코어가 앞 pointsFor 결과를 다시 쓴다) — 앞 첫 점의 접점은 붙잡기 한도로 걸러 붙지 않는다
-    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('point');
+    // 둘째 점 뒤 같은 자리 — 첫 점이 없어졌으니(코어가 같은 고르기를 다시 묻는다) 앞 첫 점의 접점은 붙지 않는다
+    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('tangent');
+    // 새 첫 점(같은 꼭짓점)을 찍으면 같은 고르기에서 다시 접점이 붙는다(첫 점이 바뀐 기억 — 0.38.0 pointsForFirst)
+    clickXY(w, c.x + 0.3, c.y - 0.2);
+    expect(w.v.measurePointCount).toBe(1);
+    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).toBe('tangent');
     w.v.dispose();
   });
 
-  it('세대를 쓰지 않으면(MeasureFirst 없음) 접점을 더하지 않는다 — 붙잡기 결과가 예전과 같다, 지우기(Esc) 뒤 같은 자리도 접점이 남지 않는다', () => {
+  it('접점을 켜지 않으면 접점을 더하지 않는다 — 붙잡기 결과가 예전과 같다, 지우기(Esc) 뒤 같은 자리도 접점이 남지 않는다', () => {
     const plain = view(false);
     const w = view();
     const c = at(w, ELL_C);
     const q = at(w, Q);
     clickXY(plain, c.x + 0.3, c.y - 0.2);
     clickXY(w, c.x + 0.3, c.y - 0.2);
-    expect(hoverXY(plain, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('point');
-    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).toBe('point');
+    expect(hoverXY(plain, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('tangent');
+    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).toBe('tangent');
     // 지우기: 찍은 점이 없으면 같은 자리를 다시 봐도(코어가 앞 결과를 다시 쓴다) 접점이 아니다
     w.v.clearMeasure();
     expect(w.v.measurePointCount).toBe(0);
-    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('point');
+    expect(hoverXY(w, q.x + 0.7, q.y - 0.4)?.snap).not.toBe('tangent');
     // 조금 움직여도(새로 구함) 첫 점이 없으니 접점이 없다
-    expect(hoverXY(w, q.x + 1.1, q.y - 0.2)?.snap).not.toBe('point');
+    expect(hoverXY(w, q.x + 1.1, q.y - 0.2)?.snap).not.toBe('tangent');
     plain.v.dispose();
     w.v.dispose();
   });
