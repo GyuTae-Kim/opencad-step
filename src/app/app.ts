@@ -2090,6 +2090,14 @@ export class StepApp {
     this.toolbar.refresh();
   }
 
+  /** 주변 가림(62차 — 코어 0.49.0 화면 공간 SSAO, 기본 끔): 구석·틈을 어둡게. 카메라를 옮기는 동안은 그리지 않는다(0.50.0 moving 'off' — 휴대폰·큰 조립) */
+  ambientOcclusion = false;
+  toggleAmbientOcclusion(on = !this.ambientOcclusion): void {
+    this.ambientOcclusion = on;
+    this.viewer?.setAmbientOcclusion(on ? { moving: 'off' } : null);
+    this.toolbar.refresh();
+  }
+
   // 격자·뷰 큐브·좌표축 상태는 뷰어(코어)가 든다. 뷰어가 아직 없으면 코어 기본값(켜짐)
 
   get gridOn(): boolean {

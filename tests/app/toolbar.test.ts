@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeMenu } from '../../src/app/menu';
-import { isLineMode, profilesFor, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
+import { isLineMode, profilesFor, RENDER_MODES, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import { translate } from '../../site/i18n.mjs';
 
 function host(): ToolbarHost & { calls: string[] } {
@@ -27,6 +27,7 @@ function host(): ToolbarHost & { calls: string[] } {
     hiddenEdges: false,
     profiles: false,
     partColors: false,
+    ambientOcclusion: false,
     explodeOpen: false,
     fit: call('fit'),
     goHome: call('home'),
@@ -38,6 +39,7 @@ function host(): ToolbarHost & { calls: string[] } {
     toggleHiddenEdges: call('hiddenEdges'),
     toggleProfiles: call('profiles'),
     togglePartColors: call('partColors'),
+    toggleAmbientOcclusion: call('ao'),
     toggleExplode: call('explode'),
     toggleGrid: call('grid'),
     toggleCube: call('cube'),
@@ -140,12 +142,13 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
       ['단색', 'false', false],
       ['숨은 모서리 점선', 'false', false],
       ['외곽선 강조', 'true', true],
+      ['주변 가림', 'false', true],
       ['부품 색 구분', 'false', false],
       ['분해 보기', 'false', false],
     ]);
     // 키보드로 열었으면 초점은 새 메뉴의 고른 항목(숨은선 제거)
     expect(document.activeElement?.textContent).toContain('숨은선 제거');
-    items[9]!.click();
+    items[10]!.click();
     expect(h.calls).toEqual(['explode']);
     expect(document.querySelector('.menu')).toBeNull();
     expect(more.getAttribute('aria-expanded')).toBe('false');
@@ -198,15 +201,37 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
       ['단색', 'false', false],
       ['숨은 모서리 점선', 'false', false],
       ['외곽선 강조', 'true', true],
+      ['주변 가림', 'false', true],
       ['부품 색 구분', 'true', false],
       ['분해 보기', 'false', false],
     ]);
     items[6]!.click();
     mode.click();
-    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][9]!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][10]!.click();
     mode.click();
     [...document.querySelectorAll<HTMLButtonElement>('.menu-item')][5]!.click();
     expect(h.calls).toEqual(['hiddenEdges', 'explode', 'mode monochrome']);
+  });
+
+  it('62차 주변 가림: 음영 계열에서만 켜고 끈다(켠 값은 와이어프레임·X-ray·숨은선에서 끈 채 잠김 — 코어가 그리지 않는다)', () => {
+    const ao = (renderMode: 'shaded' | 'shadedEdges' | 'monochrome' | 'wireframe' | 'xray' | 'hiddenLine', ambientOcclusion: boolean) => {
+      document.body.innerHTML = '';
+      const h = { ...host(), renderMode, ambientOcclusion };
+      const tb = new Toolbar(h);
+      document.body.append(tb.el);
+      button(tb, RENDER_MODES.find(([m]) => m === renderMode)![1]).click();
+      const item = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.querySelector('.menu-label')!.textContent === '주변 가림')!;
+      const out = [item.getAttribute('aria-checked'), item.disabled];
+      if (!item.disabled) item.click();
+      closeMenu();
+      return [...out, h.calls.join()];
+    };
+    expect(ao('shadedEdges', false)).toEqual(['false', false, 'ao']);
+    expect(ao('shaded', true)).toEqual(['true', false, 'ao']);
+    expect(ao('monochrome', true)).toEqual(['true', false, 'ao']);
+    expect(ao('wireframe', true)).toEqual(['false', true, '']);
+    expect(ao('xray', true)).toEqual(['false', true, '']);
+    expect(ao('hiddenLine', true)).toEqual(['false', true, '']);
   });
 
   it('선 모드(와이어프레임·숨은선)는 1화소 외곽선을 늘 켜고 "외곽선 강조"를 잠근다 — 다른 모드는 사용자 값(기본 굵기)', () => {

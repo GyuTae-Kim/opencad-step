@@ -1086,5 +1086,6 @@
   "측정 지우기 — 지울 것이 없으면 커서 끄기": "Messung löschen – wenn nichts zu löschen ist, Cursor ausschalten",
   "전체 보기 · 표준 뷰": "Alles anzeigen · Standardansichten",
   "3D 보기를 Tab으로 고른 뒤 화살표를 누르면 가상 커서가 켜집니다. 마우스처럼 측정 점을 붙잡고 면·모서리를 고르며, 바뀔 때마다 화면 읽기 프로그램에 알립니다.": "Wählen Sie die 3D-Ansicht mit Tab aus und drücken Sie dann eine Pfeiltaste, um den virtuellen Cursor einzuschalten. Wie die Maus rastet er an Messpunkten ein und wählt Flächen und Kanten aus; jede Änderung wird Bildschirmlesern gemeldet.",
-  "두 점 측정에서 가상 커서가 꺼져 있고 마우스가 3D 보기 위에 있으면 화살표는 방향 잠금입니다(→ X축 · ← Y축 · ↑ Z축 · ↓ 지금 방향).": "Bei der Zwei-Punkt-Messung sperren die Pfeiltasten die Richtung, wenn der virtuelle Cursor aus ist und die Maus über der 3D-Ansicht steht (→ X-Achse · ← Y-Achse · ↑ Z-Achse · ↓ aktuelle Richtung)."
+  "두 점 측정에서 가상 커서가 꺼져 있고 마우스가 3D 보기 위에 있으면 화살표는 방향 잠금입니다(→ X축 · ← Y축 · ↑ Z축 · ↓ 지금 방향).": "Bei der Zwei-Punkt-Messung sperren die Pfeiltasten die Richtung, wenn der virtuelle Cursor aus ist und die Maus über der 3D-Ansicht steht (→ X-Achse · ← Y-Achse · ↑ Z-Achse · ↓ aktuelle Richtung).",
+  "주변 가림": "Umgebungsverdeckung"
 }
