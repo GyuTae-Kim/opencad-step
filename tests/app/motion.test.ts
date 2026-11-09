@@ -1,107 +1,85 @@
+// @vitest-environment jsdom
 /**
- * 움직임 줄이기(55차 — WCAG 2.3.3, prefers-reduced-motion: reduce): 앱이 카메라를 옮길 때(홈 뷰·면 정면·저장된 보기) 줄이기를 켠 사용자에게는
- * 프레임마다 옮기지 않고 바로 그 자리로 둔다. 코어가 옮기는 것(표준 뷰·전체 보기·뷰 큐브)은 뷰어를 만들 때 animate 선택으로 끈다(app.ts).
+ * 움직임 줄이기(55차 — WCAG 2.3.3, prefers-reduced-motion: reduce): 카메라를 옮길 때(표준 뷰·전체 보기·뷰 큐브, 앱의 홈 뷰·면 정면·저장된 보기)
+ * 줄이기를 켠 사용자에게는 날리지 않고 바로 그 자리로 둔다. 61차부터 코어가 맡는다 — 뷰어를 animate 'auto'(코어 0.48.0 — 선호를 듣고 연 뒤 바뀌어도 따른다)로 만들고
+ * 앱이 옮기는 카메라는 코어 flyTo(0.49.0 — 0.32초, 같은 설정)로 준다(55~60차는 앱의 matchMedia 읽기와 프레임 고리 motion.ts).
+ * 링크로 연 보기는 예전처럼 setCamera로 바로 둔다.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CameraState, Viewer3d } from 'opencad-viewer3d';
-import { defaultCamera } from 'opencad-viewer3d/camera';
-import { animateCamera, REDUCED_MOTION, reducedMotion } from '../../src/app/motion';
+import { Viewer3d, type CameraState } from 'opencad-viewer3d';
+import { jsdomViewer } from './jsdomview';
 
-/** 카메라만 가진 가짜 뷰어(setCamera 부름을 모은다) */
-function fakeViewer(start: CameraState): { v: Viewer3d; set: CameraState[] } {
-  let cam = start;
-  const set: CameraState[] = [];
-  const v = {
-    getCamera: () => cam,
-    setCamera: (c: CameraState) => {
-      cam = c;
-      set.push(c);
-    },
-  } as unknown as Viewer3d;
-  return { v, set };
-}
-
-/** matchMedia 흉내: 움직임 줄이기 켬·끔 */
-function media(reduce: boolean): void {
-  vi.stubGlobal('matchMedia', (q: string) => ({ matches: reduce && q === REDUCED_MOTION, media: q }));
-}
-
-/** requestAnimationFrame 흉내: 부른 것을 모아 두고 run(t)으로 한 프레임씩 돌린다 */
-function frames(): { run: (t: number) => void; pending: () => number } {
-  let q: FrameRequestCallback[] = [];
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-    q.push(cb);
-    return q.length;
-  });
-  return {
-    run: (t) => {
-      const now = q;
-      q = [];
-      for (const cb of now) cb(t);
-    },
-    pending: () => q.length,
-  };
-}
+const REDUCE = '(prefers-reduced-motion: reduce)';
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe('움직임 줄이기', () => {
-  const from = defaultCamera();
-  const to: CameraState = { ...from, yaw: from.yaw + 1, pitch: 0.2, distance: from.distance * 2 };
+/** 움직임 줄이기 선호를 흉내 내는 matchMedia(change 사건을 보낼 수 있다) */
+function prefersReduce(on: boolean): { mm: typeof window.matchMedia; set: (v: boolean) => void } {
+  let matches = on;
+  const ls = new Set<(e: { matches: boolean }) => void>();
+  const mql = {
+    media: REDUCE,
+    get matches() {
+      return matches;
+    },
+    addEventListener: (_: string, cb: (e: { matches: boolean }) => void) => void ls.add(cb),
+    removeEventListener: (_: string, cb: (e: { matches: boolean }) => void) => void ls.delete(cb),
+    addListener: (cb: (e: { matches: boolean }) => void) => void ls.add(cb),
+    removeListener: (cb: (e: { matches: boolean }) => void) => void ls.delete(cb),
+  };
+  const mm = ((q: string) => (q === REDUCE ? mql : { media: q, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia;
+  return {
+    mm,
+    set: (v) => {
+      matches = v;
+      for (const cb of ls) cb({ matches: v });
+    },
+  };
+}
 
-  it('설정을 matchMedia로 읽는다(matchMedia가 없는 환경은 끈 것으로)', () => {
-    expect(REDUCED_MOTION).toBe('(prefers-reduced-motion: reduce)');
-    vi.stubGlobal('matchMedia', undefined);
-    expect(reducedMotion()).toBe(false);
-    media(true);
-    expect(reducedMotion()).toBe(true);
-    media(false);
-    expect(reducedMotion()).toBe(false);
-  });
-
-  it('끔: 0.32초 동안 프레임마다 사이 카메라를 거쳐 끝 카메라로', () => {
-    media(false);
-    const f = frames();
-    vi.spyOn(performance, 'now').mockReturnValue(1000);
-    const { v, set } = fakeViewer(from);
-    animateCamera(v, to);
-    expect(set).toEqual([]);
-    expect(f.pending()).toBe(1);
-    f.run(1160);
-    expect(set).toHaveLength(1);
-    expect(set[0]!.distance).toBeGreaterThan(from.distance);
-    expect(set[0]!.distance).toBeLessThan(to.distance);
-    f.run(1400);
-    expect(set.at(-1)).toBe(to);
-    expect(f.pending()).toBe(0);
-  });
-
-  it('켬: 프레임을 기다리지 않고 바로 끝 카메라 한 번, 앞의 움직임도 그만둔다', () => {
-    media(false);
-    const f = frames();
-    vi.spyOn(performance, 'now').mockReturnValue(1000);
-    const { v, set } = fakeViewer(from);
-    animateCamera(v, to);
-    media(true);
-    const to2: CameraState = { ...to, yaw: to.yaw + 0.5 };
-    animateCamera(v, to2);
-    expect(set).toEqual([to2]);
-    // 앞의 움직임은 다음 프레임에 멈춘다(카메라를 되돌리지 않는다)
-    f.run(1100);
-    expect(set).toEqual([to2]);
-  });
-
-  it('앱은 카메라 옮기기를 뷰어 조각에서 받고(첫 화면 JS 밖), 뷰어를 만들 때 코어 animate를 설정에 맞춘다', () => {
+describe('움직임 줄이기(61차 — 코어 animate auto·flyTo)', () => {
+  it("앱은 뷰어를 animate 'auto'로 만들고 홈 뷰·면 정면·저장된 보기를 코어 flyTo로 옮긴다(앱의 설정 읽기·프레임 고리는 없다)", () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-    const kit = readFileSync(join(__dirname, '../../src/app/viewerkit.ts'), 'utf8');
-    expect(kit).toMatch(/export \{ animateCamera, reducedMotion \} from '\.\/motion'/);
-    expect(app).toMatch(/new core\.Viewer3d\(this\.hostEl, \{[^}]*animate: !core\.reducedMotion\(\) \}\)/);
-    expect(app).not.toMatch(/import [^;]*animateCamera/);
-    expect(app.match(/this\.ent\?\.animateCamera\(/g)).toHaveLength(3);
+    expect(app).toMatch(/new core\.Viewer3d\(this\.hostEl, \{[^}]*animate: 'auto' \}\)/);
+    expect(app.match(/void v\.flyTo\(/g)).toHaveLength(3);
+    expect(app).not.toMatch(/animateCamera|reducedMotion/);
+    // 링크로 연 보기는 바로(움직이지 않는다)
+    expect(app).toMatch(/v\.setCamera\(\{ \.\.\.v\.getCamera\(\), \.\.\.link\.cam/);
+    expect(existsSync(join(__dirname, '../../src/app/motion.ts'))).toBe(false);
+  });
+
+  it('실제 코어: 선호가 없으면 flyTo가 0.32초 동안 옮기고, 줄이기를 켜면(연 뒤에 바꿔도) 바로 끝 자리로', async () => {
+    const { host, restore } = jsdomViewer();
+    const pref = prefersReduce(false);
+    const saved = window.matchMedia;
+    window.matchMedia = pref.mm;
+    const v = new Viewer3d(host, { animate: 'auto', keyboard: false });
+    try {
+      v.setScene({ name: 'box', units: 'mm', meshes: [{ id: 'a', positions: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]), indices: new Uint32Array([0, 1, 2]), color: [0.6, 0.6, 0.6, 1] }], lines: [] });
+      v.fit(false);
+      expect(v.animateSetting).toBe('auto');
+      expect(v.animate).toBe(true);
+      const from = v.getCamera();
+      const to: CameraState = { ...from, yaw: from.yaw + 1, distance: from.distance * 2 };
+      // 움직임: 부른 그때는 그 자리 그대로(프레임마다 옮긴다)
+      void v.flyTo(to);
+      expect(v.getCamera().distance).toBeCloseTo(from.distance, 9);
+      // 연 뒤 줄이기로 바꾸면 옮기던 것을 끝 자리로 마치고, 다음 flyTo는 곧바로 끝 자리
+      pref.set(true);
+      expect(v.animate).toBe(false);
+      expect(v.getCamera().distance).toBeCloseTo(to.distance, 9);
+      const to2: CameraState = { ...to, yaw: to.yaw + 0.5 };
+      const done = v.flyTo(to2);
+      expect(v.getCamera().yaw).toBeCloseTo(to2.yaw, 9);
+      await expect(done).resolves.toBe(true);
+    } finally {
+      v.dispose();
+      window.matchMedia = saved;
+      restore();
+    }
   });
 });

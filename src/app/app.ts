@@ -939,8 +939,9 @@ export class StepApp {
     this.panel.kit = core;
     // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
     this.panel.phys = core;
-    // 움직임 줄이기(55차 — motion.ts)를 켠 사용자에게는 표준 뷰·전체 보기·뷰 큐브로 카메라를 날리지 않고 바로 옮긴다
-    const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: !core.reducedMotion() });
+    // 움직임 줄이기(55차 — WCAG 2.3.3)를 켠 사용자에게는 카메라를 날리지 않고 바로 옮긴다. 61차: 코어 0.48.0 animate 'auto'가 선호를 듣고
+    // 연 뒤 설정을 바꿔도 따른다 — 표준 뷰·전체 보기·뷰 큐브와 앱이 옮기는 홈 뷰·면 정면·저장된 보기(flyTo) 모두
+    const v = new core.Viewer3d(this.hostEl, { theme: this.theme, viewCubeSize: this.cubeSize(), animate: 'auto' });
     // 누르기 알림은 반투명 보기(부품 불투명도를 낮췄거나 나머지 흐리게)인 동안 반투명 그물 너머 불투명 면을 고른다(코어 0.23.0 — 겉모습이 바뀔 때 선택만 다시 단다)
     this.pickCb = (p, e) => {
       // 개체 측정: 고르기 대신 누른 면·모서리·꼭짓점을 모은다
@@ -1172,8 +1173,8 @@ export class StepApp {
       this.toast('이 면은 정면 방향을 정할 수 없습니다(평면과 원기둥·원뿔·원환 면만).', 'warn');
       return false;
     }
-    // 카메라 옮기기는 뷰어 조각(motion.ts — 움직임 줄이기면 바로). 뷰어가 있으면 조각도 받아 둔 뒤다
-    this.ent?.animateCamera(v, cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
+    // 카메라 옮기기는 코어 flyTo(0.32초 — 움직임 줄이기면 바로, 61차에 앱 고리에서 옮김)
+    void v.flyTo(cameraLooking(cam, dir, faceBox(face), v.canvas.clientWidth / Math.max(1, v.canvas.clientHeight)));
     return true;
   }
 
@@ -1199,7 +1200,7 @@ export class StepApp {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
-    if (d.home) this.ent?.animateCamera(v, d.home);
+    if (d.home) void v.flyTo(d.home);
     else v.fit();
   }
 
@@ -1432,7 +1433,7 @@ export class StepApp {
     let distance = view.distance;
     if (view.projection === 'orthographic' || !(distance > 0)) distance = view.height > 0 ? view.height / 2 / Math.tan(cam.fovY / 2) : cam.distance;
     v.setProjection(view.projection);
-    this.ent?.animateCamera(v, { ...v.getCamera(), target: [...view.target], distance, yaw: a.yaw, pitch: a.pitch, projection: view.projection });
+    void v.flyTo({ ...v.getCamera(), target: [...view.target], distance, yaw: a.yaw, pitch: a.pitch, projection: view.projection });
     if (view.pmiIds?.length) {
       const show = new Set(view.pmiIds);
       d.vis.pmiOff = false;
