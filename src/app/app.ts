@@ -853,6 +853,12 @@ export class StepApp {
     // 61차: 걸음마다 몫·다시 그리기 간격을 코어 0.51.0 공개 선택(incremental.budgetMs 함수·redrawMs — upload.ts uploadOptions)으로 준다
     const { triangles: tris, budgetMs } = this.ent!.sceneUpload(doc.scene.meshes);
     this.upload = null;
+    // 61차: 코어가 깨진 입력(해석기가 거르지 못한 NaN·한도 밖 좌표, 없는 정점 색인 등)을 빼거나 고쳐 그리면(코어 0.50.0 — setScene 안에서 알린다)
+    // 그 알림을 이 문서의 경고 목록 끝에 더한다(정보 탭·연 뒤 알림의 경고 수)
+    const offIssues = v.onSceneIssues((list) => {
+      const lines = this.ent!.sceneIssueLines(list);
+      if (lines.length) doc.scene.warnings = [...(doc.scene.warnings ?? []), ...lines];
+    });
     v.setScene(doc.scene, {
       keepView: !!carry,
       ...(budgetMs
@@ -865,6 +871,7 @@ export class StepApp {
           }
         : {}),
     });
+    offIssues();
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
     this.lookSync.clear();
@@ -1009,9 +1016,13 @@ export class StepApp {
       this.contextMenuAt(e.clientX, e.clientY);
     });
     // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
+    // 손가락으로 뷰 큐브를 펴고 접으면(코어 0.44.0 — 편 동안 224화소) 거리 글상자가 비킬 큐브 자리를 다시 알린다(61차 — 코어는 펴고 접을 때 알리지 않는다).
+    // 누르기 뒤 코어가 펴고, 다시 누르기·3D 보기 누르기·Esc 뒤 접는다
     this.hostEl.addEventListener('pointerup', () => {
       if (v.measureMode) this.refreshBar();
+      this.labelAvoid?.syncCube();
     });
+    this.hostEl.addEventListener('keyup', () => this.labelAvoid?.syncCube());
     // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
     // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)

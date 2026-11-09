@@ -1048,5 +1048,11 @@
   "Alt/⌥로 풀기": "Alt/⌥ zum Lösen",
   "붙잡기": "Einrasten",
   "붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)": "Einrasten an: Ein gezogenes Bauteil rastet dort ein, wo es eine Fläche eines anderen Bauteils berührt oder mit ihr bündig ist – zum Ausschalten drücken (mit der Maus beim Ziehen Alt/⌥ gedrückt halten, um es kurz zu lösen)",
-  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Einrasten aus: Ein gezogenes Bauteil rastet nicht an Flächen anderer Bauteile ein – zum Einschalten drücken"
+  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Einrasten aus: Ein gezogenes Bauteil rastet nicht an Flächen anderer Bauteile ein – zum Einschalten drücken",
+  "3D 보기가 놓을 자리를 알 수 없어 뺀 형상 {0}개": "Wegen unbekannter Platzierung in der 3D-Ansicht ausgelassene Geometrien: {0}",
+  "3D 보기가 좌표가 잘못된 정점 {0}개를 쓰는 도형을 그리지 않았다(형상 {1}개)": "Die 3D-Ansicht hat Primitive, die {0} Eckpunkte mit ungültigen Koordinaten verwenden, nicht gezeichnet ({1} Geometrien)",
+  "3D 보기가 없는 정점을 가리키는 삼각형 {0}개를 그리지 않았다(형상 {1}개)": "Die 3D-Ansicht hat {0} Dreiecke, die auf fehlende Eckpunkte verweisen, nicht gezeichnet ({1} Geometrien)",
+  "3D 보기가 잘못된 색·굵기·법선 같은 값을 기본값으로 그린 형상 {0}개": "Geometrien, die die 3D-Ansicht statt ungültiger Farben, Linienstärken, Normalen o. Ä. mit Standardwerten gezeichnet hat: {0}",
+  "3D 보기에서 id가 겹친 형상 {0}개는 고르기가 한 항목만 본다": "{0} Geometrien teilen sich in der 3D-Ansicht eine ID; die Auswahl erfasst nur eine davon",
+  "3D 보기가 장면 범위를 형상에서 다시 셌다(파일의 범위가 잘못됨)": "Die 3D-Ansicht hat die Szenengrenzen aus den Geometrien neu berechnet (die Grenzen waren ungültig)"
 }

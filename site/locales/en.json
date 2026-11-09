@@ -1048,5 +1048,11 @@
   "Alt/⌥로 풀기": "Alt/⌥ to release",
   "붙잡기": "Snap",
   "붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)": "Snap on: a dragged part snaps where it touches or is level with a face of another part — press to turn off (with a mouse, hold Alt/⌥ while dragging to release it for a moment)",
-  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Snap off: a dragged part does not snap to faces of other parts — press to turn on"
+  "붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기": "Snap off: a dragged part does not snap to faces of other parts — press to turn on",
+  "3D 보기가 놓을 자리를 알 수 없어 뺀 형상 {0}개": "Geometry left out of the 3D view because its placement is unknown: {0}",
+  "3D 보기가 좌표가 잘못된 정점 {0}개를 쓰는 도형을 그리지 않았다(형상 {1}개)": "The 3D view did not draw primitives that use {0} vertices with invalid coordinates ({1} geometry items)",
+  "3D 보기가 없는 정점을 가리키는 삼각형 {0}개를 그리지 않았다(형상 {1}개)": "The 3D view did not draw {0} triangles that refer to missing vertices ({1} geometry items)",
+  "3D 보기가 잘못된 색·굵기·법선 같은 값을 기본값으로 그린 형상 {0}개": "Geometry the 3D view drew with default values in place of invalid colors, widths, normals or similar: {0}",
+  "3D 보기에서 id가 겹친 형상 {0}개는 고르기가 한 항목만 본다": "{0} geometry items share an id in the 3D view; picking sees only one of them",
+  "3D 보기가 장면 범위를 형상에서 다시 셌다(파일의 범위가 잘못됨)": "The 3D view recomputed the scene bounds from the geometry (the bounds were invalid)"
 }

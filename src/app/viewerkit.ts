@@ -14,7 +14,7 @@
  * - PMI 탭 본문(pmiview.ts — 54차에 첫 화면 JS에서 옮김): 표현·의미 PMI 표를 보이는 줄만 그리는 가상 목록, 나무 조각과 함께 패널에 넣는다
  * - (55~60차의 카메라 옮기기·움직임 줄이기 motion.ts는 61차에 뺐다 — 코어 0.48.0 animate 'auto'와 0.49.0 flyTo가 맡는다)
  * - 큰 장면 나눠 올리기(upload.ts — 58차, 앱 입구에서 옮김): 문서를 뷰어에 올릴 때 나눠 올릴지와 그물 수에 맞춘 몫
- * - 연 뒤 알림(opennotice.ts — 58차, 앱 입구에서 옮김): 끊긴 파일·조립 자리 상한·경고 수
+ * - 연 뒤 알림(opennotice.ts — 58차, 앱 입구에서 옮김): 끊긴 파일·조립 자리 상한·경고 수, 코어가 빼거나 고쳐 그린 장면 입력의 경고 글(61차 — 코어 0.50.0 onSceneIssues)
  * - 패널 정보 탭 본문(infoview.ts — 59차, panel.ts에서 옮김): 문서·파일 머리·단위·통계·경고 — 나무 조각과 함께 패널에 넣는다.
  *   나눠 올리기 걸음마다 몫(upload.ts stepBudgetMs — 59차, 앞 두 걸음 8 ms)과 다시 그리기 간격(61차 — 코어 0.51.0 공개 선택으로, uploadOptions)도 같은 모듈
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
@@ -26,7 +26,7 @@ export * from './entpick';
 export { watchGraphicsContext } from './gpucontext';
 export { infoView } from './infoview';
 export { installKeyNav } from './keynav';
-export { openNotice } from './opennotice';
+export { openNotice, sceneIssueLines } from './opennotice';
 export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
