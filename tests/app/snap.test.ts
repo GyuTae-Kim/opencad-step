@@ -126,9 +126,10 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(edgeSnapPoints(pick(lineE), s.meshes, ex, cs)![2]!.point).toEqual(line[2]!.point);
   });
 
-  it('snapLabel·snapPair: 붙잡은 종류 이름(43차부터 STEP의 앱 점 point는 접점뿐이라 "접점"), 붙잡기를 켜지 않았거나 둘 다 자유 점이면 null', () => {
-    expect(['vertex', 'endpoint', 'midpoint', 'center', 'point', null].map((k) => snapLabel(k as never))).toEqual(['꼭짓점', '끝점', '가운데 점', '중심', '접점', '면 위 점']);
-    expect(snapPair({ snapA: 'endpoint', snapB: 'point' })).toEqual(['끝점', '접점']);
+  it('snapLabel·snapPair: 붙잡은 종류 이름(접점은 코어 0.38.0 tangent — 61차, 그 밖의 앱 점 point는 "점"), 붙잡기를 켜지 않았거나 둘 다 자유 점이면 null', () => {
+    expect(['vertex', 'endpoint', 'midpoint', 'center', 'tangent', 'point', null].map((k) => snapLabel(k as never))).toEqual(['꼭짓점', '끝점', '가운데 점', '중심', '접점', '점', '면 위 점']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'tangent' })).toEqual(['끝점', '접점']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'point' })).toEqual(['끝점', '점']);
     expect(snapPair({})).toBeNull();
     expect(snapPair({ snapA: null, snapB: null })).toBeNull();
     expect(snapPair({ snapA: 'center', snapB: null })).toEqual(['중심', '면 위 점']);
