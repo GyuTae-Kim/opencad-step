@@ -62,14 +62,16 @@ export const MERGE_PRELOAD_WAIT_MS = 1500;
  * 앱이 한 번에 올리는 장면(나눠 올리기 문턱 아래 — sceneUpload의 budgetMs가 null, 그물 3,000개·삼각형 40만 개까지)이면 setScene 앞에 조각을 받는다.
  * 받기 전에 한 번에 올리면 코어는 그물마다 GL 객체를 다 만든 뒤 조각이 오면 굽는다(가짜 WebGL 서로 다른 부품 2,500개: 올리는 동안 GL 버퍼 가장 큰 값 10,007 —
  * 미리 받으면 19, 66차 측정). 나눠 올리는 장면은 코어가 setScene에서 받기를 걸어 첫 걸음들과 겹치고(굽기 단위에서만 걸음을 멈춘다) 문턱 아래 장면은 받지 않으므로 기다리지 않는다.
- * 받았거나·받지 못했거나·waitMs가 지나면 끝난다(던지지 않는다). kit은 코어 입구(시험이 흉내로 바꾼다)
+ * 받았거나·받지 못했거나·waitMs가 지나면 끝난다(던지지 않는다). kit은 코어 입구(시험이 흉내로 바꾼다).
+ * 68차(코어 0.55.0): 받기가 코어 기다림 한도(MERGE_KIT_WAIT_MS 4초)를 넘은 페이지(mergingState 'late')에서는 기다리지 않는다 — 코어도 그 페이지에서는
+ * 조각을 기다리지 않고 그물마다 올리고(늦게 오면 그때 굽는다), 끝나지 않는 같은 받기를 파일을 열 때마다 waitMs씩 기다리지 않게
  */
 export function preloadMergingFor(
   meshes: readonly { positions: ArrayLike<number>; indices?: ArrayLike<number> | null }[],
-  kit: { MERGE_AUTO_MIN: number; Viewer3d: { preloadMerging(): Promise<boolean> } } = { MERGE_AUTO_MIN, Viewer3d },
+  kit: { MERGE_AUTO_MIN: number; Viewer3d: { preloadMerging(): Promise<boolean>; mergingState?(): string } } = { MERGE_AUTO_MIN, Viewer3d },
   waitMs = MERGE_PRELOAD_WAIT_MS,
 ): Promise<void> {
-  if (meshes.length < kit.MERGE_AUTO_MIN || sceneUpload(meshes).budgetMs !== null) return Promise.resolve();
+  if (meshes.length < kit.MERGE_AUTO_MIN || sceneUpload(meshes).budgetMs !== null || kit.Viewer3d.mergingState?.() === 'late') return Promise.resolve();
   return new Promise((done) => {
     const t = setTimeout(done, waitMs);
     const end = (): void => {
