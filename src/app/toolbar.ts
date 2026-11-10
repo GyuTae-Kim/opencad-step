@@ -8,7 +8,8 @@ import type { Projection, RenderMode, SectionAxis, ViewName } from 'opencad-view
 import { h, iconButton } from './dom';
 import type { PickUnit } from './doc';
 import type { IconName } from './icons';
-import { VIEW_KEYS, VIEW_LABELS, VIEW_MENU, viewKeyOf } from './keys';
+import { VIEW_KEYS, VIEW_LABELS, viewKeyOf } from 'opencad-viewer3d/viewkeys';
+import { VIEW_MENU } from './keys';
 import { openMenu, type MenuItem } from './menu';
 
 export const SECTION_AXES: [SectionAxis | null, string][] = [

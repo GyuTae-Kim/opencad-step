@@ -10,6 +10,8 @@
  * - 묶은 뒤에도 장면 배열(위치·색인)은 그대로라 물리 속성(physProps)이 같다
  * 부품은 모양 틀(구멍 뚫린 판·상자 셋)의 닫힌 껍질을 함께 쓰되 제품·입체를 부품마다 따로 둔 합성 STEP이다 — 해석기가 부품마다 따로 삼각화해 배열을 함께 쓰지 않는다.
  * 화면 좌표는 경계를 피해 칸 가운데를 가리킨다.
+ * 66차(코어 0.54.0): 묶음 굽기 코드가 나눠 받는 조각(mergegl)으로 옮겨, 조각이 오기 전에는 그물마다 그린다. 이 시험은 굽기 끝(stats.merged.pending)을
+ * 동기 고리로 기다리므로 먼저 `await Viewer3d.preloadMerging()`으로 조각을 받는다(코어 README 0.54.0 「앱이 할 일」)
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MERGE_AUTO_MIN, Viewer3d } from 'opencad-viewer3d';
@@ -73,6 +75,8 @@ let scene: Scene3d;
 const views: Viewer3d[] = [];
 beforeAll(async () => {
   dom = installDom();
+  // 66차: 묶어 그리기 조각을 먼저 받는다(받지 않으면 동기 고리 동안 조각이 오지 않아 그물마다 그린다)
+  if (!(await Viewer3d.preloadMerging())) throw new Error('묶어 그리기 조각을 받지 못했다');
   const bytes = distinctAssembly(N);
   const res = await parseStepFile('merge.stp', bytes, () => {}, {});
   // 해석 워커가 넘기기 전에 하듯 법선을 Int8 4값으로
@@ -134,6 +138,8 @@ describe('서로 다른 부품이 2,000개 넘는 조립: 코어 0.52.0 묶어 �
     expect(new Set(scene.meshes.map((m) => m.positions)).size).toBe(N);
     expect(scene.meshes.every((m) => !m.doubleSided && !m.colors && m.normals instanceof Int8Array && m.edges)).toBe(true);
     expect(doc.faces).toBeTruthy();
+    // 66차: 조각을 미리 받았다(코어 0.54.0 — 'idle' 받기 전 · 'loading' · 'ready' · 'failed')
+    expect(Viewer3d.mergingState()).toBe('ready');
   });
 
   it('묶음이 켜져 GPU 버퍼·그리기 호출이 크게 주고, 고르기·측정 붙잡기 후보·물리 속성이 끈 뷰어와 같다', () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { baseName, isStepName, parseStartQuery, sameOriginUrl, STEP_ACCEPT, stemName, withoutOnceParams } from '../../src/app/files';
 import { fmtCount, fmtNum, fmtPercent, fmtPt, formatBytes, formatMs, stageLabel } from '../../src/app/format';
-import { VIEW_KEYS } from 'opencad-viewer3d';
-import { controlOf, isTextTarget, routeKey, VIEW_MENU, viewKeyOf } from '../../src/app/keys';
+import { VIEW_KEYS, viewKeyOf } from 'opencad-viewer3d/viewkeys';
+import { controlOf, isTextTarget, routeKey, VIEW_MENU } from '../../src/app/keys';
 import { readStoredTheme, resolveTheme, THEME_KEY, writeStoredTheme } from '../../src/app/theme';
 
 describe('크기·시간·수 글', () => {

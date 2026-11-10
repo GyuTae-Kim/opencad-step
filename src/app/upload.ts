@@ -15,7 +15,10 @@
  * 61차(코어 0.51.0): 걸음마다 몫을 코어 공개 선택(setScene incremental.budgetMs 함수 — stepBudgetMs를 그대로)으로 주고, 59차가 고치던 코어 비공개 상태
  * (upload.budget)는 쓰지 않는다. 다시 그리기 간격(incremental.redrawMs — UPLOAD_REDRAW_MS)을 주면 올리기 걸음만으로 생긴 다시 그리기를 그 간격에 한 번만 하고
  * (첫 걸음은 그린다 — 첫 그림), 다 올린 걸음과 장면 전체 그리기를 두 프레임으로 나눈다(가장 긴 작업이 둘의 합이 아니게).
+ *
+ * 66차(코어 0.54.0): 한 번에 올리는 큰 장면은 묶어 그리기 조각을 먼저 받는다(preloadMergingFor — 코어 입구를 가져오지만 뷰어 조각 안이라 받는 것은 같다).
  */
+import { MERGE_AUTO_MIN, Viewer3d } from 'opencad-viewer3d';
 
 /** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
 export const BIG_TRIANGLES = 400_000;
@@ -49,4 +52,30 @@ export const UPLOAD_REDRAW_MS = 250;
 /** 코어 setScene의 나눠 올리기 선택(코어 0.51.0): 걸음마다 몫 함수(stepBudgetMs)와 다시 그리기 간격 */
 export function uploadOptions(): { budgetMs: (step: number, meshes: number) => number; redrawMs: number } {
   return { budgetMs: stepBudgetMs, redrawMs: UPLOAD_REDRAW_MS };
+}
+
+/** 66차: 묶어 그리기 조각을 기다리는 가장 긴 시간(ms) — 받기가 끝나지 않는 네트워크에서도 열기가 멈추지 않게(넘으면 조각 없이 올리고, 오면 코어가 굽는다) */
+export const MERGE_PRELOAD_WAIT_MS = 1500;
+
+/**
+ * 66차(코어 0.54.0 — 묶어 그리기 굽기 코드가 나눠 받는 조각으로 옮겼다): 코어가 묶어 그릴 장면(그물이 코어 문턱 MERGE_AUTO_MIN 2,000개 이상 — 'auto')인데
+ * 앱이 한 번에 올리는 장면(나눠 올리기 문턱 아래 — sceneUpload의 budgetMs가 null, 그물 3,000개·삼각형 40만 개까지)이면 setScene 앞에 조각을 받는다.
+ * 받기 전에 한 번에 올리면 코어는 그물마다 GL 객체를 다 만든 뒤 조각이 오면 굽는다(가짜 WebGL 서로 다른 부품 2,500개: 올리는 동안 GL 버퍼 가장 큰 값 10,007 —
+ * 미리 받으면 19, 66차 측정). 나눠 올리는 장면은 코어가 setScene에서 받기를 걸어 첫 걸음들과 겹치고(굽기 단위에서만 걸음을 멈춘다) 문턱 아래 장면은 받지 않으므로 기다리지 않는다.
+ * 받았거나·받지 못했거나·waitMs가 지나면 끝난다(던지지 않는다). kit은 코어 입구(시험이 흉내로 바꾼다)
+ */
+export function preloadMergingFor(
+  meshes: readonly { positions: ArrayLike<number>; indices?: ArrayLike<number> | null }[],
+  kit: { MERGE_AUTO_MIN: number; Viewer3d: { preloadMerging(): Promise<boolean> } } = { MERGE_AUTO_MIN, Viewer3d },
+  waitMs = MERGE_PRELOAD_WAIT_MS,
+): Promise<void> {
+  if (meshes.length < kit.MERGE_AUTO_MIN || sceneUpload(meshes).budgetMs !== null) return Promise.resolve();
+  return new Promise((done) => {
+    const t = setTimeout(done, waitMs);
+    const end = (): void => {
+      clearTimeout(t);
+      done();
+    };
+    kit.Viewer3d.preloadMerging().then(end, end);
+  });
 }
