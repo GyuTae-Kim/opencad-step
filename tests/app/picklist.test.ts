@@ -19,12 +19,12 @@ import { catalogs, translate } from '../../site/i18n.mjs';
 import { stepToScene } from '../../src/index';
 import { touchPointerEvent } from '../../src/app/aim';
 import { contextAt, contextItems, type CtxPointHost } from '../../src/app/ctxmenu';
-import { createDoc, productKeyOf, resetSelection, selectionItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from '../../src/app/doc';
+import { createDoc, productKeyOf, resetSelection, selectionItemIds, toggledItems, unitItemIds, type PickUnit, type ProductNode, type StepDoc } from '../../src/app/doc';
 import { faceAt, faceDetails } from '../../src/app/faces';
 import type { Hi } from '../../src/app/hipaint';
 import { installKeySnap } from '../../src/app/keysnap';
 import { closeMenu } from '../../src/app/menu';
-import { PICK_LIST_MAX, pickGroup, pickItems, pickRows, rowEvent, rowHi, selectionKey, type PickRow } from '../../src/app/picklist';
+import { nodeKeyOf, PICK_LIST_MAX, pickGroup, pickItems, pickRows, rowEvent, rowHi, selectionKey, type PickRow } from '../../src/app/picklist';
 import { cube, cylinder, sphere, StepText } from '../stepText';
 import { jsdomViewer, VIEW_H, VIEW_W } from './jsdomview';
 
@@ -609,6 +609,23 @@ describe('가상 커서 Shift+F10·메뉴 키(keysnap.ts menuAt)', () => {
       [VIEW_W / 2 + 5, VIEW_H / 2],
       [VIEW_W / 2 + 5, VIEW_H / 2],
     ]);
+  });
+});
+
+describe('마디 열쇠 표(66차 — nodeKeyOf, 여러 개 고르기 묶음 열쇠가 후보마다 나무를 훑지 않게)', () => {
+  it('doc.ts productKeyOf와 같은 답: 깊이 우선 앞 차례에서 처음 든 마디(마디 자신이 아이들보다 먼저, 같은 id가 두 마디면 앞의 것), 선 묶음도, 없으면 null', () => {
+    const node = (name: string, meshIds: string[], children: ProductNode[] = [], lineIds?: string[]): ProductNode => ({ name, productId: name, meshIds, children, ...(lineIds ? { lineIds } : {}) });
+    const roots: ProductNode[] = [
+      node('a', ['m1'], [node('a0', ['m2', 'm1']), node('a1', [], [node('a10', ['m3'], [], ['l1'])])]),
+      node('b', [], [node('b0', ['m3', 'm4'], [], ['l1', 'l2']), node('b1', ['m5'])]),
+      node('c', ['m6'], [], ['l3']),
+    ];
+    const ids = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'l1', 'l2', 'l3', '없음'];
+    expect(ids.map((id) => nodeKeyOf(roots, id))).toEqual(ids.map((id) => productKeyOf(roots, id)));
+    expect(ids.map((id) => nodeKeyOf(roots, id))).toEqual(['0', '0/0', '0/1/0', '1/0', '1/1', '2', '0/1/0', '1/0', '2', null]);
+    // 실제 문서(겹친 두 부품)의 모든 그물
+    const { d } = setup();
+    for (const m of d.scene.meshes) expect(nodeKeyOf(d.products, m.id)).toBe(productKeyOf(d.products, m.id));
   });
 });
 

@@ -14,7 +14,7 @@
  * - 65차 미리 강조: 줄에 초점이 가거나 마우스가 오르면 그 줄을 고를 때 그릴 강조(rowHi)를 3D에 그린다(고른 것·패널·상태 줄은 그대로 — ctxmenu.ts)
  */
 import type { Pick3d, PickEvent } from 'opencad-viewer3d';
-import { itemById, productAt, productKeyOf, selectionItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { itemById, productAt, selectionItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, edgeKindLabel } from './edges';
 import { faceAt, faceDetails, faceKindLabel } from './faces';
 import type { Hi } from './hipaint';
@@ -59,9 +59,33 @@ export function selectionKey(d: StepDoc): string | null {
   return id ? `b:${id}` : null;
 }
 
+/** 66차: 제품 나무(문서의 products 배열 — 문서를 만든 뒤 바뀌지 않는다)마다 그물·선 묶음 id → 마디 열쇠 표 */
+const nodeKeys = new WeakMap<StepDoc['products'], Map<string, string>>();
+
+/**
+ * 66차: 그물·선 묶음 id가 든 첫 마디의 경로 열쇠(doc.ts productKeyOf와 같은 답 — 앞 차례 깊이 우선에서 그 마디 자신을 아이들보다 먼저, 처음 든 마디).
+ * 65차까지는 후보마다 나무를 처음부터 훑었다(여러 개 고르기 묶음 열쇠 — 코어가 후보마다 부른다). 표는 나무마다 한 번 만든다
+ */
+export function nodeKeyOf(roots: StepDoc['products'], id: string): string | null {
+  let m = nodeKeys.get(roots);
+  if (!m) {
+    const map = (m = new Map<string, string>());
+    const walk = (nodes: StepDoc['products'], prefix: string): void =>
+      nodes.forEach((n, i) => {
+        const key = prefix ? `${prefix}/${i}` : String(i);
+        for (const x of n.meshIds) if (!map.has(x)) map.set(x, key);
+        for (const x of n.lineIds ?? []) if (!map.has(x)) map.set(x, key);
+        walk(n.children, key);
+      });
+    walk(roots, '');
+    nodeKeys.set(roots, m);
+  }
+  return m.get(id) ?? null;
+}
+
 /** 그물·선 묶음이 놓인 나무 마디 이름("제품 · 자리 이름"), 나무에 없으면 묶음 이름 */
 function ownerName(d: StepDoc, id: string): string {
-  const k = productKeyOf(d.products, id);
+  const k = nodeKeyOf(d.products, id);
   const n = k ? productAt(d.products, k) : null;
   if (!n) return itemById(d.scene, id)?.[0].name ?? id;
   const { name, instance } = nodeLabel(n);
@@ -86,7 +110,7 @@ function brepAt(d: StepDoc, p: Pick3d): { edge: boolean; ti: number; i: number }
 
 /** 고르기 단위 열쇠: 부품 'n:마디 열쇠', 몸체 단위·PMI·나무에 없는 것 'b:항목 id' */
 function unitKey(d: StepDoc, id: string, body: boolean): string {
-  const k = body || d.vis.pmiIds.has(id) ? null : productKeyOf(d.products, id);
+  const k = body || d.vis.pmiIds.has(id) ? null : nodeKeyOf(d.products, id);
   return k ? `n:${k}` : `b:${id}`;
 }
 
