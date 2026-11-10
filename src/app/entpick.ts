@@ -142,8 +142,11 @@ export function pickedClosest(a: Picked, b: Picked, meshOf: (id: string) => Mesh
 /** 최소 거리 답(두 점 — 세계, 거리) */
 type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
 
-/** EntClosest가 쓰는 뷰어(코어 0.41.0·0.45.0 나눠 돌리는 최근접점 — 시험은 가짜) */
-export type ClosestViewer = Pick<Viewer3d, 'closestPointsAsync'>;
+/** EntClosest가 쓰는 뷰어(코어 0.41.0·0.45.0 나눠 돌리는 최근접점 — 시험은 가짜, 68차: 있으면 0.55.0 점 둘레 삼각형 묻기) */
+export type ClosestViewer = Pick<Viewer3d, 'closestPointsAsync'> & Partial<Pick<Viewer3d, 'trianglesNear'>>;
+
+/** 68차: 부품 사이 답에 싣는 점 둘레 묻기 선택 — 그물 자기 좌표(다듬기의 면 찾기가 그물 좌표로 묻는다), 숨긴 구간도(그물 전수와 같은 삼각형 모음) */
+const NEAR_OPTS = { local: true, hidden: true };
 
 /** 나눠 돌리기 사이 쉬기(코어 closestPointsAsync와 같은 길 — MessageChannel: 브라우저 setTimeout 0은 다섯 번째부터 4 ms 넘게 미뤄진다. 없으면 setTimeout 0) */
 function nextTask(): Promise<void> {
@@ -171,13 +174,16 @@ export function closestNeeds(A: Picked, B: Picked): { closest: boolean; parts: b
  * - 다른 그물이면 부품 사이: 뷰어 closestPointsAsync(두 그물, { indices, signal })
  * 측정 짝(key — 앱의 d.ent)마다 한 번 시작하고 차례로(고른 개체 → 부품 사이) 돌린다. 짝이 바뀌거나 cancel()이면 signal로 멈춘다.
  * 구하는 동안 get은 null이고, 다 구하면 later()를 부른다(그 짝이 그대로일 때만) — 앱이 다시 재면 그 답을 measurePicked의 closest·parts로 돌려준다.
- * 답은 한 번에 부른 closestPoints·closestBetween과 바이트까지 같다(코어 — 같은 차례로 같은 쌍을 본다)
+ * 답은 한 번에 부른 closestPoints·closestBetween과 바이트까지 같다(코어 — 같은 차례로 같은 쌍을 본다).
+ * 68차: 뷰어에 점 둘레 삼각형 묻기(코어 0.55.0 trianglesNear)가 있으면 부품 사이 답에 near(그물 좌표·숨긴 구간 포함)를 싣는다 — 다듬기(exactdist.ts
+ * PartsClosest)가 두 점이 놓인 면을 찾을 때 그물을 훑지 않고 점 둘레 삼각형만 본다(답의 삼각형 번호 indexA·indexB처럼 답과 함께 가는 것)
  */
 export class EntClosest {
   private key: object | null = null;
   private ac: AbortController | null = null;
   private picked: Closest | null = null;
-  private parts: Closest | null = null;
+  /** 부품 사이 답(68차: 뷰어가 묻기를 하면 near를 실어) */
+  private parts: (Closest & { near?: (id: string, p: readonly number[], r: number) => readonly number[] | null }) | null = null;
   private busy = false;
   /** 마지막 짝의 나눠 돌리기 기록(조각 수·가장 긴 조각 ms·꺼낸 마디 쌍·다시 찾은 횟수 — 두 찾기를 합친 것) */
   stats: ClosestSliceStats = { slices: 0, longest: 0, visited: 0, restarts: 0 };
@@ -237,12 +243,13 @@ export class EntClosest {
       signal.throwIfAborted();
       return [p, need.parts ? await v.closestPointsAsync(A.meshId, B.meshId, opts).catch(orNull) : null];
     };
+    const around = v.trianglesNear?.bind(v);
     run().then(
       ([p, q]) => {
         // 그사이 짝이 바뀌었으면(멈춘 뒤 끝난 조각) 버린다
         if (this.ac !== ac) return;
         this.picked = p;
-        this.parts = q;
+        this.parts = q && around ? { ...q, near: (id: string, at: readonly number[], r: number) => around(id, at, r, NEAR_OPTS) } : q;
         this.busy = false;
         later();
       },

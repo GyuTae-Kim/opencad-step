@@ -151,10 +151,14 @@ class FaceDomain {
     if (s.poles.length) {
       const poleP = s.poles.map((_, k) => s.polePoint(k));
       const lim = Math.max(this.eps, this.tol.chord);
+      // 68차: 방추형 원환의 꼭짓점은 u(축 둘레 각)가 반 바퀴 넘게 뒤집히는 토막만 지난다 — 꼭짓점 둘레를 도는 경계(꼭짓점 위 오목한 데의 둘레 원 등 —
+      // 장반지름이 현 높이보다 작으면 꼭짓점이 그 현에서 현 높이 안이다)를 꼭짓점을 지나는 것으로 읽지 않게. 구·원뿔·B-스플라인은 예전대로
+      const spindle = s instanceof TorusSurface;
       for (let i = raw.length - 1; i >= 0; i--) {
         const a = raw[i]!;
         const b = raw[(i + 1) % raw.length]!;
         if (a.pole >= 0 || b.pole >= 0 || raw.length < 2) continue;
+        if (spindle && Math.abs(wrapHalf(a.u - b.u, 2 * Math.PI)) < Math.PI / 2) continue;
         const d = sub(b.p, a.p);
         const l2 = dot(d, d);
         if (!(l2 > 0)) continue;

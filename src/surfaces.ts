@@ -416,11 +416,25 @@ export class TorusSurface extends Surface {
   ) {
     super();
     this.periodU = TWO_PI;
-    this.periodV = TWO_PI;
     this.u0 = 0;
     this.u1 = TWO_PI;
-    this.v0 = 0;
-    this.v1 = TWO_PI;
+    if (r > 0 && R >= 0 && R < r) {
+      // 68차: 장반지름이 단반지름보다 작은 방추형은 자오선 원이 축을 지나 R + r·cos v = 0인 v(±vp)에서 곡면이 축 위 한 점(꼭짓점)으로 모인다.
+      // 바깥 사과 쪽(R + r·cos v > 0 — |v| < vp)만 정의역으로 두고 v 끝 둘을 극점으로(구처럼 — v는 주기가 아니다): 꼭짓점을 지나는 면 고리를
+      // 극점에서 펼친다. 예전에는 꼭짓점에서 u가 튀어 한 바퀴 도는 고리로 읽혀 정의역 끝까지 닫혀, 면이 안쪽 레몬 쪽까지 덮었다.
+      // 레몬 쪽(DEGENERATE_TOROIDAL_SURFACE select_outer .F.)은 되짚기가 사과 쪽 매개변수를 내 예전처럼 다루지 못한다
+      const vp = Math.acos(-R / r);
+      this.v0 = -vp;
+      this.v1 = vp;
+      this.poles = [
+        { fixed: 1, value: -vp },
+        { fixed: 1, value: vp },
+      ];
+    } else {
+      this.periodV = TWO_PI;
+      this.v0 = 0;
+      this.v1 = TWO_PI;
+    }
   }
   point(u: number, v: number): V3 {
     const rr = this.R + this.r * Math.cos(v);
@@ -456,7 +470,8 @@ export class TorusSurface extends Surface {
     const radial = add(scale(this.f.x, cu), scale(this.f.y, su));
     const n = add(scale(radial, Math.cos(v)), scale(this.f.z, Math.sin(v)));
     const rr = this.R + this.r * Math.cos(v);
-    return rr * this.r < 0 ? scale(n, -1) : n;
+    // 방추형(v가 주기가 아님 — 사과 쪽만)은 뒤집지 않는다: 꼭짓점(rr = 0)에서 반올림으로 음수가 되어도 사과 쪽 극한 법선
+    return rr * this.r < 0 && this.periodV > 0 ? scale(n, -1) : n;
   }
   project(p: V3): [number, number] {
     const d = sub(p, this.f.o);
@@ -466,7 +481,8 @@ export class TorusSurface extends Surface {
     let u = Math.atan2(y, x);
     if (u < 0) u += TWO_PI;
     let v = Math.atan2(z, Math.hypot(x, y) - this.R);
-    if (v < 0) v += TWO_PI;
+    // 방추형은 v가 −vp ~ vp(사과 쪽 — atan2가 바로 그 범위)
+    if (v < 0 && this.periodV > 0) v += TWO_PI;
     return [u, v];
   }
 }

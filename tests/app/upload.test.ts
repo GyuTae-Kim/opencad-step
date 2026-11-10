@@ -189,6 +189,27 @@ describe('한 번에 올리는 큰 장면은 묶어 그리기 조각을 먼저(6
     await expect(preloadMergingFor(meshes(2500), fakeKit(() => Promise.resolve(false)), 10_000)).resolves.toBeUndefined();
   });
 
+  it('68차(코어 0.55.0): 받기가 코어 기다림 한도를 넘은 페이지(mergingState late)에서는 기다리지 않는다 — 받는 중(loading)이면 예전처럼 기다린다', async () => {
+    const withState = (state: string) => {
+      const kit = { MERGE_AUTO_MIN: 2000, calls: 0, Viewer3d: { preloadMerging: () => (kit.calls++, new Promise<boolean>(() => {})), mergingState: () => state } };
+      return kit;
+    };
+    const late = withState('late');
+    const t0 = performance.now();
+    await preloadMergingFor(meshes(2500), late, 10_000);
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(late.calls).toBe(0);
+    const loading = withState('loading');
+    const t1 = performance.now();
+    await preloadMergingFor(meshes(2500), loading, 30);
+    expect(performance.now() - t1).toBeGreaterThanOrEqual(25);
+    expect(loading.calls).toBe(1);
+    // 실제 코어 상태 이름(0.55.0 MergeKitState)에 'late'가 있다
+    const core = await import('opencad-viewer3d');
+    const states: import('opencad-viewer3d').MergeKitState[] = ['idle', 'loading', 'late', 'ready', 'failed'];
+    expect(states).toContain(core.Viewer3d.mergingState());
+  });
+
   it('실제 코어(기본 kit = 코어 입구): 문턱 상수가 같고 받은 뒤 상태가 ready, 앱은 뷰어를 만든 뒤·문서를 만들기 전(setScene 앞)에 기다리고 그 뒤 열기 차례를 본다', async () => {
     const core = await import('opencad-viewer3d');
     expect(core.MERGE_AUTO_MIN).toBe(2000);
