@@ -121,6 +121,18 @@ export function pickGroup(H: PickRowHost & { doc: StepDoc | null }, p: Pick3d): 
   return b ? `${b.edge ? 'e' : 'f'}:${p.id}:${b.i}` : undefined;
 }
 
+/**
+ * 66차: 그물 면 후보의 B-rep 면 삼각형 구간(코어 0.54.0 pickCycle.faceRanges — 가상 커서의 지금 후보 표식을 맞은 B-rep 면 통째로: 곡면이면 삼각형 여럿,
+ * 코어 기본은 맞은 삼각형과 같은 평면으로 이어진 삼각형이라 원기둥 옆면은 띠 하나였다). 고르기 모드와 상관없이 맞은 면이다(여러 개 고르기 — 부품 단위 후보도 맞은 면 자리).
+ * 면 표가 없거나 못 찾은 그물·잘린 면·선·점·모서리·문서가 없으면 null(코어가 같은 평면 면으로 — 선분·점은 코어 표식)
+ */
+export function pickFaceRanges(d: StepDoc | null, p: Pick3d): { start: number; count: number }[] | null {
+  const b = d && p.kind === 'mesh' ? brepAt(d, p) : null;
+  if (!b) return null;
+  const s = d!.faces!.tables[b.ti]!.triStart;
+  return [{ start: s[b.i]!, count: s[b.i + 1]! - s[b.i]! }];
+}
+
 /** 코어 후보(차례대로) → 목록 줄(앱 고르기로 묶고, 같은 고른 것은 처음 것 하나) */
 export function pickRows(d: StepDoc, picks: readonly Pick3d[], H: PickRowHost): PickRow[] {
   const multi = H.multiPick && !H.faceMode;

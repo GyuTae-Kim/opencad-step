@@ -149,7 +149,8 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
     expect(ks.live.getAttribute('aria-live')).toBe('polite');
     expect(ks.live.hasAttribute('data-i18n-skip')).toBe(true);
     expect(ks.live.className).toBe('sr-only');
-    expect(v.keyboardSnap!.pickCycle).toEqual({ throughTranslucent: false });
+    // 66차: 그물 면 후보 표식(코어 0.54.0 facePreview)은 늘 켠다 — 앱 고르기 상태(pick)를 주지 않으면 코어 같은 평면 면
+    expect(v.keyboardSnap!.pickCycle).toEqual({ throughTranslucent: false, facePreview: true });
     const picks: { pointerType: string; cycle?: unknown }[] = [];
     v.onPick((_p, e) => picks.push({ pointerType: e.pointerType, cycle: e.cycle }));
     key(v.canvas, 'ArrowUp');
@@ -163,7 +164,7 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
     // 반투명 너머 고르기가 바뀌면 sync — 겹친 것 고르기 선택도
     through = true;
     ks.sync();
-    expect(v.keyboardSnap!.pickCycle).toEqual({ throughTranslucent: true });
+    expect(v.keyboardSnap!.pickCycle).toEqual({ throughTranslucent: true, facePreview: true });
     // 측정 모드: 알림도 화면 언어
     v.setMeasureMode(true);
     key(v.canvas, 'ArrowLeft');

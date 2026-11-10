@@ -8,10 +8,14 @@
  *   그래서 영역은 번역층이 건드리지 않는다(data-i18n-skip — 이미 화면 언어 글)
  * - 캔버스 aria-keyshortcuts(코어 키 표와 뷰어 키 F·1~7)와 도움말 키 표(keyHelpBody — 코어 keyLabel)
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
+ * - 66차: 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식(코어 0.54.0 facePreview·faceRanges — 측정 모드에서는 코어가 그리지 않는다),
+ *   면 고르기·여러 개 고르기·고르기 단위가 바뀌어도 sync(켜진 커서의 후보 묶음을 다시 만든다 — 65차까지는 커서를 옮길 때까지 앞 묶음 그대로였다)
  */
-import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type PickGroupKey, type Viewer3d } from 'opencad-viewer3d';
+import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type Pick3d, type PickGroupKey, type Viewer3d } from 'opencad-viewer3d';
 import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
+import type { StepDoc } from './doc';
 import { h } from './dom';
+import { pickFaceRanges, pickGroup, type PickRowHost } from './picklist';
 
 /** 한국어 글 → 지금 화면 언어(앱 사전) */
 type Tr = (ko: string) => string;
@@ -106,26 +110,35 @@ export interface KeySnapHost {
    */
   menuAt?: (clientX: number, clientY: number) => boolean;
   /**
-   * 65차: 고르기 후보 묶음 열쇠(코어 0.53.0 pickCycle group — 겹친 것 목록과 같은 picklist.ts pickGroup): Tab이 B-rep 면·모서리 단위로 돈다
-   * (64차까지는 코어 기본 도형 단위 — 한 면의 앞뒤·곡선 모서리 선분마다 멈췄다). 없으면 기본 도형 단위
+   * 66차: 앱 고르기 상태(문서·면 고르기·여러 개 고르기·고르기 단위 — app.ts는 자기 자신을 준다). 주면 고르기 후보를
+   * - 묶음 열쇠(65차 — 코어 0.53.0 pickCycle group, 겹친 것 목록과 같은 picklist.ts pickGroup)로 B-rep 면·모서리 단위로 돌리고
+   *   (64차까지는 코어 기본 도형 단위 — 한 면의 앞뒤·곡선 모서리 선분마다 멈췄다, 여러 개 고르기면 고르기 단위)
+   * - 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식한다(코어 0.54.0 pickCycle facePreview·faceRanges — picklist.ts pickFaceRanges,
+   *   면 표가 없는 그물은 코어가 같은 평면으로 이어진 삼각형. 65차까지는 그물 면 후보에 표식이 없었다 — 선분·점만)
+   * 면 고르기·여러 개 고르기·고르기 단위를 바꾸면 앱이 sync()를 불러 켜진 커서의 후보를 새 묶음으로 다시 구한다. 없으면 기본 도형 단위·같은 평면 면 표식
    */
+  pick?: PickRowHost & { doc: StepDoc | null };
+  /** 묶음 열쇠를 따로 줄 때(시험 — 주면 pick의 열쇠 대신) */
   group?: PickGroupKey;
 }
 
 /**
- * 뷰어에 키보드 붙잡기를 켜고 알림 영역·캔버스 aria-keyshortcuts를 단다. sync()는 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다
- * (켜진 가상 커서는 그대로 — 고르기 모드면 새 선택으로 후보를 다시 구한다)
+ * 뷰어에 키보드 붙잡기를 켜고 알림 영역·캔버스 aria-keyshortcuts를 단다. sync()는 화면 언어·반투명 너머 고르기·고르기 모드(면·여러 개·단위)가 바뀌면 다시 건다
+ * (켜진 가상 커서는 그대로 — 고르기 모드면 새 선택·새 묶음으로 후보를 다시 구한다, 알리지는 않는다)
  */
 export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; live: HTMLElement } {
   const live = h('div', { class: 'sr-only', 'aria-live': 'polite', 'data-i18n-skip': '' });
   (v.canvas.parentElement ?? document.body).append(live);
+  const P = host.pick;
+  const group: PickGroupKey | undefined = host.group ?? (P ? (p) => pickGroup(P, p) : undefined);
+  const faceRanges = P ? (p: Pick3d) => pickFaceRanges(P.doc, p) : undefined;
   const sync = (): void => {
     v.setKeyboardSnap({
       announce: (a) => {
         live.textContent = a.text;
         host.announced?.(a);
       },
-      pickCycle: { throughTranslucent: host.pickThrough(), group: host.group },
+      pickCycle: { throughTranslucent: host.pickThrough(), group, facePreview: true, faceRanges },
       messages: keySnapMessagesFor(host.tr),
     });
     const ks = v.keyboardSnap;

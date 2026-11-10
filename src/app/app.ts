@@ -999,8 +999,9 @@ export class StepApp {
       },
       // 64차: 커서를 켠 동안 Shift+F10·메뉴 키는 커서 자리 작업 메뉴(겹친 것 고르기…)
       menuAt: (x, y) => this.contextMenuAt(x, y, 'keyboard'),
-      // 65차: Tab 후보를 겹친 것 목록과 같은 묶음(B-rep 면·모서리, 여러 개 고르기면 고르기 단위 — 코어 0.53.0 group)으로
-      group: (p) => core.pickGroup(this, p),
+      // 65차: Tab 후보를 겹친 것 목록과 같은 묶음(B-rep 면·모서리, 여러 개 고르기면 고르기 단위 — 코어 0.53.0 group)으로.
+      // 66차: 그물 면 후보는 그 B-rep 면을 3D에 표식(코어 0.54.0 facePreview·faceRanges) — 모두 keysnap.ts가 이 고르기 상태로 만든다
+      pick: this,
     });
     v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
@@ -1272,6 +1273,8 @@ export class StepApp {
     if (this.faceMode) this.toggleFaceMode(false);
     // 고른 것은 그대로 두고(이미 고른 부품·몸체), 다음 누르기부터 새 단위로 고른다
     if (changed) this.toast(u === 'body' ? '몸체 단위로 고릅니다 — 몸체가 여럿인 부품에서 누른 몸체 하나만 고릅니다.' : '부품 단위로 고릅니다.');
+    // 66차: 켜진 가상 커서의 후보 묶음도 새 단위로(여러 개 고르기 묶음 열쇠 — 부품·몸체)
+    if (changed) this.keySnap?.sync();
     this.toolbar.refresh();
     this.refreshBar();
   }
@@ -1287,6 +1290,8 @@ export class StepApp {
       if (this.measuring) this.toggleMeasure(false);
       if (this.faceMode) this.toggleFaceMode(false);
     }
+    // 66차: 켜진 가상 커서의 후보를 새 묶음으로(여러 개 고르기는 고르기 단위 — 65차까지는 커서를 옮길 때까지 앞 묶음)
+    this.keySnap?.sync();
     this.toolbar.refresh();
     this.panel.onSelection();
     this.refreshBar();
@@ -1302,8 +1307,9 @@ export class StepApp {
     this.faceMode = on;
     if (on && this.measuring) this.toggleMeasure(false);
     if (on) this.collapseExplode();
-    // 면 고르기 중에는 모서리 가까이 누르면 모서리(윤곽선)를 고른다
+    // 면 고르기 중에는 모서리 가까이 누르면 모서리(윤곽선)를 고른다. 66차: 켜진 가상 커서의 후보도 새 묶음·모서리 선택으로
     this.viewer?.setPickEdges(on);
+    this.keySnap?.sync();
     if (!on && (this.doc?.face || this.doc?.edge)) {
       const d = this.doc;
       d.face = null;
@@ -2310,6 +2316,8 @@ export class StepApp {
       this.panel.onSelection();
     }
     v.setPickEdges(ent || this.faceMode);
+    // 66차: 개체 측정을 켜고 끄면(모서리 고르기·면 고르기 끔) 켜진 가상 커서의 후보도 다시(두 점 측정은 코어 측정 후보 — 코어가 다시 구하지 않는다)
+    this.keySnap?.sync();
     this.showHoverSnap();
     this.panel.onMeasure();
     this.toolbar.refresh();
