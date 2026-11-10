@@ -2,7 +2,8 @@
 // - 면 모양(pickedShape)은 코어 closestPart(면 표의 이어진 삼각형 구간)라 뷰어 closestPoints의 rangeA·rangeB와 바이트까지 같은 답이고,
 //   모든 삼각형 쌍을 float64로 잰 최솟값과 1e-9 상대 안쪽이다. 61차 앱 길(면 삼각형을 세계 좌표 − 면 가운데로 float32에 복사)과는 float32 반올림만큼 다르다
 // - EntClosest: 구하는 동안 null, 다 구하면 later() 한 번 — 그 뒤 closest·parts는 한 번에 부른 closestPoints·closestBetween과 바이트까지 같다.
-//   해석적으로 재는 짝은 찾지 않고, 짝이 바뀌거나 cancel()이면 멈춘다(later 없음 — signal로 거절), 작은 조각 시간이면 여러 조각으로 나뉘어도 같은 답
+//   해석적으로 재는 짝은 찾지 않고, 짝이 바뀌거나 cancel()이면 멈춘다(later 없음 — signal로 거절), 작은 조각 시간이면 여러 조각으로 나뉘어도 같은 답.
+//   68차부터 부품 사이 답에는 뷰어의 점 둘레 삼각형 묻기(near — 코어 0.55.0 trianglesNear)가 함께 실린다(그 밖은 같은 답)
 // - 앱 흐름(EntClosest → measurePicked → 46차 partsLater 받기): 핀–받침판 부품 사이 0.4가 "≈" 뒤 받혀 정확한 값이 된다
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Viewer3d } from 'opencad-viewer3d';
@@ -67,6 +68,9 @@ function assemblyBytes(parts: [string, (w: StepText) => number, P3, P3?][]): Uin
 
 /** 해석적으로 못 재는 면처럼(개체 없음 — 최소 거리로 잰다) */
 const loose = (p: Picked): Picked => ({ ...p, entity: null });
+
+/** 부품 사이 답에서 68차 점 둘레 묻기(near)를 뺀 것 */
+const withoutNear = (r: object | null): object | null => (r ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'near')) : r);
 
 /** 그물 정점 i의 세계 좌표(float64 — 자리 행렬 · (정점 + 원점)) */
 function world(m: Mesh3d, i: number): V3 {
@@ -180,7 +184,10 @@ describe('EntClosest: 코어 나눠 돌리기(62차)', () => {
     expect(got.closest!(A, B)).toEqual(want);
     expect(want.rawA! - fa.triStart).toBeGreaterThanOrEqual(0);
     expect(want.rawA! - fa.triStart).toBeLessThan(fa.triangles);
-    expect(got.parts!(pin.id, plate.id)).toEqual(c.v.closestPoints(pin.id, plate.id, { indices: true }));
+    // 68차: 부품 사이 답에는 뷰어의 점 둘레 삼각형 묻기(near — 그물 좌표·숨긴 구간 포함)가 함께 실린다. 그 밖은 바이트까지 같다
+    const pr = got.parts!(pin.id, plate.id)! as { near?: (id: string, p: readonly number[], r: number) => readonly number[] | null };
+    expect(withoutNear(pr)).toEqual(c.v.closestPoints(pin.id, plate.id, { indices: true }));
+    expect(pr.near!(pin.id, [0, 0, 0], 1)).toEqual(c.v.trianglesNear(pin.id, [0, 0, 0], 1, { local: true, hidden: true }));
     // 뷰어에 두 번(면 구간 → 부품 통째), 둘 다 번호·멈추기 신호와 함께. 같은 짝을 다시 물어도 다시 찾지 않는다
     expect(spy.mock.calls.map(([a, b, o]) => [a, b, !!o?.rangeA, !!o?.rangeB, o?.indices, o?.signal instanceof AbortSignal])).toEqual([
       [pin.id, plate.id, true, true, true, true],
@@ -255,7 +262,7 @@ describe('EntClosest: 코어 나눠 돌리기(62차)', () => {
     expect(first).not.toHaveBeenCalled();
     const got = E.get(key, A, B, c.v, c.meshOf, second, 0.01)!;
     expect(got.closest!(A, B)).toEqual(c.v.closestPoints(ma!.id, mb!.id, { rangeA: { start: fa.triStart, count: fa.triangles }, rangeB: { start: fb.triStart, count: fb.triangles }, indices: true }));
-    expect(got.parts!(ma!.id, mb!.id)).toEqual(c.v.closestPoints(ma!.id, mb!.id, { indices: true }));
+    expect(withoutNear(got.parts!(ma!.id, mb!.id))).toEqual(c.v.closestPoints(ma!.id, mb!.id, { indices: true }));
     expect(E.stats.slices).toBeGreaterThan(2);
     // cancel(): 멈추고 later 없음
     const third = vi.fn();
