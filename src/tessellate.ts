@@ -1807,7 +1807,8 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number, b
 /**
  * 폭 0 다리를 떼어 낸 고리들(점 번호 목록). 다리는 같은 두 점(좌표가 똑같은 것)을 반대 방향으로 지나는 고리 변 짝이다.
  * 한 고리 안의 다리는 고리를 둘로 나누고(나란히 붙은 두 변 — 갔다 바로 돌아오는 가시 — 이면 가시만 빠진다), 서로 다른 고리 사이의
- * 다리(구멍이 바깥 고리에 변으로 닿음)는 두 고리를 하나로 잇는다. 같은 자리의 두 점 가운데 하나만 남긴다. 다리가 없으면 null
+ * 다리(구멍이 바깥 고리에 변으로 닿음)는 두 고리를 하나로 잇는다. 같은 자리의 두 점 가운데 하나만 남긴다. 다리 변이 없어도 한 고리가 같은 점을
+ * 두 번 지나면(꼭짓점 하나로 맞닿은 두 영역) 그 점에서 둘로 나눈다. 다리도 맞닿음도 없으면 null
  */
 export function splitBridges(xy: number[], rings: readonly (readonly [number, number])[]): number[][] | null {
   let rs: number[][] = rings.map(([a, b]) => {
@@ -1835,7 +1836,30 @@ export function splitBridges(xy: number[], rings: readonly (readonly [number, nu
         seen.set(`${a}|${b}`, [r, k]);
       }
     }
-    if (!hit) break;
+    if (!hit) {
+      // 다리 변은 없는데 한 고리가 같은 점을 두 번 지나면(꼭짓점 하나로 맞닿은 두 영역 — 이웃 모서리 끝점을 T자 메우기로 넣으면
+      // 거의 겹친 두 선이 그 점에서 만난다, 67차 표본 원기둥 면) 그 점에서 고리를 둘로 나눈다
+      let pinch: [number, number, number] | null = null;
+      for (let r = 0; r < rs.length && !pinch; r++) {
+        const ring = rs[r]!;
+        const first = new Map<string, number>();
+        for (let k = 0; k < ring.length; k++) {
+          const a = key(ring[k]!);
+          const j = first.get(a);
+          if (j === undefined) first.set(a, k);
+          else if (k - j >= 3 && j + ring.length - k >= 3) {
+            pinch = [r, j, k];
+            break;
+          }
+        }
+      }
+      if (!pinch) break;
+      found = true;
+      const [r, j, k] = pinch;
+      const R = rs[r]!;
+      rs.splice(r, 1, R.slice(j, k), [...R.slice(k), ...R.slice(0, j)]);
+      continue;
+    }
     found = true;
     const [r1, k1, r2, k2] = hit;
     if (r1 === r2) {
