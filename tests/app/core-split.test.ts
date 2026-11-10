@@ -105,8 +105,11 @@ describe('코어 나눠 받기', () => {
     // 62차: 키보드로 3D 붙잡기·고르기(keysnap.ts — 뷰어를 만들 때 단다)와 큰 그림 저장 대화 상자 본문(imagedlg.ts — 앱 입구에서 옮김)도
     for (const m of ['src/app/keynav.ts', 'src/app/physics.ts', 'src/app/keysnap.ts', 'src/app/imagedlg.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
     expect(dynamic.some((d) => ['keynav', 'physics', 'keysnap', 'imagedlg'].some((n) => d.spec.endsWith(n)))).toBe(false);
-    // 작업 메뉴 항목·불투명도 메뉴(52차 — ctxmenu.ts, 작업 메뉴는 뷰어가 있어야 열린다)도 그 조각에만
+    // 작업 메뉴 항목·불투명도 메뉴(52차 — ctxmenu.ts, 작업 메뉴는 뷰어가 있어야 열린다)도 그 조각에만.
+    // 64차: 3D 보기 화면 점의 작업 메뉴(contextAt — app.ts에서 옮김)와 겹친 것 고르기 목록(picklist.ts)도
     expect(files.has(join(ROOT, 'src/app/ctxmenu.ts'))).toBe(false);
+    expect(files.has(join(ROOT, 'src/app/picklist.ts'))).toBe(false);
+    expect(dynamic.some((d) => d.spec.endsWith('picklist') || d.spec.endsWith('ctxmenu'))).toBe(false);
     // 나무 조각(49차 — 제품 나무·부품별 보이기 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져오고 앱이 뷰어를 만들 때 넣는다
     expect(files.has(join(ROOT, 'src/app/treeview.ts'))).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('treeview'))).toBe(false);
@@ -192,6 +195,10 @@ describe('코어 나눠 받기', () => {
     expect(m.pmiView).toBe((await import('../../src/app/pmiview')).pmiView);
     // 같은 조각의 키보드 길잡이와 물리 속성 계산(앱이 뷰어를 만들 때 달고 패널에 넣는다)
     expect(m.installKeyNav).toBe((await import('../../src/app/keynav')).installKeyNav);
+    // 같은 조각의 작업 메뉴(64차 — 3D 보기 화면 점의 메뉴와 겹친 것 고르기 목록)
+    const ctx = await import('../../src/app/ctxmenu');
+    expect(m.contextAt).toBe(ctx.contextAt);
+    expect(m.contextItems).toBe(ctx.contextItems);
     const phys = await import('../../src/app/physics');
     for (const k of ['accuracyText', 'inertiaText', 'MATERIALS', 'massText', 'meshNodes', 'physProps'] as const) expect(m[k], k).toBe(phys[k]);
   });

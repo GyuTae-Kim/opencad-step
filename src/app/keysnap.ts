@@ -98,6 +98,11 @@ export interface KeySnapHost {
   pickThrough: () => boolean;
   /** 알림마다(글을 영역에 넣은 뒤) — 앱이 상태 막대·측정 띠를 맞춘다 */
   announced?: (a: KeyboardSnapAnnouncement) => void;
+  /**
+   * 64차: 가상 커서를 켠 동안 3D 보기에서 Shift+F10·메뉴 키 — 커서 자리(client 좌표)의 작업 메뉴(겹친 것 고르기…). 열었으면 true(그 키의 기본 동작·브라우저
+   * contextmenu를 막는다 — macOS는 Shift+F10에 contextmenu를 내지 않는다). 커서가 꺼져 있으면 부르지 않는다(앱 contextmenu 처리 — 3D 보기 가운데 메뉴)
+   */
+  menuAt?: (clientX: number, clientY: number) => boolean;
 }
 
 /**
@@ -120,5 +125,13 @@ export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; 
     if (ks) v.canvas.setAttribute('aria-keyshortcuts', keyShortcuts(ks.keys));
   };
   sync();
+  v.canvas.addEventListener('keydown', (e) => {
+    const c = v.keyboardCursor;
+    if (!c || !host.menuAt || !((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const r = v.canvas.getBoundingClientRect();
+    if (!host.menuAt(r.left + c.x, r.top + c.y)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  });
   return { sync, live };
 }

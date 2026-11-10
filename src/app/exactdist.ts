@@ -582,15 +582,18 @@ export function exactPicked(
   return refineClosest(A, B, c, size, clock() + ms, trace);
 }
 
-/** 그물의 그 점(세계)이 놓인 면들(점이 면 사이 모서리 위면 둘 이상 — 곡면 먼저) → 다듬을 개체들 */
-function partFaceGeos(mesh: Mesh3d, s: ExactScene, p: readonly number[]): ExactGeo[] {
+/**
+ * 그물의 그 점(세계)이 놓인 면들(점이 면 사이 모서리 위면 둘 이상 — 곡면 먼저) → 다듬을 개체들. tri는 그 점이 놓인 삼각형 번호(코어 최소 거리 답의 indexA·indexB —
+ * 64차, 있으면 facesNear가 그물을 다 훑지 않는다)
+ */
+function partFaceGeos(mesh: Mesh3d, s: ExactScene, p: readonly number[], tri?: number): ExactGeo[] {
   const fx = s.faces;
   const ti = fx?.tableOf.get(mesh.id);
   const table = ti === undefined ? undefined : fx!.tables[ti];
   const L = toLocal(mesh, p);
   if (!fx || !table || !L) return [];
   const out: ExactGeo[] = [];
-  for (const f of facesNear(mesh, table, L.p)) {
+  for (const f of facesNear(mesh, table, L.p, tri)) {
     const fp = fx.kinds[table.kinds[f]!] === 'plane' ? faceDetails(mesh, table, f, fx.kinds) : null;
     const g = faceGeo(mesh, fx, f, s.surfaces, fp?.normal ? { center: fp.center, normal: fp.normal } : null);
     if (g) out.push(g);
@@ -607,7 +610,7 @@ function partFaceGeos(mesh: Mesh3d, s: ExactScene, p: readonly number[]): ExactG
 export function exactParts(
   idA: string,
   idB: string,
-  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  r: PartsClosest,
   s: ExactScene,
   size: number,
   ms = 30,
@@ -624,7 +627,7 @@ type Far = [ExactGeo, ExactGeo, ExactClosest][];
 function partsFirst(
   idA: string,
   idB: string,
-  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  r: PartsClosest,
   s: ExactScene,
   size: number,
   ms: number,
@@ -633,8 +636,8 @@ function partsFirst(
   const end = clock() + ms;
   const ma = s.meshes.get(idA);
   const mb = s.meshes.get(idB);
-  const As = ma ? partFaceGeos(ma, s, r.a) : [];
-  const Bs = mb && clock() < end ? partFaceGeos(mb, s, r.b) : [];
+  const As = ma ? partFaceGeos(ma, s, r.a, r.indexA) : [];
+  const Bs = mb && clock() < end ? partFaceGeos(mb, s, r.b, r.indexB) : [];
   if (!As.length || !Bs.length) trace?.(`no geo ${As.length} ${Bs.length}`);
   let best: ExactClosest | null = null;
   const far: Far = [];
@@ -688,7 +691,7 @@ function* certifyFar(
 export function exactPartsSliced(
   idA: string,
   idB: string,
-  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  r: PartsClosest,
   s: ExactScene,
   size: number,
   ms = 30,
@@ -711,7 +714,7 @@ export function partsLater(
   holder: { readonly ent: object },
   idA: string,
   idB: string,
-  r: { a: readonly number[]; b: readonly number[]; distance: number },
+  r: PartsClosest,
   s: ExactScene,
   size: number,
   later: () => void,
@@ -766,6 +769,12 @@ export function entRefine(
 /** 최소 거리 답(두 점 — 세계, 거리) */
 type Closest = { a: readonly number[]; b: readonly number[]; distance: number };
 
+/**
+ * 부품 사이 최소 거리 답: 코어 closestPoints(…, { indices: true })면 두 점이 놓인 삼각형 번호(indexA·indexB — 그물은 삼각형 번호 그대로)도 실린다.
+ * 있으면 두 점이 놓인 면을 그 삼각형에서 찾는다(64차 facesNear tri — 없으면 그물을 다 훑는다)
+ */
+export type PartsClosest = Closest & { indexA?: number; indexB?: number };
+
 /** partsLater가 기억하는 받기 하나(key — 앱의 측정 짝, id — 두 부품·삼각형 답, again — 기다리는 동안 다시 재려 했음) */
 interface PartsJob {
   key: object;
@@ -777,14 +786,20 @@ interface PartsJob {
 let job: PartsJob | null = null;
 
 /**
- * 그물 좌표 점 p에 가장 가까운 삼각형들의 면 번호(가장 가까운 거리에서 허용치 안 — 모서리·꼭짓점 위 점이면 그 둘레 면들, 면 표 — 못 찾으면 빈 목록, 넷까지)
+ * 그물 좌표 점 p에 가장 가까운 삼각형들의 면 번호(가장 가까운 거리에서 허용치 안 — 모서리·꼭짓점 위 점이면 그 둘레 면들, 면 표 — 못 찾으면 빈 목록, 넷까지).
+ * 64차: tri(그 점이 놓인 삼각형 번호 — 코어 최소 거리 답의 indexA·indexB)를 주면 그 삼각형까지 거리로 먼 삼각형을 거리 계산 없이 건너뛴다(facesNearTri).
+ * 답은 주지 않을 때와 같다
  */
-export function facesNear(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>, p: readonly number[]): number[] {
+export function facesNear(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>, p: readonly number[], tri?: number): number[] {
   const P = mesh.positions;
   const I = mesh.indices;
   const tris = I ? I.length / 3 : P.length / 9;
   // 코어 답은 float32 꼭짓점에서 나온 점이라 그 반올림만큼
   const tol = 1e-6 * (1 + Math.max(Math.abs(p[0]!), Math.abs(p[1]!), Math.abs(p[2]!)));
+  if (tri !== undefined && Number.isInteger(tri) && tri >= 0 && tri < tris) {
+    const r = facesNearTri(mesh, table, p, tri, tol);
+    if (r) return r;
+  }
   let best = Infinity;
   const near: [number, number][] = [];
   const vx = (i: number): V3 => [P[i * 3]!, P[i * 3 + 1]!, P[i * 3 + 2]!];
@@ -801,7 +816,11 @@ export function facesNear(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>, 
     if (d <= Math.sqrt(best) + tol) near.push([d, t]);
     if (d * d < best) best = d * d;
   }
-  const lim = Math.sqrt(best) + tol;
+  return nearFaces(near, Math.sqrt(best) + tol, table);
+}
+
+/** 거리 lim 안의 [거리, 삼각형](삼각형 번호 차례로 모은 것) → 가까운 차례(같은 거리는 번호 차례)로 처음 나온 면 넷까지 */
+function nearFaces(near: [number, number][], lim: number, table: Pick<StepFaceTable, 'triStart'>): number[] {
   const faces: number[] = [];
   for (const [d, t] of near.sort((x, y) => x[0] - y[0]))
     if (d <= lim) {
@@ -809,6 +828,57 @@ export function facesNear(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>, 
       if (f >= 0 && !faces.includes(f)) faces.push(f);
     }
   return faces.slice(0, 4);
+}
+
+/**
+ * facesNear의 빠른 길(64차): 점 p가 놓인 삼각형 tri(코어 최소 거리 답의 삼각형 번호)까지 거리 dt가 답의 위 한계다 — 답에 드는 삼각형은
+ * 가장 가까운 거리 + 허용치 ≤ dt + 허용치 안에 있다. 그래서 세 꼭짓점을 감싼 상자가 그보다 먼 삼각형은 새 배열 없이 좌표 비교만으로 건너뛰고,
+ * 남은 것만 그물 전수와 같은 계산(pointTri2)·같은 규칙(가장 가까운 거리 + 허용치 안, 가까운 차례·같으면 번호 차례 — nearFaces)으로 고른다.
+ * 그래서 답은 그물 전수와 같다: 모서리·꼭짓점 위 점이면 그 모서리를 끼는 이웃 면이, 이웃이 꼭짓점 자리를 함께 쓰지 않는 T자 이음이나
+ * 같은 그물의 다른 몸체 면이 그 점을 지나도 그 면이 상자 안에 남는다(앞 판 — 같은 자리 꼭짓점만 따라가기는 실제 표본 꼭짓점 하나에서 그런 면을 놓쳤다).
+ * tri가 그 점에서 멀면(잘못 준 번호) 한계가 커져 더 많이 볼 뿐 답은 같다. tri까지 거리를 못 재면(넓이 0 삼각형의 NaN) null — 그물을 다 훑는다
+ */
+function facesNearTri(mesh: Mesh3d, table: Pick<StepFaceTable, 'triStart'>, p: readonly number[], tri: number, tol: number): number[] | null {
+  const P = mesh.positions;
+  const I = mesh.indices;
+  const tris = I ? I.length / 3 : P.length / 9;
+  const vi = (t: number, k: number): number => (I ? I[t * 3 + k]! : t * 3 + k);
+  const vx = (i: number): V3 => [P[i * 3]!, P[i * 3 + 1]!, P[i * 3 + 2]!];
+  const dt = Math.sqrt(pointTri2(p, vx(vi(tri, 0)), vx(vi(tri, 1)), vx(vi(tri, 2))));
+  if (!Number.isFinite(dt)) return null;
+  // 상자 거리 한계: dt + 허용치에 반올림 여유로 허용치 하나 더(더 남긴 삼각형은 아래 거리 규칙에서 빠진다)
+  const R = dt + 2 * tol;
+  const R2 = R * R;
+  const px = p[0]!;
+  const py = p[1]!;
+  const pz = p[2]!;
+  let best = Infinity;
+  const near: [number, number][] = [];
+  for (let t = 0; t < tris; t++) {
+    const a = vi(t, 0) * 3;
+    const b = vi(t, 1) * 3;
+    const c = vi(t, 2) * 3;
+    const gx = boxGap(px, P[a]!, P[b]!, P[c]!);
+    if (gx > R) continue;
+    const gy = boxGap(py, P[a + 1]!, P[b + 1]!, P[c + 1]!);
+    if (gx * gx + gy * gy > R2) continue;
+    const gz = boxGap(pz, P[a + 2]!, P[b + 2]!, P[c + 2]!);
+    if (gx * gx + gy * gy + gz * gz > R2) continue;
+    const d = Math.sqrt(pointTri2(p, vx(a / 3), vx(b / 3), vx(c / 3)));
+    // 한계 밖(답에 들 수 없다)·NaN(그물 전수도 버린다)은 뺀다
+    if (!(d <= R)) continue;
+    near.push([d, t]);
+    if (d * d < best) best = d * d;
+  }
+  return nearFaces(near, Math.sqrt(best) + tol, table);
+}
+
+/** 한 축에서 값 v와 세 값(삼각형 세 꼭짓점의 그 축 좌표)을 감싼 구간 사이 거리(안이면 0) */
+function boxGap(v: number, x: number, y: number, z: number): number {
+  const lo = Math.min(x, y, z);
+  if (v < lo) return lo - v;
+  const hi = Math.max(x, y, z);
+  return v > hi ? v - hi : 0;
 }
 
 /** 점 p와 삼각형 abc 사이 거리 제곱(Ericson 5.1.5) */
