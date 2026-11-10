@@ -148,14 +148,20 @@ export function pickGroup(H: PickRowHost & { doc: StepDoc | null }, p: Pick3d): 
 /**
  * 66차: 그물 면 후보의 B-rep 면 삼각형 구간(코어 0.54.0 pickCycle.faceRanges — 가상 커서의 지금 후보 표식을 맞은 B-rep 면 통째로: 곡면이면 삼각형 여럿,
  * 코어 기본은 맞은 삼각형과 같은 평면으로 이어진 삼각형이라 원기둥 옆면은 띠 하나였다). 고르기 모드와 상관없이 맞은 면이다(여러 개 고르기 — 부품 단위 후보도 맞은 면 자리).
- * 면 표가 없거나 못 찾은 그물·잘린 면·선·점·모서리·문서가 없으면 null(코어가 같은 평면 면으로 — 선분·점은 코어 표식)
+ * 면 표가 없거나 못 찾은 그물·잘린 면·선·점·모서리·문서가 없으면 null(코어가 같은 평면 면으로 — 선분·점은 코어 표식).
+ * 삼각형이 코어 표식 한도(FACE_PREVIEW_MAX)를 넘는 B-rep 면도 null: 코어는 구간 앞에서 한도까지만 칠하고 그 삼각형들에서 한 번만 쓰인 변을 테두리로 그어,
+ * 잘린 자리의 안쪽 변이 모두 테두리가 되었다(예제 원환 면 9,418개 — 테두리 1,696변이 그물처럼, 이 차수 SwiftShader 확인)
  */
 export function pickFaceRanges(d: StepDoc | null, p: Pick3d): { start: number; count: number }[] | null {
   const b = d && p.kind === 'mesh' ? brepAt(d, p) : null;
   if (!b) return null;
   const s = d!.faces!.tables[b.ti]!.triStart;
-  return [{ start: s[b.i]!, count: s[b.i + 1]! - s[b.i]! }];
+  const n = s[b.i + 1]! - s[b.i]!;
+  return n > FACE_PREVIEW_MAX ? null : [{ start: s[b.i]!, count: n }];
 }
+
+/** 코어 면 표식 삼각형 한도(opencad-viewer3d/pickpreview PICK_PREVIEW_MAX_TRIS — 그 조각은 코어가 나눠 받으므로 값만 둔다, 같은지는 시험이 본다) */
+export const FACE_PREVIEW_MAX = 4096;
 
 /** 코어 후보(차례대로) → 목록 줄(앱 고르기로 묶고, 같은 고른 것은 처음 것 하나) */
 export function pickRows(d: StepDoc, picks: readonly Pick3d[], H: PickRowHost): PickRow[] {
