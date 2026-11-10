@@ -9,6 +9,8 @@
  * 4. 정점은 곡면 위 점(경계는 원래 3D 점), 법선은 곡면에서 구하고 면 방향(same_sense)에 맞춰 감는다.
  * 5. 극점이 있는 다각형에서 극점 밖 정점이 3D로 거의 겹치면(극점 가까이 폭이 0으로 모이는 곡면 — 바늘 삼각형) 극점 둘레(캡)를
  *    빛살·깊이 줄로 따로 나누고 나머지를 다시 한다(poleCaps·buildCap·capTriangles). 경계 다각선은 그대로라 이웃 면과 틈이 없다.
+ *    극점에 닿은 삼각형이 곡면에 서거나 한 직선이면(poleFins) 같은 캡을 해 보고, 캡을 만들 수 없으면 그 삼각형의 가장 긴 모서리를
+ *    이웃과 뒤집는다(flipPoleFins).
  */
 import earcut, { deviation, refine as lawson } from 'earcut';
 import type { Tol } from './curves';
@@ -1116,10 +1118,24 @@ export function tessellateFace(
     // 극점 둘레를 따로 빛살·고리로 나눠 다시 한다(그렇지 않은 면은 예전과 같다)
     if (!s.planar && m.pole.some((x) => x === 1)) {
       const sep = poleSeparation(m.vs, m.tris, m.pole);
-      if (sep < POLE_NEEDLE * eps) {
+      // 극점에 닿은 선 삼각형(지느러미)도 같은 길로: 다듬기가 극점으로 가는 등매개선 모서리를 거듭 반으로 나누면 맞은편 삼각형의
+      // 셋째 정점이 다른 극선 점이라 (점, 가운데 점, 극점)이 같은 등매개선 위 세 점이 된다 — 3D로 거의 한 직선이거나 등매개선의
+      // 활꼴만 한 폭으로 곡면에 서서 법선이 곡면과 거의 수직이다(67차 표본 B-스플라인 14면·원뿔 꼭짓점 2면). 극점 둘레를 따로 나눠
+      // 선 삼각형이 줄고 바늘 점이 생기지 않을 때만 쓴다(바늘 점 때문에 나누는 위 경우는 예전 그대로)
+      let fins = sep < POLE_NEEDLE * eps ? 0 : poleFins(s, m.vs, m.tris, m.pole);
+      if (sep < POLE_NEEDLE * eps || fins > 0) {
         const capped = poleCaps(s, pg, tol, eps);
         const alt = capped ? meshPolygon(s, { outer: capped.outer, holes: pg.holes }, tol, su, sv, maxTris, capped.caps) : null;
-        if (alt && poleSeparation(alt.vs, alt.tris, alt.pole) > sep) m = alt;
+        if (alt) {
+          const altSep = poleSeparation(alt.vs, alt.tris, alt.pole);
+          const altFins = fins ? poleFins(s, alt.vs, alt.tris, alt.pole) : 0;
+          if (fins ? altSep >= POLE_NEEDLE * eps && altFins < fins : altSep > sep) {
+            m = alt;
+            fins = altFins;
+          }
+        }
+        // 캡을 만들 수 없으면(경계 빛살이 면 전체를 덮는 원뿔 옆면 등) 선 삼각형의 가장 긴 모서리를 이웃과 뒤집는다
+        if (fins) flipPoleFins(s, m.vs, m.tris, m.pole);
       }
     }
     const { vs, tris } = m;
@@ -1193,6 +1209,129 @@ function poleSeparation(vs: Verts, tris: number[], pole: Uint8Array): number {
     }
   return min;
 }
+
+/** 극점 선 삼각형으로 보는 기울기: 삼각형 법선과 무게중심의 곡면 법선 사이 각의 cos가 이보다 작다(60° 넘게 섬) */
+const POLE_FIN_COS = 0.5;
+
+/**
+ * 극점 정점 하나에 닿은 삼각형 가운데 곡면에 선 것(지느러미)의 수: 3D 넓이가 가장 긴 모서리 제곱의 1e-9배 아래(한 직선)이거나,
+ * 삼각형 법선이 매개변수 무게중심의 곡면 법선과 POLE_FIN_COS보다 어긋난 것. 두 정점이 같은 3D 점인 삼각형(극선 위 — 내보낼 때
+ * 빠진다)은 세지 않는다. 극점 정점의 법선은 매개변수가 겹친 자리라 믿을 수 없어 무게중심(극선 밖)의 곡면 법선과 견준다
+ */
+function poleFins(s: Surface, vs: Verts, tris: number[], pole: Uint8Array): number {
+  let n = 0;
+  for (let t = 0; t < tris.length; t += 3) if (isPoleFin(s, vs, tris[t]!, tris[t + 1]!, tris[t + 2]!, pole)) n++;
+  return n;
+}
+
+function isPoleFin(s: Surface, vs: Verts, a: number, b: number, c: number, pole: Uint8Array): boolean {
+  if (!pole[a] && !pole[b] && !pole[c]) return false;
+  const Pa = vs.P(a);
+  const Pb = vs.P(b);
+  const Pc = vs.P(c);
+  if (samePt(Pa, Pb) || samePt(Pb, Pc) || samePt(Pc, Pa)) return false;
+  return standing(s, vs, a, b, c);
+}
+
+/** 삼각형(반시계 uv)이 3D로 한 직선(넓이가 가장 긴 모서리 제곱의 1e-9배 아래)이거나 무게중심의 곡면 법선과 POLE_FIN_COS보다 어긋나는지 */
+function standing(s: Surface, vs: Verts, a: number, b: number, c: number): boolean {
+  const Pa = vs.P(a);
+  const Pb = vs.P(b);
+  const Pc = vs.P(c);
+  const nrm = cross(sub(Pb, Pa), sub(Pc, Pa));
+  const l = len(nrm);
+  const longest = Math.max(dist(Pa, Pb), dist(Pb, Pc), dist(Pc, Pa));
+  if (!(l > 1e-9 * longest * longest)) return true;
+  const ns = s.normal((vs.u[a]! + vs.u[b]! + vs.u[c]!) / 3, (vs.v[a]! + vs.v[b]! + vs.v[c]!) / 3);
+  return dot(nrm, ns) < POLE_FIN_COS * l * len(ns);
+}
+
+/**
+ * 극점 선 삼각형마다 3D로 가장 긴 모서리(먼 점에서 극점으로 — 가운데 점이 그 위에 놓인다)를 건너편 삼각형과 뒤집는다: 네 점이 매개변수
+ * 공간에서 볼록하고 새 두 삼각형이 모두 서지 않을 때만(경계 모서리는 건너편이 없어 그대로). tris를 고친다
+ */
+function flipPoleFins(s: Surface, vs: Verts, tris: number[], pole: Uint8Array): void {
+  const nt = tris.length / 3;
+  const edges = new EdgeHash(Math.ceil(nt * 1.6));
+  /** 모서리 → 그 모서리를 쓰는 삼각형 둘(없으면 -1) */
+  let owner = new Int32Array(Math.max(64, nt * 4)).fill(-1);
+  for (let t = 0; t < nt; t++)
+    for (let e = 0; e < 3; e++) {
+      const i = edges.add(tris[t * 3 + e]!, tris[t * 3 + ((e + 1) % 3)]!);
+      if (i * 2 + 1 >= owner.length) {
+        const o = new Int32Array(owner.length * 2).fill(-1);
+        o.set(owner);
+        owner = o;
+      }
+      owner[i * 2 + (owner[i * 2]! < 0 ? 0 : 1)] = t;
+    }
+  const xy = vs.xy;
+  const orient = (p: number, q: number, r: number) => (xy[q * 2]! - xy[p * 2]!) * (xy[r * 2 + 1]! - xy[p * 2 + 1]!) - (xy[q * 2 + 1]! - xy[p * 2 + 1]!) * (xy[r * 2]! - xy[p * 2]!);
+  // 뒤집기 하나가 옆 선 삼각형의 네 점을 볼록하게 만들 수 있어 더 뒤집을 것이 없을 때까지 몇 번 훑는다
+  /** 모서리 p–q를 쓰는 삼각형 from을 to로 */
+  const swap = (p: number, q: number, from: number, to: number) => {
+    const i = edges.find(p, q);
+    if (i < 0) return;
+    if (owner[i * 2] === from) owner[i * 2] = to;
+    else if (owner[i * 2 + 1] === from) owner[i * 2 + 1] = to;
+  };
+  for (let pass = 0, flipped = 1; pass < FIN_PASSES && flipped; pass++) {
+    flipped = 0;
+    for (let t = 0; t < nt; t++) {
+      const T = [tris[t * 3]!, tris[t * 3 + 1]!, tris[t * 3 + 2]!];
+      if (!isPoleFin(s, vs, T[0]!, T[1]!, T[2]!, pole)) continue;
+      // 가장 긴 모서리 x→y(맞은편 z)
+      let k = 0;
+      let best = -1;
+      for (let e = 0; e < 3; e++) {
+        const d = dist(vs.P(T[e]!), vs.P(T[(e + 1) % 3]!));
+        if (d > best) {
+          best = d;
+          k = e;
+        }
+      }
+      const x = T[k]!;
+      const y = T[(k + 1) % 3]!;
+      const z = T[(k + 2) % 3]!;
+      const ei = edges.find(x, y);
+      const t2 = owner[ei * 2] === t ? owner[ei * 2 + 1]! : owner[ei * 2]!;
+      if (t2 < 0) continue;
+      let w = -1;
+      for (let e = 0; e < 3; e++) {
+        const q = tris[t2 * 3 + e]!;
+        if (q !== x && q !== y) w = q;
+      }
+      // 새 두 삼각형 (y, z, w)·(z, x, w) — 매개변수 공간에서 반시계(볼록한 네 점)이고 서지 않아야, z–w가 이미 다른 모서리면 안 된다
+      if (w < 0 || !(orient(y, z, w) > 0) || !(orient(z, x, w) > 0)) continue;
+      if (standing(s, vs, y, z, w) || standing(s, vs, z, x, w)) continue;
+      const old = edges.find(z, w);
+      if (old >= 0 && (owner[old * 2]! >= 0 || owner[old * 2 + 1]! >= 0)) continue;
+      flipped++;
+      tris[t * 3] = y;
+      tris[t * 3 + 1] = z;
+      tris[t * 3 + 2] = w;
+      tris[t2 * 3] = z;
+      tris[t2 * 3 + 1] = x;
+      tris[t2 * 3 + 2] = w;
+      // 모서리 표 고치기: x–y는 없어지고 z–w가 생긴다, y–w는 t2 → t, z–x는 t → t2
+      swap(y, w, t2, t);
+      swap(z, x, t, t2);
+      owner[ei * 2] = -1;
+      owner[ei * 2 + 1] = -1;
+      const zi = edges.add(z, w);
+      if (zi * 2 + 1 >= owner.length) {
+        const o = new Int32Array(owner.length * 2).fill(-1);
+        o.set(owner);
+        owner = o;
+      }
+      owner[zi * 2] = t;
+      owner[zi * 2 + 1] = t2;
+    }
+  }
+}
+
+/** flipPoleFins가 선 삼각형을 훑는 최대 횟수 */
+const FIN_PASSES = 4;
 
 /**
  * 극점 둘레(캡) 하나. 다각형 바깥 고리에서 극점 줄(극선 위에 펼친 점들)의 앞·뒤로 극점에서 나가는 두 경계 모서리는 매개변수 공간에서
@@ -1668,7 +1807,8 @@ export function triangulateRobust(xy: number[], holeIdx: number[], nv: number, b
 /**
  * 폭 0 다리를 떼어 낸 고리들(점 번호 목록). 다리는 같은 두 점(좌표가 똑같은 것)을 반대 방향으로 지나는 고리 변 짝이다.
  * 한 고리 안의 다리는 고리를 둘로 나누고(나란히 붙은 두 변 — 갔다 바로 돌아오는 가시 — 이면 가시만 빠진다), 서로 다른 고리 사이의
- * 다리(구멍이 바깥 고리에 변으로 닿음)는 두 고리를 하나로 잇는다. 같은 자리의 두 점 가운데 하나만 남긴다. 다리가 없으면 null
+ * 다리(구멍이 바깥 고리에 변으로 닿음)는 두 고리를 하나로 잇는다. 같은 자리의 두 점 가운데 하나만 남긴다. 다리 변이 없어도 한 고리가 같은 점을
+ * 두 번 지나면(꼭짓점 하나로 맞닿은 두 영역) 그 점에서 둘로 나눈다. 다리도 맞닿음도 없으면 null
  */
 export function splitBridges(xy: number[], rings: readonly (readonly [number, number])[]): number[][] | null {
   let rs: number[][] = rings.map(([a, b]) => {
@@ -1696,7 +1836,30 @@ export function splitBridges(xy: number[], rings: readonly (readonly [number, nu
         seen.set(`${a}|${b}`, [r, k]);
       }
     }
-    if (!hit) break;
+    if (!hit) {
+      // 다리 변은 없는데 한 고리가 같은 점을 두 번 지나면(꼭짓점 하나로 맞닿은 두 영역 — 이웃 모서리 끝점을 T자 메우기로 넣으면
+      // 거의 겹친 두 선이 그 점에서 만난다, 67차 표본 원기둥 면) 그 점에서 고리를 둘로 나눈다
+      let pinch: [number, number, number] | null = null;
+      for (let r = 0; r < rs.length && !pinch; r++) {
+        const ring = rs[r]!;
+        const first = new Map<string, number>();
+        for (let k = 0; k < ring.length; k++) {
+          const a = key(ring[k]!);
+          const j = first.get(a);
+          if (j === undefined) first.set(a, k);
+          else if (k - j >= 3 && j + ring.length - k >= 3) {
+            pinch = [r, j, k];
+            break;
+          }
+        }
+      }
+      if (!pinch) break;
+      found = true;
+      const [r, j, k] = pinch;
+      const R = rs[r]!;
+      rs.splice(r, 1, R.slice(j, k), [...R.slice(k), ...R.slice(0, j)]);
+      continue;
+    }
     found = true;
     const [r1, k1, r2, k2] = hit;
     if (r1 === r2) {

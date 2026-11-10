@@ -1082,7 +1082,11 @@ export class BrepMesher {
     else if (c.linear) poly = [P1, P2];
     else {
       const same = bool(e.args[4], true);
-      const closed = dist(P1, P2) <= this.eps;
+      // 닫힌 곡선(한 바퀴)은 시작·끝 꼭짓점이 같은 개체이거나(edge_start = edge_end), 다른 개체라도 사실상 같은 점(eps의 1/1000 안 —
+      // 고리 점 합치기와 같은 거리)일 때만이다. 꼭짓점 개체가 다르면 그 사이 곡선 토막이다 — 두 꼭짓점이 eps 안인 아주 짧은 원호
+      // (표본: 7.4e-5 mm, 보통 품질 eps 7.9e-5)를 한 바퀴 원으로 읽어 면 고리가 원기둥을 한 바퀴 돌아 그리지 못하거나(67차 표본 1면)
+      // 이웃 면과 틈이 났다(표본 2파일). 아주 세밀 품질은 eps가 작아 짧은 호로 읽었다
+      const closed = refId(e.args[1]) === refId(e.args[2]) || dist(P1, P2) <= this.eps * 1e-3;
       let t1 = c.project(P1);
       let t2 = closed ? t1 : c.project(P2, t1);
       if (c.period > 0) {

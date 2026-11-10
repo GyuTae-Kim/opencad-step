@@ -66,16 +66,27 @@ export abstract class Surface {
     return [p, du, dv, uu, uv, vv];
   }
 
-  /** 단위 법선(∂u×∂v 방향). 특이점이면 안쪽으로 조금 옮겨서 */
+  /**
+   * 단위 법선(∂u×∂v 방향). 특이점이면 안쪽으로 조금 옮겨서. 두 미분이 나란하거나 한쪽이 다른 쪽의 1e-9배 아래면(극선 — 한 변이 한 점으로
+   * 모인 B-스플라인의 그 변 등) 특이점이다: 모인 변의 조절점이 반올림만큼 어긋나 그 변을 따라가는 미분이 0이 아니라 잡음(1e-14)이면
+   * 외적 방향도 잡음이라 법선이 곡면과 거의 수직으로 나왔다(67차 표본 — 극점 정점 법선)
+   */
   normal(u: number, v: number): V3 {
+    const regular = (du: V3, dv: V3, n: V3): boolean => {
+      const l = len(n);
+      const a = len(du);
+      const b = len(dv);
+      return l > 1e-14 * (a * b + 1e-300) && l > 1e-300 && Math.min(a, b) > 1e-9 * Math.max(a, b);
+    };
     const [, du, dv] = this.derivs(u, v);
     const n = cross(du, dv);
-    const l = len(n);
-    if (l > 1e-14 * (len(du) * len(dv) + 1e-300) && l > 1e-300) return scale(n, 1 / l);
+    if (regular(du, dv, n)) return scale(n, 1 / len(n));
     const su = Number.isFinite(this.u1 - this.u0) ? this.u1 - this.u0 : 1;
     const sv = Number.isFinite(this.v1 - this.v0) ? this.v1 - this.v0 : 1;
     const cu = Number.isFinite(this.u0 + this.u1) ? (this.u0 + this.u1) / 2 : u;
     const cv = Number.isFinite(this.v0 + this.v1) ? (this.v0 + this.v1) / 2 : v;
+    /** 특이점 판정은 넘지 못했지만 0은 아닌 첫 외적(모든 자리가 특이점이면 예전처럼 이것) */
+    let loose: V3 | null = null;
     for (const k of [1e-6, 1e-4, 1e-2]) {
       const uu = u + Math.sign(cu - u || 1) * su * k;
       const vv = v + Math.sign(cv - v || 1) * sv * k;
@@ -87,10 +98,11 @@ export abstract class Surface {
         const [, du2, dv2] = this.derivs(a, b);
         const m = cross(du2, dv2);
         const lm = len(m);
-        if (lm > 1e-300) return scale(m, 1 / lm);
+        if (regular(du2, dv2, m)) return scale(m, 1 / lm);
+        if (!loose && lm > 1e-300) loose = scale(m, 1 / lm);
       }
     }
-    return [0, 0, 1];
+    return loose ?? [0, 0, 1];
   }
 
   /** 점에 가장 가까운 (u, v) */
