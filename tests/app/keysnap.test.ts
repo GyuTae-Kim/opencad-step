@@ -176,8 +176,10 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
   it('키 표 글(aria-keyshortcuts)과 도움말 키 표(keyLabel — 기본 걸음 5·50화소)', () => {
     expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'F', '1', '2', '3', '4', '5', '6', '7']);
     const rows = keyHelpRows({ step: 5, bigStep: 50, keys: KEY_SNAP_KEYS });
-    expect(rows.map((r) => r[0])).toEqual(['←→↑↓', 'Shift+←→↑↓', 'Tab · Shift+Tab', 'Enter', 'Esc', 'F · 1~7']);
+    expect(rows.map((r) => r[0])).toEqual(['←→↑↓', 'Shift+←→↑↓', 'Tab · Shift+Tab', 'Enter', 'Esc', 'Shift+F10', 'F · 1~7']);
     expect(rows[0]![1]).toBe('가상 커서 켜기·옮기기(5화소)');
+    // 65차: 커서 자리 작업 메뉴와 겹친 것 목록 줄 미리 강조 안내(네 언어)
+    expect(rows[5]![1]).toBe('커서 자리 작업 메뉴(겹친 것 고르기… — 목록 줄에 초점을 두면 3D에 미리 강조)');
     for (const [, what] of rows) for (const code of CODES) expect(translate(what, code), `${code} ${what}`).not.toMatch(hangul);
     const { viewer: v } = cubeViewer();
     installKeySnap(v, { tr: (ko) => ko, pickThrough: () => false });

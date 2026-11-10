@@ -6,14 +6,16 @@
  *   크기가 바뀌면 다시 알린다
  * - 코어 자리 고르기(placeMeasureLabel)에 넘기면: 휴대폰(375×700 캔버스)에서 띠·큐브 밑으로 들어가던 글상자가 비키고,
  *   겹치지 않던 자리는 그대로다(헤드리스에서 잰 띠·큐브·글상자 크기)
+ * - 65차: 손가락으로 뷰 큐브를 펴고 접으면 코어 0.53.0 알림(onViewCubeExpandedChange)의 그때 자리로 바로 다시 알린다 — 실제 코어(jsdom)로 큐브를 눌러 본다
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { MeasureLabelAvoid, MeasureLabelRect } from 'opencad-viewer3d';
+import type { MeasureLabelAvoid, MeasureLabelRect, ViewCubeExpandEvent } from 'opencad-viewer3d';
 import { placeMeasureLabel, rectsOverlap } from 'opencad-viewer3d/measurelabel';
 import { canvasBox, LABEL_AVOID_SELECTOR, LabelAvoid, mergeLabelAvoid, overlayRects } from '../../src/app/labelavoid';
-import { aimLabelAvoid } from '../../src/app/aim';
+import { aimLabelAvoid, touchPointerEvent } from '../../src/app/aim';
+import { jsdomViewer } from './jsdomview';
 
 const box = (left: number, top: number, width: number, height: number): DOMRect => ({ left, top, width, height, x: left, y: top, right: left + width, bottom: top + height, toJSON: () => ({}) }) as DOMRect;
 
@@ -110,9 +112,13 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
       get viewCubeRect(): MeasureLabelRect | null {
         return this.cubeRect ? { ...this.cubeRect } : null;
       },
-      // 코어 0.44.0 손가락으로 편 큐브(편 동안 viewCubeRect도 편 자리)
-      viewCubeExpanded: false,
       setMeasureLabelAvoid: (a: MeasureLabelAvoid | readonly MeasureLabelRect[] | null) => void calls.push(a as MeasureLabelAvoid | null),
+      // 코어 0.53.0 손가락 큐브 펴기·접기 알림(시험이 cubeCb로 낸다)
+      cubeCb: null as ((expanded: boolean, e: ViewCubeExpandEvent) => void) | null,
+      onViewCubeExpandedChange(cb: (expanded: boolean, e: ViewCubeExpandEvent) => void): () => void {
+        this.cubeCb = cb;
+        return () => void (this.cubeCb = null);
+      },
     };
     return { view, canvas, cube, section, bar, toasts, rects, calls, viewer };
   }
@@ -176,25 +182,56 @@ describe('LabelAvoid(3D 보기 요소를 지켜보다 코어에 알리기)', () 
     expect(d.calls.at(-1)).toEqual({ rects: [{ x: 263, y: 8, width: 104, height: 104 }] });
   });
 
-  it('손가락으로 뷰 큐브를 펴고 접으면(코어 0.44.0 viewCubeExpanded — 편 동안 224화소 자리) syncCube가 다시 알리고, 그대로면 알리지 않는다(61차)', () => {
+  it('손가락으로 뷰 큐브를 펴고 접으면 코어 알림(0.53.0 onViewCubeExpandedChange)의 그때 자리(e.rect)로 바로 다시 알린다 — 앱은 pointerup·keyup에서 다시 읽지 않는다(65차)', () => {
     const d = viewDom();
-    const la = new LabelAvoid(d.viewer, d.view);
+    new LabelAvoid(d.viewer, d.view);
     const n = d.calls.length;
-    expect(la.syncCube()).toBe(false);
-    expect(d.calls).toHaveLength(n);
-    // 손가락 누르기로 편 큐브: 위·오른쪽에서 8화소, 한 변 224
-    d.viewer.viewCubeExpanded = true;
-    d.viewer.cubeRect = { x: 143, y: 8, width: 224, height: 224 };
-    expect(la.syncCube()).toBe(true);
+    expect(d.viewer.cubeCb).toBeTypeOf('function');
+    // 손가락 누르기로 편 큐브(위·오른쪽에서 8화소, 한 변 224): 알림의 자리를 쓴다(viewCubeRect를 다시 읽지 않는다 — 여기서는 아직 옛 자리)
+    d.viewer.cubeCb!(true, { reason: 'touch', rect: { x: 143, y: 8, width: 224, height: 224 } });
+    expect(d.calls).toHaveLength(n + 1);
     expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 143, y: 8, width: 224, height: 224 });
-    expect(la.syncCube()).toBe(false);
-    // 고르거나 3D 보기를 누르면 접는다
-    d.viewer.viewCubeExpanded = false;
-    d.viewer.cubeRect = { x: 291, y: 8, width: 76, height: 76 };
-    expect(la.syncCube()).toBe(true);
+    // 고르거나 3D 보기를 누르면 접는다 — 큐브를 감춘 채 접히면('option') 큐브 자리 없이
+    d.viewer.cubeCb!(false, { reason: 'pick', rect: { x: 291, y: 8, width: 76, height: 76 } });
     expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 291, y: 8, width: 76, height: 76 });
+    d.viewer.cubeCb!(false, { reason: 'option', rect: null });
+    expect(d.calls.at(-1)?.rects?.[0]).toEqual({ x: 9, y: 578, width: 357, height: 112 });
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-    expect(app.match(/this\.labelAvoid\?\.syncCube\(\)/g)).toHaveLength(2);
+    expect(app).not.toMatch(/syncCube|viewCubeExpanded/);
+  });
+
+  it('실제 코어: 손가락으로 큐브를 눌러 펴면(224화소) 글상자 비키기 자리가 편 큐브로, 3D 보기를 누르거나 Esc로 접으면 처음 자리로 — 앱 사건 없이', () => {
+    const j = jsdomViewer({ viewCubeSize: 76 });
+    try {
+      const v = j.viewer;
+      const calls: (MeasureLabelAvoid | null)[] = [];
+      const set = v.setMeasureLabelAvoid.bind(v);
+      v.setMeasureLabelAvoid = (a) => {
+        calls.push(a as MeasureLabelAvoid | null);
+        set(a);
+      };
+      new LabelAvoid(v, document.createElement('div'));
+      const small = calls.at(-1)?.rects?.[0];
+      expect(small).toMatchObject({ width: 76, height: 76 });
+      const cube = j.host.querySelector('.v3d-cube')!;
+      const tap = (el: Element, id: number, x: number, y: number): void => {
+        el.dispatchEvent(touchPointerEvent('pointerdown', id, x, y));
+        el.dispatchEvent(touchPointerEvent('pointerup', id, x, y));
+      };
+      tap(cube, 41, 30, 30);
+      expect(v.viewCubeExpanded).toBe(true);
+      expect(calls.at(-1)?.rects?.[0]).toEqual(v.viewCubeRect);
+      expect(calls.at(-1)?.rects?.[0]).toMatchObject({ width: 224, height: 224 });
+      tap(v.canvas, 42, 400, 400);
+      expect(v.viewCubeExpanded).toBe(false);
+      expect(calls.at(-1)?.rects?.[0]).toEqual(small);
+      tap(cube, 43, 30, 30);
+      expect(calls.at(-1)?.rects?.[0]).toMatchObject({ width: 224 });
+      expect(v.handleKey(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(true);
+      expect(calls.at(-1)?.rects?.[0]).toEqual(small);
+    } finally {
+      j.restore();
+    }
   });
 
   it('ResizeObserver가 없는 브라우저에서도 만들 때 한 번 알린다', () => {

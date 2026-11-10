@@ -40,22 +40,25 @@ export function closeMenu(): boolean {
 }
 
 /**
- * 화면 점(client 좌표)에 메뉴를 연다(오른쪽 누르기·길게 누르기 작업 메뉴). 보이지 않는 1화소 기준점을 그 자리에 두고 연다
+ * 화면 점(client 좌표)에 메뉴를 연다(오른쪽 누르기·길게 누르기 작업 메뉴). 보이지 않는 1화소 기준점을 그 자리에 두고 연다.
+ * 65차: 연 메뉴 요소를 돌려주고, 닫힐 때(고르기 — 그 명령보다 먼저·Esc·바깥 누르기·다른 메뉴) onClose를 부른다(겹친 것 목록 미리 강조 되돌리기 — ctxmenu.ts)
  */
-export function openMenuAt(x: number, y: number, items: MenuItem[], label: string): void {
+export function openMenuAt(x: number, y: number, items: MenuItem[], label: string, onClose?: () => void): HTMLElement | null {
   closeMenu();
   const anchor = h('div', { class: 'menu-point', 'aria-hidden': 'true' });
   anchor.style.cssText = `position:fixed;left:${Math.round(x)}px;top:${Math.round(y)}px;width:1px;height:1px;pointer-events:none`;
   document.body.append(anchor);
   openMenu(anchor, items, label);
-  const c = current as { close: () => void } | null;
+  const c = current as { el: HTMLElement; close: () => void } | null;
   if (c) {
     const close = c.close;
     c.close = () => {
       close();
       anchor.remove();
+      onClose?.();
     };
   } else anchor.remove();
+  return c?.el ?? null;
 }
 
 /** anchor 아래에 메뉴를 연다(같은 단추로 다시 누르면 닫는다) */

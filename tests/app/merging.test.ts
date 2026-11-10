@@ -5,7 +5,7 @@
  * - 묶음이 켜지고 GPU 버퍼·그리기 호출이 크게 준다(끈 뷰어의 1/20·1/50 아래)
  * - 부품 고르기(화면 격자)·측정 붙잡기 후보가 같다
  * - 면 강조(면 표의 삼각형 범위)·부품 강조·숨기기·분해(앱 LookSync — 단계마다 행렬)·단면 동안 다시 굽지 않고(굽기 시간·묶음 수·버퍼 수 그대로) 고르기가 같다.
- *   단면은 코어가 그물마다(묶음 자리로) 그려 그리기 호출이 끈 뷰어와 같다
+ *   단면 하나는 코어 0.53.0부터 면을 묶음 구간으로 그려(윤곽선은 그물마다) 그리기 호출이 끈 뷰어보다 적다(65차 — 0.52.0은 같았다)
  * - 앱 나눠 올리기(uploadOptions)로 올려도 다 올린 뒤 묶이고 고르기가 같다
  * - 묶은 뒤에도 장면 배열(위치·색인)은 그대로라 물리 속성(physProps)이 같다
  * 부품은 모양 틀(구멍 뚫린 판·상자 셋)의 닫힌 껍질을 함께 쓰되 제품·입체를 부품마다 따로 둔 합성 STEP이다 — 해석기가 부품마다 따로 삼각화해 배열을 함께 쓰지 않는다.
@@ -217,9 +217,12 @@ describe('서로 다른 부품이 2,000개 넘는 조립: 코어 0.52.0 묶어 �
     expect(syncs.get(on)!.moves().size).toBeGreaterThan(N / 2);
     both((v) => syncs.get(v)!.apply(v, { items: scene.meshes, products: doc.products, opacity: new Map(), dim: null, partColors: false }));
     expect(baked(on)).toBe(b0);
-    // 단면: 그물마다(묶음 자리로) 그려 그리기 호출이 끈 뷰어와 같고, 잘린 면 고르기도 같다
+    // 단면 하나(65차 — 코어 0.53.0: 면은 묶음 구간으로, 윤곽선은 그물마다 — 0.52.0은 모두 그물마다라 끈 뷰어와 같았다):
+    // 다시 굽지 않고(묶음·굽기 그대로 — GPU 버퍼는 단면 동안 하나 더 있다가 끄면 그대로) 그리기 호출이 끈 뷰어의 60% 아래, 잘린 면 고르기도 같다
     both((v) => v.setSectionAxis('x', 0.5));
-    expect(on.stats.drawCalls).toBe(off.stats.drawCalls);
+    expect(JSON.parse(baked(on)).slice(0, 5)).toEqual(JSON.parse(b0).slice(0, 5));
+    expect(on.stats.merged.draws).toBeGreaterThan(0);
+    expect(on.stats.drawCalls).toBeLessThan(off.stats.drawCalls * 0.6);
     expect(picks(on)).toEqual(picks(off));
     both((v) => v.setSection(null));
     expect(baked(on)).toBe(b0);
