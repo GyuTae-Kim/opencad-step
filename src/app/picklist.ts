@@ -1,22 +1,27 @@
 /**
  * 겹친 것 고르기 목록(64차 — 코어 0.47.0 pickCandidates, SolidWorks "다른 것 고르기"·Creo "목록에서 고르기" 꼴). 뷰어 조각(ctxmenu.ts가 쓴다).
  *
- * - 코어 후보는 기본 도형 단위(그물 삼각형·윤곽선 선분·선분·점 — 앞 면 뒤의 것이 차례로)라 앱 고르기로 묶는다:
+ * - 코어 후보(앞 면 뒤의 것이 차례로)를 앱 고르기로 묶는다:
  *   첫째는 누르기와 같은 고르기(고르기 단위 — 부품·몸체, 면 고르기면 면·모서리), 둘째부터는 가상 커서 Tab으로 돌려 고른 것과 같은 고르기
  *   (62차 — 사건의 cycle이 있으면 B-rep 면·모서리, 면 표가 없으면 부품). 여러 개 고르기면 모두 고르기 단위(누를 때마다 더하고 빼는 것과 같다).
  *   같은 고른 것은 처음 것 하나, 잘린 면(단면 채움)은 뺀다(그 뒤의 면이 같은 부품을 고른다).
+ * - 65차: 코어 0.53.0 묶음 열쇠(pickGroup — 목록과 가상 커서 Tab이 같은 열쇠)로 코어 후보부터 B-rep 면·모서리 단위(여러 개 고르기면 고르기 단위)다 —
+ *   64차까지는 기본 도형 단위(그물 삼각형·윤곽선 선분)라 한 면의 앞뒤 두 번·곡선 모서리의 선분 여럿이 후보 16개를 채워 뒤의 부품이 들지 못했다.
+ *   면·모서리 표가 없는 그물·선·점은 기본 도형 단위 그대로라 앱 묶음(같은 줄 열쇠는 하나)은 남긴다.
  * - 줄: 종류(화면 글 — 부품 전체·몸체·면 종류·모서리 종류, 번역층이 옮긴다)와 이름(파일 글 — 면·모서리는 "#STEP 번호 · 부품 나무 이름", 번역하지 않는다).
  *   지금 고른 것이 그 줄이면 표시(여러 개 고르기는 그 단위가 모두 들어 있으면 ✓).
  * - 고른 줄은 앱 누르기 알림(onPick 처리기)에 같은 사건으로 넘긴다 — 둘째부터는 cycle(가상 커서 Tab·Enter와 같은 선택). 시험은 rowEvent를 본다
+ * - 65차 미리 강조: 줄에 초점이 가거나 마우스가 오르면 그 줄을 고를 때 그릴 강조(rowHi)를 3D에 그린다(고른 것·패널·상태 줄은 그대로 — ctxmenu.ts)
  */
 import type { Pick3d, PickEvent } from 'opencad-viewer3d';
-import { itemById, productAt, productKeyOf, selectionItemIds, unitItemIds, type PickUnit, type StepDoc } from './doc';
-import { edgeAt, edgeKindLabel } from './edges';
-import { faceAt, faceKindLabel } from './faces';
+import { itemById, productAt, productKeyOf, selectionItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { edgeAt, edgeDetails, edgeKindLabel } from './edges';
+import { faceAt, faceDetails, faceKindLabel } from './faces';
+import type { Hi } from './hipaint';
 import type { MenuItem } from './menu';
 import { nodeLabel } from './tree';
 
-/** 목록 후보 수 한도(코어 PICK_CANDIDATES_MAX·가상 커서 후보 수와 같다) */
+/** 목록 후보 수 한도(코어 PICK_CANDIDATES_MAX·가상 커서 후보 수와 같다 — 65차부터 묶음 수) */
 export const PICK_LIST_MAX = 16;
 
 /** 목록 한 줄 */
@@ -63,27 +68,57 @@ function ownerName(d: StepDoc, id: string): string {
   return instance ? `${name} · ${instance}` : name;
 }
 
+/** 고른 것의 B-rep 면(그물 삼각형 — 잘린 면은 아님)·모서리(윤곽선 선분): 면·모서리 표 번호와 그 안 번호. 표가 없거나 못 찾으면 null */
+function brepAt(d: StepDoc, p: Pick3d): { edge: boolean; ti: number; i: number } | null {
+  const raw = p.raw ?? p.index;
+  if (p.kind === 'edge') {
+    const ti = d.edges?.tableOf.get(p.id);
+    const t = ti === undefined ? undefined : d.edges!.tables[ti];
+    const i = t ? edgeAt(t, raw) : -1;
+    return i < 0 ? null : { edge: true, ti: ti!, i };
+  }
+  if (p.kind !== 'mesh' || p.section) return null;
+  const ti = d.faces?.tableOf.get(p.id);
+  const t = ti === undefined ? undefined : d.faces!.tables[ti];
+  const i = t ? faceAt(t, raw) : -1;
+  return i < 0 ? null : { edge: false, ti: ti!, i };
+}
+
+/** 고르기 단위 열쇠: 부품 'n:마디 열쇠', 몸체 단위·PMI·나무에 없는 것 'b:항목 id' */
+function unitKey(d: StepDoc, id: string, body: boolean): string {
+  const k = body || d.vis.pmiIds.has(id) ? null : productKeyOf(d.products, id);
+  return k ? `n:${k}` : `b:${id}`;
+}
+
 /** 후보 하나 → 앱이 고를 것(app.ts onPick과 같은 갈래: wantFace면 B-rep 면·모서리, body면 몸체, 아니면 나무 마디 — PMI·나무에 없는 것은 그 항목) */
 function rowOf(d: StepDoc, p: Pick3d, wantFace: boolean, body: boolean): Omit<PickRow, 'index' | 'checked' | 'pick'> {
-  const raw = p.raw ?? p.index;
-  if (wantFace && p.kind === 'mesh') {
-    const fx = d.faces;
-    const ti = fx?.tableOf.get(p.id);
-    const t = ti === undefined ? undefined : fx!.tables[ti];
-    const f = t ? faceAt(t, raw) : -1;
-    if (f >= 0) return { key: `f:${p.id}:${f}`, label: faceKindLabel(fx!.kinds[t!.kinds[f]!] ?? ''), file: `#${t!.stepIds[f]} · ${ownerName(d, p.id)}` };
+  const b = wantFace ? brepAt(d, p) : null;
+  if (b && !b.edge) {
+    const fx = d.faces!;
+    const t = fx.tables[b.ti]!;
+    return { key: `f:${p.id}:${b.i}`, label: faceKindLabel(fx.kinds[t.kinds[b.i]!] ?? ''), file: `#${t.stepIds[b.i]} · ${ownerName(d, p.id)}` };
   }
-  if (wantFace && p.kind === 'edge') {
-    const ex = d.edges;
-    const ti = ex?.tableOf.get(p.id);
-    const t = ti === undefined ? undefined : ex!.tables[ti];
-    const e = t ? edgeAt(t, raw) : -1;
-    if (e >= 0) return { key: `e:${p.id}:${e}`, label: edgeKindLabel(ex!.kinds[t!.kinds[e]!] ?? ''), file: `#${t!.stepIds[e]} · ${ownerName(d, p.id)}` };
+  if (b) {
+    const ex = d.edges!;
+    const t = ex.tables[b.ti]!;
+    return { key: `e:${p.id}:${b.i}`, label: edgeKindLabel(ex.kinds[t.kinds[b.i]!] ?? ''), file: `#${t.stepIds[b.i]} · ${ownerName(d, p.id)}` };
   }
-  const pmi = d.vis.pmiIds.has(p.id);
-  const k = pmi || body ? null : productKeyOf(d.products, p.id);
-  if (k) return { key: `n:${k}`, label: '부품 전체', file: ownerName(d, p.id) };
-  return { key: `b:${p.id}`, label: pmi ? 'PMI' : p.kind === 'line' ? '선 형상' : p.kind === 'point' ? '점 형상' : '몸체', file: itemById(d.scene, p.id)?.[0].name ?? p.id };
+  const key = unitKey(d, p.id, body);
+  if (key[0] === 'n') return { key, label: '부품 전체', file: ownerName(d, p.id) };
+  return { key, label: d.vis.pmiIds.has(p.id) ? 'PMI' : p.kind === 'line' ? '선 형상' : p.kind === 'point' ? '점 형상' : '몸체', file: itemById(d.scene, p.id)?.[0].name ?? p.id };
+}
+
+/**
+ * 65차: 코어 후보 묶음 열쇠(코어 0.53.0 pickCandidates·키보드 pickCycle의 group — 같은 열쇠의 후보는 가장 앞의 것 하나로 세고 후보 한도 16은 묶음 수다).
+ * 여러 개 고르기면 고르기 단위(줄 열쇠 — 한 부품이 한 후보), 아니면 B-rep 면·모서리('f:'·'e:' — 한 면을 앞뒤 두 번 맞아도·삼각형이 여럿이어도,
+ * 곡선 모서리의 선분이 여럿이어도 한 후보). 면·모서리 표가 없는 것·잘린 면·선·점·문서가 없으면 undefined(묶지 않는다 — 기본 도형마다, 0.47.0 그대로)
+ */
+export function pickGroup(H: PickRowHost & { doc: StepDoc | null }, p: Pick3d): string | undefined {
+  const d = H.doc;
+  if (!d) return undefined;
+  if (H.multiPick && !H.faceMode) return p.section ? undefined : unitKey(d, p.id, H.pickUnit === 'body');
+  const b = brepAt(d, p);
+  return b ? `${b.edge ? 'e' : 'f'}:${p.id}:${b.i}` : undefined;
 }
 
 /** 코어 후보(차례대로) → 목록 줄(앱 고르기로 묶고, 같은 고른 것은 처음 것 하나) */
@@ -103,6 +138,20 @@ export function pickRows(d: StepDoc, picks: readonly Pick3d[], H: PickRowHost): 
     out.push({ ...r, pick: p, index, checked });
   });
   return out;
+}
+
+/**
+ * 65차: 줄을 고르면 그릴 3D 강조(미리 강조 — 앱 누르기 알림과 같은 갈래: app.ts onPick·toggleInSelection). 여러 개 고르기면 그 단위를 더하거나 뺀 뒤의
+ * 고른 것 모두, B-rep 면·모서리 줄은 그 면·모서리, 첫 줄의 부품은 그 아래 몸체 모두, 그 밖(몸체·PMI, 면을 찾지 못한 면 고르기·둘째 이후 줄)은 누른 몸체
+ */
+export function rowHi(d: StepDoc, r: PickRow, H: PickRowHost): Hi {
+  const p = r.pick;
+  if (H.multiPick && !H.faceMode) return { ids: toggledItems(selectionItemIds(d), unitItemIds(d.products, p.id, H.pickUnit)) };
+  const b = r.key[0] === 'f' || r.key[0] === 'e' ? brepAt(d, p) : null;
+  const mesh = b && d.scene.meshes.find((m) => m.id === p.id);
+  const hi: Hi | null = !b || !mesh ? null : b.edge ? { edge: edgeDetails(mesh, d.edges!.tables[b.ti]!, b.i, d.edges!.kinds) } : { face: faceDetails(mesh, d.faces!.tables[b.ti]!, b.i, d.faces!.kinds) };
+  if (hi?.face || hi?.edge) return hi;
+  return { ids: r.key[0] === 'n' && !H.faceMode && !r.index ? unitItemIds(d.products, p.id, 'part') : [p.id] };
 }
 
 /** 줄을 고를 때 앱 누르기 알림에 넘길 사건(둘째 이후 후보는 cycle — 가상 커서로 돌려 Enter한 것과 같다). count = 코어 후보 수 */

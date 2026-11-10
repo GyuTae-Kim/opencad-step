@@ -9,7 +9,7 @@
  * - 캔버스 aria-keyshortcuts(코어 키 표와 뷰어 키 F·1~7)와 도움말 키 표(keyHelpBody — 코어 keyLabel)
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  */
-import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type Viewer3d } from 'opencad-viewer3d';
+import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type PickGroupKey, type Viewer3d } from 'opencad-viewer3d';
 import { VIEW_KEYS } from 'opencad-viewer3d/camera';
 import { h } from './dom';
 
@@ -71,6 +71,8 @@ export function keyHelpRows(ks: { step: number; bigStep: number; keys: Readonly<
   if (cyc.length) rows.push([cyc.join(' · '), '같은 자리의 다음·앞 후보(측정 점, 겹친 면·모서리)']);
   if (ks.keys.commit.length) rows.push([lab('commit').join(' · '), '찍기(측정)·고르기']);
   if (ks.keys.exit.length) rows.push([lab('exit').join(' · '), '측정 지우기 — 지울 것이 없으면 커서 끄기']);
+  // 65차: 커서 자리 작업 메뉴(64차 menuAt)와 겹친 것 목록 줄 미리 강조 안내
+  rows.push(['Shift+F10', '커서 자리 작업 메뉴(겹친 것 고르기… — 목록 줄에 초점을 두면 3D에 미리 강조)']);
   rows.push([`F · ${views[0]}~${views[views.length - 1]}`, '전체 보기 · 표준 뷰']);
   return rows;
 }
@@ -103,6 +105,11 @@ export interface KeySnapHost {
    * contextmenu를 막는다 — macOS는 Shift+F10에 contextmenu를 내지 않는다). 커서가 꺼져 있으면 부르지 않는다(앱 contextmenu 처리 — 3D 보기 가운데 메뉴)
    */
   menuAt?: (clientX: number, clientY: number) => boolean;
+  /**
+   * 65차: 고르기 후보 묶음 열쇠(코어 0.53.0 pickCycle group — 겹친 것 목록과 같은 picklist.ts pickGroup): Tab이 B-rep 면·모서리 단위로 돈다
+   * (64차까지는 코어 기본 도형 단위 — 한 면의 앞뒤·곡선 모서리 선분마다 멈췄다). 없으면 기본 도형 단위
+   */
+  group?: PickGroupKey;
 }
 
 /**
@@ -118,7 +125,7 @@ export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; 
         live.textContent = a.text;
         host.announced?.(a);
       },
-      pickCycle: { throughTranslucent: host.pickThrough() },
+      pickCycle: { throughTranslucent: host.pickThrough(), group: host.group },
       messages: keySnapMessagesFor(host.tr),
     });
     const ks = v.keyboardSnap;

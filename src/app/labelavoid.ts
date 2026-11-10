@@ -8,8 +8,9 @@
  * - 기본 자리가 어느 요소와도 겹치지 않으면 코어는 옮기지 않는다(넓은 화면의 보통 측정 그림은 그대로). 그림 저장은 늘 기본 자리다(코어)
  * - 요소·캔버스 크기가 바뀔 때(ResizeObserver — 띠가 나타나고 사라지거나 글 줄 수가 바뀔 때, 화면을 돌릴 때) 다시 알린다.
  *   요소 자리는 모두 3D 보기 안에서 크기로만 정해진다(아래 가운데 띠, 위 가운데·왼쪽 위 띠, 오른쪽 위 큐브)
- * - 뷰 큐브 자리는 코어가 준다(0.23.0 viewCubeRect — 내부 요소 이름을 찾지 않는다). 앱은 큐브를 끄고 켜거나 크기를 바꿀 때 update를,
- *   3D 보기를 누르거나 글쇠를 뗀 뒤 syncCube를 부른다(61차 — 코어 0.44.0 손가락으로 편 큐브 224화소 자리)
+ * - 뷰 큐브 자리는 코어가 준다(0.23.0 viewCubeRect — 내부 요소 이름을 찾지 않는다). 앱은 큐브를 끄고 켜거나 크기를 바꿀 때 update를 부른다.
+ *   손가락으로 큐브를 펴고 접으면(코어 0.44.0 — 편 동안 224화소 자리) 코어 0.53.0 알림(onViewCubeExpandedChange)의 그때 자리(e.rect)로 바로 다시 알린다
+ *   (65차 — 61~64차는 앱이 3D 보기 pointerup·keyup 뒤 viewCubeExpanded를 다시 읽어 syncCube를 불렀다)
  * - 정밀 조준(aim.ts)의 십자선 둘레·손가락 자리와 합쳐 알린다
  * - 알림(토스트)은 잠깐 나왔다 사라지므로 넣지 않는다(글상자가 따라 뛰지 않게)
  * 코어 0.23.0부터 앱 측정 덧그림(개체 측정 — 코어 setAnnotations)의 글상자도 같은 사각형을 비켜 그린다(코어가 한다 — 앱 코드는 그대로).
@@ -57,11 +58,9 @@ export function mergeLabelAvoid(ui: readonly MeasureLabelRect[], aim: AimLabelAv
 /** 3D 보기 위 요소 자리를 지켜보다 코어에 알린다(뷰어 하나에 하나) */
 export class LabelAvoid {
   private aimAt: AimLabelAvoid | null = null;
-  /** 마지막으로 알린 때 손가락으로 편 뷰 큐브였는지(코어 0.44.0 viewCubeExpanded) */
-  private cubeOpen = false;
 
   constructor(
-    private readonly v: Pick<Viewer3d, 'canvas' | 'setMeasureLabelAvoid' | 'viewCubeRect' | 'viewCubeExpanded'>,
+    private readonly v: Pick<Viewer3d, 'canvas' | 'setMeasureLabelAvoid' | 'viewCubeRect' | 'onViewCubeExpandedChange'>,
     private readonly view: ParentNode,
   ) {
     if (typeof ResizeObserver === 'function') {
@@ -69,6 +68,8 @@ export class LabelAvoid {
       ro.observe(v.canvas);
       for (const e of this.els()) ro.observe(e);
     }
+    // 손가락으로 뷰 큐브를 펴고 접는 그 순간(코어 0.53.0 — 그리기 전) 바뀐 큐브 자리로
+    v.onViewCubeExpandedChange((_, e) => this.update(e.rect));
     this.update();
   }
 
@@ -83,20 +84,12 @@ export class LabelAvoid {
   }
 
   /**
-   * 손가락으로 뷰 큐브를 펴거나 접었으면 다시 알린다(61차 — 코어 0.44.0: 손가락 누르기는 큐브를 224화소로 펴고 viewCubeRect도 편 자리다.
-   * 코어는 펴고 접을 때 알리지 않으므로 앱이 3D 보기의 누르기·글쇠 뒤에 부른다). 바뀌었으면 true
+   * 지금 요소 자리로 다시 알린다(같은 값이면 코어가 다시 그리지 않는다) — 뷰 큐브가 먼저(코어가 위 오른쪽에 둔 자리, 손가락으로 편 동안은 편 자리).
+   * cubeRect는 큐브 자리(캔버스 기준 — 주지 않으면 코어 viewCubeRect를 읽는다, 펴기·접기 알림은 그때 자리를 준다)
    */
-  syncCube(): boolean {
-    if (this.v.viewCubeExpanded === this.cubeOpen) return false;
-    this.update();
-    return true;
-  }
-
-  /** 지금 요소 자리로 다시 알린다(같은 값이면 코어가 다시 그리지 않는다) — 뷰 큐브가 먼저(코어가 위 오른쪽에 둔 자리, 손가락으로 편 동안은 편 자리) */
-  update(): void {
-    this.cubeOpen = this.v.viewCubeExpanded;
+  update(cubeRect: MeasureLabelRect | null = this.v.viewCubeRect): void {
     const canvas = this.v.canvas.getBoundingClientRect();
-    const cube = canvasBox(canvas, this.v.viewCubeRect);
+    const cube = canvasBox(canvas, cubeRect);
     const boxes = [...(cube ? [cube] : []), ...this.els().map((e) => e.getBoundingClientRect())];
     this.v.setMeasureLabelAvoid(mergeLabelAvoid(overlayRects(canvas, boxes), this.aimAt));
   }

@@ -9,6 +9,7 @@
  *   `Viewer3d.handleKey`로 넘긴다(뷰어 키 규칙은 코어 것을 그대로 쓴다). F7·Ctrl/⌘+O·Esc 순서는 앱이 정한다.
  * - 면 고르기: 도구 막대의 "면 고르기"를 켜거나 Alt(⌥)를 누른 채 누르면(onPick의 e.altKey), 부품 고르기와 함께 누른 B-rep 면을 찾아
  *   면 자체(highlightRanges — 면 표의 삼각형 범위)와 경계 모서리(setHighlightSegments)를 강조하고 종류·넓이·법선 등을 패널 아래 띠에 보인다.
+ *   고른 것의 3D 강조는 paint 하나로 그리고 기억한다(65차 — 뷰어 조각 hipaint.ts, 겹친 것 목록 줄 미리 강조를 닫으면 되돌린다).
  *   3D에서 두 번 누르면(e.clicks) 나무처럼 그 부품으로 맞춰 본다.
  * - 단면: 도구 막대·단면 막대에서 바꾸고, 막대 표시는 코어 onSectionChange 알림으로만 맞춘다(새 문서에서 꺼짐 등).
  * - 보이기: 나무 눈 단추·레이어·PMI 켜고 끄기를 doc.vis(visibility.ts)가 함께 따져 뷰어 setItemVisible로 넘긴다.
@@ -31,6 +32,7 @@ import { closeDialog, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
+import type { Hi } from './hipaint';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { boxIsEmpty } from 'opencad-viewer3d/bounds';
@@ -76,8 +78,6 @@ const APP_TITLE = document.title;
 /** 뷰 큐브 한 변(CSS 화소): 넓은 화면은 코어 기본, 좁은 화면(760px 미만)은 작게 */
 const WIDE_CUBE = 112;
 const NARROW_CUBE = 76;
-/** 고른 면 경계 색(청록) */
-const FACE_EDGE = [0.05, 0.8, 0.95, 1] as const;
 /** 화면 방향 분해(가로·세로·평면 — 카메라 각으로 방향을 정한다. explode.ts isScreenAxis와 같다: 첫 화면에 분해 조각을 들이지 않게 따로 둔다) */
 const screenAxis = (a: ExplodeAxis): boolean => a === 'sx' || a === 'sy' || a === 'sp';
 
@@ -282,6 +282,8 @@ export class StepApp {
   }
   /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다). 64차: 겹친 것 고르기 목록에서 고른 것도 이리로(ctxmenu.ts) */
   pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
+  /** 3D에 그린 고른 것의 강조(65차 — paint, 겹친 것 목록 줄 미리 강조를 닫으면 이것으로 되돌린다: ctxmenu.ts) */
+  hi: Hi = {};
   /** 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다 */
   private keySnap: { sync(): void } | null = null;
   /** 마우스·펜이 3D 보기 위에 있는지(62차 — 3D 보기가 받은 화살표를 방향 잠금과 가상 커서가 나눠 쓴다, keys.ts arrowOwner) */
@@ -887,8 +889,7 @@ export class StepApp {
       this.explodeOpen = false;
       this.multiPick = false;
     }
-    v.highlight(null);
-    this.showFace(null);
+    this.paint();
     // 개체 측정 덧그림은 장면을 바꿔도 남으므로 지운다(새 문서는 개체가 비어 있다)
     v.setAnnotations(null);
     this.aim?.cancel();
@@ -911,7 +912,7 @@ export class StepApp {
     void Promise.all([import('./export'), import('./selink'), this.loadExplode()]).catch(() => {});
     if (carry) {
       // 다시 삼각화: 카메라·단면은 그대로(keepView), 고른 것·격리를 다시 그린다
-      if (selectionItemIds(doc).length) this.viewer?.highlight(selectionItemIds(doc));
+      this.paint({ ids: selectionItemIds(doc) });
       this.toast(`곡면 품질을 바꿔 다시 삼각화했습니다(삼각형 ${fmtCount(Math.round(tris))}개).`);
       return;
     }
@@ -993,6 +994,8 @@ export class StepApp {
       },
       // 64차: 커서를 켠 동안 Shift+F10·메뉴 키는 커서 자리 작업 메뉴(겹친 것 고르기…)
       menuAt: (x, y) => this.contextMenuAt(x, y, 'keyboard'),
+      // 65차: Tab 후보를 겹친 것 목록과 같은 묶음(B-rep 면·모서리, 여러 개 고르기면 고르기 단위 — 코어 0.53.0 group)으로
+      group: (p) => core.pickGroup(this, p),
     });
     v.onMeasure((m) => this.onMeasure(m));
     // 3D 보기 위 측정 글도 표시 단위·소수 자리·화면 언어로(캔버스 글이라 이름표는 직접 번역)
@@ -1040,14 +1043,9 @@ export class StepApp {
       if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
       this.contextMenuAt(e.clientX, e.clientY);
     });
-    // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계)
-    // 손가락으로 뷰 큐브를 펴고 접으면(코어 0.44.0 — 편 동안 224화소) 거리 글상자가 비킬 큐브 자리를 다시 알린다(61차 — 코어는 펴고 접을 때 알리지 않는다).
-    // 누르기 뒤 코어가 펴고, 다시 누르기·3D 보기 누르기·Esc 뒤 접는다
-    this.hostEl.addEventListener('pointerup', () => {
-      if (v.measureMode) this.refreshBar();
-      this.labelAvoid?.syncCube();
-    });
-    this.hostEl.addEventListener('keyup', () => this.labelAvoid?.syncCube());
+    // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계).
+    // 손가락으로 편 뷰 큐브 자리는 거리 글상자 비키기가 코어 알림으로 맞춘다(65차 — labelavoid.ts, 코어 0.53.0 onViewCubeExpandedChange)
+    this.hostEl.addEventListener('pointerup', () => v.measureMode && this.refreshBar());
     // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
     // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
@@ -1098,16 +1096,13 @@ export class StepApp {
     if (this.viewer?.measureMode) return;
     resetSelection(d);
     d.pick = p;
-    if (!p) this.viewer?.highlight(null);
-    else {
+    if (p) {
       const isPmi = d.vis.pmiIds.has(p.id);
       // 몸체 단위: 나무 마디(부품 통째) 대신 누른 형상 항목 하나 — 나무에서는 그 부품을 펼쳐 몸체 줄을 고름으로(부품 줄은 일부 고름) 표시한다
       const body = this.bodyPick && !wantFace;
       const s = isPmi ? null : selectFromPick(d.products, d.expanded, p.id, body);
       d.selKey = body ? null : (s?.key ?? null);
       if (s) d.expanded = s.expanded;
-      // 부품 단위는 숨기기·격리·맞춰 보기가 쓰는 것(그 마디 아래 몸체 모두)을 강조한다(몸체가 여럿인 부품도 통째로 보이게)
-      this.viewer?.highlight(d.selKey && !wantFace ? selectionItemIds(d) : [p.id]);
       // 이름 거르기 중이면 고른 마디가 보이지 않을 때 거르기를 푼다
       if (s && d.treeFilter.trim() && !filterRows(d.products, d.treeFilter, d.expanded, Infinity).rows.some((r) => r.key === s.key)) d.treeFilter = '';
       if (s && d.panelTab !== 'tree' && d.panelTab !== 'layers' && d.panelTab !== 'props' && this.panel.open) this.panel.setTab('tree');
@@ -1117,30 +1112,19 @@ export class StepApp {
       if (p.kind === 'edge' && wantFace) d.edge = this.findEdge(d, p);
       if (d.face) logMeasure(d, { type: 'face', kind: d.face.kind, stepId: d.face.stepId, ...(d.face.radius !== undefined ? { radius: d.face.radius } : {}), area: d.face.area, perimeter: d.face.perimeter, exact: d.face.exact });
       if (d.edge) logMeasure(d, { type: 'edge', kind: d.edge.kind, stepId: d.edge.stepId, length: d.edge.length, ...(d.edge.radius !== undefined ? { radius: d.edge.radius } : {}) });
-      // 면·모서리를 골랐으면 부품 통째 강조 대신 그것만(나무에서는 부품이 골라져 있다)
-      if (d.face || d.edge) this.viewer?.highlight(null);
     }
-    this.showFace(d.face, d.edge);
+    // 면·모서리를 골랐으면 그것만(나무에서는 부품이 골라져 있다), 부품 단위는 숨기기·격리·맞춰 보기가 쓰는 것(그 마디 아래 몸체 모두 — 몸체가 여럿인 부품도 통째로)
+    this.paint(d.face || d.edge ? { face: d.face, edge: d.edge } : { ids: p ? (d.selKey && !wantFace ? selectionItemIds(d) : [p.id]) : null });
     this.selectionChanged(true);
   }
 
   /**
-   * 고른 면·모서리 강조: 면은 삼각형 범위(highlightRanges) + 경계 모서리, 모서리는 윤곽선 범위 + 그 선(부품 강조색과 다른 색).
-   * 둘 다 null이면 푼다
+   * 고른 것의 3D 강조를 그리고 기억한다(65차 — 뷰어 조각 hipaint.ts paintHi: 항목 강조·면/모서리 구간과 경계 선·그 밖 구간을 함께.
+   * 64차까지 showFace와 highlight를 곳곳에서 따로 불렀다). 빈 것이면 모두 푼다
    */
-  private showFace(face: FacePick | null, edge: EdgePick | null = null): void {
-    const v = this.viewer;
-    if (!v) return;
-    if (face) {
-      v.highlightRanges({ [face.meshId]: [{ start: face.triStart, count: face.triangles }] });
-      v.setHighlightSegments(face.boundary, { width: 3.5, hidden: 0.3, color: FACE_EDGE, ...(face.boundaryOrigin ? { origin: face.boundaryOrigin } : {}) });
-    } else if (edge) {
-      v.highlightRanges({ [edge.meshId]: { edges: [{ start: edge.segStart, count: edge.segCount }] } });
-      v.setHighlightSegments(edge.segs, { width: 4, hidden: 0.3, color: FACE_EDGE, origin: edge.segOrigin });
-    } else {
-      v.highlightRanges(null);
-      v.setHighlightSegments(null);
-    }
+  paint(h: Hi = {}): void {
+    this.hi = h;
+    if (this.viewer) this.ent?.paintHi(this.viewer, h);
   }
 
   /** 누른 윤곽선 선분의 B-rep 모서리(모서리 표가 없거나 못 찾으면 null) */
@@ -1319,8 +1303,7 @@ export class StepApp {
       const d = this.doc;
       d.face = null;
       d.edge = null;
-      this.showFace(null);
-      if (d.pick) this.viewer?.highlight([d.pick.id]);
+      this.paint({ ids: d.pick ? [d.pick.id] : null });
       this.selectionChanged();
     }
     this.toolbar.refresh();
@@ -1384,8 +1367,7 @@ export class StepApp {
     const node = key ? productAt(d.products, key) : null;
     resetSelection(d);
     d.selKey = node ? key : null;
-    this.showFace(null);
-    this.viewer?.highlight(node ? subtreeItemIds(node) : null);
+    this.paint({ ids: node ? subtreeItemIds(node) : null });
     this.selectionChanged();
   }
 
@@ -1395,8 +1377,7 @@ export class StepApp {
     if (!d) return;
     resetSelection(d);
     d.body = id && itemById(d.scene, id) ? id : null;
-    this.showFace(null);
-    this.viewer?.highlight(d.body ? [d.body] : null);
+    this.paint({ ids: d.body ? [d.body] : null });
     this.selectionChanged();
   }
 
@@ -1412,8 +1393,7 @@ export class StepApp {
     if (!d) return;
     resetSelection(d);
     d.items = ids && ids.length ? { ids: [...ids], label } : null;
-    this.showFace(null);
-    this.viewer?.highlight(d.items ? d.items.ids : null);
+    this.paint({ ids: d.items?.ids });
     this.selectionChanged();
     if (fit && d.items) this.viewer?.fitItems(d.items.ids);
   }
@@ -1431,8 +1411,7 @@ export class StepApp {
     // 몸체 단위로 3D에서 더한 몸체는 나무에서 그 부품을 펼쳐 몸체 줄을 보인다
     const s = reveal && list.includes(reveal) ? selectFromPick(d.products, d.expanded, reveal, true) : null;
     if (s) d.expanded = s.expanded;
-    this.showFace(null);
-    this.viewer?.highlight(list.length ? list : null);
+    this.paint({ ids: list });
     this.selectionChanged(!!s);
   }
 
@@ -1469,9 +1448,7 @@ export class StepApp {
     const ids = [...ranges.keys()];
     resetSelection(d);
     d.items = { ids, label };
-    v.setHighlightSegments(null);
-    v.highlight(null);
-    v.highlightRanges(Object.fromEntries(ranges));
+    this.paint({ ranges });
     this.selectionChanged();
     v.fitItems(ids);
     return true;
@@ -1570,7 +1547,8 @@ export class StepApp {
       return;
     }
     if (this.doc) this.doc.interference = undefined;
-    this.viewer?.highlightRanges(null);
+    // 간섭 구간 강조만 거둔다(고른 면·모서리 강조는 그대로 — 64차까지는 그 구간도 지웠다)
+    this.paint({ ...this.hi, ranges: null });
     this.panel.onInterference();
   }
 
@@ -1581,9 +1559,7 @@ export class StepApp {
     if (!d || !v) return;
     resetSelection(d);
     d.items = { ids: [p.a, p.b], label: interferenceLabel(d, p) };
-    v.setHighlightSegments(null);
-    v.highlight(p.inside ? [p.a] : null);
-    v.highlightRanges(p.inside ? null : { [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) });
+    this.paint(p.inside ? { ids: [p.a] } : { ranges: { [p.a]: triRanges(p.trisA), [p.b]: triRanges(p.trisB) } });
     this.selectionChanged();
     v.fitItems(p.inside ? [p.a] : [p.a, p.b]);
   }
@@ -2323,8 +2299,7 @@ export class StepApp {
     this.tangents?.reset();
     if (this.doc && !on) this.doc.measure = null;
     if (on) {
-      this.viewer?.highlight(null);
-      this.showFace(null);
+      this.paint();
       if (this.faceMode) this.faceMode = false;
       if (this.doc) resetSelection(this.doc);
       this.panel.onSelection();
@@ -2363,7 +2338,7 @@ export class StepApp {
     if (d) d.ent = { picks: [], result: null };
     this.entClosest?.cancel();
     v?.setAnnotations(null);
-    v?.highlightRanges(null);
+    this.paint({ ...this.hi, ranges: null });
     this.panel.onMeasure();
     this.updateStatus();
   }
@@ -2483,9 +2458,7 @@ export class StepApp {
       else continue;
       ranges.set(p.meshId, r);
     }
-    v.highlight(null);
-    v.setHighlightSegments(null);
-    v.highlightRanges(ranges.size ? ranges : null);
+    this.paint({ ranges: ranges.size ? ranges : null });
     v.setAnnotations(d.ent.picks.length ? E.pickedAnnotations(d.ent.picks, d.ent.result, this.fmt) : null);
   }
 

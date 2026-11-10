@@ -88,7 +88,7 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './imagedlg', './infoview', './keynav', './keysnap', './opennotice', './physics', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
+    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './opennotice', './physics', './picklist', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
     // 뷰 큐브 면 글(코어 viewcube — 0.44.0 손가락 큐브로 커짐)은 61차부터 이 조각에서 받아 앱이 바꾼다(첫 화면 번역층은 가져오지 않는다)
     expect(core).not.toContain('viewcube');
     const appText = readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8');
@@ -106,9 +106,11 @@ describe('코어 나눠 받기', () => {
     for (const m of ['src/app/keynav.ts', 'src/app/physics.ts', 'src/app/keysnap.ts', 'src/app/imagedlg.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
     expect(dynamic.some((d) => ['keynav', 'physics', 'keysnap', 'imagedlg'].some((n) => d.spec.endsWith(n)))).toBe(false);
     // 작업 메뉴 항목·불투명도 메뉴(52차 — ctxmenu.ts, 작업 메뉴는 뷰어가 있어야 열린다)도 그 조각에만.
-    // 64차: 3D 보기 화면 점의 작업 메뉴(contextAt — app.ts에서 옮김)와 겹친 것 고르기 목록(picklist.ts)도
+    // 64차: 3D 보기 화면 점의 작업 메뉴(contextAt — app.ts에서 옮김)와 겹친 것 고르기 목록(picklist.ts)도.
+    // 65차: 고른 것 3D 강조 그리기(hipaint.ts — app.ts showFace를 옮김, 앱은 타입만)와 후보 묶음 열쇠(picklist.ts pickGroup — 앱은 조각의 것을 부른다)도
     expect(files.has(join(ROOT, 'src/app/ctxmenu.ts'))).toBe(false);
     expect(files.has(join(ROOT, 'src/app/picklist.ts'))).toBe(false);
+    expect(files.has(join(ROOT, 'src/app/hipaint.ts'))).toBe(false);
     expect(dynamic.some((d) => d.spec.endsWith('picklist') || d.spec.endsWith('ctxmenu'))).toBe(false);
     // 나무 조각(49차 — 제품 나무·부품별 보이기 표의 가상 목록)도 그 조각에만: 패널은 타입만 가져오고 앱이 뷰어를 만들 때 넣는다
     expect(files.has(join(ROOT, 'src/app/treeview.ts'))).toBe(false);

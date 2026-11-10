@@ -22,6 +22,8 @@
  * - 큰 그림 저장 대화 상자 본문(imagedlg.ts — 62차, 앱 입구에서 옮김): 뷰어가 있어야 연다
  * - 면 기준 보기·자르기 계산(viewhelp.ts — 63차, 앱 입구에서 옮김)과 저장된 보기의 방향 → 각(코어 camera dirToAngles), 개체 측정의 장면 범위(코어 sceneBounds —
  *   코어 입구가 내보낸다): 모두 뷰어가 있어야 쓴다
+ * - 3D 강조 그리기(hipaint.ts — 65차, 앱 입구의 showFace를 옮김): 고른 것의 항목·구간 강조와 면·모서리 강조 선을 함께 그린다(앱은 그린 것을 기억해 겹친 것 목록 미리 강조 뒤 되돌린다).
+ *   겹친 것 고르기 후보 묶음 열쇠(picklist.ts pickGroup — 코어 0.53.0 group)는 가상 커서 Tab에도 준다
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -29,11 +31,13 @@ export { TouchAim } from './aim';
 export { contextAt, contextItems } from './ctxmenu';
 export * from './entpick';
 export { watchGraphicsContext } from './gpucontext';
+export { paintHi } from './hipaint';
 export { imageDialogBody } from './imagedlg';
 export { infoView } from './infoview';
 export { installKeyNav } from './keynav';
 export { installKeySnap, keyHelpBody } from './keysnap';
 export { openNotice, sceneIssueLines } from './opennotice';
+export { pickGroup } from './picklist';
 // 뷰 큐브 면 글(코어가 캔버스에 그린다 — 앱이 화면 언어로 바꾼다, app.ts relabelCube). 61차: 코어 0.44.0에서 커진 viewcube 모듈을 첫 화면 JS에서 빼려고
 // i18n.ts에서 이 조각으로 옮겼다(코어 뷰어가 이미 이 모듈을 쓴다)
 export { CUBE_FACES } from 'opencad-viewer3d/viewcube';

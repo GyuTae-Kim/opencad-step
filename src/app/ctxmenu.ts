@@ -16,9 +16,10 @@
 import type { StepApp } from './app';
 import { selectionItemIds, unitItemIds } from './doc';
 import type { FacePick } from './faces';
+import { paintHi } from './hipaint';
 import { OPACITY_STEPS } from './looks';
 import { openMenuAt, type MenuItem } from './menu';
-import { PICK_LIST_MAX, pickItems, pickRows, rowEvent, type PickRow } from './picklist';
+import { PICK_LIST_MAX, pickGroup, pickItems, pickRows, rowEvent, rowHi, type PickRow } from './picklist';
 
 /** 작업 메뉴가 부르는 앱 */
 export type CtxHost = Pick<
@@ -30,7 +31,7 @@ export type CtxHost = Pick<
 
 /** 3D 보기 화면 점의 작업 메뉴(contextAt)가 더 부르는 앱 */
 export type CtxPointHost = CtxHost &
-  Pick<StepApp, 'viewer' | 'loading' | 'measuring' | 'pickThrough' | 'pickUnit' | 'pickCb' | 'onPick' | 'toggleInSelection' | 'findFace'> & { ctxFace: FacePick | null };
+  Pick<StepApp, 'viewer' | 'loading' | 'measuring' | 'pickThrough' | 'pickUnit' | 'pickCb' | 'onPick' | 'toggleInSelection' | 'findFace' | 'hi'> & { ctxFace: FacePick | null };
 
 /** 겹친 것 고르기 목록(작업 메뉴의 "겹친 것 고르기…" → 같은 자리) */
 export interface OverlapList {
@@ -39,6 +40,8 @@ export interface OverlapList {
   multi: boolean;
   /** 고른 줄 → 앱 */
   choose: (r: PickRow) => void;
+  /** 65차 줄 미리 강조: 줄 → 그 줄을 고를 때의 강조를 3D에, null → 지금 고른 것의 강조로 되돌리기(없으면 미리 강조하지 않는다) */
+  preview?: (r: PickRow | null) => void;
 }
 
 /**
@@ -48,13 +51,14 @@ export interface OverlapList {
  * - 지금 고른 것이 그 후보 가운데 하나면(목록에서 뒤의 것을 골랐으면) 그대로 두고 그것에 대해 연다. 아니면 앞의 것을 고른다(여러 개 고르기는 앞의 것을 더한다 —
  *   전처럼 앞의 것만 본다). 누른 자리 B-rep 면(정면으로 보기·면으로 자르기)도 그 고른 것의 면
  * - 묶은 줄이 둘 이상이면 메뉴 맨 위에 "겹친 것 고르기…"(contextItems)
+ * - 65차: 후보는 코어 0.53.0 묶음 열쇠(pickGroup — 가상 커서 Tab과 같은 열쇠)로 B-rep 면·모서리 단위(여러 개 고르기면 고르기 단위), 목록 줄 미리 강조(rowHi → 닫으면 앱이 기억한 강조 hi)
  */
 export function contextAt(H: CtxPointHost, clientX: number, clientY: number, pointerType = 'touch'): boolean {
   const v = H.viewer;
   const d = H.doc;
   if (!v || !d || H.loading || H.measuring) return false;
   const r = v.canvas.getBoundingClientRect();
-  const picks = v.pickCandidates(clientX - r.left, clientY - r.top, { pointerType, throughTranslucent: H.pickThrough, max: PICK_LIST_MAX });
+  const picks = v.pickCandidates(clientX - r.left, clientY - r.top, { pointerType, throughTranslucent: H.pickThrough, max: PICK_LIST_MAX, group: (x) => pickGroup(H, x) });
   const multi = H.multiPick && !H.faceMode;
   const rows = pickRows(d, picks, H);
   const kept = multi ? undefined : rows.find((x) => x.checked);
@@ -65,7 +69,12 @@ export function contextAt(H: CtxPointHost, clientX: number, clientY: number, poi
   }
   H.ctxFace = p && p.kind === 'mesh' && !p.section ? H.findFace(d, p) : null;
   // 앞의 것을 골랐으면 줄 표시도 새 고른 것으로. 고른 줄은 앱 누르기 알림에(둘째 이후 후보는 cycle — 가상 커서 Tab·Enter와 같은 선택)
-  const list: OverlapList = { rows: kept ? rows : pickRows(d, picks, H), multi, choose: (x) => H.pickCb?.(x.pick, rowEvent(x, picks.length, pointerType)) };
+  const list: OverlapList = {
+    rows: kept ? rows : pickRows(d, picks, H),
+    multi,
+    choose: (x) => H.pickCb?.(x.pick, rowEvent(x, picks.length, pointerType)),
+    preview: (x) => paintHi(v, x ? rowHi(d, x, H) : H.hi),
+  };
   const items = contextItems(H, H.ctxFace, { x: clientX, y: clientY }, list);
   if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴');
   return true;
@@ -82,7 +91,7 @@ export function foldMenu(items: MenuItem[], open: (rest: MenuItem[]) => void): M
 /**
  * 작업 메뉴 항목(고른 것이 있으면 그것에 대해). face는 누른 자리의 B-rep 면(없으면 고른 면), at은 메뉴를 연 화면 점(하위 메뉴를 같은 자리에).
  * list(3D 보기 화면 점에서 연 메뉴 — contextAt)의 줄이 둘 이상이면 맨 위에 "겹친 것 고르기…": 고르면 같은 자리에 목록(role=menu — ↑↓·Home·End·Enter·Space,
- * Esc는 닫고 연 곳으로 초점, menu.ts). 손가락 기기에서도 접지 않는다
+ * Esc는 닫고 연 곳으로 초점, menu.ts — 65차부터 줄 미리 강조, openPickList). 손가락 기기에서도 접지 않는다
  */
 export function contextItems(H: CtxHost, face: FacePick | null, at: { x: number; y: number }, list?: OverlapList): MenuItem[] {
   const d = H.doc;
@@ -117,7 +126,7 @@ export function contextItems(H: CtxHost, face: FacePick | null, at: { x: number;
   if (has && H.touch) items = foldMenu(items, (rest) => openMenuAt(at.x, at.y, rest, '그 밖의 작업'));
   if (list && list.rows.length > 1) {
     if (items[0]) items[0].sep = true;
-    items.unshift({ label: '겹친 것 고르기…', run: () => openMenuAt(at.x, at.y, pickItems(list.rows, list.multi, list.choose), '겹친 것 고르기') });
+    items.unshift({ label: '겹친 것 고르기…', run: () => openPickList(at, list) });
   }
   // 분해 막대가 열렸으면 손질 항목(분해 조각이 만든다 — 손가락 기기에서도 길게 누르기 → 메뉴): 되돌리기·다시 하기는 끝에, 고른 것을 거리로 옮기기는 맨 위에
   const tw = H.explodeOpen ? H.tweakTool : null;
@@ -128,6 +137,31 @@ export function contextItems(H: CtxHost, face: FacePick | null, at: { x: number;
     items.unshift(mv);
   }
   return items;
+}
+
+/**
+ * 겹친 것 고르기 목록을 같은 자리에 연다. 65차 미리 강조(SKP 58차와 같은 꼴): 줄에 초점이 가면(↑↓·Home·End, 처음 연 때 초점 줄 — 고른 줄이나 첫 줄)
+ * 그 줄을 고를 때의 강조를 3D에 그리고, 마우스·펜이 오른 줄은 초점도 옮긴다(표준 메뉴처럼 — 강조 줄과 초점 줄을 하나로, 손가락은 누르면 바로 고른다).
+ * 미리 강조했으면 목록이 닫힐 때 지금 고른 것의 강조로 되돌린다(줄을 고르면 그 고르기보다 먼저 — 고른 것·패널·상태 줄은 처음부터 그대로)
+ */
+export function openPickList(at: { x: number; y: number }, list: OverlapList): void {
+  const pv = list.preview;
+  let shown = false;
+  const el = openMenuAt(at.x, at.y, pickItems(list.rows, list.multi, list.choose), '겹친 것 고르기', pv && (() => shown && pv(null)));
+  if (!el || !pv) return;
+  const rows = [...el.querySelectorAll('.menu-item')];
+  const show = (b: Element | null): void => {
+    const r = b ? list.rows[rows.indexOf(b)] : undefined;
+    if (!r) return;
+    shown = true;
+    pv(r);
+  };
+  el.addEventListener('focusin', (e) => show(e.target as Element));
+  el.addEventListener('pointermove', (e) => {
+    const b = e.pointerType === 'touch' ? null : (e.target as Element).closest<HTMLElement>('.menu-item');
+    if (b && b !== document.activeElement) b.focus({ preventScroll: true });
+  });
+  show(document.activeElement);
 }
 
 /** 고른 것의 불투명도 메뉴(작업 메뉴를 연 자리에 다시 연다) */
