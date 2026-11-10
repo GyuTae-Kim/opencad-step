@@ -29,7 +29,7 @@ import { h, icon, iconButton, nextFrame } from './dom';
 import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
-import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, unitItemIds, type PickUnit, type StepDoc } from './doc';
+import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, translucentView, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
 import type { Hi } from './hipaint';
@@ -59,7 +59,7 @@ import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
 import { isLineMode, profilesFor, Toolbar } from './toolbar';
-import { LookSync, translucentView } from './looks';
+import type { LookSync } from './looks';
 import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
 
@@ -274,11 +274,14 @@ export class StepApp {
   // ── 부품 겉모습(불투명도·흐리게·부품 색·분해) ──
   /** 부품 색 구분(같은 제품은 같은 색) — 문서를 바꿔도 켜 둔다 */
   partColors = false;
-  /** 코어에 건 겉모습(바뀐 그물만 다시 만들어 건다 — looks.ts LookSync) — 새 장면이면 비운다(코어가 푼다) */
-  private readonly lookSync = new LookSync();
+  /**
+   * 코어에 건 겉모습(바뀐 그물만 다시 만들어 건다 — looks.ts LookSync) — 새 장면이면 비운다(코어가 푼다).
+   * 66차: 뷰어를 만들 때 뷰어 조각에서 만든다(looks.ts를 첫 화면 JS에서 뺐다 — 겉모습은 뷰어가 있어야 건다)
+   */
+  private lookSync: LookSync | null = null;
   /** 분해 보기로 옮겨 그린 그물의 이동량(정면으로 보기가 보이는 자리의 면을 본다 — 물을 때 만든다) */
   private get lookMoves(): ReadonlyMap<string, readonly [number, number, number]> {
-    return this.lookSync.moves();
+    return this.lookSync?.moves() ?? new Map();
   }
   /** 코어 누르기 알림(뷰어를 만들 때 단다 — 반투명 보기가 바뀌면 같은 함수에 선택만 다시 단다). 64차: 겹친 것 고르기 목록에서 고른 것도 이리로(ctxmenu.ts) */
   pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
@@ -786,6 +789,8 @@ export class StepApp {
       await nextPaint();
       if (seq !== this.loadSeq) return false;
       await this.ensureViewer();
+      // 66차: 한 번에 올리는 부품 2,000~3,000개 장면은 묶어 그리기 조각(코어 0.54.0)을 먼저 받는다(뷰어 조각 upload.ts — 1.5초까지)
+      await this.ent!.preloadMergingFor(res.scene.meshes);
       if (seq !== this.loadSeq) return false;
       const doc = createDoc(name, size, res);
       if (res.surfaces) this.surfDocs.add(doc);
@@ -884,7 +889,7 @@ export class StepApp {
     offIssues();
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
-    this.lookSync.clear();
+    this.lookSync?.clear();
     if (!carry) {
       this.explodeOpen = false;
       this.multiPick = false;
@@ -1765,7 +1770,7 @@ export class StepApp {
     // 분해 양: 분해 조각을 받았으면 그 계획으로, 아직이면 받은 뒤 다시 건다(문서를 열 때 미리 받으므로 보통은 이미 있다)
     const ui = d.explode > 0 ? this.explodeUi : null;
     if (d.explode > 0 && !ui) void this.loadExplode().catch(() => this.toast('분해 보기를 받지 못했습니다.', 'warn'));
-    this.lookSync.apply(v, {
+    (this.lookSync ??= new this.ent!.LookSync()).apply(v, {
       items: [...d.scene.meshes, ...d.scene.lines, ...(d.scene.points ?? [])],
       products: d.products,
       opacity: d.opacity,

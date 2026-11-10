@@ -10,7 +10,7 @@
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  */
 import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type PickGroupKey, type Viewer3d } from 'opencad-viewer3d';
-import { VIEW_KEYS } from 'opencad-viewer3d/camera';
+import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
 import { h } from './dom';
 
 /** 한국어 글 → 지금 화면 언어(앱 사전) */

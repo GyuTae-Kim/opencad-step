@@ -6,6 +6,7 @@
  * - 부품 색: 같은 제품(이름·제품 번호)은 같은 색 — 골든 각으로 색상환을 돈다(조립의 같은 부품을 알아보게)
  * - 분해: 묶음마다 옮길 양을 받아 이동 행렬로 건다(양은 분해 조각 explode.ts가 조립 단계별·한꺼번에로 구한다 — 첫 화면 JS 밖)
  * 코어는 setScene마다 겉모습을 모두 풀므로 앱이 새 장면에 다시 건다(applyLooks — 바뀐 묶음만 putLooks로).
+ * 66차: 뷰어 조각(viewerkit.ts)에만 든다 — 앱은 뷰어를 만들 때 LookSync를 조각에서 만든다(겉모습은 뷰어가 있어야 건다). 반투명 보기 판정은 doc.ts
  */
 import type { ItemLookInput, Viewer3d } from 'opencad-viewer3d';
 import type { LineSet3d, Mesh3d, PointSet3d, Rgba } from 'opencad-viewer3d/types';
@@ -127,14 +128,8 @@ export function desiredLooks(inp: LookInput, prev?: ReadonlyMap<string, Look> | 
   return out;
 }
 
-/**
- * 반투명 보기인지: 사용자가 부품 불투명도를 낮췄거나(불투명도 메뉴 — 1 미만만 남는다) 나머지 흐리게 중이다. 그동안 앱의 누르기·측정은
- * 반투명 그물의 면을 지나 그 뒤 불투명 면을 고른다(코어 0.23.0 throughTranslucent — 뒤에 불투명 면이 없으면 예전처럼 반투명 면, 흐린 부품은 원래 고르지 않는다).
- * 그 밖에는 앞 면을 고른다(파일이 정한 투명 색만 있는 문서도 그대로)
- */
-export function translucentView(inp: Pick<LookInput, 'opacity' | 'dim'> | null): boolean {
-  return !!inp && (inp.opacity.size > 0 || !!inp.dim);
-}
+/** 반투명 보기인지(66차 — doc.ts로 옮겼다: 첫 화면은 그것만 쓰고 이 모듈은 뷰어 조각에. 같은 함수를 다시 내보낸다) */
+export { translucentView } from './doc';
 
 /** 겉모습 비교 열쇠(같으면 코어에 다시 넘기지 않는다) */
 export function lookKey(l: Look): string {

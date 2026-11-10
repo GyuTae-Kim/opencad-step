@@ -591,6 +591,16 @@ export function selectedBody(d: Pick<StepDoc, 'selKey' | 'items' | 'pick'> & { b
   return d.body ?? null;
 }
 
+/**
+ * 반투명 보기인지: 사용자가 부품 불투명도를 낮췄거나(불투명도 메뉴 — 1 미만만 남는다) 나머지 흐리게 중이다. 그동안 앱의 누르기·측정은
+ * 반투명 그물의 면을 지나 그 뒤 불투명 면을 고른다(코어 0.23.0 throughTranslucent — 뒤에 불투명 면이 없으면 예전처럼 반투명 면, 흐린 부품은 원래 고르지 않는다).
+ * 그 밖에는 앞 면을 고른다(파일이 정한 투명 색만 있는 문서도 그대로).
+ * 66차: looks.ts에서 옮겼다(첫 화면은 이것만 쓰고 겉모습 걸기 LookSync는 뷰어 조각에서 — looks.ts가 다시 내보낸다)
+ */
+export function translucentView(inp: { opacity: ReadonlyMap<string, number>; dim: ReadonlySet<string> | null } | null): boolean {
+  return !!inp && (inp.opacity.size > 0 || !!inp.dim);
+}
+
 /** 고르기를 모두 푼다(나무 마디·3D·몸체·묶음·면·모서리) */
 export function resetSelection(d: StepDoc): void {
   d.selKey = d.pick = d.body = d.items = d.face = d.edge = null;
