@@ -6,15 +6,17 @@
  * - 극점에 닿은 선 삼각형: 한 변이 한 점으로 모인 B-스플라인 조각·원뿔 꼭짓점에서 다듬기가 극점으로 가는 등매개선 모서리를 거듭 나눠
  *   (점, 가운데 점, 극점)이 같은 등매개선 위에 놓인 삼각형이 곡면에 서거나 한 직선이 되어 접히던 것, 모인 변의 조절점이 반올림만큼 어긋나
  *   극점 정점 법선이 잡음이던 것 → 극점 법선은 안쪽으로 옮겨 구하고, 선 삼각형이 있으면 극점 둘레를 따로 나누거나(캡) 가장 긴 모서리를 뒤집는다
+ * - 방추형 원환(68차): 장반지름이 단반지름보다 작은 원환의 축 위 꼭짓점을 극점으로 다루지 않아, 꼭짓점을 지나는 면 고리가 그 점에서 u가 튀어
+ *   "한 바퀴 도는 고리"로 읽혀 정의역 끝까지 닫히던 것(면이 곡면의 안쪽 겹친 부분까지 덮어 두 면이 겹치고 넓이·부피가 틀림) → 사과 쪽만 정의역으로, 꼭짓점은 극점
  */
 import { describe, expect, it } from 'vitest';
 import type { Mesh3d } from 'opencad-viewer3d/types';
 import { meshVolume, stepToScene, watertightness, type StepMeta } from '../src/index';
 import { NurbsSurface } from '../src/nurbs';
-import { BSplineSurface } from '../src/surfaces';
+import { BSplineSurface, TorusSurface } from '../src/surfaces';
 import { triangulateRobust } from '../src/tessellate';
 import { itemQuality } from '../scripts/sweep/metrics';
-import { StepText, type P3 } from './stepText';
+import { r, StepText, type P3 } from './stepText';
 
 /**
  * 반지름 3, 높이 10인 원기둥 입체. 아래 원을 꼭짓점 둘(각 0과 delta)로 나눠 아주 짧은 원호(0 → delta)와 나머지 원호(delta → 2π)로 둔다.
@@ -232,5 +234,146 @@ describe('극점에 닿은 선 삼각형(67차)', () => {
       expect(apexFins(m, [0, 0, h], h * 1e-6)).toBe(0);
       expect(itemQuality(m).folded).toBe(0);
       expect(Math.abs(meshVolume(m.positions, m.indices) / ((Math.PI * r * r * h) / 3) - 1)).toBeLessThan(0.01);
+    });
+});
+
+/**
+ * 장반지름 R이 단반지름 rr보다 작은 방추형 원환(축 Z, 중심 원점)의 위쪽 사과 반 — 적도 원(z = 0, 반지름 R + rr)에서 축 위 꼭짓점(0, 0, √(rr² − R²))까지.
+ * 옆면은 u 0 ~ π·π ~ 2π 두 원환 면(자오선 원호 둘이 꼭짓점에서 만난다 — 표본 파일 꼴), 밑면은 적도 원의 평면 — 닫힌 입체
+ */
+function spindleCap(R: number, rr: number): { bytes: Uint8Array; apex: P3 } {
+  const w = new StepText();
+  const apex: P3 = [0, 0, Math.sqrt(rr * rr - R * R)];
+  const E = w.vertex([R + rr, 0, 0]);
+  const W = w.vertex([-(R + rr), 0, 0]);
+  const A = w.vertex(apex);
+  const eq = w.circle([0, 0, 0], R + rr);
+  const front = w.edge(E, W, eq);
+  const back = w.edge(W, E, eq);
+  const m0 = w.edge(E, A, w.circle([R, 0, 0], rr, [0, -1, 0], [1, 0, 0]));
+  const m1 = w.edge(W, A, w.circle([-R, 0, 0], rr, [0, 1, 0], [-1, 0, 0]));
+  const surf = w.add('TOROIDAL_SURFACE', `'',#${w.ax2([0, 0, 0])},${r(R)},${r(rr)}`);
+  const f0 = w.face([w.bound(w.loop([w.oe(front, true), w.oe(m1, true), w.oe(m0, false)]))], surf);
+  const f1 = w.face([w.bound(w.loop([w.oe(back, true), w.oe(m0, true), w.oe(m1, false)]))], surf);
+  const bottom = w.face([w.bound(w.loop([w.oe(back, false), w.oe(front, false)]))], w.plane([0, 0, 0]), false);
+  w.product('spindle', [w.solid([f0, f1, bottom])], w.context());
+  return { bytes: w.bytes(), apex };
+}
+
+/**
+ * 방추형 원환(축 Z)의 반 바퀴 띠 면 하나(열린 껍질): v0 위도 원에서 v = π/2 위 원(반지름 R — 꼭짓점 위 오목한 데의 둘레)까지, u 0 ~ π.
+ * 꼭짓점은 지나지 않지만 위 원 현이 꼭짓점에서 R 남짓이라 R보다 큰 현 높이에서는 꼭짓점이 현 높이 안이다
+ */
+function spindleBand(R: number, rr: number, v0: number): Uint8Array {
+  const w = new StepText();
+  const z0 = rr * Math.sin(v0);
+  const rho0 = R + rr * Math.cos(v0);
+  const B0 = w.vertex([rho0, 0, z0]);
+  const B1 = w.vertex([-rho0, 0, z0]);
+  const T0 = w.vertex([R, 0, rr]);
+  const T1 = w.vertex([-R, 0, rr]);
+  const bottom = w.edge(B0, B1, w.circle([0, 0, z0], rho0));
+  const top = w.edge(T0, T1, w.circle([0, 0, rr], R));
+  const m0 = w.edge(B0, T0, w.circle([R, 0, 0], rr, [0, -1, 0], [1, 0, 0]));
+  const m1 = w.edge(B1, T1, w.circle([-R, 0, 0], rr, [0, 1, 0], [-1, 0, 0]));
+  const surf = w.add('TOROIDAL_SURFACE', `'',#${w.ax2([0, 0, 0])},${r(R)},${r(rr)}`);
+  const face = w.face([w.bound(w.loop([w.oe(bottom, true), w.oe(m1, true), w.oe(top, false), w.oe(m0, false)]))], surf);
+  const shell = w.add('OPEN_SHELL', `'',(#${face})`);
+  w.product('band', [w.add('SHELL_BASED_SURFACE_MODEL', `'',(#${shell})`)], w.context(), 'MANIFOLD_SURFACE_SHAPE_REPRESENTATION');
+  return w.bytes();
+}
+
+describe('방추형 원환(68차)', () => {
+  // 현 높이 0.5 > R 0.3: 위 원의 현이 꼭짓점에서 현 높이 안이어도 꼭짓점을 지나는 것으로 읽지 않는다(축 둘레 각이 반 바퀴 뒤집히는 토막만 꼭짓점을 지난다)
+  for (const chordTolerance of [0.5, undefined])
+    it(`꼭짓점 둘레 위 원을 경계로 쓰는 띠 면(현 높이 ${chordTolerance ?? '기본'}): 꼭짓점까지 덮지 않고 넓이가 맞다`, () => {
+      const [R, rr, v0] = [0.3, 4, 0.85];
+      const sc = stepToScene(spindleBand(R, rr, v0), chordTolerance ? { chordTolerance } : {});
+      expect(sc.warnings).toEqual([]);
+      const m = sc.meshes[0]!;
+      expect(itemQuality(m).folded).toBe(0);
+      const t = (sc.meta as unknown as StepMeta).faceTables![0]!;
+      const want = Math.PI * rr * (R * (Math.PI / 2 - v0) + rr * (1 - Math.sin(v0)));
+      expect(Math.abs(t.area![0]! / want - 1)).toBeLessThan(1e-3);
+      let a = 0;
+      const P = m.positions;
+      const I = m.indices!;
+      for (let k = 0; k < I.length; k += 3) {
+        const [i, j, l] = [I[k]! * 3, I[k + 1]! * 3, I[k + 2]! * 3];
+        const ux = P[j]! - P[i]!, uy = P[j + 1]! - P[i + 1]!, uz = P[j + 2]! - P[i + 2]!;
+        const wx = P[l]! - P[i]!, wy = P[l + 1]! - P[i + 1]!, wz = P[l + 2]! - P[i + 2]!;
+        a += Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
+      }
+      expect(Math.abs(a / want - 1)).toBeLessThan(0.05);
+    });
+
+  it('곡면: 사과 쪽(R + r·cos v > 0)만 정의역이고 v 끝 둘이 축 위 꼭짓점(극점), 꼭짓점 법선은 사과 쪽 그대로 — 보통 원환은 예전대로', () => {
+    const f = { o: [0, 0, 0] as [number, number, number], x: [1, 0, 0] as [number, number, number], y: [0, 1, 0] as [number, number, number], z: [0, 0, 1] as [number, number, number] };
+    const s = new TorusSurface(f, 1, 3);
+    const vp = Math.acos(-1 / 3);
+    expect([s.v0, s.v1, s.periodV]).toEqual([-vp, vp, 0]);
+    expect(s.poles).toEqual([
+      { fixed: 1, value: -vp },
+      { fixed: 1, value: vp },
+    ]);
+    for (const k of [0, 1]) {
+      const q = s.polePoint(k);
+      expect(Math.hypot(q[0], q[1])).toBeLessThan(1e-12);
+      expect(q[2]).toBeCloseTo((k ? 1 : -1) * Math.sqrt(8), 12);
+    }
+    // 되짚기는 사과 쪽 점을 정의역 안으로(적도 아래 점은 음수 v)
+    for (const [u, v] of [
+      [0.3, -1.2],
+      [2, 0.5],
+      [5, vp - 1e-3],
+    ] as const) {
+      const [pu, pv] = s.project(s.point(u, v));
+      expect(pu).toBeCloseTo(u, 9);
+      expect(pv).toBeCloseTo(v, 9);
+    }
+    // 꼭짓점 법선: R + r·cos v가 반올림으로 음수여도 뒤집지 않는다(곧 안쪽 v의 법선과 같은 쪽)
+    for (const u of [0, 1, 2.5, 4, 6]) {
+      const n = s.normal(u, vp);
+      const inner = s.normal(u, vp - 1e-4);
+      expect(n[0] * inner[0] + n[1] * inner[1] + n[2] * inner[2]).toBeGreaterThan(0.999);
+    }
+    const plain = new TorusSurface(f, 5, 1.5);
+    expect([plain.v0, plain.v1, plain.periodV, plain.poles.length]).toEqual([0, 2 * Math.PI, 2 * Math.PI, 0]);
+  });
+
+  // 표본 파일 꼴(R 0.2536 < r 4.5)과 덜 뾰족한 꼴
+  for (const [R, rr] of [
+    [0.253575080342705, 4.5],
+    [1, 3],
+  ] as const)
+    it(`꼭짓점을 지나는 두 면(R ${R}, r ${rr}): 겹치지 않고 닫혀 넓이·부피가 맞고 접힌 삼각형이 없다`, () => {
+      const d = spindleCap(R, rr);
+      const sc = stepToScene(d.bytes);
+      const meta = sc.meta as unknown as StepMeta;
+      expect(meta.stats.failedFaces).toBe(0);
+      expect(sc.warnings).toEqual([]);
+      expect(sc.meshes).toHaveLength(1);
+      const m = sc.meshes[0]!;
+      expect(m.closed).toBe(true);
+      const wt = watertightness(m.positions, m.indices);
+      expect(wt.open + wt.bad).toBe(0);
+      expect(itemQuality(m).folded).toBe(0);
+      expect(apexFins(m, d.apex, rr * 1e-6)).toBe(0);
+      const vp = Math.acos(-R / rr);
+      // 원환 면 하나(u 반 바퀴): π·r·(R·vp + r·sin vp), 부피: π∫ρ² dz(자오선 v 0 → vp — 꼭짓점 쪽 오목한 데를 뺀다)
+      const half = Math.PI * rr * (R * vp + rr * Math.sin(vp));
+      let vol = 0;
+      const n = 4000;
+      for (let i = 0; i < n; i++) {
+        const v = ((i + 0.5) / n) * vp;
+        const rho = R + rr * Math.cos(v);
+        vol += rho * rho * rr * Math.cos(v) * (vp / n);
+      }
+      vol *= Math.PI;
+      expect(Math.abs(meshVolume(m.positions, m.indices) / vol - 1)).toBeLessThan(0.01);
+      // 면 표(입체의 면 차례 — 원환 둘, 평면): 원환 면 넓이가 반쪽 캡 넓이(예전에는 곡면의 안쪽 겹친 부분까지 덮어 열 배 남짓)
+      const t = meta.faceTables![0]!;
+      expect(t.stepIds).toHaveLength(3);
+      for (const i of [0, 1]) expect(Math.abs(t.area![i]! / half - 1)).toBeLessThan(1e-3);
     });
 });
