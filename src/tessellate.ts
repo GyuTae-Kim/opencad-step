@@ -1039,9 +1039,9 @@ function unfoldBoundaryChords(vs: Verts, tris: number[], nRing: number, tol: Tol
   };
   /**
    * 경계 현 r0–r1에서 반지름 안의 안쪽 점(seed에서 이어진 것)을 빼고 그 자리를 다시 삼각화한다. 새 삼각형이 모두 곧고(매개변수 뒤집힘·접힘 없음) 곡면 오차가
-   * 앞보다(또는 현 높이보다) 크지 않을 때만 고친다(되면 참)
+   * 앞보다(또는 현 높이보다, slack이 있으면 그것보다) 크지 않을 때만 고친다(되면 참)
    */
-  const clear = (seed: number, r0: number, r1: number, radius: number): boolean => {
+  const clear = (seed: number, r0: number, r1: number, radius: number, slack = 0): boolean => {
     const P0 = vs.P(r0);
     const P1 = vs.P(r1);
     if (distToSegment(vs.P(seed), P0, P1) > radius) return false;
@@ -1082,7 +1082,7 @@ function unfoldBoundaryChords(vs: Verts, tris: number[], nRing: number, tol: Tol
       if (v === undefined) return false;
     }
     if (loop.length !== edges) return false;
-    let worst = tol.chord;
+    let worst = Math.max(tol.chord, slack);
     for (const t of dead) worst = Math.max(worst, off(...tri(t)));
     // 다시 삼각화: 둘레 점 하나에서 뻗은 부채꼴(모든 삼각형이 매개변수에서 곧으면 둘레가 그 점에서 보이는 별 모양이라 빈틈·겹침이 없다 — 지운 자리는 작아 부채꼴이면 된다).
     // 현에서 먼 점부터 해 본다(폭 있는 삼각형)
@@ -1125,8 +1125,15 @@ function unfoldBoundaryChords(vs: Verts, tris: number[], nRing: number, tol: Tol
       const [i, r0, r1] = a >= nRing ? [a, b, c] : b >= nRing ? [b, c, a] : [c, a, b];
       // 경계 모서리(삼각형 하나만 쓰는 고리 점 둘)에 붙은 것만 — 현에서 가까운 안쪽 점부터(반지름을 넓혀 가며, 현 높이까지)
       if (star.get(r0)!.filter((q) => has(q, r1)).length !== 1) continue;
-      for (const k of [1 / 16, 1 / 4, 1])
-        if (clear(i, r0, r1, tol.chord * k)) {
+      // 72차: 현의 매개변수 직선을 따라 곡면이 3D 현에서 현 높이보다 멀리 휘면(모서리 곡선은 3D 현 가까이인데 그 매개변수 길은 곧지 않다 — 표본 아주 세밀 원환 면)
+      // 그 직선 위·가까이의 안쪽 점은 3D 현에서 현 높이보다 멀어도 접힌다 — 그 휨(현 가운데)까지 넓혀 보고, 새 삼각형의 곡면 오차도 그 휨까지 받는다(현이 이미 그만큼 떨어져 있다)
+      const P0 = vs.P(r0);
+      const P1 = vs.P(r1);
+      const bend = dist(vs.s.point((vs.u[r0]! + vs.u[r1]!) / 2, (vs.v[r0]! + vs.v[r1]!) / 2), [(P0[0] + P1[0]) / 2, (P0[1] + P1[1]) / 2, (P0[2] + P1[2]) / 2]);
+      const radii = [tol.chord / 16, tol.chord / 4, tol.chord];
+      if (bend > tol.chord) radii.push(bend);
+      for (const radius of radii)
+        if (clear(i, r0, r1, radius, radius > tol.chord ? bend : 0)) {
           left--;
           changed = true;
           break;
