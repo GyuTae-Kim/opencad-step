@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Mesh3d, Viewer3d } from 'opencad-viewer3d';
 import {
   BIG_MESHES,
   BIG_TRIANGLES,
-  HOLD_POLL_MS,
   holdUpload,
   sceneUpload,
   stepBudgetMs,
@@ -153,31 +152,63 @@ describe('걸음마다 몫·다시 그리기 간격을 코어 공개 선택으�
   });
 });
 
-describe('코어가 조각을 기다려 미룬 한 번에 올리기의 상태 표시(69차 — 코어 0.56.0, 66차 setScene 앞 기다림을 뺐다)', () => {
-  afterEach(() => void vi.useRealTimers());
-  /** 코어 흉내: 상태 이름과 stats.merged.pending */
-  const fake = (state: string, pending: number) => ({ kit: { mergingState: () => state }, v: { stats: { merged: { pending } } } });
+describe('코어가 조각을 기다려 미룬 한 번에 올리기의 상태 표시(69차 — 코어 0.56.0, 66차 setScene 앞 기다림을 뺐다, 71차 코어 0.58.0 whenMerged)', () => {
+  type Wait = Awaited<ReturnType<Viewer3d['whenMerged']>>;
+  /** 코어 흉내: 상태 이름, stats.merged.pending과 시험이 푸는 whenMerged */
+  const fake = (state: string, pending: number) => {
+    let settle: (r: Wait) => void = () => undefined;
+    const whenMerged = vi.fn(() => new Promise<Wait>((res) => (settle = res)));
+    return { kit: { mergingState: () => state }, v: { stats: { merged: { pending } }, whenMerged }, settle: (r: Wait) => settle(r) };
+  };
+  const tick = (): Promise<void> => new Promise((res) => setTimeout(res, 0));
 
-  it('받는 중이고 pending이면 진행 0을 알리고, 올려 다 구우면(pending 0) 끝을 알린다 — 미루지 않은 장면(받음·늦음·실패·문턱 아래)은 부르지 않는다', () => {
-    vi.useFakeTimers();
+  it('받는 중이고 pending이면 진행 0을 알리고, 코어가 끝을 알리면(done) 끝을 알린다 — pending이 먼저 0이 되어도 기다린다(나눠 올리는 동안 코어 pending은 0이다)', async () => {
     const a = fake('loading', 1);
     const seen: number[][] = [];
     holdUpload(a.v, (done, total) => seen.push([done, total]), a.kit);
     expect(seen).toEqual([[0, 1]]);
-    vi.advanceTimersByTime(HOLD_POLL_MS * 3);
-    expect(seen).toEqual([[0, 1]]);
     a.v.stats.merged.pending = 0;
-    vi.advanceTimersByTime(HOLD_POLL_MS);
+    await tick();
+    expect(seen).toEqual([[0, 1]]);
+    a.settle('done');
+    await tick();
     expect(seen).toEqual([[0, 1], [1, 1]]);
-    vi.advanceTimersByTime(HOLD_POLL_MS * 5);
-    expect(seen).toHaveLength(2);
+    expect(a.v.whenMerged).toHaveBeenCalledTimes(1);
+  });
+
+  it('문맥을 잃으면(lost) 기다리기를 그만두고 끝을 알린다 — 상태 표시와 물리 속성 계산이 묶이지 않는다', async () => {
+    const a = fake('loading', 3);
+    const seen: number[][] = [];
+    holdUpload(a.v, (done, total) => seen.push([done, total]), a.kit);
+    a.settle('lost');
+    await tick();
+    expect(seen).toEqual([[0, 1], [1, 1]]);
+  });
+
+  it('뷰어를 없애면(disposed) 더 알리지 않는다', async () => {
+    const a = fake('loading', 3);
+    const seen: number[][] = [];
+    holdUpload(a.v, (done, total) => seen.push([done, total]), a.kit);
+    a.settle('disposed');
+    await tick();
+    expect(seen).toEqual([[0, 1]]);
+  });
+
+  it('미루지 않은 장면(받음·늦음·실패·문턱 아래)은 알리지도 기다리지도 않는다', async () => {
     for (const [state, pending] of [['ready', 1], ['late', 1], ['failed', 1], ['idle', 1], ['loading', 0]] as const) {
       const b = fake(state, pending);
       const none: number[][] = [];
       holdUpload(b.v, (done, total) => none.push([done, total]), b.kit);
-      vi.advanceTimersByTime(HOLD_POLL_MS * 2);
+      await tick();
       expect(none, state).toEqual([]);
+      expect(b.v.whenMerged, state).not.toHaveBeenCalled();
     }
+  });
+
+  it('앱은 코어 stats를 폴링하지 않는다(upload.ts에 setTimeout 없음)', () => {
+    const src = readFileSync(join(__dirname, '../../src/app/upload.ts'), 'utf8');
+    expect(src).toMatch(/v\.whenMerged\(\)/);
+    expect(src).not.toMatch(/setTimeout\(/);
   });
 
   it('앱: 문서를 만들기 전에 조각을 기다리지 않고, 한 번에 올리는 장면만 나눠 올리기와 같은 진행 알림으로 상태를 건다', () => {

@@ -67,7 +67,7 @@ describe('코어가 미룬 한 번에 올리기(69차 — 앱은 setScene 앞에
     const shows: boolean[] = [];
     v.setScene(boxes(2100));
     expect(Viewer3d.mergingState()).toBe('loading');
-    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d, 1);
+    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d);
     expect(shows).toEqual([true]);
     // 미루는 동안: 올린 그물 없음(그물마다 GL 객체가 쌓이지 않는다) — 맞추기는 장면 배열로
     expect(uploaded(v)).toBe(0);
@@ -98,7 +98,7 @@ describe('코어가 미룬 한 번에 올리기(69차 — 앱은 setScene 앞에
     views.push(v);
     const shows: boolean[] = [];
     v.setScene(boxes(2100));
-    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d, 1);
+    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d);
     await vi.waitFor(() => expect(Viewer3d.mergingState()).toBe('failed'), { timeout: 15_000 });
     await vi.waitFor(
       () => {
@@ -109,5 +109,70 @@ describe('코어가 미룬 한 번에 올리기(69차 — 앱은 setScene 앞에
     );
     expect(v.stats.merged.pending).toBe(0);
     expect(v.stats.drawCalls).toBeGreaterThan(1000);
+  }, 40_000);
+
+  it('71차(코어 0.58.0): 기다리는 동안 문맥을 잃으면 상태 표시가 꺼진다(남아 있으면 물리 속성 계산이 시작되지 않는다)', async () => {
+    const { Viewer3d, upload } = await fresh('gate');
+    const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false });
+    views.push(v);
+    const shows: boolean[] = [];
+    v.setScene(boxes(2100));
+    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d);
+    expect(shows).toEqual([true]);
+    (v.canvas as unknown as { fire(type: string, e: object): void }).fire('webglcontextlost', {});
+    await vi.waitFor(() => expect(shows).toEqual([true, false]), { timeout: 5_000 });
+  }, 40_000);
+
+  it('71차(코어 0.58.0): 기다리는 동안 뷰어를 없애면 상태 표시를 더 건드리지 않는다', async () => {
+    const { Viewer3d, upload } = await fresh('gate');
+    const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false });
+    const shows: boolean[] = [];
+    v.setScene(boxes(2100));
+    upload.holdUpload(v, (done, total) => shows.push(done < total), Viewer3d);
+    expect(shows).toEqual([true]);
+    v.dispose();
+    await expect(v.whenMerged()).resolves.toBe('disposed');
+    await new Promise((res) => setTimeout(res, 0));
+    expect(shows).toEqual([true]);
+  }, 40_000);
+});
+
+describe('끼어든 그물이 있는 나눠 올리기의 진행 표시(71차 — 코어 0.58.0은 앞선 묶일 그물을 구울 때까지 끼어든 그물이 안 보인다)', () => {
+  /** 불투명 상자 사이에 every개마다 반투명 그물이 낀 장면 */
+  function mixed(n: number, every: number): Scene3d {
+    const s = boxes(n);
+    s.meshes = s.meshes.map((m, i) => (i % every === every - 1 ? { ...m, color: [0.5, 0.6, 0.7, 0.4] } : m));
+    return s;
+  }
+
+  it('진행은 줄지 않고 전체로 끝나며, 끝을 알린 뒤에는 모든 그물이 올라가 있고 진행이 끝을 넘지 않는다', async () => {
+    const { Viewer3d, upload, open } = await fresh('gate');
+    open();
+    await Viewer3d.preloadMerging();
+    expect(Viewer3d.mergingState()).toBe('ready');
+    const v = new Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false });
+    views.push(v);
+    const n = 6000;
+    const seen: [number, number][] = [];
+    let atEnd = -1;
+    v.setScene(mixed(n, 500), {
+      incremental: upload.uploadOptions(),
+      onProgress: (d, t) => {
+        seen.push([d, t]);
+        if (d === t) atEnd = uploaded(v);
+      },
+    });
+    const end = v.whenMerged();
+    for (let i = 0; i < 2000 && !(seen.length && seen.at(-1)![0] === seen.at(-1)![1]); i++) v.renderNow();
+    expect(seen.at(-1)).toEqual([n, n]);
+    // 끝을 알릴 때(상태 표시줄의 "화면에 올리는 중"이 사라질 때) 끼어든 그물까지 모두 렌더러에 있다 — 들고 있던 기록이 남아 안 보이는 일이 없다
+    expect(atEnd).toBe(n);
+    for (let i = 1; i < seen.length; i++) expect(seen[i]![0]).toBeGreaterThanOrEqual(seen[i - 1]![0]);
+    expect(seen.every(([d, t]) => t === n && d <= t)).toBe(true);
+    for (let i = 0; i < 2000 && v.stats.merged.pending > 0; i++) v.renderNow();
+    v.renderNow();
+    await expect(end).resolves.toBe('done');
+    expect(uploaded(v)).toBe(n);
+    expect(v.stats.merged.pending).toBe(0);
   }, 40_000);
 });
