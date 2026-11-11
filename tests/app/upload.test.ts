@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mesh3d, Viewer3d } from 'opencad-viewer3d';
 import {
   BIG_MESHES,
   BIG_TRIANGLES,
-  MERGE_PRELOAD_WAIT_MS,
-  preloadMergingFor,
+  HOLD_POLL_MS,
+  holdUpload,
   sceneUpload,
   stepBudgetMs,
   UPLOAD_BUDGET_MAX,
@@ -153,69 +153,40 @@ describe('걸음마다 몫·다시 그리기 간격을 코어 공개 선택으�
   });
 });
 
-describe('한 번에 올리는 큰 장면은 묶어 그리기 조각을 먼저(66차 — 코어 0.54.0 preloadMerging)', () => {
-  const tri = new Float32Array(9);
-  const meshes = (n: number, positions: Float32Array = tri) => Array.from({ length: n }, () => ({ positions }));
-  /** 코어 흉내: 부른 수와 돌려줄 약속 */
-  const fakeKit = (p: () => Promise<boolean>) => {
-    const kit = { MERGE_AUTO_MIN: 2000, calls: 0, Viewer3d: { preloadMerging: () => (kit.calls++, p()) } };
-    return kit;
-  };
+describe('코어가 조각을 기다려 미룬 한 번에 올리기의 상태 표시(69차 — 코어 0.56.0, 66차 setScene 앞 기다림을 뺐다)', () => {
+  afterEach(() => void vi.useRealTimers());
+  /** 코어 흉내: 상태 이름과 stats.merged.pending */
+  const fake = (state: string, pending: number) => ({ kit: { mergingState: () => state }, v: { stats: { merged: { pending } } } });
 
-  it('문턱(2,000) 이상이고 나눠 올리지 않는 장면만 받는다 — 문턱 아래·나눠 올리는 장면(그물 3,000개 넘게·삼각형 40만 개 넘게)은 부르지 않는다', async () => {
-    for (const [n, positions, want] of [
-      [1999, tri, 0],
-      [2000, tri, 1],
-      [BIG_MESHES, tri, 1],
-      [BIG_MESHES + 1, tri, 0],
-      // 삼각형 40만 개 넘게(그물 2,000개 × 201개)면 나눠 올린다
-      [2000, new Float32Array(9 * 201), 0],
-    ] as const) {
-      const kit = fakeKit(() => Promise.resolve(true));
-      await preloadMergingFor(meshes(n, positions), kit);
-      expect(kit.calls, `${n}`).toBe(want);
+  it('받는 중이고 pending이면 진행 0을 알리고, 올려 다 구우면(pending 0) 끝을 알린다 — 미루지 않은 장면(받음·늦음·실패·문턱 아래)은 부르지 않는다', () => {
+    vi.useFakeTimers();
+    const a = fake('loading', 1);
+    const seen: number[][] = [];
+    holdUpload(a.v, (done, total) => seen.push([done, total]), a.kit);
+    expect(seen).toEqual([[0, 1]]);
+    vi.advanceTimersByTime(HOLD_POLL_MS * 3);
+    expect(seen).toEqual([[0, 1]]);
+    a.v.stats.merged.pending = 0;
+    vi.advanceTimersByTime(HOLD_POLL_MS);
+    expect(seen).toEqual([[0, 1], [1, 1]]);
+    vi.advanceTimersByTime(HOLD_POLL_MS * 5);
+    expect(seen).toHaveLength(2);
+    for (const [state, pending] of [['ready', 1], ['late', 1], ['failed', 1], ['idle', 1], ['loading', 0]] as const) {
+      const b = fake(state, pending);
+      const none: number[][] = [];
+      holdUpload(b.v, (done, total) => none.push([done, total]), b.kit);
+      vi.advanceTimersByTime(HOLD_POLL_MS * 2);
+      expect(none, state).toEqual([]);
     }
-    expect(BIG_TRIANGLES).toBeLessThan(2000 * 201);
   });
 
-  it('받기가 끝나지 않으면 시간 상한에서, 받지 못하면(거절·false) 곧 끝난다 — 던지지 않는다', async () => {
-    expect(MERGE_PRELOAD_WAIT_MS).toBe(1500);
-    const hang = fakeKit(() => new Promise<boolean>(() => {}));
-    const t0 = performance.now();
-    await preloadMergingFor(meshes(2500), hang, 30);
-    expect(performance.now() - t0).toBeGreaterThanOrEqual(25);
-    expect(hang.calls).toBe(1);
-    await expect(preloadMergingFor(meshes(2500), fakeKit(() => Promise.reject(new Error('오프라인'))), 10_000)).resolves.toBeUndefined();
-    await expect(preloadMergingFor(meshes(2500), fakeKit(() => Promise.resolve(false)), 10_000)).resolves.toBeUndefined();
-  });
-
-  it('68차(코어 0.55.0): 받기가 코어 기다림 한도를 넘은 페이지(mergingState late)에서는 기다리지 않는다 — 받는 중(loading)이면 예전처럼 기다린다', async () => {
-    const withState = (state: string) => {
-      const kit = { MERGE_AUTO_MIN: 2000, calls: 0, Viewer3d: { preloadMerging: () => (kit.calls++, new Promise<boolean>(() => {})), mergingState: () => state } };
-      return kit;
-    };
-    const late = withState('late');
-    const t0 = performance.now();
-    await preloadMergingFor(meshes(2500), late, 10_000);
-    expect(performance.now() - t0).toBeLessThan(1000);
-    expect(late.calls).toBe(0);
-    const loading = withState('loading');
-    const t1 = performance.now();
-    await preloadMergingFor(meshes(2500), loading, 30);
-    expect(performance.now() - t1).toBeGreaterThanOrEqual(25);
-    expect(loading.calls).toBe(1);
-    // 실제 코어 상태 이름(0.55.0 MergeKitState)에 'late'가 있다
-    const core = await import('opencad-viewer3d');
-    const states: import('opencad-viewer3d').MergeKitState[] = ['idle', 'loading', 'late', 'ready', 'failed'];
-    expect(states).toContain(core.Viewer3d.mergingState());
-  });
-
-  it('실제 코어(기본 kit = 코어 입구): 문턱 상수가 같고 받은 뒤 상태가 ready, 앱은 뷰어를 만든 뒤·문서를 만들기 전(setScene 앞)에 기다리고 그 뒤 열기 차례를 본다', async () => {
-    const core = await import('opencad-viewer3d');
-    expect(core.MERGE_AUTO_MIN).toBe(2000);
-    await preloadMergingFor(meshes(2500));
-    expect(core.Viewer3d.mergingState()).toBe('ready');
+  it('앱: 문서를 만들기 전에 조각을 기다리지 않고, 한 번에 올리는 장면만 나눠 올리기와 같은 진행 알림으로 상태를 건다', () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-    expect(app).toMatch(/await this\.ensureViewer\(\);\n(\s*\/\/[^\n]*\n)*\s*await this\.ent!\.preloadMergingFor\(res\.scene\.meshes\);\n\s*if \(seq !== this\.loadSeq\) return false;\n\s*const doc = createDoc\(name, size, res\);/);
+    expect(app).not.toMatch(/preloadMerging/);
+    expect(app).toMatch(/await this\.ensureViewer\(\);\n\s*if \(seq !== this\.loadSeq\) return false;\n\s*const doc = createDoc\(name, size, res\);/);
+    expect(app).toMatch(/v\.setScene\(doc\.scene, \{[^\n]*onProgress \} : \{\}\) \}\);\n(\s*\/\/[^\n]*\n)*\s*if \(!budgetMs\) this\.ent!\.holdUpload\(v, onProgress\);/);
+    // 나눠 올리는 문턱은 그대로
+    expect(BIG_MESHES).toBe(3000);
+    expect(BIG_TRIANGLES).toBe(400_000);
   });
 });

@@ -16,9 +16,10 @@
  * (upload.budget)는 쓰지 않는다. 다시 그리기 간격(incremental.redrawMs — UPLOAD_REDRAW_MS)을 주면 올리기 걸음만으로 생긴 다시 그리기를 그 간격에 한 번만 하고
  * (첫 걸음은 그린다 — 첫 그림), 다 올린 걸음과 장면 전체 그리기를 두 프레임으로 나눈다(가장 긴 작업이 둘의 합이 아니게).
  *
- * 66차(코어 0.54.0): 한 번에 올리는 큰 장면은 묶어 그리기 조각을 먼저 받는다(preloadMergingFor — 코어 입구를 가져오지만 뷰어 조각 안이라 받는 것은 같다).
+ * 69차(코어 0.56.0): 한 번에 올리는 큰 장면은 코어가 묶어 그리기 조각이 올 때까지 올리기를 미룬다 — 66차의 setScene 앞 기다림(1.5초 상한)을 뺐다.
+ * 미루는 동안 상태 표시줄에 올리는 중을 둔다(holdUpload — 코어 입구를 가져오지만 뷰어 조각 안이라 받는 것은 같다).
  */
-import { MERGE_AUTO_MIN, Viewer3d } from 'opencad-viewer3d';
+import { Viewer3d } from 'opencad-viewer3d';
 
 /** 이보다 삼각형·그물이 많으면 GPU에 나눠 올린다 */
 export const BIG_TRIANGLES = 400_000;
@@ -54,30 +55,25 @@ export function uploadOptions(): { budgetMs: (step: number, meshes: number) => n
   return { budgetMs: stepBudgetMs, redrawMs: UPLOAD_REDRAW_MS };
 }
 
-/** 66차: 묶어 그리기 조각을 기다리는 가장 긴 시간(ms) — 받기가 끝나지 않는 네트워크에서도 열기가 멈추지 않게(넘으면 조각 없이 올리고, 오면 코어가 굽는다) */
-export const MERGE_PRELOAD_WAIT_MS = 1500;
+/** 69차: 미룬 올리기가 끝났는지 다시 보는 간격(ms) — 코어는 끝을 알리지 않고, 미루는 시간은 코어 한도(4초) 안이다 */
+export const HOLD_POLL_MS = 100;
 
 /**
- * 66차(코어 0.54.0 — 묶어 그리기 굽기 코드가 나눠 받는 조각으로 옮겼다): 코어가 묶어 그릴 장면(그물이 코어 문턱 MERGE_AUTO_MIN 2,000개 이상 — 'auto')인데
- * 앱이 한 번에 올리는 장면(나눠 올리기 문턱 아래 — sceneUpload의 budgetMs가 null, 그물 3,000개·삼각형 40만 개까지)이면 setScene 앞에 조각을 받는다.
- * 받기 전에 한 번에 올리면 코어는 그물마다 GL 객체를 다 만든 뒤 조각이 오면 굽는다(가짜 WebGL 서로 다른 부품 2,500개: 올리는 동안 GL 버퍼 가장 큰 값 10,007 —
- * 미리 받으면 19, 66차 측정). 나눠 올리는 장면은 코어가 setScene에서 받기를 걸어 첫 걸음들과 겹치고(굽기 단위에서만 걸음을 멈춘다) 문턱 아래 장면은 받지 않으므로 기다리지 않는다.
- * 받았거나·받지 못했거나·waitMs가 지나면 끝난다(던지지 않는다). kit은 코어 입구(시험이 흉내로 바꾼다).
- * 68차(코어 0.55.0): 받기가 코어 기다림 한도(MERGE_KIT_WAIT_MS 4초)를 넘은 페이지(mergingState 'late')에서는 기다리지 않는다 — 코어도 그 페이지에서는
- * 조각을 기다리지 않고 그물마다 올리고(늦게 오면 그때 굽는다), 끝나지 않는 같은 받기를 파일을 열 때마다 waitMs씩 기다리지 않게
+ * 69차(코어 0.56.0): 방금 한 번에 올린 장면을 코어가 묶어 그리기 조각이 올 때까지 미루고 있으면(받는 중이고 stats.merged.pending > 0 — 그물 2,000개 이상의 첫 받기,
+ * 보통 1초 안·늦으면 4초까지, 그동안 그 장면은 그리지 않는다) 진행 0을 알리고(나눠 올리기와 같은 onProgress — 상태 표시줄), 올려 다 구운 뒤(늦음·실패로 그물마다 올린 뒤도 — pending 0)
+ * 끝을 알린다. 미루지 않은 장면(조각을 이미 받았거나 문턱 아래)이면 아무것도 부르지 않는다. kit은 코어 Viewer3d(시험이 흉내로 바꾼다)
  */
-export function preloadMergingFor(
-  meshes: readonly { positions: ArrayLike<number>; indices?: ArrayLike<number> | null }[],
-  kit: { MERGE_AUTO_MIN: number; Viewer3d: { preloadMerging(): Promise<boolean>; mergingState?(): string } } = { MERGE_AUTO_MIN, Viewer3d },
-  waitMs = MERGE_PRELOAD_WAIT_MS,
-): Promise<void> {
-  if (meshes.length < kit.MERGE_AUTO_MIN || sceneUpload(meshes).budgetMs !== null || kit.Viewer3d.mergingState?.() === 'late') return Promise.resolve();
-  return new Promise((done) => {
-    const t = setTimeout(done, waitMs);
-    const end = (): void => {
-      clearTimeout(t);
-      done();
-    };
-    kit.Viewer3d.preloadMerging().then(end, end);
-  });
+export function holdUpload(
+  v: { stats: { merged: { pending: number } } },
+  onProgress: (done: number, total: number) => void,
+  kit: { mergingState(): string } = Viewer3d,
+  everyMs = HOLD_POLL_MS,
+): void {
+  if (kit.mergingState() !== 'loading' || v.stats.merged.pending < 1) return;
+  onProgress(0, 1);
+  const look = (): void => {
+    if (v.stats.merged.pending > 0) setTimeout(look, everyMs);
+    else onProgress(1, 1);
+  };
+  setTimeout(look, everyMs);
 }

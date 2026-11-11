@@ -789,8 +789,6 @@ export class StepApp {
       await nextPaint();
       if (seq !== this.loadSeq) return false;
       await this.ensureViewer();
-      // 66차: 한 번에 올리는 부품 2,000~3,000개 장면은 묶어 그리기 조각(코어 0.54.0)을 먼저 받는다(뷰어 조각 upload.ts — 1.5초까지)
-      await this.ent!.preloadMergingFor(res.scene.meshes);
       if (seq !== this.loadSeq) return false;
       const doc = createDoc(name, size, res);
       if (res.surfaces) this.surfDocs.add(doc);
@@ -874,18 +872,13 @@ export class StepApp {
       const lines = this.ent!.sceneIssueLines(list);
       if (lines.length) doc.scene.warnings = [...(doc.scene.warnings ?? []), ...lines];
     });
-    v.setScene(doc.scene, {
-      keepView: !!carry,
-      ...(budgetMs
-        ? {
-            incremental: this.ent!.uploadOptions(),
-            onProgress: (done: number, total: number) => {
-              this.upload = done < total ? done / Math.max(1, total) : null;
-              this.updateStatus();
-            },
-          }
-        : {}),
-    });
+    const onProgress = (done: number, total: number) => {
+      this.upload = done < total ? done / Math.max(1, total) : null;
+      this.updateStatus();
+    };
+    v.setScene(doc.scene, { keepView: !!carry, ...(budgetMs ? { incremental: this.ent!.uploadOptions(), onProgress } : {}) });
+    // 69차: 한 번에 올리는 장면을 코어(0.56.0)가 묶어 그리기 조각이 올 때까지 미루면 그동안 상태 표시줄에 "화면에 올리는 중"(뷰어 조각 upload.ts)
+    if (!budgetMs) this.ent!.holdUpload(v, onProgress);
     offIssues();
     if (carry) carryDocState(carry, doc);
     // 코어는 새 장면에서 묶음 겉모습을 모두 푼다 — 문서의 겉모습을 다시 건다(아래 this.doc = doc 뒤)
