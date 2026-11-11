@@ -47,6 +47,10 @@ export function summarizeQuality(records) {
     windingSolids: 0,
     windingFiles: 0,
     windingEdges: 0,
+    // 73차: 두 방향을 같은 수로 쓰는 모서리(모서리에서 맞닿거나 같은 자리에 겹친 면 — 감기는 맞음)가 있는 입체(옛 결과에는 없다 — 0)
+    pinchSolids: 0,
+    pinchFiles: 0,
+    pinchEdges: 0,
     negativeVolumeSolids: 0,
     negativeVolumeFiles: 0,
     foldedFiles: 0,
@@ -111,6 +115,9 @@ export function summarizeQuality(records) {
     q.windingSolids += m.windingSolids;
     q.windingEdges += m.windingEdges;
     if (m.windingSolids) q.windingFiles++;
+    q.pinchSolids += m.pinchSolids ?? 0;
+    q.pinchEdges += m.pinchEdges ?? 0;
+    if (m.pinchSolids) q.pinchFiles++;
     q.negativeVolumeSolids += m.negativeVolumeSolids;
     if (m.negativeVolumeSolids) q.negativeVolumeFiles++;
     q.foldedTriangles += m.foldedTriangles;
@@ -206,6 +213,7 @@ export function formatSummary(summary) {
     lines.push(`  예외 ${q.exceptions}, 실패 면 ${q.failedFaces}(파일 ${q.failedFaceFiles}), 형상 없음 ${q.emptyFiles}, 삼각형 합 ${q.triangles}`);
     lines.push(`  닫힌 껍질 ${q.closedShells}, 닫힌 입체 ${q.solids}, 입체가 못 된 닫힌 껍질 ${q.openShells}(파일 ${q.openShellFiles})`);
     lines.push(`  감기가 어긋난 입체 ${q.windingSolids}(파일 ${q.windingFiles}, 모서리 ${q.windingEdges}), 부피가 음수인 입체 ${q.negativeVolumeSolids}(파일 ${q.negativeVolumeFiles})`);
+    lines.push(`  모서리에서 맞닿거나 겹친 입체 ${q.pinchSolids ?? 0}(파일 ${q.pinchFiles ?? 0}, 모서리 ${q.pinchEdges ?? 0} — 감기는 맞음)`);
     lines.push(
       `  접힌 삼각형: 0.1% 넘는 파일 ${q.foldedFiles}(하나라도 ${q.foldedAnyFiles}), 최대 개수 비율 ${(q.foldedMaxRatio * 100).toFixed(2)}%, 최대 넓이 비율 ${(q.foldedMaxAreaRatio * 100).toFixed(3)}%`,
     );

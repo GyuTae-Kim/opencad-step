@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { BrepMesher } from '../src/brep';
 import { Geometry } from '../src/geometry';
 import { StepFile } from '../src/part21';
-import { isBalancedMesh, isClosedMesh, meshVolume } from '../src/analysis';
+import { isBalancedMesh, isClosedMesh, meshVolume, watertightness } from '../src/analysis';
+import { sceneQuality } from '../scripts/sweep/metrics';
 import { stepToScene, type StepMeta } from '../src/scene';
 import { PROPS_BREP } from '../src/massprops';
 import { createDoc } from '../src/app/doc';
@@ -111,6 +112,16 @@ describe('모서리에서 맞닿은 닫힌 껍질(72차)', () => {
     const ms = meshAll(boxes([[0, 0, 0], [1, 1, 0]], 1, true));
     expect(ms.map((m) => m.solid)).toEqual([true, true]);
     expect(ms.map((m) => isClosedMesh(m.positions, m.indices))).toEqual([true, true]);
+  });
+
+  it('훑기 지표(73차): 붙은 모서리는 감기가 어긋난 모서리가 아니라 맞닿은 모서리로 센다', () => {
+    const s = stepToScene(boxes([[0, 0, 0], [1, 1, 0]]));
+    const m = s.meshes[0]!;
+    expect(watertightness(m.positions, m.indices)).toMatchObject({ open: 0, bad: 1, balanced: 1 });
+    expect(sceneQuality(s)).toMatchObject({ solids: 1, openShells: 0, windingSolids: 0, windingEdges: 0, pinchSolids: 1, pinchEdges: 1 });
+    // 따로 둔 두 입체·꼭짓점으로만 붙은 두 입체에는 맞닿은 모서리가 없다
+    for (const b of [boxes([[0, 0, 0], [1, 1, 0]], 1, true), boxes([[0, 0, 0], [1, 1, 1]])])
+      expect(sceneQuality(stepToScene(b))).toMatchObject({ windingSolids: 0, pinchSolids: 0, pinchEdges: 0 });
   });
 });
 

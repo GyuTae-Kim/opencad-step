@@ -3,7 +3,9 @@
  * 같은 형상 항목을 여러 자리에 놓으면 그물 배열을 함께 쓰므로 positions 배열 하나를 형상 항목 하나로 센다.
  *
  * - 감기가 어긋난 입체: 닫힌 입체(Mesh3d.closed — 해석기가 위상으로 틈이 없다고 본 것)인데 정점을 위치로 용접해 보면
- *   한 삼각형만 쓰거나 같은 방향으로 두 번 쓰는 모서리가 있는 것(`watertightness`의 open + bad)
+ *   한 삼각형만 쓰거나 두 방향으로 쓰는 수가 다른 모서리가 있는 것(`watertightness`의 open + bad − balanced)
+ * - 맞닿은 모서리(73차): 닫힌 입체에서 두 방향을 같은 수(둘씩 이상)로 쓰는 모서리(`watertightness`의 balanced) — 껍질이 모서리에서
+ *   스스로 맞닿았거나 서로 다른 면이 같은 자리에 겹친 모형으로, 감기는 맞다. 72차까지는 감기가 어긋난 모서리로 셌다
  * - 부피가 음수인 입체: 닫힌 입체인데 부호 있는 부피가 음수(안쪽을 향한 법선)
  * - 접힌 삼각형: 넓이가 있는 삼각형 가운데 정점 법선 합이 삼각형 감기 법선과 반대인 것. 형상 항목마다 개수 비율·넓이 비율을 재고
  *   파일에서는 가장 큰 값을 남긴다(요약의 파일 수 기준은 summary.mjs FOLDED_FILE_RATIO)
@@ -21,8 +23,10 @@ export interface ItemQuality {
   closedShell: boolean;
   /** 닫힌 입체(Mesh3d.closed) */
   solid: boolean;
-  /** 닫힌 입체의 어긋난 모서리 수(open + bad), 입체가 아니면 0 */
+  /** 닫힌 입체의 어긋난 모서리 수(open + bad − balanced), 입체가 아니면 0 */
   windingEdges: number;
+  /** 닫힌 입체의 맞닿은 모서리 수(두 방향을 같은 수로 쓰는 — balanced), 입체가 아니면 0 */
+  pinchEdges: number;
   /** 부호 있는 부피(닫힌 입체만, 아니면 0) */
   volume: number;
   folded: number;
@@ -40,6 +44,9 @@ export interface SceneQuality {
   openShells: number;
   windingSolids: number;
   windingEdges: number;
+  /** 맞닿은 모서리가 있는 닫힌 입체 수와 그 모서리 수(73차) */
+  pinchSolids: number;
+  pinchEdges: number;
   negativeVolumeSolids: number;
   foldedTriangles: number;
   foldedMaxRatio: number;
@@ -99,10 +106,12 @@ export function itemQuality(m: Pick<Mesh3d, 'positions' | 'normals' | 'indices' 
   for (let i = 0; i < P.length; i++) if (!Number.isFinite(P[i]!)) nonFinite++;
   const solid = m.closed === true;
   let windingEdges = 0;
+  let pinchEdges = 0;
   let volume = 0;
   if (solid) {
     const w = watertightness(P, I);
-    windingEdges = w.open + w.bad;
+    windingEdges = w.open + w.bad - w.balanced;
+    pinchEdges = w.balanced;
     volume = signedVolume(P, I);
   }
   const f = foldStats(P, m.normals, I);
@@ -111,6 +120,7 @@ export function itemQuality(m: Pick<Mesh3d, 'positions' | 'normals' | 'indices' 
     closedShell: m.doubleSided !== true,
     solid,
     windingEdges,
+    pinchEdges,
     volume,
     folded: f.folded,
     foldedRatio: f.ratio,
@@ -240,6 +250,8 @@ export function sceneQuality(scene: Pick<Scene3d, 'meshes' | 'meta'>): SceneQual
     openShells: 0,
     windingSolids: 0,
     windingEdges: 0,
+    pinchSolids: 0,
+    pinchEdges: 0,
     negativeVolumeSolids: 0,
     foldedTriangles: 0,
     foldedMaxRatio: 0,
@@ -262,6 +274,10 @@ export function sceneQuality(scene: Pick<Scene3d, 'meshes' | 'meta'>): SceneQual
       if (it.windingEdges > 0) {
         q.windingSolids++;
         q.windingEdges += it.windingEdges;
+      }
+      if (it.pinchEdges > 0) {
+        q.pinchSolids++;
+        q.pinchEdges += it.pinchEdges;
       }
       if (it.solid && it.volume < 0) q.negativeVolumeSolids++;
       q.foldedTriangles += it.folded;
