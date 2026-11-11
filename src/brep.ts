@@ -10,7 +10,7 @@ import type { Rgba } from 'opencad-viewer3d/types';
 import { BSplineCurve, CircleCurve, type Curve, EllipseCurve, LineCurve, type Tol } from './curves';
 import { bsplineRecord, conicRecord, ellipseAxis } from './edgecurve';
 import type { Geometry } from './geometry';
-import { isClosedMesh, orientFaces } from './analysis';
+import { isBalancedMesh, isClosedMesh, orientFaces } from './analysis';
 import { cross, dist, dot, len, sub, type V3 } from './math';
 import { bool, list, numList, refId, refList, type StepFile } from './part21';
 import { ConeSurface, CylinderSurface, PlaneSurface, SphereSurface, type Surface, TorusSurface } from './surfaces';
@@ -141,7 +141,7 @@ export interface ItemMesh {
   faceTable?: FaceTableData;
   /** 윤곽선 선분 → 모서리 표(면 표를 만들 때만) */
   edgeTable?: EdgeTableData;
-  /** 닫힌 입체이고 삼각형이 틈 없이 맞물렸는지(Mesh3d.closed — 단면 채우기) */
+  /** 닫힌 입체이고 삼각형이 틈 없이 맞물렸는지(Mesh3d.closed — 단면 채우기). 72차부터 모서리에서 스스로 맞닿은 껍질(변마다 들고 나는 수가 같음)도 */
   solid?: boolean;
   /**
    * false면 와이어프레임·숨은선에 삼각형 변을 그리지 않는다(Mesh3d.triangleEdges, 코어 0.7.1): 모서리 고리(EDGE_LOOP)로 된 B-rep 면 그물 —
@@ -928,12 +928,20 @@ export class BrepMesher {
     let solid = false;
     if (closed && !failed && nTri > 0) {
       let topo = edgeUse.size > 0;
-      for (const [eid, n] of edgeUse)
-        if (n !== 2 && !(n === 1 && seams.has(eid))) {
+      /** 72차: 넷 이상 짝수 면이 쓰는 모서리가 있다(껍질이 그 모서리에서 스스로 맞닿은 입체 — 두 덩어리가 모서리 하나로 붙음) */
+      let pinch = false;
+      for (const [eid, n] of edgeUse) {
+        if (n === 2 || (n === 1 && seams.has(eid))) continue;
+        if (n >= 4 && n % 2 === 0 && !seams.has(eid)) pinch = true;
+        else {
           topo = false;
           break;
         }
-      solid = topo || isClosedMesh(positions, indices);
+      }
+      solid = (topo && !pinch) || isClosedMesh(positions, indices);
+      // 맞닿은 모서리에서는 같은 방향 삼각형 변이 둘이라 isClosedMesh가 받지 않는다. 방향 있는 변마다 반대로 쓴 수가 같고(둘은 이쪽·둘은 저쪽) 부피가 양수면
+      // 입체로 본다 — 부피 적분·단면 채우기는 그대로 맞는다(그전에는 물리 속성을 구하지 않고 단면을 채우지 않았다. 로컬 표본 2개 파일)
+      if (!solid && topo && pinch) solid = isBalancedMesh(positions, indices) && signedVolume6(positions, indices) > 0;
     }
     const out: ItemMesh = {
       positions,
