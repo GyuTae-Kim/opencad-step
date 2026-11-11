@@ -13,6 +13,11 @@ export interface WatertightReport {
   open: number;
   /** 셋 이상이 쓰거나 같은 방향으로 두 번 쓰는 모서리 */
   bad: number;
+  /**
+   * bad 가운데 두 방향을 같은 수(둘씩 이상)로 쓰는 모서리(73차): 껍질이 그 모서리에서 스스로 맞닿았거나 서로 다른 면이 같은 자리에
+   * 겹친 것으로, 들고 나는 수가 같아 감기는 어긋나지 않았다(isBalancedMesh와 같은 뜻)
+   */
+  balanced: number;
   /** paired / edges */
   ratio: number;
 }
@@ -68,6 +73,7 @@ export function watertightness(positions: ArrayLike<number>, indices?: ArrayLike
   let paired = 0;
   let open = 0;
   let bad = 0;
+  let balanced = 0;
   const seen = new Set<number>();
   for (const [k, n] of fwd) {
     const x = Math.floor(k / K);
@@ -79,9 +85,12 @@ export function watertightness(positions: ArrayLike<number>, indices?: ArrayLike
     const r = fwd.get(y * K + x) ?? 0;
     if (n === 1 && r === 1) paired++;
     else if (n + r === 1) open++;
-    else bad++;
+    else {
+      bad++;
+      if (n === r) balanced++;
+    }
   }
-  return { triangles: tris, edges, paired, open, bad, ratio: edges ? paired / edges : 0 };
+  return { triangles: tris, edges, paired, open, bad, balanced, ratio: edges ? paired / edges : 0 };
 }
 
 /** 삼각형 넓이 합 */

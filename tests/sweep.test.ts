@@ -16,6 +16,7 @@ import { droppedParts, dropErrorCode, errorCode, failReasons, sceneClass, schema
 import { BrepMesher } from '../src/brep';
 import { MAX_PLACEMENTS } from '../src/scene';
 import { areaMismatch, itemQuality, massPropsStats, propsSignature, sceneQuality, transferStats } from '../scripts/sweep/metrics';
+import { watertightness } from '../src/analysis';
 import { qualityOptions } from '../scripts/sweep/quality';
 import { sweepOne } from '../scripts/sweep/worker';
 import { dedupe, extensionOf, keepOpenable, nameKind, STEP_EXTENSIONS, walkDirs } from '../scripts/sweep/files.mjs';
@@ -132,6 +133,35 @@ describe('훑기: 품질 지표', () => {
     [one[1], one[2]] = [one[2]!, one[1]!];
     const q = itemQuality({ positions: P, indices: one, closed: true });
     expect(q.windingEdges).toBe(3);
+    expect(q.pinchEdges).toBe(0);
+  });
+  it('두 방향을 같은 수로 쓰는 모서리(모서리 하나로 붙은 두 사면체)는 감기가 아니라 맞닿은 모서리(73차)', () => {
+    // 둘째 사면체는 첫째를 z축 둘레로 반 바퀴 돌린 것 — (0,0,0)–(0,0,1)을 네 삼각형이 둘씩 반대로 쓴다
+    const P2 = new Float32Array([...P, 0, 0, 0, -1, 0, 0, 0, -1, 0, 0, 0, 1]);
+    const I2 = new Uint32Array([...I, ...Array.from(I, (i) => i + 4)]);
+    const w = watertightness(P2, I2);
+    expect(w).toMatchObject({ edges: 11, paired: 10, open: 0, bad: 1, balanced: 1 });
+    const q = itemQuality({ positions: P2, indices: I2, closed: true });
+    expect(q).toMatchObject({ windingEdges: 0, pinchEdges: 1 });
+    expect(q.volume).toBeCloseTo(2 / 6, 6);
+    // 72차까지의 셈(open + bad)이면 감기가 어긋난 모서리 1
+    expect(w.open + w.bad).toBe(1);
+    // 한 모서리를 세 삼각형이 쓰면(2 + 1) 들고 나는 수가 달라 감기가 어긋남(지느러미 삼각형의 열린 두 변까지 셋)
+    const fin = new Uint32Array([...I, 3, 0, 4]);
+    const P3 = new Float32Array([...P, -1, -1, 0]);
+    const f = itemQuality({ positions: P3, indices: fin, closed: true });
+    expect(f).toMatchObject({ windingEdges: 3, pinchEdges: 0 });
+    expect(watertightness(P3, fin)).toMatchObject({ open: 2, bad: 1, balanced: 0 });
+    // 장면 지표: 맞닿은 입체·모서리 수
+    const color: [number, number, number, number] = [1, 1, 1, 1];
+    const s = sceneQuality({
+      meshes: [
+        { id: 'p', positions: P2, indices: I2, closed: true, color },
+        { id: 'f', positions: P3, indices: fin, closed: true, color },
+      ],
+      meta: {},
+    });
+    expect(s).toMatchObject({ windingSolids: 1, windingEdges: 3, pinchSolids: 1, pinchEdges: 1 });
   });
   it('정점 법선이 감기와 반대인 삼각형은 접힘(개수·넓이 비율)', () => {
     const q = itemQuality({ ...flat(P, I, 3), doubleSided: true });
@@ -359,6 +389,24 @@ describe('훑기: 요약과 비교', () => {
     expect(s.byQuality.normal!.time).toMatchObject({ totalMs: 80, max: 50 });
     expect(s.byQuality.normal!.transfer).toBeUndefined();
     expect(s.done).toBe(true);
+    // 맞닿은 모서리(73차): 옛 기록(값 없음)은 0으로
+    expect(q).toMatchObject({ pinchSolids: 0, pinchFiles: 0, pinchEdges: 0 });
+    const p = summarize([rec('a', { q: { ...rec('a').q!, pinchSolids: 1, pinchEdges: 2 } }), rec('b')]);
+    expect(p.byQuality.normal!.quality).toMatchObject({ pinchSolids: 1, pinchFiles: 1, pinchEdges: 2, windingFiles: 0 });
+    expect(formatSummary(p)).toContain('모서리에서 맞닿거나 겹친 입체 1(파일 1, 모서리 2 — 감기는 맞음)');
+  });
+
+  it('비교: 72차 도구 결과(맞닿은 모서리를 감기로 셈) ↔ 73차 — 감기가 줄고 맞닿은 모서리는 옛 결과에 없어 견주지 않음', () => {
+    const before = [rec('a', { q: { ...rec('a').q!, windingSolids: 1, windingEdges: 2 } })];
+    const after = [rec('a', { q: { ...rec('a').q!, pinchSolids: 1, pinchEdges: 2 } })];
+    const q = compareRecords(before, after).qualities.normal!;
+    expect(q.metricChanged).toBe(1);
+    expect(q.top[0]!.diff).toEqual({ windingSolids: [1, 0], windingEdges: [2, 0] });
+    expect(q.summary.windingFiles).toEqual([1, 0]);
+    expect(q.summary.pinchFiles).toEqual([0, 1]);
+    // 둘 다 73차 결과면 맞닿은 모서리 수도 견준다
+    const q2 = compareRecords(after, [rec('a', { q: { ...rec('a').q!, pinchSolids: 1, pinchEdges: 3 } })]).qualities.normal!;
+    expect(q2.top[0]!.diff).toEqual({ pinchEdges: [2, 3] });
   });
 
   it('요약: 전송량(기록에 x가 있는 파일만) — 합·백분위·최대, 모서리 표·곡선 정의 바이트, 곡선 모서리 수', () => {
