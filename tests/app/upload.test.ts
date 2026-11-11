@@ -15,6 +15,7 @@ import {
   UPLOAD_REDRAW_MS,
   uploadBudgetMs,
   uploadOptions,
+  warmMerging,
 } from '../../src/app/upload';
 import { jsdomViewer } from './jsdomview';
 
@@ -219,5 +220,24 @@ describe('코어가 조각을 기다려 미룬 한 번에 올리기의 상태 �
     // 나눠 올리는 문턱은 그대로
     expect(BIG_MESHES).toBe(3000);
     expect(BIG_TRIANGLES).toBe(400_000);
+  });
+});
+
+describe('묶어 그리기 조각 미리 받기(74차 — 코어 0.60.0: 조각을 받는 동안 나눠 올리기는 첫 걸음 그물 64개로 멈춘다)', () => {
+  it('warmMerging은 preloadMerging을 한 번 부르고 기다리지 않는다(끝나지 않는 받기여도 곧 돌아온다)', () => {
+    const preloadMerging = vi.fn(() => new Promise<boolean>(() => undefined));
+    expect(warmMerging({ preloadMerging })).toBeUndefined();
+    expect(preloadMerging).toHaveBeenCalledTimes(1);
+  });
+
+  it('뷰어 조각(viewerkit.ts)이 들어오면 곧 부른다 — 앱 입구는 부르지도 기다리지도 않는다(첫 화면 JS 그대로)', () => {
+    const kit = readFileSync(join(__dirname, '../../src/app/viewerkit.ts'), 'utf8');
+    expect(kit).toMatch(/^import \{ warmMerging \} from '\.\/upload';$/m);
+    // 맨 바깥(들여쓰기 없는 줄)에서 한 번 — 뷰어를 만들 때나 문서를 보일 때가 아니라 조각을 받을 때
+    expect(kit.match(/^warmMerging\(\);$/gm)).toHaveLength(1);
+    expect(kit).not.toMatch(/await[^\n]*warmMerging|preloadMerging/);
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const core = readFileSync(join(__dirname, '../../src/app/core.ts'), 'utf8');
+    for (const src of [app, core]) expect(src).not.toMatch(/warmMerging|preloadMerging/);
   });
 });

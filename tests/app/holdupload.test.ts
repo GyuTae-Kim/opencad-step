@@ -6,6 +6,7 @@
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Viewer3d as ViewerT } from 'opencad-viewer3d';
+import { MERGE_FIRST_MESHES } from 'opencad-viewer3d/mergeopts';
 import type { Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import { installDom } from './fakeview';
 
@@ -135,6 +136,77 @@ describe('코어가 미룬 한 번에 올리기(69차 — 앱은 setScene 앞에
     await new Promise((res) => setTimeout(res, 0));
     expect(shows).toEqual([true]);
   }, 40_000);
+});
+
+describe('조각을 받는 동안의 나눠 올리기(74차 — 코어 0.60.0, 앱은 뷰어 조각이 들어올 때 미리 받는다)', () => {
+  /** 나눠 올리기(앱 선택)로 장면을 주고, 진행 알림의 올린 수를 모은다 */
+  const put = (v: ViewerT, upload: Up, n: number): number[] => {
+    const done: number[] = [];
+    v.setScene(boxes(n), { incremental: upload.uploadOptions(), onProgress: (d) => void done.push(d) });
+    return done;
+  };
+  /** 다 올리고 다 구울 때까지 그린다(조각 변환·굽기에 시간이 들어 시간으로 기다린다) */
+  const finish = async (v: ViewerT, done: number[], n: number): Promise<void> => {
+    await vi.waitFor(
+      () => {
+        v.renderNow();
+        expect(done.at(-1)).toBe(n);
+        expect(v.stats.merged.pending).toBe(0);
+      },
+      { timeout: 15_000, interval: 1 },
+    );
+  };
+
+  it('받지 않았으면 첫 걸음 그물(MERGE_FIRST_MESHES)에서 그리기 목록이 늘지 않고, 미리 받았으면 첫 그림부터 그보다 많이 그린다 — 끝값은 같다', async () => {
+    const n = 4000;
+    // 받기 전: 첫 그림 뒤 훑기가 문턱만큼 세면 코어가 받기를 걸고, 조각이 오지 않는 동안 뒤 그물은 GL 객체 없이 들고 기다린다
+    const a = await fresh('gate');
+    const v = new a.Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false });
+    views.push(v);
+    const done = put(v, a.upload, n);
+    await vi.waitFor(
+      () => {
+        v.renderNow();
+        expect(a.Viewer3d.mergingState()).toBe('loading');
+      },
+      { timeout: 15_000, interval: 1 },
+    );
+    for (let i = 0; i < 20; i++) v.renderNow();
+    const held = uploaded(v);
+    expect(held).toBeGreaterThanOrEqual(MERGE_FIRST_MESHES);
+    expect(held).toBeLessThan(2 * MERGE_FIRST_MESHES);
+    for (let i = 0; i < 50; i++) v.renderNow();
+    expect(uploaded(v)).toBe(held);
+    expect(a.Viewer3d.mergingState()).toBe('loading');
+    // 상태 표시줄의 진행은 그리기 목록보다 앞서 나아간 채 멈춘다(들고 있는 그물까지 센다)
+    expect(Math.max(...done)).toBeGreaterThan(held);
+    expect(Math.max(...done)).toBeLessThan(n);
+    a.open();
+    await finish(v, done, n);
+    expect(uploaded(v)).toBe(n);
+    const fin = [v.stats.merged.groups, v.stats.merged.meshes, v.stats.drawCalls];
+    expect(fin[0]).toBeGreaterThan(0);
+
+    // 미리 받음(앱 warmMerging — 뷰어 조각이 들어올 때): setScene 때 조각이 있으면 첫 걸음부터 굽는다
+    const b = await fresh('gate');
+    b.open();
+    b.upload.warmMerging(b.Viewer3d);
+    await vi.waitFor(() => expect(b.Viewer3d.mergingState()).toBe('ready'), { timeout: 15_000 });
+    const w = new b.Viewer3d(dom.host() as unknown as HTMLElement, { animate: false, keyboard: false });
+    views.push(w);
+    const done2 = put(w, b.upload, n);
+    await vi.waitFor(
+      () => {
+        w.renderNow();
+        expect(uploaded(w)).toBeGreaterThan(0);
+      },
+      { timeout: 15_000, interval: 1 },
+    );
+    expect(uploaded(w)).toBeGreaterThan(MERGE_FIRST_MESHES);
+    await finish(w, done2, n);
+    expect(uploaded(w)).toBe(n);
+    expect([w.stats.merged.groups, w.stats.merged.meshes, w.stats.drawCalls]).toEqual(fin);
+  }, 60_000);
 });
 
 describe('끼어든 그물이 있는 나눠 올리기의 진행 표시(71차 — 코어 0.58.0은 앞선 묶일 그물을 구울 때까지 끼어든 그물이 안 보인다)', () => {

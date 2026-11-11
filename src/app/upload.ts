@@ -18,6 +18,8 @@
  *
  * 69차(코어 0.56.0): 한 번에 올리는 큰 장면은 코어가 묶어 그리기 조각이 올 때까지 올리기를 미룬다 — 66차의 setScene 앞 기다림(1.5초 상한)을 뺐다.
  * 미루는 동안 상태 표시줄에 올리는 중을 둔다(holdUpload — 코어 입구를 가져오지만 뷰어 조각 안이라 받는 것은 같다).
+ *
+ * 74차(코어 0.60.0): 묶어 그리기 조각을 뷰어 조각이 들어올 때 받기 시작한다(warmMerging — 읽기·해석과 겹친다, 기다리지 않는다).
  */
 import { Viewer3d } from 'opencad-viewer3d';
 
@@ -73,4 +75,16 @@ export function holdUpload(
   void v.whenMerged().then((result) => {
     if (result !== 'disposed') onProgress(1, 1);
   });
+}
+
+/**
+ * 74차(코어 0.60.0): 묶어 그리기 조각(코어 mergegl)을 받기 시작한다 — 기다리지 않는다. 뷰어 조각(viewerkit.ts)이 들어올 때 한 번 부른다
+ * (열기 상자를 열거나 파일을 끌어 오거나 문서를 열기 시작할 때 — 파일 읽기·워커 해석과 겹친다).
+ * 0.60.0은 조각을 받는 동안 나눠 올리는 장면을 첫 걸음 그물 64개(코어 MERGE_FIRST_MESHES)만 그리고 조각이 올 때까지 늘리지 않으며(뒤 그물은 GL 객체 없이 들고 기다린다
+ * — 상태 표시줄의 진행은 굽기 단위까지 나아간다), 한 번에 올리는 장면은 통째로 미룬다(holdUpload). setScene 때 조각이 와 있으면 첫 걸음부터 구워 둘 다 없다.
+ * 74차 측정(가짜 WebGL, 해석 시간만큼 앞서 받기): 그물 1만 나눠 올리기의 첫 그림 64개 → 2,048개, 조각 받기 0.6초일 때 다 보임 0.81~0.84 s → 0.23 s.
+ * 작은 문서만 여는 앱도 조각을 받는다(gzip 8 kB 남짓 — 오프라인 서비스 워커가 미리 담는 조각). 받지 못하면 약속이 false로 풀리고 코어가 그물마다 그린다
+ */
+export function warmMerging(kit: { preloadMerging(): Promise<boolean> } = Viewer3d): void {
+  void kit.preloadMerging();
 }

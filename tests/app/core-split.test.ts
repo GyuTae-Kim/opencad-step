@@ -90,7 +90,8 @@ describe('코어 나눠 받기', () => {
     expect(dynamic.filter((d) => d.spec === './viewerkit').map((d) => relative(ROOT, d.file))).toEqual(['src/app/core.ts']);
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
-    expect(importsOf(readFileSync(kit, 'utf8')).values.sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './physics', './picklist', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
+    // 74차: upload.ts는 다시 내보내기와 조각 미리 받기(warmMerging) 가져오기 두 문이라 모듈마다 한 번 센다
+    expect([...new Set(importsOf(readFileSync(kit, 'utf8')).values)].sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './physics', './picklist', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
     // 66차: 부품 겉모습 걸기(looks.ts LookSync)도 그 조각에만 — 앱은 뷰어를 만든 뒤 조각에서 만들고, 반투명 보기 판정(translucentView)은 doc.ts에서
     expect(files.has(join(ROOT, 'src/app/looks.ts'))).toBe(false);
     expect(readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8')).toMatch(/\(this\.lookSync \?\?= new this\.ent!\.LookSync\(\)\)\.apply\(v, \{/);
