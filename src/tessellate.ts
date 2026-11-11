@@ -996,7 +996,7 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSpl
 const CHORD_UNFOLD_MAX = 256;
 
 /** 점 p에서 선분 a–b까지 거리 */
-function distToSegment(p: V3, a: V3, b: V3): number {
+export function distToSegment(p: V3, a: V3, b: V3): number {
   const ab = sub(b, a);
   const l2 = dot(ab, ab);
   const t = l2 > 0 ? Math.min(1, Math.max(0, dot(sub(p, a), ab) / l2)) : 0;
