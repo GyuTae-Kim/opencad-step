@@ -2,7 +2,7 @@
 /**
  * 66차 가상 커서 그물 면 후보 표식(코어 0.54.0 pickCycle facePreview·faceRanges — keysnap.ts pick, picklist.ts pickFaceRanges)과 모드를 바꾼 뒤 후보 다시 구하기:
  * - 지금 후보가 그물 면이면 맞은 B-rep 면 통째를 3D 덧그림에 칠하고 테두리(원기둥 옆면 — 코어 기본 같은 평면 면은 띠 하나), 면 표가 없으면 코어 같은 평면 면
- * - pickFaceRanges: 면 표의 그 면 삼각형 구간, 잘린 면·모서리·선·문서 없음·코어 표식 한도(4,096)를 넘는 면은 null(예제 원환 면 9,418개 — 한도로 자르면 테두리가 그물처럼)
+ * - pickFaceRanges: 면 표의 그 면 삼각형 구간(코어 표식 한도 4,096을 넘는 면도 — 코어 0.56.0이 면 전체 테두리만), 잘린 면·모서리·선·문서 없음은 null
  * - 고른 면 강조와 겹쳐도 표식은 그린다(덧그림 — 고른 것·강조는 그대로), 측정 모드에서는 그리지 않는다(코어), 분해(겉모습 행렬)로 옮긴 부품은 옮긴 자리에
  * - 면 고르기·여러 개 고르기·고르기 단위를 바꾸고 sync하면 켜진 커서의 후보가 새 묶음(65차까지는 커서를 옮길 때까지 앞 묶음 — sync 없이는 그대로)
  * 덧그림 세기는 코어 시험(v0540preview)과 같은 법: 강조 색 칠하기·긋기 수와 moveTo 수(삼각형마다 하나 + 테두리 변마다 두 번 — 바탕 테·강조)
@@ -15,7 +15,7 @@ import { createDoc, type StepDoc } from '../../src/app/doc';
 import { faceAt, faceDetails } from '../../src/app/faces';
 import { paintHi } from '../../src/app/hipaint';
 import { installKeySnap } from '../../src/app/keysnap';
-import { FACE_PREVIEW_MAX, PICK_LIST_MAX, pickFaceRanges, pickGroup } from '../../src/app/picklist';
+import { PICK_LIST_MAX, pickFaceRanges, pickGroup } from '../../src/app/picklist';
 import { sampleStepBytes } from '../../src/app/sample';
 import { cube, cylinder, StepText } from '../stepText';
 import { jsdomViewer, VIEW_H, VIEW_W } from './jsdomview';
@@ -101,8 +101,7 @@ describe('pickFaceRanges(66차)', () => {
     expect(pickFaceRanges({ ...d, faces: null } as StepDoc, p)).toBeNull();
   });
 
-  it('코어 표식 한도(4,096)를 넘는 B-rep 면은 null — 코어가 한도까지만 칠하면 잘린 자리 안쪽 변이 모두 테두리가 된다(예제 원환 면)', () => {
-    expect(FACE_PREVIEW_MAX).toBe(PICK_PREVIEW_MAX_TRIS);
+  it('코어 표식 한도(4,096)를 넘는 B-rep 면도 구간을 준다 — 코어 0.56.0은 칠하지 않고 면 전체로 센 테두리만(69차 — 예제 원환 면은 닫힌 면이라 앱 면 경계처럼 0변)', () => {
     const sc = stepToScene(sampleStepBytes(), { name: 's.stp' });
     const d = createDoc('s.stp', 1, { scene: sc, ms: 1 });
     let big = 0;
@@ -113,15 +112,15 @@ describe('pickFaceRanges(66차)', () => {
         if (!n) continue;
         const p: Pick3d = { kind: 'mesh', id: m.id, index: t.triStart[f]!, raw: t.triStart[f]!, point: [0, 0, 0] };
         const r = pickFaceRanges(d, p);
+        expect(r, `${m.id} 면 ${f}`).toEqual([{ start: t.triStart[f]!, count: n }]);
         if (n > PICK_PREVIEW_MAX_TRIS) {
           big++;
-          expect(r, `${m.id} 면 ${f}`).toBeNull();
-          // 한도로 자른 구간의 테두리는 닫힌 원환 면인데도 수천 변(앱 면 경계는 0 — faces.ts)
-          const capped = rangesFace(m.positions, m.indices, [{ start: t.triStart[f]!, count: n }])!;
+          // 한도에 걸린 면은 칠 없이 면 전체로 센 테두리 — 닫힌 원환 면은 앱 면 경계(faces.ts)처럼 0변(66차 0.54.0 셈은 잘린 자리 안쪽 변 1,696변)
+          const capped = rangesFace(m.positions, m.indices, r!)!;
           expect(capped.capped).toBe(true);
-          expect(capped.edges.length / 6).toBeGreaterThan(1000);
+          expect(capped.edges.length / 6).toBe(0);
           expect(faceDetails(m, t, f, d.faces!.kinds)!.boundary.length).toBe(0);
-        } else expect(r).toEqual([{ start: t.triStart[f]!, count: n }]);
+        }
       }
     }
     expect(big).toBe(1);
