@@ -55,7 +55,7 @@ function mesh(bytes: Uint8Array, chord: number, angleDeg: number): { m: ItemMesh
 }
 
 /** 면 표의 fi번 면에서 삼각형 법선이 세 정점 법선 합과 반대인 삼각형 수 */
-function folds(m: ItemMesh, fi: number): number {
+function folds(m: ItemMesh, fi: number, minArea = 0): number {
   const { positions: P, normals: N, indices: I } = m;
   const tb = m.faceTable!;
   let n = 0;
@@ -64,6 +64,7 @@ function folds(m: ItemMesh, fi: number): number {
     const u = [P[b]! - P[a]!, P[b + 1]! - P[a + 1]!, P[b + 2]! - P[a + 2]!];
     const w = [P[c]! - P[a]!, P[c + 1]! - P[a + 1]!, P[c + 2]! - P[a + 2]!];
     const nz = [u[1]! * w[2]! - u[2]! * w[1]!, u[2]! * w[0]! - u[0]! * w[2]!, u[0]! * w[1]! - u[1]! * w[0]!];
+    if (Math.hypot(nz[0]!, nz[1]!, nz[2]!) / 2 <= minArea) continue;
     if (nz[0]! * (N[a]! + N[b]! + N[c]!) + nz[1]! * (N[a + 1]! + N[b + 1]! + N[c + 1]!) + nz[2]! * (N[a + 2]! + N[b + 2]! + N[c + 2]!) < 0) n++;
   }
   return n;
@@ -79,6 +80,42 @@ function arcPoints(m: ItemMesh, fi: number): Set<string> {
     if (Math.abs(P[v + 2]! - V1) < 1e-6 && Math.abs(Math.hypot(P[v]!, P[v + 1]!) - R1) < 1e-5) out.add(`${P[v]},${P[v + 1]},${P[v + 2]}`);
   }
   return out;
+}
+
+/**
+ * 초승달 평면 면: 안쪽 원(반지름 10, 조밀한 차수 1 B-스플라인)과 바깥 원(반지름 Ro, 중심을 옮겨 (10, 0)에서 접하는 CIRCLE)이 같은 꼭짓점에서 접하며 벌어지는 면.
+ * 바깥 원의 현이 처짐만큼 안쪽으로 들어와 끝 근처에서 안쪽 다각선과 엇갈린다
+ */
+function crescent(Ro: number, top: number, n: number): Uint8Array {
+  const w = new StepText();
+  const c = 10 - Ro;
+  const outerAt = (y: number): P3 => [c + Math.sqrt(Ro * Ro - y * y), y, 0];
+  const innerAt = (y: number): P3 => [Math.sqrt(100 - y * y), y, 0];
+  const V0 = w.vertex([10, 0, 0]);
+  const V1 = w.vertex(outerAt(top));
+  const V2 = w.vertex(innerAt(top));
+  const outer = w.edge(V0, V1, w.circle([c, 0, 0], Ro));
+  const cap = w.edge(V1, V2, w.line(outerAt(top), innerAt(top)));
+  const pts: number[] = [];
+  const knots: string[] = [];
+  const mult: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    pts.push(w.pt(innerAt((top * (n - i)) / n)));
+    knots.push(r(i));
+    mult.push(i === 0 || i === n ? 2 : 1);
+  }
+  const inner = w.edge(V2, V0, w.add('B_SPLINE_CURVE_WITH_KNOTS', `'',1,(${pts.map((x) => `#${x}`).join(',')}),.UNSPECIFIED.,.F.,.F.,(${mult.join(',')}),(${knots.join(',')}),.UNSPECIFIED.`));
+  const face = w.face([w.bound(w.loop([w.oe(outer, true), w.oe(cap, true), w.oe(inner, true)]))], w.plane([0, 0, 0]));
+  const shell = w.add('OPEN_SHELL', `'',(#${face})`);
+  w.product('crescent', [w.add('SHELL_BASED_SURFACE_MODEL', `'',(#${shell})`)], w.context());
+  return w.bytes();
+}
+
+function meshCrescent(bytes: Uint8Array, chord: number, angleDeg: number, band: boolean): ItemMesh {
+  const f = new StepFile(bytes);
+  const mesher = new BrepMesher(f, new Geometry(f), () => undefined, { relTol: 1e-3, absTol: chord, angle: (angleDeg * Math.PI) / 180, faceTable: true, props: false });
+  if (!band) (mesher as unknown as { bandSplits: () => Map<number, number[]> }).bandSplits = () => new Map();
+  return mesher.meshItem(f.idsOfType('SHELL_BASED_SURFACE_MODEL')[0]!)!;
 }
 
 const cases: [string, number, number, number, number, number][] = [
@@ -111,4 +148,24 @@ describe('현 처짐보다 좁은 띠 면(70차)', () => {
     // 원호 0.8125 rad를 20°(0.349 rad)로 — 3토막(점 4개)
     expect(arcPoints(wide, 1).size).toBe(4);
   });
+});
+
+describe('같은 꼭짓점에서 접하며 벌어지는 초승달 평면 면(70차)', () => {
+  const crescents: [string, number, number, number, number, number][] = [
+    // 이름, 바깥 반지름, 높이, 안쪽 점 수, 현 높이, 각(도)
+    ['보통 품질', 10.5, 6, 60, 0.0125, 20],
+    ['더 조밀한 안쪽', 10.2, 5, 120, 0.0125, 20],
+    ['아주 세밀', 10.5, 6, 240, 0.00125, 5],
+  ];
+  for (const [name, Ro, top, n, chord, ang] of crescents)
+    it(`${name}: 현 엇갈림이 풀려 뒤집힌 삼각형이 없다(나눔을 끄면 있다)`, () => {
+      const bytes = crescent(Ro, top, n);
+      const m = meshCrescent(bytes, chord, ang, true);
+      const off = meshCrescent(bytes, chord, ang, false);
+      expect(m.failedFaces).toBe(0);
+      const A = m.faceTable!.area![0]!;
+      // 꼭짓점 바로 옆 조각(현 처짐이 eps 아래라 더 나누지 않는 자리, float32 눈금 크기의 폭 — 넓이가 면의 1e-4배 아래)은 셈에서 뺀다
+      expect(folds(m, 0, A * 1e-4)).toBe(0);
+      expect(folds(off, 0, A * 1e-4)).toBeGreaterThan(0);
+    });
 });
