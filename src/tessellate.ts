@@ -992,6 +992,152 @@ function refineMesh(vs: Verts, tris: number[], tol: Tol, maxTris: number, minSpl
   return tris;
 }
 
+/** 면 하나에서 경계 현 쪽으로 접을 수 있는 안쪽 점 수의 상한(현마다 열 남짓 — 깨진 면에서 끝없이 돌지 않게) */
+const CHORD_UNFOLD_MAX = 256;
+
+/** 점 p에서 선분 a–b까지 거리 */
+function distToSegment(p: V3, a: V3, b: V3): number {
+  const ab = sub(b, a);
+  const l2 = dot(ab, ab);
+  const t = l2 > 0 ? Math.min(1, Math.max(0, dot(sub(p, a), ab) / l2)) : 0;
+  return dist(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t]);
+}
+
+/**
+ * 69차: 경계 현에 붙은 접힌 삼각형 풀기. 경계는 이웃 면과 함께 쓰는 다각선이라 나누지 못해, 곡면에서 먼 삼각형을 나누다 보면(refineMesh) 경계 현의 매개변수 직선 거의 위에
+ * 안쪽 점이 놓인다. 곡면 위의 그 점은 3D 현 바깥쪽(곡선이 불룩한 쪽)이라 (현의 두 끝, 안쪽 점) 삼각형이 폭 0에 가깝게 뒤집힌다(표본 아주 세밀 품질 — 넓이는 면의 0.02% 남짓).
+ * 두 정점이 경계 점이라 안쪽 나누기로는 풀리지 않는다. 그런 안쪽 점과 현을 따라 이어진 안쪽 점들을 빼고 그 자리를 다시 삼각화한다(현에서 현 높이 안의 점만 — 가까운 것부터 넓혀 간다).
+ * 경계 점은 그대로라 이웃 면과 틈이 없고, 접힌 경계 삼각형이 없는 면은 결과가 같다
+ */
+function unfoldBoundaryChords(vs: Verts, tris: number[], nRing: number, tol: Tol): number[] {
+  const isFold = (a: number, b: number, c: number): boolean => foldDot(vs.P(a), vs.P(b), vs.P(c), vs.N(a), vs.N(b), vs.N(c)) < 0;
+  const ringN = (a: number, b: number, c: number): number => (a < nRing ? 1 : 0) + (b < nRing ? 1 : 0) + (c < nRing ? 1 : 0);
+  const nt = tris.length / 3;
+  let any = false;
+  for (let t = 0; t < nt && !any; t++) any = ringN(tris[t * 3]!, tris[t * 3 + 1]!, tris[t * 3 + 2]!) === 2 && isFold(tris[t * 3]!, tris[t * 3 + 1]!, tris[t * 3 + 2]!);
+  if (!any) return tris;
+  /** 정점 → 그 정점을 쓰는 삼각형 자리 */
+  const star = new Map<number, number[]>();
+  const addStar = (v: number, t: number): void => {
+    const l = star.get(v);
+    if (l) l.push(t);
+    else star.set(v, [t]);
+  };
+  for (let t = 0; t < nt; t++) for (let e = 0; e < 3; e++) addStar(tris[t * 3 + e]!, t);
+  const tri = (t: number): [number, number, number] => [tris[t * 3]!, tris[t * 3 + 1]!, tris[t * 3 + 2]!];
+  const has = (t: number, v: number): boolean => tris[t * 3] === v || tris[t * 3 + 1] === v || tris[t * 3 + 2] === v;
+  const orient = (a: number, b: number, c: number): number => {
+    const xy = vs.xy;
+    return (xy[b * 2]! - xy[a * 2]!) * (xy[c * 2 + 1]! - xy[a * 2 + 1]!) - (xy[b * 2 + 1]! - xy[a * 2 + 1]!) * (xy[c * 2]! - xy[a * 2]!);
+  };
+  /** 삼각형 무게중심이 곡면에서 떨어진 거리 */
+  const off = (a: number, b: number, c: number): number => {
+    const Pa = vs.P(a);
+    const Pb = vs.P(b);
+    const Pc = vs.P(c);
+    return dist(vs.s.point((vs.u[a]! + vs.u[b]! + vs.u[c]!) / 3, (vs.v[a]! + vs.v[b]! + vs.v[c]!) / 3), [(Pa[0] + Pb[0] + Pc[0]) / 3, (Pa[1] + Pb[1] + Pc[1]) / 3, (Pa[2] + Pb[2] + Pc[2]) / 3]);
+  };
+  /**
+   * 경계 현 r0–r1에서 반지름 안의 안쪽 점(seed에서 이어진 것)을 빼고 그 자리를 다시 삼각화한다. 새 삼각형이 모두 곧고(매개변수 뒤집힘·접힘 없음) 곡면 오차가
+   * 앞보다(또는 현 높이보다) 크지 않을 때만 고친다(되면 참)
+   */
+  const clear = (seed: number, r0: number, r1: number, radius: number): boolean => {
+    const P0 = vs.P(r0);
+    const P1 = vs.P(r1);
+    if (distToSegment(vs.P(seed), P0, P1) > radius) return false;
+    const gone = new Set<number>([seed]);
+    const stack = [seed];
+    while (stack.length) {
+      for (const t of star.get(stack.pop()!)!)
+        for (const x of tri(t))
+          if (x >= nRing && !gone.has(x) && distToSegment(vs.P(x), P0, P1) <= radius) {
+            gone.add(x);
+            stack.push(x);
+          }
+    }
+    const dead = new Set<number>();
+    for (const v of gone) for (const t of star.get(v)!) dead.add(t);
+    // 지운 자리의 둘레(반대 방향 짝이 없는 변): 한 고리여야 한다
+    const out = new Map<number, number>();
+    const seen = new Set<number>();
+    for (const t of dead) {
+      const T = tri(t);
+      for (let e = 0; e < 3; e++) seen.add(T[e]! * KEY + T[(e + 1) % 3]!);
+    }
+    let edges = 0;
+    for (const k of seen) {
+      const a = Math.floor(k / KEY);
+      const b = k - a * KEY;
+      if (seen.has(b * KEY + a)) continue;
+      if (out.has(a)) return false;
+      out.set(a, b);
+      edges++;
+    }
+    const loop: number[] = [];
+    const first = out.keys().next().value!;
+    for (let v = first; loop.length <= edges; ) {
+      loop.push(v);
+      v = out.get(v)!;
+      if (v === first) break;
+      if (v === undefined) return false;
+    }
+    if (loop.length !== edges) return false;
+    let worst = tol.chord;
+    for (const t of dead) worst = Math.max(worst, off(...tri(t)));
+    // 다시 삼각화: 둘레 점 하나에서 뻗은 부채꼴(모든 삼각형이 매개변수에서 곧으면 둘레가 그 점에서 보이는 별 모양이라 빈틈·겹침이 없다 — 지운 자리는 작아 부채꼴이면 된다).
+    // 현에서 먼 점부터 해 본다(폭 있는 삼각형)
+    const apexes = loop.map((_, k) => k).sort((p, q) => distToSegment(vs.P(loop[q]!), P0, P1) - distToSegment(vs.P(loop[p]!), P0, P1));
+    let made: number[] | null = null;
+    for (const k of apexes) {
+      const fan: number[] = [];
+      for (let e = 1; e + 1 < edges; e++) {
+        const [a, b, c] = [loop[k]!, loop[(k + e) % edges]!, loop[(k + e + 1) % edges]!];
+        if (!(orient(a, b, c) > 0) || isFold(a, b, c) || off(a, b, c) > worst) {
+          fan.length = 0;
+          break;
+        }
+        fan.push(a, b, c);
+      }
+      if (fan.length) {
+        made = fan;
+        break;
+      }
+    }
+    if (!made) return false;
+    for (const t of dead) {
+      for (const x of tri(t)) star.set(x, star.get(x)!.filter((q) => q !== t));
+      tris[t * 3] = -1;
+    }
+    for (let q = 0; q < made.length; q += 3) {
+      const t = tris.length / 3;
+      tris.push(made[q]!, made[q + 1]!, made[q + 2]!);
+      for (let e = 0; e < 3; e++) addStar(made[q + e]!, t);
+    }
+    return true;
+  };
+  let left = CHORD_UNFOLD_MAX;
+  for (let changed = true; changed && left > 0; ) {
+    changed = false;
+    for (let t = 0; t < tris.length / 3 && left > 0; t++) {
+      if (tris[t * 3]! < 0) continue;
+      const [a, b, c] = tri(t);
+      if (ringN(a, b, c) !== 2 || !isFold(a, b, c)) continue;
+      const [i, r0, r1] = a >= nRing ? [a, b, c] : b >= nRing ? [b, c, a] : [c, a, b];
+      // 경계 모서리(삼각형 하나만 쓰는 고리 점 둘)에 붙은 것만 — 현에서 가까운 안쪽 점부터(반지름을 넓혀 가며, 현 높이까지)
+      if (star.get(r0)!.filter((q) => has(q, r1)).length !== 1) continue;
+      for (const k of [1 / 16, 1 / 4, 1])
+        if (clear(i, r0, r1, tol.chord * k)) {
+          left--;
+          changed = true;
+          break;
+        }
+    }
+  }
+  const out: number[] = [];
+  for (let t = 0; t < tris.length / 3; t++) if (tris[t * 3]! >= 0) out.push(tris[t * 3]!, tris[t * 3 + 1]!, tris[t * 3 + 2]!);
+  return out;
+}
+
 /** 매개변수 공간 다각형(바깥 + 구멍) — 고리 3D 점과 그 (u,v), 극점 번호 */
 export type FacePolygon = Polygon;
 
@@ -1105,6 +1251,8 @@ export function tessellateFace(
    * 차례대로 남긴다(질량 속성 적분 — massprops.ts, 삼각형으로 구하는 면의 어림 오차)
    */
   acc?: { area: number; polys?: FacePolygon[]; uv?: number[] },
+  /** 69차: 경계 현에 붙은 접힌 삼각형도 푼다(unfoldBoundaryChords — BrepMesher가 경계를 더 나눠도 접힘이 남은 면을 다시 삼각화할 때만) */
+  chords = false,
 ): FaceResult {
   const flags = { reversed: false };
   const polys = faceDomain(s, loops, sameSense, tol, eps, flags);
@@ -1116,7 +1264,7 @@ export function tessellateFace(
 
   let total = 0;
   for (const pg of polys) {
-    let m = meshPolygon(s, pg, tol, su, sv, maxTris);
+    let m = meshPolygon(s, pg, tol, su, sv, maxTris, undefined, chords);
     if (!m) continue;
     // 극점 둘레 바늘 삼각형: 극점에서 나간 모서리를 거듭 나눈 점들이 3D로 거의 겹치면(극점 가까이 폭이 0으로 모이는 곡면)
     // 극점 둘레를 따로 빛살·고리로 나눠 다시 한다(그렇지 않은 면은 예전과 같다)
@@ -1156,7 +1304,7 @@ const POLE_NEEDLE = 10;
  * 매개변수 다각형 하나 → 정점·삼각형(반시계, 곡면이면 다듬기까지). caps가 있으면 다듬은 뒤 극점 둘레 빛살 삼각형을 붙인다
  * (빛살 끝 점은 다각형 고리 점이라 다듬기가 나누지 않는다). pole: 정점마다 극점(3D가 극점)인지
  */
-function meshPolygon(s: Surface, pg: Polygon, tol: Tol, su: number, sv: number, maxTris: number, caps?: PoleCap[]): { vs: Verts; tris: number[]; pole: Uint8Array } | null {
+function meshPolygon(s: Surface, pg: Polygon, tol: Tol, su: number, sv: number, maxTris: number, caps?: PoleCap[], chords = false): { vs: Verts; tris: number[]; pole: Uint8Array } | null {
   const vs = new Verts(s, su, sv);
   const holeIdx: number[] = [];
   const index = caps ? new Map<UV, number>() : null;
@@ -1191,7 +1339,9 @@ function meshPolygon(s: Surface, pg: Polygon, tol: Tol, su: number, sv: number, 
     }
   if (!s.planar) {
     lawson(tris, vs.xy, 2);
+    const nRing = vs.u.length;
     tris = refineMesh(vs, tris, tol, maxTris, caps ? tol.chord * 0.25 : 0);
+    if (chords && !caps && !poleIdx.length) tris = unfoldBoundaryChords(vs, tris, nRing, tol);
   }
   if (caps && index) for (const cap of caps) capTriangles(vs, cap, index, tris, poleIdx);
   const pole = new Uint8Array(vs.u.length);

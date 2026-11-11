@@ -206,9 +206,9 @@ describe('코어 나눠 받기', () => {
     expect(m.pmiView).toBe((await import('../../src/app/pmiview')).pmiView);
     // 같은 조각의 키보드 길잡이와 물리 속성 계산(앱이 뷰어를 만들 때 달고 패널에 넣는다)
     expect(m.installKeyNav).toBe((await import('../../src/app/keynav')).installKeyNav);
-    // 66차: 같은 조각의 부품 겉모습 걸기·묶어 그리기 조각 미리 받기(앱이 뷰어를 만든 뒤·문서를 올리기 전에 쓴다)
+    // 66차: 같은 조각의 부품 겉모습 걸기, 69차: 코어가 미룬 올리기의 상태 표시(앱이 뷰어를 만든 뒤·문서를 올릴 때 쓴다)
     expect(m.LookSync).toBe((await import('../../src/app/looks')).LookSync);
-    expect(m.preloadMergingFor).toBe((await import('../../src/app/upload')).preloadMergingFor);
+    expect(m.holdUpload).toBe((await import('../../src/app/upload')).holdUpload);
     expect((await import('../../src/app/looks')).translucentView).toBe((await import('../../src/app/doc')).translucentView);
     // 같은 조각의 작업 메뉴(64차 — 3D 보기 화면 점의 메뉴와 겹친 것 고르기 목록)
     const ctx = await import('../../src/app/ctxmenu');

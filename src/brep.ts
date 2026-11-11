@@ -423,6 +423,8 @@ export class BrepMesher {
   private faceCrossed = false;
   /** 잘게 나눠 본 번: 넓이가 맞아 보여도 엇갈림을 찾는다(되돌릴지 정하려고) */
   private crossCheckAll = false;
+  /** 69차: 이 번은 경계 현에 붙은 접힌 삼각형도 푼다(경계를 더 나눠도 접힘이 남은 면만 다시 삼각화하는 번 — tessellateFace chords) */
+  private faceChords = false;
   /** 접힌 면 때문에 더 잘게 나눌 모서리 → 현 높이 나눗수(항목 하나 동안) */
   private readonly edgeRefine = new Map<number, number>();
 
@@ -456,12 +458,12 @@ export class BrepMesher {
     onFace: (() => void) | undefined,
     pass: number,
     /** 앞 번의 면 결과와 다시 할 면, 접힌 삼각형 수, 앞 번에 엇갈림 때문에 더 잘게 나눈 모서리 → 그 전 나눗수 */
-    prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number; crossTried?: Map<number, number> },
+    prev?: { outs: FaceOut[]; dirty: Set<number>; folded: number; crossTried?: Map<number, number>; chords?: boolean },
   ): ItemMesh | null {
     const e = this.f.get(itemId);
     if (!e) return null;
     if (TESS_TYPES.has(e.type)) return this.meshTessellated(itemId);
-    const missBefore = pass < MAX_REFINE_PASS ? new Map(this.unsupported) : null;
+    const missBefore = pass <= MAX_REFINE_PASS && !prev?.chords ? new Map(this.unsupported) : null;
     const faces: FaceRef[] = [];
     let closed = false;
     const inherited = new Map<number, Rgba>(); // 면 → 껍질·입체에서 물려받은 색
@@ -569,6 +571,7 @@ export class BrepMesher {
     /** 잘게 나눠 본 번에 다시 삼각화한 면 가운데 아직 엇갈린 면(되돌림) */
     const stillCrossing: number[] = [];
     this.crossCheckAll = !!prev?.crossTried;
+    this.faceChords = !!prev?.chords;
     for (let fi = 0; fi < nf; fi++) {
       const fr = faces[fi]!;
       onFace?.();
@@ -666,14 +669,18 @@ export class BrepMesher {
     if (missBefore && nTri > 0) {
       // 평면은 안쪽 점이 없어 경계를 나눠도 달라지지 않는다. 앞 번보다 접힌 면이 줄지 않으면(경계 탓이 아닌 접힘) 더 하지 않는다
       const folded: number[] = [];
+      /** 69차: 넓이 문턱 없이 접힌 삼각형이 있는 곡면 면(경계 현 풀기는 문턱 아래 아주 얇은 삼각형도 — 경계를 더 나눌지는 위 문턱으로) */
+      const anyFold: number[] = [];
       let foldTris = 0;
       for (let fi = 0; fi < nf; fi++) {
-        const n = this.isPlanarFace(faces[fi]!.id) ? 0 : countFolds(b, faceTri[fi]!, faceTri[fi + 1]!, diag);
+        const planar = this.isPlanarFace(faces[fi]!.id);
+        const n = planar ? 0 : countFolds(b, faceTri[fi]!, faceTri[fi + 1]!, diag);
         if (n) folded.push(fi);
+        if (n || (!planar && countFolds(b, faceTri[fi]!, faceTri[fi + 1]!, 0))) anyFold.push(fi);
         foldTris += n;
       }
       const changed = new Set<number>();
-      if (folded.length && (!prev || foldTris < prev.folded))
+      if (folded.length && pass < MAX_REFINE_PASS && (!prev || foldTris < prev.folded))
         for (const fi of folded)
           for (const eid of this.faceEdgeIds(faces[fi]!.id)) {
             const k = this.edgeRefine.get(eid) ?? 1;
@@ -685,7 +692,7 @@ export class BrepMesher {
       // 나눈 경계 고리가 서로 엇갈린 평면 면(곡선의 현이 아주 가까운 다른 고리를 넘어 구멍이 메워지거나 삼각형이 겹친다 — 60차):
       // 첫 번에 엇갈린 곡선 모서리만 틈에 맞춰 잘게 나눠 다시 해 보고(crossingEdges), 그래도 엇갈리는 면의 모서리는 다음 번에 처음 나눔으로
       // 되돌린다(그 면과 이웃 면은 예전 그대로). 잘게 나눈 경계에 이웃 곡면의 삼각형이 더 접히면(접힌 삼각형이 늘면) 모두 되돌린다
-      const tried = prev?.crossTried;
+      const tried = pass < MAX_REFINE_PASS ? prev?.crossTried : undefined;
       if (tried) {
         const revert = (eid: number) => {
           const k = tried.get(eid);
@@ -694,7 +701,7 @@ export class BrepMesher {
           else this.edgeRefine.set(eid, k);
           changed.add(eid);
         };
-        if (foldTris > prev.folded) for (const eid of tried.keys()) revert(eid);
+        if (foldTris > prev!.folded) for (const eid of tried.keys()) revert(eid);
         else for (const fi of stillCrossing) for (const eid of this.faceEdgeIds(faces[fi]!.id)) revert(eid);
       }
       let crossTried: Map<number, number> | undefined;
@@ -713,6 +720,13 @@ export class BrepMesher {
         this.unsupported.clear();
         for (const [k, v] of missBefore) this.unsupported.set(k, v);
         return this.meshItemPass(itemId, undefined, pass + 1, { outs, dirty, folded: foldTris, ...(crossTried ? { crossTried } : {}) });
+      }
+      // 69차: 경계를 더 나눠도 접힌 삼각형이 남은 면 — 경계 다각선은 그대로 두고 그 면만 경계 현 둘레의 안쪽 점을 빼고 다시 삼각화한다(tessellate.ts unfoldBoundaryChords,
+      // 경계를 더 나누는 것이 먼저 — 그것으로 풀리는 면은 예전과 같다)
+      if (anyFold.length && outs) {
+        this.unsupported.clear();
+        for (const [k, v] of missBefore) this.unsupported.set(k, v);
+        return this.meshItemPass(itemId, undefined, MAX_REFINE_PASS, { outs, dirty: new Set(anyFold), folded: foldTris, chords: true, ...(prev?.crossTried ? { crossTried: prev.crossTried } : {}) });
       }
     }
     // 모서리 선(과 모서리 표: 선분 범위·곡선 종류·원 중심·반지름·길이)
@@ -1276,7 +1290,7 @@ export class BrepMesher {
       return null;
     }
     const acc: { area: number; polys?: FacePolygon[]; uv?: number[] } = { area: 0, ...(pj ? { uv: [] } : {}) };
-    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info || pj ? acc : undefined);
+    const r = tessellateFace(surf, loops, sameSense, this.tol, this.eps, b, undefined, info || pj ? acc : undefined, this.faceChords);
     if (r.error) return r.error;
     if (r.reversed) this.faceReversed = true;
     if (!r.triangles) return '삼각형 없음';

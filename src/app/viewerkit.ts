@@ -25,7 +25,7 @@
  * - 3D 강조 그리기(hipaint.ts — 65차, 앱 입구의 showFace를 옮김): 고른 것의 항목·구간 강조와 면·모서리 강조 선을 함께 그린다(앱은 그린 것을 기억해 겹친 것 목록 미리 강조 뒤 되돌린다).
  *   겹친 것 고르기 후보 묶음 열쇠(picklist.ts pickGroup — 코어 0.53.0 group)는 가상 커서 Tab에도 준다
  * - 부품 겉모습 걸기(looks.ts LookSync — 66차, 앱 입구에서 옮김): 불투명도·흐리게·부품 색·분해 행렬을 바뀐 묶음만 코어에 건다(뷰어가 있어야 건다 —
- *   앱의 반투명 보기 판정 translucentView는 doc.ts). 한 번에 올리는 큰 장면의 묶어 그리기 조각 미리 받기(upload.ts preloadMergingFor — 66차, 코어 0.54.0)도
+ *   앱의 반투명 보기 판정 translucentView는 doc.ts). 코어가 묶어 그리기 조각을 기다려 미룬 올리기의 상태 표시(upload.ts holdUpload — 69차, 코어 0.56.0)도
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
 export * from 'opencad-viewer3d';
@@ -49,7 +49,7 @@ export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } 
 export { pmiView } from './pmiview';
 export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
 export { groupGrid, treeView } from './treeview';
-export { preloadMergingFor, sceneUpload, uploadOptions } from './upload';
+export { holdUpload, sceneUpload, uploadOptions } from './upload';
 // 면 기준 보기·자르기 계산(viewhelp.ts — 63차에 첫 화면 JS에서 옮김: 면을 고른 뒤에만 쓴다)과 저장된 보기 방향 → 각(코어 camera dirToAngles —
 // 첫 화면은 같은 모듈의 뷰 이름·숫자 키 표만 쓴다)
 export { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
