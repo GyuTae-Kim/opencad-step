@@ -219,6 +219,33 @@ export function isClosedMesh(positions: Float32Array, indices?: ArrayLike<number
 }
 
 /**
+ * 72차: 정점을 isClosedMesh처럼 정확히 용접한 뒤 방향 있는 삼각형 변마다 쓴 수가 거꾸로 쓴 수와 같은지.
+ * isClosedMesh는 같은 방향 변이 두 번 나오면 거짓이라, 껍질이 모서리에서 스스로 맞닿은 입체(한 모서리를 네 면이 — 둘은 이쪽, 둘은 저쪽으로 — 씀)를 받지 않는다.
+ * 변마다 들고 나는 수가 같으면 그런 그물도 빈틈없이 닫혀, 발산 정리로 구하는 부피와 단면 채우기(겹친 면 홀짝)가 그대로 맞는다. 삼각형이 없으면 거짓
+ */
+export function isBalancedMesh(positions: Float32Array, indices?: ArrayLike<number>): boolean {
+  const nv = Math.floor(positions.length / 3);
+  if (nv < 3 || nv >= 2 ** 26) return false;
+  const weld = weldExact(positions);
+  const K = 2 ** 26;
+  const uses = new Map<number, number>();
+  const nt = Math.floor((indices ? indices.length : nv) / 3);
+  for (let t = 0; t < nt; t++) {
+    const a = weld[indices ? indices[t * 3]! : t * 3]!;
+    const b = weld[indices ? indices[t * 3 + 1]! : t * 3 + 1]!;
+    const c = weld[indices ? indices[t * 3 + 2]! : t * 3 + 2]!;
+    if (a === b || b === c || c === a) continue;
+    for (const k of [a * K + b, b * K + c, c * K + a]) uses.set(k, (uses.get(k) ?? 0) + 1);
+  }
+  if (!uses.size) return false;
+  for (const [k, n] of uses) {
+    const x = Math.floor(k / K);
+    if (uses.get((k - x * K) * K + x) !== n) return false;
+  }
+  return true;
+}
+
+/**
  * 닫힌 껍질의 면 방향 맞추기(면 묶음 단위): 이웃한 두 면이 같은 경계 선분을 같은 방향으로 쓰면 한쪽이 뒤집힌 것이다.
  * 이웃끼리 방향을 맞춘 뒤, 이어진 덩어리마다 부호 있는 부피로 바깥을 정한다 — 가장 큰 덩어리(바깥 껍질)는 양수, 나머지(빈 곳
  * BREP_WITH_VOIDS)는 음수. 고칠 것이 없거나 맞출 수 없으면(모순 — 뒤틀린 면 모임) null, 아니면 면마다 뒤집을지(1).

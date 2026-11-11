@@ -1,7 +1,8 @@
 /**
  * 경계 현 둘레의 접힌 삼각형 풀기(69차 — tessellateFace chords, BrepMesher가 경계를 더 나눠도 접힘이 남은 면을 다시 삼각화할 때).
  * 합성: 평면을 극좌표로 매개변수화한 면(원호 호 — 등매개선이 3D에서 휜다). 바깥 호 v = 0을 성긴 현으로 나누면 곡면(호)이 3D 현 바깥으로 불룩해, 다듬기가 현의 매개변수 직선 가까이에 넣은
- * 안쪽 점과 만든 (현의 두 끝, 안쪽 점) 삼각형이 뒤집힌다 — 표본 아주 세밀 B-스플라인 면(11개 파일 22면)과 같은 꼴
+ * 안쪽 점과 만든 (현의 두 끝, 안쪽 점) 삼각형이 뒤집힌다 — 표본 아주 세밀 B-스플라인 면(11개 파일 22면)과 같은 꼴.
+ * 72차: 현의 매개변수 직선이 3D 현에서 현 높이보다 멀리 휘는 경계 현(표본 아주 세밀 원환 면 1개 — 모서리 곡선은 3D 현 가까이인데 그 매개변수 길이 곧지 않다)
  */
 import { describe, expect, it } from 'vitest';
 import type { V3 } from '../src/math';
@@ -94,6 +95,19 @@ describe('경계 현 둘레의 접힌 삼각형 풀기(69차)', () => {
     expect(folds(after)).toBe(0);
     expect(area(after)).toBeCloseTo(polyArea(ring), 9);
     // 고리 점(경계 다각선 — 이웃 면과 함께 쓴다)은 그대로
+    const pts = new Set<string>();
+    for (let i = 0; i < after.positions.length; i += 3) pts.add(after.positions.slice(i, i + 3).join(','));
+    for (const p of outer) expect(pts.has(p.join(','))).toBe(true);
+  });
+
+  it('72차: 현의 매개변수 직선이 3D 현에서 현 높이보다 멀리 휘어도(곧은 모서리 하나 — 휨 = 현 높이의 2배) 뒤집힌 삼각형이 사라지고 넓이가 고리 다각형과 같다', () => {
+    // 바깥 호 v = 0을 토막 하나로: 3D 현은 곧은 모서리 그대로인데 매개변수 직선 v = 0은 호(반지름 5)라 현 가운데에서 0.0997 떨어진다(현 높이 0.05)
+    const { s, ring, outer } = sector(5, 0.2, 1, 1);
+    const before = mesh(s, ring, 0.05, false);
+    expect(folds(before)).toBeGreaterThan(0);
+    const after = mesh(s, ring, 0.05, true);
+    expect(folds(after)).toBe(0);
+    expect(area(after)).toBeCloseTo(polyArea(ring), 9);
     const pts = new Set<string>();
     for (let i = 0; i < after.positions.length; i += 3) pts.add(after.positions.slice(i, i + 3).join(','));
     for (const p of outer) expect(pts.has(p.join(','))).toBe(true);
