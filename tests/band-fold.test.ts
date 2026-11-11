@@ -118,6 +118,39 @@ function meshCrescent(bytes: Uint8Array, chord: number, angleDeg: number, band: 
   return mesher.meshItem(f.idsOfType('SHELL_BASED_SURFACE_MODEL')[0]!)!;
 }
 
+/**
+ * 71차 표본 꼴: 원(반지름 10) 위 모서리 A(0°→60°)와 D(−5°→0°), 안쪽 원호 C(V2→V3). C의 끝 V3는 D의 시작이고 A를 모서리 범위 밖으로 늘인 원 위에 놓인다.
+ * A의 현과 C의 현이 엇갈리지만 V3는 A에 닿은 것이 아니라(범위 밖) 현을 나누면 풀린다 — 70차는 닿았다고 보고 건너뛰어 면을 잘못 메웠다
+ */
+function extension(R2: number, end: number): Uint8Array {
+  const w = new StepText();
+  const at = (deg: number, rad = 10): P3 => [rad * Math.cos((deg * Math.PI) / 180), rad * Math.sin((deg * Math.PI) / 180), 0];
+  const P2 = at(60, end);
+  const P3_ = at(-5);
+  const M = [(P2[0] + P3_[0]) / 2, (P2[1] + P3_[1]) / 2];
+  const dx = P2[0] - P3_[0];
+  const dy = P2[1] - P3_[1];
+  const half = Math.hypot(dx, dy) / 2;
+  let n = [-dy, dx];
+  if (n[0]! * -M[0]! + n[1]! * -M[1]! < 0) n = [dy, -dx];
+  const nl = Math.hypot(n[0]!, n[1]!);
+  const h = Math.sqrt(R2 * R2 - half * half);
+  const c2: P3 = [M[0]! + (n[0]! / nl) * h, M[1]! + (n[1]! / nl) * h, 0];
+  const V0 = w.vertex(at(0));
+  const V1 = w.vertex(at(60));
+  const V2 = w.vertex(P2);
+  const V3 = w.vertex(P3_);
+  const C1 = w.circle([0, 0, 0], 10);
+  const A = w.edge(V0, V1, C1);
+  const B = w.edge(V1, V2, w.line(at(60), P2));
+  const C = w.edge(V3, V2, w.circle(c2, R2));
+  const D = w.edge(V3, V0, C1);
+  const face = w.face([w.bound(w.loop([w.oe(A, true), w.oe(B, true), w.oe(C, false), w.oe(D, true)]))], w.plane([0, 0, 0]));
+  const shell = w.add('OPEN_SHELL', `'',(#${face})`);
+  w.product('extension', [w.add('SHELL_BASED_SURFACE_MODEL', `'',(#${shell})`)], w.context());
+  return w.bytes();
+}
+
 const cases: [string, number, number, number, number, number][] = [
   // 이름, 끝 각, 띠 폭(v), B-스플라인 토막, 현 높이, 각(도)
   ['보통 품질(표본 면 꼴)', 0.8125, 0.00025, 12, 0.0182, 20],
@@ -167,5 +200,32 @@ describe('같은 꼭짓점에서 접하며 벌어지는 초승달 평면 면(70�
       // 꼭짓점 바로 옆 조각(현 처짐이 eps 아래라 더 나누지 않는 자리, float32 눈금 크기의 폭 — 넓이가 면의 1e-4배 아래)은 셈에서 뺀다
       expect(folds(m, 0, A * 1e-4)).toBe(0);
       expect(folds(off, 0, A * 1e-4)).toBeGreaterThan(0);
+    });
+});
+
+describe('곡선을 모서리 범위 밖으로 늘인 자리에 놓인 끝점(71차)', () => {
+  const area = (m: ItemMesh): number => {
+    const { positions: P, indices: I } = m;
+    let s = 0;
+    for (let t = 0; t < I.length; t += 3) {
+      const [a, b, c] = [I[t]! * 3, I[t + 1]! * 3, I[t + 2]! * 3];
+      const u = [P[b]! - P[a]!, P[b + 1]! - P[a + 1]!];
+      const w = [P[c]! - P[a]!, P[c + 1]! - P[a + 1]!];
+      s += Math.abs(u[0]! * w[1]! - u[1]! * w[0]!) / 2;
+    }
+    return s;
+  };
+
+  for (const [R2, end] of [[10.05, 9.99], [10.1, 9.95]] as const)
+    it(`엇갈린 현을 나눠 면을 바르게 메운다(안쪽 원호 반지름 ${R2}, 끝 반지름 ${end} — 나눔을 끄면 넓이가 틀린다)`, () => {
+      const bytes = extension(R2, end);
+      const m = meshCrescent(bytes, 0.5, 20, true);
+      const off = meshCrescent(bytes, 0.5, 20, false);
+      expect(m.failedFaces).toBe(0);
+      const A = m.faceTable!.area![0]!;
+      expect(A).toBeGreaterThan(0);
+      expect(Math.abs(area(m) - A) / A).toBeLessThan(0.03);
+      expect(Math.abs(area(off) - A) / A).toBeGreaterThan(0.03);
+      expect(folds(m, 0, A * 1e-4)).toBe(0);
     });
 });

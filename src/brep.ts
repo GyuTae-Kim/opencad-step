@@ -1174,8 +1174,28 @@ export class BrepMesher {
         }
       }
     }
-    /** 참 곡선이 닿아 나눠도 풀리지 않는 엇갈림에 든 모서리 */
+    /** 참 곡선이 닿는 엇갈림에 든 모서리(폭이 0이라 띠 폭 나눔에서 뺀다) */
     const stuck = new Set<number>();
+    /** 점 p가 모서리 e의 참 곡선 위(두 끝 꼭짓점 말고 — 곡선을 모서리 범위 밖으로 늘인 자리는 닿은 것이 아니다)에 놓인 매개변수 */
+    const touchAt = (e: { pl: V3[]; c: Curve; t: number[] }, p: V3): number | null => {
+      if (dist(p, e.pl[0]!) <= this.eps || dist(p, e.pl[e.pl.length - 1]!) <= this.eps) return null;
+      const a = e.t[0]!;
+      const z = e.t[e.t.length - 1]!;
+      const mid = (a + z) / 2;
+      let at = e.c.project(p, mid);
+      if (e.c.period > 0) at -= Math.round((at - mid) / e.c.period) * e.c.period;
+      if (!(at > Math.min(a, z) && at < Math.max(a, z))) return null;
+      return dist(e.c.point(at), p) <= this.eps * 1e-3 ? at : null;
+    };
+    /** 71차: 다각선이 접점 at을 지나게 그 자리에 점을 넣는다(이미 지나면 넣지 않는다) */
+    const breakAt = (e: { eid: number; pl: V3[]; t: number[] }, at: number, p: V3): void => {
+      if (e.pl.some((q) => dist(q, p) <= near)) return;
+      const l = added.get(e.eid);
+      if (l?.some((x) => Math.abs(x - at) <= 1e-12 * Math.abs(e.t[e.t.length - 1]! - e.t[0]!))) return;
+      if (l) l.push(at);
+      else added.set(e.eid, [at]);
+      room--;
+    };
     for (const [es, is, et, it] of crossed) {
       if (room <= 0) break;
       const plS = this.edgeCache.get(es);
@@ -1185,10 +1205,19 @@ export class BrepMesher {
       const T = curveEdge(et);
       const lenS = dist(plS[is]!, plS[is + 1]!);
       const lenT = dist(plT[it]!, plT[it + 1]!);
-      // 건너편 현의 끝점이 곡선 위에 닿아 있으면(모서리 끝 꼭짓점 말고 — 구멍 꼭짓점이 원 위에 놓인 면 등) 나눠도 풀리지 않는다
-      const touches = (e: { pl: V3[]; c: Curve }, o: V3[], oi: number): boolean =>
-        [o[oi]!, o[oi + 1]!].some((p) => dist(p, e.pl[0]!) > this.eps && dist(p, e.pl[e.pl.length - 1]!) > this.eps && dist(e.c.point(e.c.project(p)), p) <= this.eps * 1e-3);
-      if ((S && touches(S, plT, it)) || (T && touches(T, plS, is))) {
+      // 건너편 현의 끝점이 곡선 위에 닿아 있으면(모서리 끝 꼭짓점 말고 — 구멍 꼭짓점이 원 위에 놓인 면 등) 현을 반으로 거듭 나눠도 풀리지 않는다.
+      // 71차: 다각선이 그 접점을 지나게 점을 넣어 풀고(고리가 접점에서 만난다), 곡선을 모서리 범위 밖으로 늘인 자리에 놓인 점은 닿은 것으로 치지 않는다
+      let touched = false;
+      for (const [e, o, oi] of [[S, plT, it], [T, plS, is]] as const) {
+        if (!e) continue;
+        for (const p of [o[oi]!, o[oi + 1]!]) {
+          const at = touchAt(e, p);
+          if (at === null) continue;
+          touched = true;
+          breakAt(e, at, p);
+        }
+      }
+      if (touched) {
         stuck.add(es);
         stuck.add(et);
         continue;

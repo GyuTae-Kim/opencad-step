@@ -125,9 +125,21 @@ describe('엇갈린 고리(60차)', () => {
     expect([45, 135, 225, 315].filter((d) => !used.has(key(d)))).toEqual([]);
   });
 
-  it('구멍 꼭짓점이 원 위에 닿으면(나눠도 풀리지 않는 엇갈림) 원을 더 나누지 않는다(예전 나눔 그대로)', () => {
-    const m = disk(10).meshes[0]!;
-    expect(m.positions.length / 3).toBeLessThanOrEqual(22);
+  it('구멍 꼭짓점이 원 위에 닿으면(71차) 다각선이 그 접점을 지나게 점을 넣어 구멍을 뺀다 — 현을 거듭 나누지 않는다', () => {
+    const s = disk(10);
+    const m = s.meshes[0]!;
+    const meta = s.meta as unknown as StepMeta;
+    const A = Math.PI * 100 - 2 * 100;
+    expect(meta.faceTables![0]!.area![0]).toBeCloseTo(A, 6);
+    expect(Math.abs(meshArea(m.positions, m.indices!) - A) / A).toBeLessThan(0.03);
+    // 원의 접점 네 곳이 다각선 점이고 그 자리 말고는 많이 늘지 않는다
+    const P = m.positions;
+    const on = (d: number) => {
+      for (let i = 0; i < P.length; i += 3) if (Math.hypot(P[i]! - 10 * Math.cos((d * Math.PI) / 180), P[i + 1]! - 10 * Math.sin((d * Math.PI) / 180)) < 1e-4) return true;
+      return false;
+    };
+    expect([45, 135, 225, 315].every(on)).toBe(true);
+    expect(P.length / 3).toBeLessThan(120);
   });
 
   it('구멍이 원에서 넉넉히 떨어지면(반지름 8) 예전처럼 한 번에 그린다(원 나눔 그대로)', () => {
