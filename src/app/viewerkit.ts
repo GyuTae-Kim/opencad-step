@@ -26,8 +26,11 @@
  *   겹친 것 고르기 후보 묶음 열쇠(picklist.ts pickGroup — 코어 0.53.0 group)는 가상 커서 Tab에도 준다
  * - 부품 겉모습 걸기(looks.ts LookSync — 66차, 앱 입구에서 옮김): 불투명도·흐리게·부품 색·분해 행렬을 바뀐 묶음만 코어에 건다(뷰어가 있어야 건다 —
  *   앱의 반투명 보기 판정 translucentView는 doc.ts). 코어가 묶어 그리기 조각을 기다려 미룬 올리기의 상태 표시(upload.ts holdUpload — 69차, 코어 0.56.0)도
+ * - 묶어 그리기 조각 미리 받기(upload.ts warmMerging — 74차, 코어 0.60.0): 이 조각이 들어오면 곧 받기 시작한다(기다리지 않는다 — 아래)
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
+import { warmMerging } from './upload';
+
 export * from 'opencad-viewer3d';
 export { TouchAim } from './aim';
 export { contextAt, contextItems } from './ctxmenu';
@@ -54,3 +57,7 @@ export { holdUpload, sceneUpload, uploadOptions } from './upload';
 // 첫 화면은 같은 모듈의 뷰 이름·숫자 키 표만 쓴다)
 export { cameraBack, cameraLooking, faceBox, faceSectionPlane, faceViewDir, movedFace } from './viewhelp';
 export { dirToAngles } from 'opencad-viewer3d/camera';
+
+// 74차(코어 0.60.0): 이 조각은 문서를 열 것 같을 때(열기 상자·끌어 오기) 또는 열기 시작할 때 받으므로, 들어오면 곧 묶어 그리기 조각도 받기 시작한다 — 파일 읽기·워커 해석과 겹쳐
+// setScene 때 와 있으면 큰 조립의 나눠 올리기가 첫 걸음 그물 64개로 멈추지 않고 한 번에 올리기도 미루지 않는다(기다리지 않는다 — 늦으면 코어가 지금처럼 맡는다)
+warmMerging();
