@@ -55,25 +55,22 @@ export function uploadOptions(): { budgetMs: (step: number, meshes: number) => n
   return { budgetMs: stepBudgetMs, redrawMs: UPLOAD_REDRAW_MS };
 }
 
-/** 69차: 미룬 올리기가 끝났는지 다시 보는 간격(ms) — 코어는 끝을 알리지 않고, 미루는 시간은 코어 한도(4초) 안이다 */
-export const HOLD_POLL_MS = 100;
-
 /**
  * 69차(코어 0.56.0): 방금 한 번에 올린 장면을 코어가 묶어 그리기 조각이 올 때까지 미루고 있으면(받는 중이고 stats.merged.pending > 0 — 그물 2,000개 이상의 첫 받기,
- * 보통 1초 안·늦으면 4초까지, 그동안 그 장면은 그리지 않는다) 진행 0을 알리고(나눠 올리기와 같은 onProgress — 상태 표시줄), 올려 다 구운 뒤(늦음·실패로 그물마다 올린 뒤도 — pending 0)
- * 끝을 알린다. 미루지 않은 장면(조각을 이미 받았거나 문턱 아래)이면 아무것도 부르지 않는다. kit은 코어 Viewer3d(시험이 흉내로 바꾼다)
+ * 보통 1초 안·늦으면 4초까지, 그동안 그 장면은 그리지 않는다) 진행 0을 알리고(나눠 올리기와 같은 onProgress — 상태 표시줄), 올려 다 구운 뒤(늦음·실패로 그물마다 올린 뒤도)
+ * 끝을 알린다. 미루지 않은 장면(조각을 이미 받았거나 문턱 아래)이면 아무것도 부르지 않는다. kit은 코어 Viewer3d(시험이 흉내로 바꾼다).
+ *
+ * 71차(코어 0.58.0): 100 ms 폴링 대신 코어 whenMerged로 끝을 기다린다. 문맥을 잃으면('lost') 코어가 되찾은 뒤 다시 올리므로 기다리기를 그만두되 끝은 알린다 —
+ * 알리지 않으면 상태 표시줄의 "화면에 올리는 중"이 남고 물리 속성 계산(startProps — 올리기가 끝나길 기다린다)이 시작되지 않는다. 뷰어를 없앴으면('disposed') 알릴 곳이 없다
  */
 export function holdUpload(
-  v: { stats: { merged: { pending: number } } },
+  v: { stats: { merged: { pending: number } }; whenMerged: Viewer3d['whenMerged'] },
   onProgress: (done: number, total: number) => void,
   kit: { mergingState(): string } = Viewer3d,
-  everyMs = HOLD_POLL_MS,
 ): void {
   if (kit.mergingState() !== 'loading' || v.stats.merged.pending < 1) return;
   onProgress(0, 1);
-  const look = (): void => {
-    if (v.stats.merged.pending > 0) setTimeout(look, everyMs);
-    else onProgress(1, 1);
-  };
-  setTimeout(look, everyMs);
+  void v.whenMerged().then((result) => {
+    if (result !== 'disposed') onProgress(1, 1);
+  });
 }
