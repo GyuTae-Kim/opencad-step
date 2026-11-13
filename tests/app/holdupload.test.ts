@@ -33,6 +33,7 @@ afterEach(() => {
   for (const v of views) v.dispose();
   views.length = 0;
   vi.doUnmock(MERGEGL);
+  vi.restoreAllMocks();
 });
 afterAll(() => dom.restore());
 
@@ -158,6 +159,11 @@ describe('조각을 받는 동안의 나눠 올리기(74차 — 코어 0.60.0, �
   };
 
   it('받지 않았으면 첫 걸음 그물(MERGE_FIRST_MESHES)에서 그리기 목록이 늘지 않고, 미리 받았으면 첫 그림부터 그보다 많이 그린다 — 끝값은 같다', async () => {
+    // 81차: 시계를 멈춘다(performance.now 고정 — afterEach가 되돌린다). 걸음 몫(앞 두 걸음 8 ms)을 시계로 재면 느린 러너에서는 첫 걸음이 첫 걸음 그물 수에
+    // 닿기 전에 몫이 다해 그물 기록이 그보다 적은 채 멈췄다(CI 78·80차 — 9개). 멈춘 시계에서는 걸음이 코어가 멈추는 자리(첫 걸음 그물 수·굽기 단위·장면 끝)에서만
+    // 끊겨 기계 빠르기와 상관없이 같은 답이다(조각이 오는 때는 그대로 시험이 정한다)
+    const t = performance.now();
+    vi.spyOn(performance, 'now').mockReturnValue(t);
     const n = 4000;
     // 받기 전: 첫 그림 뒤 훑기가 문턱만큼 세면 코어가 받기를 걸고, 조각이 오지 않는 동안 뒤 그물은 GL 객체 없이 들고 기다린다
     const a = await fresh('gate');
