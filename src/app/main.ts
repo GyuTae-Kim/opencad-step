@@ -4,7 +4,7 @@ import { installLocalization } from './i18n';
  */
 import './styles.css';
 import { initAnalytics } from 'opencad-site-kit/analytics';
-import { GA4_MEASUREMENT_ID } from 'opencad-site-kit/analytics/config';
+import { OPENCAD_ANALYTICS } from 'opencad-site-kit/presets/opencad';
 import { StepApp, type AppState } from './app';
 import type { Theme } from './theme';
 
@@ -33,7 +33,7 @@ declare global {
 
 const root = document.getElementById('app');
 if (root) {
-  initAnalytics(GA4_MEASUREMENT_ID, 'step');
+  initAnalytics(OPENCAD_ANALYTICS, 'step');
   const app = new StepApp(root);
   window.opencadApp = {
     app,
