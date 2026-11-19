@@ -17,7 +17,7 @@
  *   길게 누르면 손가락 위 십자선으로 정밀 조준한다(aim.ts — 코어 포인터 처리를 그대로 쓴다).
  *   코어 거리 글상자는 이 띠·위 띠·단면 막대·뷰 큐브와 십자선을 비켜 그린다(labelavoid.ts — 접선 조각).
  * - 최근 문서: 파일 고르기·끌어다 놓기로 잘 연 파일을 이 브라우저(IndexedDB, recent.ts)에 남겨 시작 화면에서 다시 연다
- *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것은 남기지 않는다.
+ *   (휴대폰 브라우저가 뒤로 간 탭을 버렸다가 다시 불러와도 파일 앱을 다시 거치지 않게). 예제·주소로 연 것과 넣은 화면(iframe)에서 부모 페이지가 넘긴 것은 남기지 않는다.
  */
 import type { MeasureResult, Pick3d, PickEvent, Projection, RenderMode, SectionAxis, SectionState, SnapPoint, ViewName, Viewer3d } from 'opencad-viewer3d';
 import { loadCurveTangents, loadViewerCore } from './core';
@@ -36,8 +36,9 @@ import type { Hi } from './hipaint';
 import { faceAt, faceDetails, faceKindLabel, faceRangesByStepId, type FacePick } from './faces';
 import type { StepSavedView } from '../scene';
 import { boxIsEmpty } from 'opencad-viewer3d/bounds';
-import { SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
+import { EMBED_ACCEPT, SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_ACCEPT, parseStartQuery, stemName, withoutOnceParams } from './files';
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
+import { acceptEmbeddedFiles, isFramed } from 'opencad-site-kit/embed/app';
 import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './format';
 import { arrowOwner, controlOf, isTextTarget, routeKey } from './keys';
 import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
@@ -358,7 +359,8 @@ export class StepApp {
     this.themeBtn.addEventListener('click', () => openMenu(this.themeBtn, [
       { label: this.theme === 'dark' ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기', run: () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark') },
       { label: '표시 설정…', run: () => this.showDisplaySettings() },
-      { label: '방문 통계 설정', run: showAnalyticsSettings },
+      // 다른 웹페이지에 넣은 화면(iframe)에서는 방문 통계를 켜지 않으므로 설정 항목도 뺀다
+      ...(isFramed() ? [] : [{ label: '방문 통계 설정', run: showAnalyticsSettings }]),
     ], '앱 설정'));
     this.applyTheme();
     const tools = h('a', { class: 'btn link', href: TOOLS_URL, target: '_blank', rel: 'noopener', title: 'OpenCAD 도구 모음' }, icon('apps'), h('span', { class: 'btn-label' }, 'OpenCAD 도구'));
@@ -3280,6 +3282,8 @@ export class StepApp {
       void registerServiceWorker(navigator.serviceWorker as unknown as SwContainer, new URL('sw.js', document.baseURI),
         (apply) => this.toast('새 버전이 있습니다.', 'info', 60_000, { label: '새로 고침', run: apply }), undefined, { onVisible: whenVisible });
     consumeLaunchFiles((files) => void this.openFile(files[0]!));
+    // 다른 웹페이지에 넣었을 때(iframe) 부모 페이지가 넘긴 파일(공용 도구 embed/app): 열기를 마치면 풀리는 Promise를 돌려주고, 최근 문서에는 남기지 않는다
+    acceptEmbeddedFiles((files) => this.openFile(files[0]!, false), { accept: EMBED_ACCEPT });
     // 보기 링크(#view=…): 다음에 여는 문서에 적용, 문서가 열린 뒤 바뀌면 바로
     this.pendingView = decodeViewLink(location.hash);
     window.addEventListener('hashchange', () => {

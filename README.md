@@ -1958,9 +1958,11 @@ CI의 휴대폰 검사가 재는 JS는 같은 빌드의 vite gzip 값보다 1.2 
 
 **공용 사이트 도구**: 다섯 언어 페이지·검색 정보·사이트맵·내용 수정일·언어별 앱 정보·서비스 워커 빌드, 공용 번역기, 언어 메뉴, 서비스 워커 등록·새 판 알림,
 방문 통계, 휴대폰 성능 비교 명령은 다른 OpenCAD 앱과 함께 쓰는 [opencad-site-kit](https://github.com/GyuTae-Kim/opencad-site-kit)
-(`github:GyuTae-Kim/opencad-site-kit#v0.1.4`, 잠금 커밋 `a1de400`, 빌드 때만 써서 `devDependencies`)에 있습니다.
+(판은 `package.json`에 고정, 빌드 때만 써서 `devDependencies`)에 있습니다.
 이 앱에만 있는 값은 `tools/site.mjs`(앱 정보 원본, 서비스 워커 판 이름 짓기)와 `tools/sw-source.mjs`(서비스 워커 본문 — 돌려주는 글이 sw.js에 그대로 들어갑니다)에 둡니다.
 `check:seo`·`check:i18n`·`test:seo`·`update:content-dates`와 휴대폰 성능 예산 검사는 도구의 `opencad-site` 명령입니다. 도구 판을 올릴 때는 빌드 결과를 견줍니다.
+다른 웹페이지에 넣으면(iframe) 부모 페이지가 넘긴 STEP·압축 STEP 파일을 열고(도구의 `acceptEmbeddedFiles` — 최근 문서에는 남기지 않습니다), 방문 통계·서비스 워커는 켜지 않으며 앱 설정 메뉴의 방문 통계 항목도 숨깁니다.
+넣는 법은 도구의 [docs/EMBED.md](https://github.com/GyuTae-Kim/opencad-site-kit/blob/main/docs/EMBED.md)에 있습니다.
 
 ```bash
 npx vite build && cp -R dist .runtime/dist-before                                        # 올리기 전

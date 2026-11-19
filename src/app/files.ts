@@ -17,6 +17,9 @@ export const PACKED_EXTENSIONS = ['.stpz', '.gz', '.zip'] as const;
 /** 열기 상자 accept(STEP과 압축 STEP, 대소문자 모두). .stp.gz는 끝 확장자 .gz로 고른다 */
 export const OPEN_ACCEPT = [...STEP_EXTENSIONS, ...PACKED_EXTENSIONS].flatMap((e) => [e, e.toUpperCase()]).join(',');
 
+/** 다른 웹페이지에 넣은 화면(iframe)이 부모 페이지에게서 받는 확장자(소문자) — 앱 정보 file_handlers와 같다. .stp.gz는 끝 확장자 .gz로 고른다 */
+export const EMBED_ACCEPT: readonly string[] = [...STEP_EXTENSIONS, ...PACKED_EXTENSIONS];
+
 /** 압축 STEP일 수 있는 이름인지(.stpz·.stp.gz·.zip 등, 대소문자 무시) */
 export function isPackedStepName(name: string): boolean {
   const n = name.toLowerCase();
