@@ -22,7 +22,7 @@ export const SECTION_AXES: [SectionAxis | null, string][] = [
 /** 고르기 단위 메뉴: 단위, 메뉴 이름, 단추 이름 */
 export const PICK_UNITS: [PickUnit, string, string][] = [
   ['part', '부품', '부품 고르기'],
-  ['body', '몸체', '몸체 고르기'],
+  ['body', '바디', '바디 고르기'],
   ['face', '면·모서리', '면 고르기'],
 ];
 const PICK_ICONS: Record<PickUnit, IconName> = { part: 'pick', body: 'body', face: 'face' };
@@ -123,7 +123,7 @@ export class Toolbar {
     const H = host;
 
     this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit());
-    const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (제품 나무에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
+    const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (모델 트리에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
       focus.el.disabled = !H.hasDoc || !H.hasSelection;
     }, 'wide-only');
     const keyHelp = Object.entries(VIEW_KEYS)
@@ -191,7 +191,7 @@ export class Toolbar {
     const pick = this.add(
       'pick',
       '부품 고르기',
-      '고르기 단위: 부품 · 몸체(한 부품 안의 입체 하나) · 면·모서리(종류·넓이·지름·길이 — Alt/⌥ + 누르기로도), 여러 개 고르기(Ctrl·⌘·Shift + 누르기로도)',
+      '고르기 단위: 부품 · 바디(한 부품 안의 입체 하나) · 면·모서리(종류·넓이·지름·길이 — Alt/⌥ + 누르기로도), 여러 개 고르기(Ctrl·⌘·Shift + 누르기로도)',
       () =>
         openMenu(
           pick.el,

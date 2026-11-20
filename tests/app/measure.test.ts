@@ -38,7 +38,7 @@ describe('측정 띠 안내(휴대폰·터치)', () => {
     expect(faceHint(false)).toBe('면 고르기: 면이나 모서리를 누르십시오');
     expect(faceHint(false)).not.toContain('길게');
     // 패널 아래 띠: 마우스 글은 예전 그대로, 손가락 기기는 Esc 대신 길게 누르기
-    expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다). Esc = 지우기');
+    expect(panelMeasureHint()).toBe('측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 중간점·원 중심 가까우면 붙습니다). Esc = 지우기');
     expect(panelMeasureHint(true)).not.toMatch(/Esc/);
     expect(panelMeasureHint(true)).toContain('길게 누르면 정밀 조준');
   });
@@ -130,7 +130,7 @@ describe('고른 모서리 요약(면 고르기 띠)', () => {
 });
 
 describe('고른 부품 외형 크기', () => {
-  it('고른 그물·선의 축에 나란한 범위를 합치고, 고른 형상이 없으면 null', () => {
+  it('고른 메시·선의 축에 나란한 범위를 합치고, 고른 형상이 없으면 null', () => {
     const mesh = (id: string, pts: number[]) => ({ id, positions: Float32Array.from(pts), indices: Uint32Array.from([0, 1, 2]), color: [1, 1, 1, 1] as [number, number, number, number] });
     const scene = {
       meshes: [mesh('a', [0, 0, 0, 10, 0, 0, 0, 5, 0]), mesh('b', [0, 0, 2, 1, 1, 3, 2, 2, 7])],

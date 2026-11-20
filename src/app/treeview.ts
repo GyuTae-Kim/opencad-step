@@ -272,7 +272,7 @@ export function treeView(o: TreeOpts): TreeView {
   const index = new Map(rows.map((r, i) => [r.key, i]));
   // 고른 항목(여러 개 고르기 묶음 등 — 줄을 만들 때마다 집합을 다시 만들지 않게, 고르기가 바뀌면 patch가 고친다)
   let picked = treePicked(d);
-  const el = h('div', { class: 'tree', role: 'tree', 'aria-label': '제품 나무' });
+  const el = h('div', { class: 'tree', role: 'tree', 'aria-label': '모델 트리' });
   // Ctrl·⌘+F: 이 나무의 거르기 칸으로(창 글쇠는 처음 한 번만 듣는다). 칸에 단축키를 알린다(화면 읽기 프로그램·말풍선)
   findFilter = o.filter;
   o.filter.setAttribute('aria-keyshortcuts', 'Control+F Meta+F');
@@ -319,7 +319,7 @@ export function treeView(o: TreeOpts): TreeView {
     const found = bodyId ? itemById(d.scene, bodyId) : undefined;
     // 몸체 줄 이름: 형상 항목 이름(파일 글), 없으면 "몸체 2"·"선 형상 1"(부품 마디 바로 아래라 부품 이름은 되풀이하지 않는다 — 말풍선에 "부품 · 몸체 2")
     const bname = bodyId ? bodyName(r.node, found?.[0], r.wire !== undefined) : '';
-    const generic = r.wire !== undefined ? wireLabel(r.node, undefined, found?.[1], r.wire) : `몸체 ${r.body}`;
+    const generic = r.wire !== undefined ? wireLabel(r.node, undefined, found?.[1], r.wire) : `바디 ${r.body}`;
     const { name, instance } = bodyId ? { name: bname || generic, instance: '' } : nodeLabel(r.node);
     // 이름이 파일 글인지(몸체 줄은 항목 이름, 마디 줄은 이름·제품 번호 — "몸체 2"·"(이름 없음)"은 화면 글). 화면 글과 섞이는 말풍선·이름은 FSI…PDI(ftext.ts)
     const isFile = bodyId ? !!bname : !!(r.node.name || r.node.productId);
@@ -356,7 +356,7 @@ export function treeView(o: TreeOpts): TreeView {
     const tip = bodyId
       ? r.wire !== undefined
         ? [bname ? `${nn} / ${an}` : `${nn} · ${generic}`, '두 번 누르면 이 선 형상으로 맞춰 봅니다']
-        : [bname ? isolateText(found![0].name!) : `${nn} · ${generic}`, '두 번 누르면 이 몸체로 맞춰 봅니다']
+        : [bname ? isolateText(found![0].name!) : `${nn} · ${generic}`, '두 번 누르면 이 바디로 맞춰 봅니다']
       : [r.node.productId ? `제품 번호 ${isolateText(r.node.productId)}` : '', `형상 ${r.node.meshIds.length}개`, lines ? `선 형상 ${lines}개` : '', '두 번 누르면 이 부품으로 맞춰 봅니다'];
     const item = h(
       'div',

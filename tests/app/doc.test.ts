@@ -32,7 +32,7 @@ const N = (name: string, meshIds: string[] = [], children: ProductNode[] = [], i
 
 const tree: ProductNode[] = [N('asm', [], [N('a', ['m1']), N('b', ['m2', 'm3'], [N('c', ['m4'])]), N('d')])];
 
-describe('제품 나무 도움', () => {
+describe('모델 트리 도움', () => {
   it('subtreeMeshIds·productKeyOf·productAt', () => {
     expect(subtreeMeshIds(tree[0]!)).toEqual(['m1', 'm2', 'm3', 'm4']);
     expect(productKeyOf(tree, 'm1')).toBe('0/0');
@@ -46,7 +46,7 @@ describe('제품 나무 도움', () => {
     expect(productAt(tree, 'x/1')).toBeNull();
   });
 
-  it('selectionMeshIds: 마디면 그 아래 모두, 아니면 3D에서 고른 그물', () => {
+  it('selectionMeshIds: 마디면 그 아래 모두, 아니면 3D에서 고른 메시', () => {
     expect(selectionMeshIds({ products: tree, selKey: '0/1', pick: null })).toEqual(['m2', 'm3', 'm4']);
     expect(selectionMeshIds({ products: tree, selKey: '0', pick: null })).toEqual(['m1', 'm2', 'm3', 'm4']);
     const pick = { kind: 'mesh' as const, id: 'm9', index: 0, point: [0, 0, 0] as [number, number, number] };
@@ -121,7 +121,7 @@ describe('예제 문서', () => {
   const scene = stepToScene(sampleStepBytes(), { name: SAMPLE_NAME });
   const doc = createDoc(SAMPLE_NAME, 23_000, { scene, ms: 42 });
 
-  it('createDoc: 제품 나무·정보·처음 상태', () => {
+  it('createDoc: 모델 트리·정보·처음 상태', () => {
     expect(doc.products[0]!.name).toBe('OpenCAD 예제 조립');
     expect(doc.info.header!.name).toBe(SAMPLE_NAME);
     expect(doc.info.stats!.failedFaces).toBe(0);
@@ -155,7 +155,7 @@ describe('예제 문서', () => {
 });
 
 describe('여러 개 고르기 이름표(multiLabel)', () => {
-  it('서로 다른 부품 자리 수를 센다 — 한 자리의 그물을 모두 고르면 하나, 일부만이면 몸체로, 주인 없는 항목은 하나씩', async () => {
+  it('서로 다른 부품 자리 수를 센다 — 한 자리의 메시를 모두 고르면 하나, 일부만이면 바디로, 주인 없는 항목은 하나씩', async () => {
     const { multiLabel } = await import('../../src/app/doc');
     const roots = [
       { name: 'asm', productId: 'a', meshIds: [], children: [
@@ -167,7 +167,7 @@ describe('여러 개 고르기 이름표(multiLabel)', () => {
     expect(multiLabel(roots, ['m1', 'm2', 'm3', 'l1'])).toBe('부품 2개');
     expect(multiLabel(roots, ['m3', 'l1', 'pmi-1', 'pmi-2'])).toBe('부품 3개');
     // 부품의 일부 형상만(나무 몸체 줄로 고른 몸체)은 몸체로 센다
-    expect(multiLabel(roots, ['m1', 'm3', 'l1'])).toBe('부품 1개 · 몸체 1개');
-    expect(multiLabel(roots, ['m1', 'pmi-1'])).toBe('부품 1개 · 몸체 1개');
+    expect(multiLabel(roots, ['m1', 'm3', 'l1'])).toBe('부품 1개 · 바디 1개');
+    expect(multiLabel(roots, ['m1', 'pmi-1'])).toBe('부품 1개 · 바디 1개');
   });
 });

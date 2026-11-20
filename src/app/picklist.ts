@@ -129,7 +129,7 @@ function rowOf(d: StepDoc, p: Pick3d, wantFace: boolean, body: boolean): Omit<Pi
   }
   const key = unitKey(d, p.id, body);
   if (key[0] === 'n') return { key, label: '부품 전체', file: ownerName(d, p.id) };
-  return { key, label: d.vis.pmiIds.has(p.id) ? 'PMI' : p.kind === 'line' ? '선 형상' : p.kind === 'point' ? '점 형상' : '몸체', file: itemById(d.scene, p.id)?.[0].name ?? p.id };
+  return { key, label: d.vis.pmiIds.has(p.id) ? 'PMI' : p.kind === 'line' ? '선 형상' : p.kind === 'point' ? '점 형상' : '바디', file: itemById(d.scene, p.id)?.[0].name ?? p.id };
 }
 
 /**

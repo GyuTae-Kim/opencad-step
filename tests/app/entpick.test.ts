@@ -75,7 +75,7 @@ describe('개체 측정: 누른 면·모서리 → 개체 → 두 개 사이', (
     expect(cp.value).toBeCloseTo(5, 6);
   });
 
-  it('정육면체: 직선 모서리 끝 붙잡기(꼭짓점) – 면, 단면 평면, 점', () => {
+  it('정육면체: 직선 모서리 끝 스냅(꼭짓점) – 면, 단면 평면, 점', () => {
     const w = new StepText();
     w.product('c', [cube(w, 10).solid], w.context());
     const s = stepToScene(w.bytes());
@@ -88,7 +88,7 @@ describe('개체 측정: 누른 면·모서리 → 개체 → 두 개 사이', (
     expect(r.lines[0]).toEqual({ label: '점–면 거리', unit: 'length', value: 10 });
     // 가운데 점
     const m = pickedEdge(line, line.mid, { what: 'mid', point: line.mid });
-    expect(m.title).toBe('모서리 가운데 점');
+    expect(m.title).toBe('모서리 중간점');
     // 단면 평면 z=3 – 윗면: 7
     const sec = pickedSection(s.meshes[0]!.id, [5, 5, 3], [0, 0, 1]);
     expect(measurePicked(sec, pickedFace(top, top.center), { size: 10 }).lines[0]!.value).toBeCloseTo(7, 9);

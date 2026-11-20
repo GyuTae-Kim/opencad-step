@@ -30,8 +30,8 @@ function multiBody(): Uint8Array {
 const scene = stepToScene(multiBody(), { name: 'm.stp' });
 const newDoc = (): StepDoc => createDoc('m.stp', 1, { scene, ms: 1 });
 
-describe('몸체 단위 고르기: 해석기가 형상 항목(입체)마다 그물 하나를 주므로 그물 = 몸체', () => {
-  it('한 부품의 입체 셋 → 같은 나무 마디의 그물 셋, 이름은 "부품 / 항목"(없으면 부품 이름)', () => {
+describe('바디 단위 고르기: 해석기가 형상 항목(입체)마다 메시 하나를 주므로 메시 = 바디', () => {
+  it('한 부품의 입체 셋 → 같은 나무 마디의 메시 셋, 이름은 "부품 / 항목"(없으면 부품 이름)', () => {
     const d = newDoc();
     const part = d.products[0]!.children[0]!;
     expect(part.name).toBe('multibody');
@@ -39,7 +39,7 @@ describe('몸체 단위 고르기: 해석기가 형상 항목(입체)마다 그�
     expect(scene.meshes.slice(0, 3).map((m) => m.name)).toEqual(['multibody / body-A', 'multibody / body-B', 'multibody']);
   });
 
-  it('unitItemIds: 부품은 그 마디 아래 모두, 몸체는 하나, 나무에 없는 항목은 그것 하나', () => {
+  it('unitItemIds: 부품은 그 마디 아래 모두, 바디는 하나, 나무에 없는 항목은 그것 하나', () => {
     const d = newDoc();
     const [a, b, c, o] = scene.meshes.map((m) => m.id);
     expect(unitItemIds(d.products, b!, 'part')).toEqual([a, b, c]);
@@ -48,16 +48,16 @@ describe('몸체 단위 고르기: 해석기가 형상 항목(입체)마다 그�
     expect(unitItemIds(d.products, 'pmi-x', 'part')).toEqual(['pmi-x']);
   });
 
-  it('bodyTitle: 이름 있는 몸체는 그물 이름, 이름 없는 몸체는 "부품 · 몸체 3", 몸체 하나인 부품은 그대로', () => {
+  it('bodyTitle: 이름 있는 바디는 메시 이름, 이름 없는 바디는 "부품 · 바디 3", 바디 하나인 부품은 그대로', () => {
     const d = newDoc();
     const [a, , c, o] = scene.meshes;
     expect(bodyTitle(d.products, scene, a!.id)).toBe('multibody / body-A');
-    expect(bodyTitle(d.products, scene, c!.id)).toBe('multibody · 몸체 3');
+    expect(bodyTitle(d.products, scene, c!.id)).toBe('multibody · 바디 3');
     expect(bodyTitle(d.products, scene, o!.id)).toBe('other / other-body');
-    expect(translate('multibody · 몸체 3', 'en')).toBe('multibody · Body 3');
+    expect(translate('multibody · 바디 3', 'en')).toBe('multibody · Body 3');
   });
 
-  it('여러 개 고르기: 더하고(차례 지킴) 이미 모두 있으면 빼기, 이름표는 부품 수 또는 몸체 수', () => {
+  it('여러 개 고르기: 더하고(차례 지킴) 이미 모두 있으면 빼기, 이름표는 부품 수 또는 바디 수', () => {
     const d = newDoc();
     const [a, b, c, o] = scene.meshes.map((m) => m.id) as [string, string, string, string];
     let cur = toggledItems([], [a]);
@@ -68,13 +68,13 @@ describe('몸체 단위 고르기: 해석기가 형상 항목(입체)마다 그�
     expect(toggledItems(cur, [o])).toEqual([a, b, c]);
     expect(toggledItems(cur, [a, b, c])).toEqual([o]);
     expect(multiLabel(d.products, [a, b, c])).toBe('부품 1개');
-    expect(multiLabel(d.products, [a, b, c], 'body')).toBe('몸체 3개');
+    expect(multiLabel(d.products, [a, b, c], 'body')).toBe('바디 3개');
     expect(multiLabel(d.products, [o, a, b, c])).toBe('부품 2개');
     // 부품 단위라도 몸체 줄로 부품의 일부 몸체만 골랐으면 몸체로 센다
-    expect(multiLabel(d.products, [a, o])).toBe('부품 1개 · 몸체 1개');
-    expect(multiLabel(d.products, [a, c])).toBe('몸체 2개');
+    expect(multiLabel(d.products, [a, o])).toBe('부품 1개 · 바디 1개');
+    expect(multiLabel(d.products, [a, c])).toBe('바디 2개');
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) {
-      expect(translate('몸체 3개', lang), lang).not.toMatch(/[가-힣]/);
+      expect(translate('바디 3개', lang), lang).not.toMatch(/[가-힣]/);
       expect(translate(multiHint(true), lang), lang).not.toMatch(/[가-힣]/);
       expect(translate(multiHint(false), lang), lang).not.toMatch(/[가-힣]/);
     }
@@ -113,7 +113,7 @@ function panelHost(d: StepDoc, multi: { on: boolean }) {
   return { host, calls };
 }
 
-describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표시', () => {
+describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표시', () => {
   it('여러 개 고르기 모드면 줄 누르기·길게 누르기가 그 마디 아래 형상을 더하고 빼며, 끄면 예전처럼 마디 고르기', () => {
     const d = newDoc();
     const multi = { on: true };
@@ -135,7 +135,7 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     panel.el.remove();
   });
 
-  it('몸체 하나를 골랐으면(나무 마디 대신) 그 부품 줄에 일부 고름(part-sel), 마디를 고르면 sel', () => {
+  it('바디 하나를 골랐으면(나무 마디 대신) 그 부품 줄에 일부 고름(part-sel), 마디를 고르면 sel', () => {
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
@@ -159,14 +159,14 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
     expect(row('multibody').classList.contains('part-sel')).toBe(false);
     // 여러 개 고르기로 다른 부품 몸체 하나와 이 부품 몸체 하나
     d.selKey = null;
-    d.items = { ids: [b!.id, scene.meshes[3]!.id], label: '몸체 2개' };
+    d.items = { ids: [b!.id, scene.meshes[3]!.id], label: '바디 2개' };
     panel.onSelection();
     expect(row('multibody').classList.contains('part-sel')).toBe(true);
     expect(row('other').classList.contains('sel')).toBe(true);
     panel.el.remove();
   });
 
-  it('속성 탭: 몸체 하나를 골랐으면 부품 속성은 그 부품, 물리 속성은 그 몸체만(정육면체 10 → 부피 1000)', () => {
+  it('속성 탭: 바디 하나를 골랐으면 부품 속성은 그 부품, 물리 속성은 그 바디만(정육면체 10 → 부피 1000)', () => {
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
@@ -198,12 +198,12 @@ describe('제품 나무: 여러 개 고르기 모드와 몸체 일부 고름 표
   });
 });
 
-describe('제품 나무 몸체 줄', () => {
+describe('모델 트리 바디 줄', () => {
   const rows = (panel: Panel) => [...panel.el.querySelectorAll<HTMLElement>('.tree-row')];
   const row = (panel: Panel, key: string) => panel.el.querySelector<HTMLElement>(`.tree-row[data-key="${key}"]`)!;
   const click = (el: HTMLElement, init: MouseEventInit = {}) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, ...init }));
 
-  it('몸체가 여럿인 부품을 펼치면 몸체 줄(이름, 없으면 "몸체 3"), 몸체 하나인 부품은 줄을 더하지 않는다', () => {
+  it('바디가 여럿인 부품을 펼치면 바디 줄(이름, 없으면 "바디 3"), 바디 하나인 부품은 줄을 더하지 않는다', () => {
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
@@ -218,21 +218,21 @@ describe('제품 나무 몸체 줄', () => {
     row(panel, '0/0').querySelector<HTMLElement>('.twisty')!.click();
     expect(rows(panel).map((r) => r.dataset.key)).toEqual(['0', '0/0', '0/0.1', '0/0.2', '0/0.3', '0/1']);
     const names = rows(panel).filter((r) => r.classList.contains('body-row')).map((r) => r.querySelector('.tree-name, .tree-name-gen')!.textContent);
-    expect(names).toEqual(['body-A', 'body-B', '몸체 3']);
+    expect(names).toEqual(['body-A', 'body-B', '바디 3']);
     // 파일 이름은 번역하지 않고(.tree-name은 번역층이 건너뛴다), "몸체 3"은 번역한다(.tree-name-gen) · 말풍선은 "부품 · 몸체 3"
     expect(row(panel, '0/0.1').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
     expect(row(panel, '0/0.3').querySelector('.tree-name')).toBeNull();
     expect(row(panel, '0/0.3').querySelector('.tree-name-gen')!.hasAttribute('translate')).toBe(false);
-    expect(row(panel, '0/0.3').title).toBe('\u{2068}multibody\u{2069} · 몸체 3 · 두 번 누르면 이 몸체로 맞춰 봅니다');
+    expect(row(panel, '0/0.3').title).toBe('\u{2068}multibody\u{2069} · 바디 3 · 두 번 누르면 이 바디로 맞춰 봅니다');
     expect(row(panel, '0/0.3').getAttribute('aria-level')).toBe('3');
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) {
       expect(translate(row(panel, '0/0.3').title, lang), lang).not.toMatch(/[가-힣]/);
-      expect(translate('고른 몸체', lang), lang).not.toMatch(/[가-힣]/);
+      expect(translate('고른 바디', lang), lang).not.toMatch(/[가-힣]/);
     }
     panel.el.remove();
   });
 
-  it('몸체 줄 누르기 = 그 몸체 고르기(다시 누르면 풀기), Ctrl·Shift·여러 개 고르기 = 더하고 빼기, 두 번 = 맞춰 보기, 눈 단추 = 그 몸체만', () => {
+  it('바디 줄 누르기 = 그 바디 고르기(다시 누르면 풀기), Ctrl·Shift·여러 개 고르기 = 더하고 빼기, 두 번 = 맞춰 보기, 눈 버튼 = 그 바디만', () => {
     const d = newDoc();
     d.expanded.add('0/0');
     const multi = { on: false };
@@ -254,7 +254,7 @@ describe('제품 나무 몸체 줄', () => {
     panel.el.remove();
   });
 
-  it('고른 몸체는 그 몸체 줄이 고름, 부품 줄은 일부 고름 — 속성 탭은 부품 속성과 그 몸체의 물리 속성, 아래 띠는 "고른 몸체"', () => {
+  it('고른 바디는 그 바디 줄이 고름, 부품 줄은 일부 고름 — 속성 탭은 부품 속성과 그 바디의 물리 속성, 아래 띠는 "고른 바디"', () => {
     const d = newDoc();
     d.expanded.add('0/0');
     const { host } = panelHost(d, { on: false });
@@ -270,7 +270,7 @@ describe('제품 나무 몸체 줄', () => {
     expect(row(panel, '0/0').classList.contains('part-sel')).toBe(true);
     expect(selectedBody(d)).toBe(c!.id);
     expect(selectionItemIds(d)).toEqual([c!.id]);
-    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 \u{2068}multibody\u{2069} · 몸체 3');
+    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 바디 \u{2068}multibody\u{2069} · 바디 3');
     // 3D에서 몸체 단위로 고른 것도 같은 줄(펼침이 그대로면 줄 표시만 고친다)
     const before = row(panel, '0/0.2');
     d.body = null;
@@ -281,7 +281,7 @@ describe('제품 나무 몸체 줄', () => {
     expect(row(panel, '0/0.3').classList.contains('sel')).toBe(false);
     // 여러 개 고르기에 든 몸체 줄도 고름
     d.pick = null;
-    d.items = { ids: [b!.id, c!.id], label: '몸체 2개' };
+    d.items = { ids: [b!.id, c!.id], label: '바디 2개' };
     panel.onSelection();
     expect([row(panel, '0/0.2'), row(panel, '0/0.3')].map((r) => r.classList.contains('sel'))).toEqual([true, true]);
     expect(row(panel, '0/0').classList.contains('part-sel')).toBe(true);
@@ -290,13 +290,13 @@ describe('제품 나무 몸체 줄', () => {
     d.body = c!.id;
     panel.setTab('props');
     const heads = [...panel.el.querySelectorAll('h3')].map((e) => e.textContent);
-    expect(heads).toEqual(expect.arrayContaining(['부품 속성', '물리 속성 · \u{2068}multibody\u{2069} · 몸체 3']));
+    expect(heads).toEqual(expect.arrayContaining(['부품 속성', '물리 속성 · \u{2068}multibody\u{2069} · 바디 3']));
     const vol = [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('.k')?.textContent === '부피')!.querySelector('.v')!.textContent!;
     expect(vol).toMatch(/^216/);
     panel.el.remove();
   });
 
-  it('다시 삼각화(곡면 품질 바꾸기)에서 고른 몸체를 잇는다', () => {
+  it('다시 삼각화(곡면 품질 바꾸기)에서 고른 바디를 잇는다', () => {
     const from = newDoc();
     from.pick = { kind: 'mesh', id: scene.meshes[1]!.id, index: 0, point: [0, 0, 0] } as unknown as Pick3d;
     const to = newDoc();

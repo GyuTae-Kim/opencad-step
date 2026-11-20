@@ -21,8 +21,8 @@ export function measureHint(points: number, hasResult: boolean, touch = false): 
 /** 패널 아래 띠의 측정 안내(아직 결과가 없을 때) */
 export function panelMeasureHint(touch = false): string {
   return touch
-    ? '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다) · 길게 누르면 정밀 조준'
-    : '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 가운데 점·원 중심 가까우면 붙습니다). Esc = 지우기';
+    ? '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 중간점·원 중심 가까우면 붙습니다) · 길게 누르면 정밀 조준'
+    : '측정: 모형 위 두 점을 누르십시오(꼭짓점·모서리 중간점·원 중심 가까우면 붙습니다). Esc = 지우기';
 }
 
 /** 면 고르기 안내(아직 고른 면이 없을 때) — 모서리 가까이 누르면 모서리를 고른다 */
@@ -32,13 +32,13 @@ export function faceHint(touch = false): string {
 
 /** 여러 개 고르기 안내(손가락 기기에서 고르기 단위 그대로 누를 때마다 더하고 빼기 — 몸체 단위면 몸체) */
 export function multiHint(body = false): string {
-  return body ? '여러 개 고르기: 몸체를 누르면 더하고, 다시 누르면 뺍니다' : '여러 개 고르기: 부품을 누르면 더하고, 다시 누르면 뺍니다';
+  return body ? '여러 개 고르기: 바디를 누르면 더하고, 다시 누르면 뺍니다' : '여러 개 고르기: 부품을 누르면 더하고, 다시 누르면 뺍니다';
 }
 
 /** 개체 측정 안내(고른 개체 수 0~1) */
 export function entityHint(picked: number, touch = false): string {
   if (picked >= 1) return touch ? '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오' : '개체 측정: 두 번째 면·모서리·꼭짓점을 누르십시오 · Esc 지우기';
-  return touch ? '개체 측정: 면·모서리·꼭짓점을 누르십시오 · 길게 누르면 정밀 조준' : '개체 측정: 면·모서리·꼭짓점을 누르십시오(끝점·가운데 점에 붙습니다)';
+  return touch ? '개체 측정: 면·모서리·꼭짓점을 누르십시오 · 길게 누르면 정밀 조준' : '개체 측정: 면·모서리·꼭짓점을 누르십시오(끝점·중간점에 붙습니다)';
 }
 
 /**

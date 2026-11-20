@@ -1267,7 +1267,7 @@ export class StepApp {
     this.bodyPick = u === 'body';
     if (this.faceMode) this.toggleFaceMode(false);
     // 고른 것은 그대로 두고(이미 고른 부품·몸체), 다음 누르기부터 새 단위로 고른다
-    if (changed) this.toast(u === 'body' ? '몸체 단위로 고릅니다 — 몸체가 여럿인 부품에서 누른 몸체 하나만 고릅니다.' : '부품 단위로 고릅니다.');
+    if (changed) this.toast(u === 'body' ? '바디 단위로 고릅니다 — 바디가 여럿인 부품에서 누른 바디 하나만 고릅니다.' : '부품 단위로 고릅니다.');
     // 66차: 켜진 가상 커서의 후보 묶음도 새 단위로(여러 개 고르기 묶음 열쇠 — 부품·몸체)
     if (changed) this.keySnap?.sync();
     this.toolbar.refresh();
@@ -1496,7 +1496,7 @@ export class StepApp {
     this.checkWorker?.terminate();
     const meshes = d.scene.meshes.filter((m) => v.isVisible(m.id));
     if (meshes.length < 2) {
-      this.toast('보이는 그물이 둘 이상이어야 간섭을 검사합니다.', 'warn');
+      this.toast('보이는 메시가 둘 이상이어야 간섭을 검사합니다.', 'warn');
       return;
     }
     const id = ++this.checkSeq;
@@ -1715,7 +1715,7 @@ export class StepApp {
     }
     const ids = selectionItemIds(d);
     if (!ids.length) {
-      this.toast('먼저 부품을 고르십시오(3D에서 누르거나 제품 나무에서).');
+      this.toast('먼저 부품을 고르십시오(3D에서 누르거나 모델 트리에서).');
       return false;
     }
     d.isoLabel = this.selectionName(d);
@@ -2552,7 +2552,7 @@ export class StepApp {
     const pick = which === 'selected' ? new Set(selectionItemIds(d)) : null;
     const meshes = d.scene.meshes.filter((m) => (!pick || pick.has(m.id)) && v.isVisible(m.id));
     if (!meshes.length) {
-      this.toast('내보낼 형상이 없습니다(보이는 그물이 없음).', 'warn');
+      this.toast('내보낼 형상이 없습니다(보이는 메시가 없음).', 'warn');
       return;
     }
     const u = this.doc?.scene.units ?? 'unknown';
@@ -2564,7 +2564,7 @@ export class StepApp {
     trackExport(format);
     let tris = 0;
     for (const m of meshes) tris += Math.floor((m.indices ? m.indices.length : m.positions.length / 3) / 3);
-    this.toast(`${format.toUpperCase()}로 내보냈습니다: 그물 ${fmtCount(meshes.length)}개 · 삼각형 ${fmtCount(tris)}개 · 단위 ${u === 'unknown' ? '모름' : u === 'inch' ? 'in' : u}`);
+    this.toast(`${format.toUpperCase()}로 내보냈습니다: 메시 ${fmtCount(meshes.length)}개 · 삼각형 ${fmtCount(tris)}개 · 단위 ${u === 'unknown' ? '모름' : u === 'inch' ? 'in' : u}`);
   }
 
   /** 글을 클립보드로(안 되면 파일로 건넨다) */

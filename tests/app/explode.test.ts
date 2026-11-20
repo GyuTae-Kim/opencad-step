@@ -137,11 +137,11 @@ describe('분해 보기: 조립 단계별', () => {
   });
 });
 
-describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () => {
+describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () => {
   const doc = (t: number, pmi: string[] = []) =>
     ({ scene: { meshes, lines: [wire], units: 'mm' } as unknown as Scene3d, products: [asm()], vis: { pmiIds: new Set(pmi) }, explode: t }) as unknown as StepDoc;
 
-  it('방식 단추(라디오)를 누르면 알리고, 조립 단계별이면 "단계 2/3", 한꺼번에·닫힌 막대면 단계 글을 숨긴다', () => {
+  it('방식 버튼(라디오)를 누르면 알리고, 조립 단계별이면 "단계 2/3", 한꺼번에·닫힌 막대면 단계 글을 숨긴다', () => {
     const picked: ExplodeMode[] = [];
     const c = new ExplodeControls((m) => picked.push(m));
     const [seg, , stage] = c.els as [HTMLElement, HTMLElement, HTMLElement];
@@ -178,7 +178,7 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     expect(c.moves(d, 'step', 1).has('w7')).toBe(false);
   });
 
-  it('방향 단추(사방·X·Y·Z | 화면 가로·세로·가로세로 — 한 라디오 묶음)를 누르면 알리고, 단추·단계 글이 방향을 따르며, 계획은 방향마다 한 번', () => {
+  it('방향 버튼(사방·X·Y·Z | 화면 가로·세로·가로세로 — 한 라디오 묶음)를 누르면 알리고, 버튼·단계 글이 방향을 따르며, 계획은 방향마다 한 번', () => {
     const axes: ExplodeAxis[] = [];
     const c = new ExplodeControls(
       () => {},
@@ -244,7 +244,7 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     expect(c.moves(d, 'step', 1, 'sx', a)).toEqual(explodeMoves(explodePlan(items, [asm()], 'step', 'sx', { view: a }), 1));
   });
 
-  it('손질 칸(35차): 옮기기는 누름 단추(누르면 반대 값을 알린다), 되돌리기·모두 되돌리기는 손질이 있을 때만, 이동에 그 방향 손질을 더한다', () => {
+  it('손질 칸(35차): 옮기기는 누름 버튼(누르면 반대 값을 알린다), 되돌리기·모두 되돌리기는 손질이 있을 때만, 이동에 그 방향 손질을 더한다', () => {
     const calls: string[] = [];
     const c = new ExplodeControls(
       () => {},
@@ -261,7 +261,7 @@ describe('분해 막대 조각: 방식 단추·단계 글·계획 한 번', () =
     const tw = c.els[3]!;
     const [move, snap, file, undo, redo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
     expect(tw.getAttribute('aria-label')).toBe('분해 손질');
-    expect([move!.textContent, snap!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '붙잡기', '되돌리기', '다시 하기', '모두 되돌리기']);
+    expect([move!.textContent, snap!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '스냅', '되돌리기', '다시 하기', '모두 되돌리기']);
     expect([file!.getAttribute('aria-label'), file!.getAttribute('aria-haspopup')]).toEqual(['손질 파일', 'menu']);
     const d = doc(1);
     c.sync(d, 'step', true);

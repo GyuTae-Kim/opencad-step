@@ -113,7 +113,7 @@ describe('language URLs and UI presentation', () => {
       ['핀', '*', null, /图钉|引脚|Anheften|Bundle/],
       ['원환', '*', null, /Tron/],
       ['엔티티', 'de', null, /Unternehmen/],
-      ['그물', '*', null, /\bnets?\b|网络|グリッド/],
+      ['메시', '*', null, /\bnets?\b|网络|グリッド/],
       ['결과 넘기는', '*', null, /Passing|Bestanden|めくる|翻转/],
       ['합성 장면', '*', null, /Composite|Komposition|複合/],
       ['반각', '*', null, /^半角|[^頂]半角/],
@@ -181,7 +181,7 @@ describe('language URLs and UI presentation', () => {
     const built = ['읽기 1.25초', '읽기 2분 5초', '읽기 850 ms', '해석 1.25초 · 삼각화 850 ms · 워커 전체 2.5초 · 화면까지 3분 9초', '워커 전체 1분 · 화면까지 1분 2초',
       'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 빈 ZIP입니다.', 'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a.txt, b.pdf',
       'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a, b, c, d, e, f 외 3개', 'ZIP 압축 방식 99(AES 암호)은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.',
-      'STL로 내보냈습니다: 그물 3개 · 삼각형 1,234개 · 단위 모름', '정보 (경고 3)', '정보', '1분 5초', '2.5초'];
+      'STL로 내보냈습니다: 메시 3개 · 삼각형 1,234개 · 단위 모름', '정보 (경고 3)', '정보', '1분 5초', '2.5초'];
     for (const code of ['en', 'ja', 'zh-CN', 'de'])
       for (const text of built) expect(translate(text, code), `${code}: ${text}`).not.toMatch(hangul);
     expect(translate('해석 1.25초 · 삼각화 850 ms · 워커 전체 2.5초 · 화면까지 3분 9초', 'en')).toBe('Parse 1.25 s · Triangulation 850 ms · Worker total 2.5 s · To screen 3 min 9 s');
@@ -189,12 +189,12 @@ describe('language URLs and UI presentation', () => {
     expect(translate('정보', 'en')).toBe('Info');
     expect(translate('ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: a, b 외 3개', 'zh-CN')).toBe('ZIP 中没有 STEP 文件（.stp·.step·.p21）。包含的文件：a, b 等，另有 3 个');
     // 1개일 때 영어·독일어 단수(1 warnings·1 minutes처럼 복수로 남던 것)
-    const one: [string, string, string][] = [['경고 1개', '1 warning', '1 Warnung'], ['그물 1개', '1 mesh', '1 Netz'], ['레이어 1개', '1 layer', '1 Layer'],
+    const one: [string, string, string][] = [['경고 1개', '1 warning', '1 Warnung'], ['메시 1개', '1 mesh', '1 Netz'], ['레이어 1개', '1 layer', '1 Layer'],
       ['간섭 1쌍을 찾았습니다.', 'Found 1 interfering pair.', '1 kollidierendes Paar gefunden.'], ['1줄 더 보기', '1 more line', '1 weitere Zeile'],
       ['저장된 보기 1개', '1 saved view', '1 gespeicherte Ansicht'], ['1분 1초', '1 min 1 s', '1 min 1 s']];
     for (const [ko, en, de] of one) expect([translate(ko, 'en'), translate(ko, 'de')], ko).toEqual([en, de]);
     expect(translate('경고 2개', 'en')).toBe('2 warnings');
-    expect(translate('OBJ로 내보냈습니다: 그물 1개 · 삼각형 12개 · 단위 mm', 'en')).toBe('Exported as OBJ: meshes 1 · triangles 12 · unit mm');
+    expect(translate('OBJ로 내보냈습니다: 메시 1개 · 삼각형 12개 · 단위 mm', 'en')).toBe('Exported as OBJ: meshes 1 · triangles 12 · unit mm');
   });
   it('translates each line of a multi-line message, even when a trailing {0} would swallow the next line', () => {
     // 줄바꿈으로 이은 글: "…: {0}"의 {0}이 다음 줄까지 잡아 둘째 줄이 한국어로 남던 것(공용 번역기 맞춤)
@@ -303,7 +303,7 @@ describe('language URLs and UI presentation', () => {
     dispose = await installLocalization(root);
     // Like the product tree: one section with many rows appended at once (the observer sees a single added node)
     const section = document.createElement('section');
-    section.innerHTML = '<h3>제품 나무</h3><div class="tree">'
+    section.innerHTML = '<h3>모델 트리</h3><div class="tree">'
       + Array.from({length:40},(_,i)=>`<div class="tree-row" title="숨기기" data-key="${i}"><button class="eye" aria-label="열기"><svg><title>닫기</title></svg></button><span class="tree-name">열기 ${i}</span><span class="tree-name-gen">닫기</span></div>`).join('')
       + '</div><div data-i18n-skip><p title="닫기">닫기<input placeholder="열기"></p></div>'
       + '<div><div translate="no"><span title="열기">열기</span></div><span title="닫기">닫기</span><input placeholder="열기"><input translate="no" placeholder="열기"></div>';

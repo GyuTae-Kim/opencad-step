@@ -201,7 +201,7 @@ describe('pickRows: 코어 후보 → 앱 고르기로 묶은 줄', () => {
     expect(pickRows(d, picks, PART).map((r) => r.checked)).toEqual([true, false, false, false]);
   });
 
-  it('면 고르기: 모두 B-rep 면, 고른 면이 표시, 몸체 단위의 첫 줄은 몸체(그물 이름)', () => {
+  it('면 고르기: 모두 B-rep 면, 고른 면이 표시, 바디 단위의 첫 줄은 바디(메시 이름)', () => {
     const { v, d } = setup();
     const picks = candidates(v);
     const face = pickRows(d, picks, { faceMode: true, multiPick: false, pickUnit: 'face' });
@@ -211,7 +211,7 @@ describe('pickRows: 코어 후보 → 앱 고르기로 묶은 줄', () => {
     expect(pickRows(d, picks, { faceMode: true, multiPick: false, pickUnit: 'face' }).map((r) => r.checked)).toEqual([false, false, true, false]);
     const body = pickRows(d, picks, { faceMode: false, multiPick: false, pickUnit: 'body' });
     expect(body.map((r) => [r.label, r.key.slice(0, 2)])).toEqual([
-      ['몸체', 'b:'],
+      ['바디', 'b:'],
       ['평면', 'f:'],
       ['평면', 'f:'],
       ['평면', 'f:'],
@@ -373,7 +373,7 @@ describe('묶음 열쇠(65차 — pickGroup, 코어 0.53.0 group)', () => {
     expect(new Set(rows.map((r) => r.key)).size).toBe(6);
   });
 
-  it('줄마다 다른 면인 장면(겹친 상자 둘): 묶음 열쇠가 있어도 줄 차례·열쇠·표시가 64차와 같다(부품·몸체·면 고르기·여러 개 고르기)', () => {
+  it('줄마다 다른 면인 장면(겹친 상자 둘): 묶음 열쇠가 있어도 줄 차례·열쇠·표시가 64차와 같다(부품·바디·면 고르기·여러 개 고르기)', () => {
     const { v, d } = setup();
     const modes = [PART, { faceMode: false, multiPick: false, pickUnit: 'body' as const }, { faceMode: true, multiPick: false, pickUnit: 'face' as const }, { faceMode: false, multiPick: true, pickUnit: 'part' as const }];
     for (const m of modes) {
@@ -410,7 +410,7 @@ describe('목록 줄 미리 강조(65차 — rowHi·openPickList)', () => {
   /** 강조 기록 한 벌(세 길) → 짧은 글 */
   const last3 = (log: string[]): string => log.slice(-3).join(' / ');
 
-  it('rowHi: 부품 줄은 그 부품 몸체 모두, 면 줄은 그 면(구간·경계 선), 몸체 단위 첫 줄은 몸체, 여러 개 고르기는 더하고 뺀 뒤의 고른 것 모두', () => {
+  it('rowHi: 부품 줄은 그 부품 바디 모두, 면 줄은 그 면(구간·경계 선), 바디 단위 첫 줄은 바디, 여러 개 고르기는 더하고 뺀 뒤의 고른 것 모두', () => {
     const { v, d } = setup();
     const picks = candidates(v);
     const rows = pickRows(d, picks, PART);
@@ -631,7 +631,7 @@ describe('마디 열쇠 표(66차 — nodeKeyOf, 여러 개 고르기 묶음 열
 
 describe('네 언어 사전', () => {
   it('목록·줄 종류 글이 네 사전에 있고 한글이 남지 않는다', () => {
-    for (const ko of ['겹친 것 고르기…', '겹친 것 고르기', '부품 전체', '몸체', '선 형상', '점 형상', '평면', '원기둥 면', '직선 모서리'])
+    for (const ko of ['겹친 것 고르기…', '겹친 것 고르기', '부품 전체', '바디', '선 형상', '점 형상', '평면', '원기둥 면', '직선 모서리'])
       for (const code of CODES) {
         expect(catalogs[code][ko], `${code} ${ko}`).toBeTruthy();
         expect(translate(ko, code)).not.toMatch(hangul);
