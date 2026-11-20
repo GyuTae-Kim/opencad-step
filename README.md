@@ -2630,6 +2630,7 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
 ## 기여
 
 버그 신고, 잘못 읽는 파일 제보, 번역 고침을 반깁니다. 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)(한국어·영어)에 있고, 참여하는 모든 분은 [행동 강령](CODE_OF_CONDUCT.md)을 따릅니다.
+보안 문제는 공개 이슈 대신 [SECURITY.md](SECURITY.md)의 비공개 신고로 알려 주십시오.
 
 ## 라이선스
 
