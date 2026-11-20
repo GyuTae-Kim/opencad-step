@@ -10,7 +10,7 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 [opencad-nc](https://github.com/GyuTae-Kim/opencad-nc) · [opencad-skp](https://github.com/GyuTae-Kim/opencad-skp)
 
 **내 웹사이트에 넣기**: 블로그나 제품 소개 페이지에 이 뷰어를 넣을 수 있습니다. 스크립트 한 줄과 `<opencad-viewer src="part.step">` 요소 하나면 됩니다.
-파일은 그 페이지와 iframe 안의 앱 사이에서만 오갑니다. 설치 방법은 [opencad-site-kit의 설치 안내](https://github.com/GyuTae-Kim/opencad-site-kit#내-웹사이트에-opencad-설치하기)에 있습니다.
+파일은 그 페이지와 iframe 안의 앱 사이에서만 오갑니다. 설치 방법은 [opencad-site-kit의 설치 안내](https://github.com/GyuTae-Kim/opencad-site-kit#내-웹사이트에-opencad-설치하기)에 있습니다. 영어 안내: [Embed OpenCAD in your web page](https://github.com/GyuTae-Kim/opencad-site-kit/blob/main/docs/EMBED.en.md).
 
 ## 할 수 있는 것
 
