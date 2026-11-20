@@ -101,8 +101,8 @@ const SNAP_PATH = 'M3 6h9v12H3zM12 9h9v6h-9';
 
 /** 붙잡기 단추 설명(켜짐·꺼짐) */
 const SNAP_TITLES = {
-  on: '붙잡기 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)',
-  off: '붙잡기 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기',
+  on: '스냅 켬: 끄는 부품이 다른 부품 면에 닿거나 같은 높이가 되는 자리에 붙습니다 — 눌러서 끄기(마우스는 끄는 동안 Alt/⌥를 누르고 있으면 잠시 풉니다)',
+  off: '스냅 끔: 끄는 부품이 다른 부품 면에 붙지 않습니다 — 눌러서 켜기',
 } as const;
 
 export class ExplodeControls {
@@ -144,7 +144,7 @@ export class ExplodeControls {
     const axes = h('div', { class: 'explode-axes', role: 'radiogroup', 'aria-label': '분해 방향' });
     const world = h('div', { class: 'seg' });
     const screen = h('div', { class: 'seg' });
-    const AIM = '분해를 켜거나 이 단추를 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다';
+    const AIM = '분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다';
     for (const [k, label, title, name, into] of [
       ['free', '사방', '사방: 부품이 조립 가운데에서 멀어지는 쪽으로 벌립니다', '', world],
       ['x', 'X', 'X축으로만: 부품을 X축 방향으로만 벌립니다', '', world],
@@ -169,7 +169,7 @@ export class ExplodeControls {
       h('span', {}, '옮기기'),
     );
     this.moveBtn.addEventListener('click', () => tweak.move?.(this.moveBtn.getAttribute('aria-pressed') !== 'true'));
-    this.snapBtn = h('button', { type: 'button', class: 'seg-btn explode-snap on', 'aria-pressed': 'true', title: SNAP_TITLES.on }, lineIcon(SNAP_PATH), h('span', {}, '붙잡기'));
+    this.snapBtn = h('button', { type: 'button', class: 'seg-btn explode-snap on', 'aria-pressed': 'true', title: SNAP_TITLES.on }, lineIcon(SNAP_PATH), h('span', {}, '스냅'));
     // 누르면 단추도 바로 맞춘다(막대 sync는 끄는 동안 부르지 않는다 — 다른 손가락으로 누른 때)
     const toggle = (): void => {
       const off = this.snapBtn.getAttribute('aria-pressed') === 'true';

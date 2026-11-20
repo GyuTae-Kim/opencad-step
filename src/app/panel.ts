@@ -288,7 +288,7 @@ export class Panel {
       }
       if (inside) kids.push(h('p', { class: 'hint' }, '안에 든 부품은 바깥 부품에 가려 보이지 않을 수 있습니다 — X-ray 그리기나 나머지 흐리게로 보십시오.'));
       if (r.volumes?.done)
-        kids.push(h('p', { class: 'hint' }, '겹친 부피(≈)는 화면 그물을 광선으로 훑은 어림값이고, ±는 어림 오차입니다.'));
+        kids.push(h('p', { class: 'hint' }, '겹친 부피(≈)는 화면 메시를 광선으로 훑은 어림값이고, ±는 어림 오차입니다.'));
       if (r.volumes?.left) kids.push(h('p', { class: 'hint' }, `시간 한도로 ${fmtCount(r.volumes.left)}쌍은 겹친 부피를 구하지 못했습니다.`));
       if (st.stopped) kids.push(h('p', { class: 'hint' }, '겹친 부피 계산을 멈췄습니다.'));
       if (!r.pairs.length) kids.push(h('p', { class: 'hint' }, '간섭을 찾지 못했습니다. 맞닿은 면·모서리는 간섭으로 치지 않습니다(닫히지 않은 면 모형은 안에 들었는지 보지 않습니다).'));
@@ -432,7 +432,7 @@ export class Panel {
       type: 'search',
       class: 'tree-filter',
       placeholder: '이름·자리 이름·제품 번호로 거르기',
-      'aria-label': '제품 나무 이름 거르기',
+      'aria-label': '모델 트리 이름 거르기',
       spellcheck: 'false',
       autocomplete: 'off',
     });
@@ -464,11 +464,11 @@ export class Panel {
       b.addEventListener('click', run);
       tools.append(b);
     };
-    mk('모두 펼치기', '제품 나무를 모두 펼칩니다', () => {
+    mk('모두 펼치기', '모델 트리를 모두 펼칩니다', () => {
       d.expanded = allExpandableKeys(roots);
       this.renderBody();
     });
-    mk('모두 접기', '제품 나무를 모두 접습니다', () => {
+    mk('모두 접기', '모델 트리를 모두 접습니다', () => {
       d.expanded = new Set();
       d.treeLimit = TREE_LIMIT;
       this.renderBody();
@@ -503,7 +503,7 @@ export class Panel {
         btn,
       );
     }
-    this.body.append(section('제품 나무', search, filterInfo, tools, this.tree?.el ?? null, more));
+    this.body.append(section('모델 트리', search, filterInfo, tools, this.tree?.el ?? null, more));
     if (!filtering) this.drawnExpanded = new Set(d.expanded);
     this.interferenceEl = null;
     if (d.interference) {
@@ -534,7 +534,7 @@ export class Panel {
     const key = this.propsKey(d);
     const path = key ? nodePath(d.products, key) : [];
     const node = path[path.length - 1];
-    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 제품 나무에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 "여러 개 고르기"를 켜면 여러 개를 고릅니다.')));
+    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 "여러 개 고르기"를 켜면 여러 개를 고릅니다.')));
     else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
@@ -605,10 +605,10 @@ export class Panel {
     }
     const b = pp.bounds;
     if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
-    r('닫힌 입체 · 열린 그물', `${fmtCount(pp.closed)} · ${fmtCount(pp.open)}`);
+    r('닫힌 입체 · 열린 메시', `${fmtCount(pp.closed)} · ${fmtCount(pp.open)}`);
     const notes: (HTMLElement | null)[] = [];
     if (!pp.closed) notes.push(h('p', { class: 'hint' }, '닫힌 입체가 없어 부피·질량·무게중심을 구하지 못했습니다(열린 면·얇은 판).'));
-    else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 그물(닫히지 않은 면)은 부피·질량에서 뺐습니다.'));
+    else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 메시(닫히지 않은 면)는 부피·질량에서 뺐습니다.'));
     if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.'));
     else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
     if (pp.timedOut) notes.push(h('p', { class: 'hint' }, '파일이 커서 시간 한도를 넘은 입체는 곡면 적분 대신 화면용 삼각형으로 구했습니다.'));
@@ -780,7 +780,7 @@ export class Panel {
       // 묶음 이름표의 파일 글(레이어·PMI·간섭 쌍 이름)은 FSI…PDI로 갇혀 번역층이 틀 그대로 끼운다(ftext.ts) — 길이 한도는 이름표를 만들 때
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), h('span', {}, d.items.label), h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     } else if (d.body) {
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 몸체 '), h('span', {}, bodyTitle(d.products, d.scene, d.body, isolateText))), fitBtn()));
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 바디 '), h('span', {}, bodyTitle(d.products, d.scene, d.body, isolateText))), fitBtn()));
     }
     if (this.host.measuring && this.host.measureKind === 'entities') lines.push(...entityLines(d, fm, this.host.touch));
     else if (d.measure) {

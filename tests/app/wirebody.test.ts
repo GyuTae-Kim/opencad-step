@@ -34,7 +34,7 @@ function wireParts(): Uint8Array {
 const scene = stepToScene(wireParts(), { name: 'w.stp' });
 const newDoc = (): StepDoc => createDoc('w.stp', 1, { scene, ms: 1 });
 
-describe('선 형상(와이어프레임 곡선) 몸체 줄', () => {
+describe('선 형상(와이어프레임 곡선) 바디 줄', () => {
   it('해석 결과: 부품 마디에 입체 하나와 선 형상 묶음 하나(이름은 표현 이름, 없으면 부품 이름)', () => {
     const d = newDoc();
     const [bracket, guide, other] = d.products[0]!.children;
@@ -59,7 +59,7 @@ describe('선 형상(와이어프레임 곡선) 몸체 줄', () => {
     expect(filterRows(d.products, 'rails', new Set(), 3000, (n, i) => (name(n, i) === n.name ? '' : name(n, i))).rows.map((r) => r.key)).toEqual(['0', '0/1', '0/1.2']);
   });
 
-  it('3D에서 선 형상을 몸체 단위로 누르면 그 부품을 펼쳐 선 형상 줄을 고름으로, 부품 단위면 부품 마디', () => {
+  it('3D에서 선 형상을 바디 단위로 누르면 그 부품을 펼쳐 선 형상 줄을 고름으로, 부품 단위면 부품 마디', () => {
     const d = newDoc();
     const lid = scene.lines[0]!.id;
     expect([...selectFromPick(d.products, new Set(), lid, true)!.expanded].sort()).toEqual(['0', '0/0']);
@@ -69,14 +69,14 @@ describe('선 형상(와이어프레임 곡선) 몸체 줄', () => {
     expect(selectionItemIds(d)).toEqual([lid]);
   });
 
-  it('이름: "부품 · 선 형상 1"·"부품 / 표현 이름", 입체가 하나여도 선 형상이 있으면 "부품 · 몸체 1"', () => {
+  it('이름: "부품 · 선 형상 1"·"부품 / 표현 이름", 입체가 하나여도 선 형상이 있으면 "부품 · 바디 1"', () => {
     const d = newDoc();
     const [l1, l2] = scene.lines;
     expect(bodyTitle(d.products, scene, l1!.id)).toBe('bracket · 선 형상 1');
     expect(bodyTitle(d.products, scene, l2!.id)).toBe('guide / rails');
     expect(bodyTitle(d.products, scene, d.products[0]!.children[0]!.meshIds[0]!)).toBe('bracket / body-A');
     expect(bodyTitle(d.products, scene, d.products[0]!.children[2]!.meshIds[0]!)).toBe('other / other-body');
-    expect(multiLabel(d.products, [l1!.id])).toBe('몸체 1개');
+    expect(multiLabel(d.products, [l1!.id])).toBe('바디 1개');
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) {
       expect(translate('bracket · 선 형상 1', lang), lang).not.toMatch(/[가-힣]/);
       expect(translate('점 형상 2', lang), lang).not.toMatch(/[가-힣]/);
@@ -98,7 +98,7 @@ describe('선 형상(와이어프레임 곡선) 몸체 줄', () => {
     expect(resolveTokens(d.products, ['0/2.2'])).toEqual({ ids: [], open: [] });
   });
 
-  it('다시 삼각화해도 고른 선 형상 몸체를 잇는다(표현 PMI 선은 몸체로 잇지 않는다)', () => {
+  it('다시 삼각화해도 고른 선 형상 바디를 잇는다(표현 PMI 선은 바디로 잇지 않는다)', () => {
     const from = newDoc();
     const lid = scene.lines[1]!.id;
     from.body = lid;
@@ -145,11 +145,11 @@ function panelHost(d: StepDoc) {
   return { host, calls };
 }
 
-describe('패널: 선 형상 몸체 줄', () => {
+describe('패널: 선 형상 바디 줄', () => {
   const row = (panel: Panel, key: string) => panel.el.querySelector<HTMLElement>(`.tree-row[data-key="${key}"]`)!;
   const click = (el: HTMLElement, init: MouseEventInit = {}) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, ...init }));
 
-  it('줄 이름·아이콘·말풍선, 누르기 = 그 선 형상 고르기, 눈 단추 = 그 선 형상만 숨기기, 두 번 = 맞춰 보기', () => {
+  it('줄 이름·아이콘·말풍선, 누르기 = 그 선 형상 고르기, 눈 버튼 = 그 선 형상만 숨기기, 두 번 = 맞춰 보기', () => {
     const d = newDoc();
     d.expanded.add('0/0').add('0/1');
     const { host, calls } = panelHost(d);
@@ -167,7 +167,7 @@ describe('패널: 선 형상 몸체 줄', () => {
     expect(row(panel, '0/1.2').querySelector('.tree-name')!.getAttribute('translate')).toBe('no');
     // 말풍선과 눈 단추의 접근 이름("선 형상 1 숨기기"·"몸체 2 보이기")도 다른 언어로 옮긴다
     for (const lang of ['en', 'ja', 'zh-CN', 'de'])
-      for (const text of [w1.title, w1.querySelector('.eye')!.getAttribute('aria-label')!, '몸체 2 보이기', '점 형상 3 숨기기']) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
+      for (const text of [w1.title, w1.querySelector('.eye')!.getAttribute('aria-label')!, '바디 2 보이기', '점 형상 3 숨기기']) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
     expect(translate('선 형상 1 숨기기', 'en')).toBe('Hide Line shape 1');
     click(w1);
     click(row(panel, '0/1.2'), { detail: 2 });
@@ -179,7 +179,7 @@ describe('패널: 선 형상 몸체 줄', () => {
     expect(row(panel, '0/0.2').classList.contains('sel')).toBe(true);
     expect(row(panel, '0/0').classList.contains('part-sel')).toBe(true);
     panel.redraw();
-    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 몸체 \u{2068}bracket\u{2069} · 선 형상 1');
+    expect(panel.el.querySelector('.panel-foot')!.textContent).toContain('고른 바디 \u{2068}bracket\u{2069} · 선 형상 1');
     // 속성 탭: 부품 속성과 "선 형상에는 부피·질량이 없습니다" 안내
     panel.setTab('props');
     expect(panel.el.textContent).toContain('선 형상에는 부피·질량이 없습니다');

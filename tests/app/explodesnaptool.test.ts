@@ -23,7 +23,7 @@ const N = (name: string, meshIds: string[] = [], children: ProductNode[] = []): 
 const A = boxMesh('a', [-4, -1, -1], [-2, 1, 1]);
 const B = boxMesh('b', [2, -1, -1], [4, 1, 1]);
 
-describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
+describe('분해 끌기의 스냅(jsdom 끌기)', () => {
   let env: ReturnType<typeof jsdomViewer>;
   let canvas: HTMLCanvasElement;
   let doc: StepDoc;
@@ -175,7 +175,7 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     expect(later.defaultPrevented).toBe(false);
   });
 
-  it('손가락은 붙잡기 거리 14화소(마우스 10화소 밖인 12화소쯤도 붙는다), 거리 글 아래 줄에 푸는 글쇠는 없다', () => {
+  it('손가락은 스냅 거리 14화소(마우스 10화소 밖인 12화소쯤도 붙는다), 거리 글 아래 줄에 푸는 글쇠는 없다', () => {
     const p0 = shownB();
     const s = at(p0, 0);
     const rate = Math.abs(at(p0, -8.5)[0] - at(p0, -8.4)[0]) / 0.1;
@@ -197,7 +197,7 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     expect(2 + moveB()).toBe(-4.25);
   });
 
-  it('막대의 붙잡기 단추(48차): 끄면 손가락 끌기도 붙지 않고, 끄는 중 다른 손가락으로 켜고 끄면 그 자리에서 다시 본다', () => {
+  it('막대의 스냅 버튼(48차): 끄면 손가락 끌기도 붙지 않고, 끄는 중 다른 손가락으로 켜고 끄면 그 자리에서 다시 본다', () => {
     const p0 = shownB();
     const s = at(p0, 0);
     const c = at(p0, -8.3);
@@ -232,7 +232,7 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     fire('pointerup', c1[0], c1[1]);
   });
 
-  it('막대(실제 ExplodeControls)의 붙잡기 누름 단추: 기본 켬, 누르면 도구가 끄고 sync가 누름·설명을 맞춘다', () => {
+  it('막대(실제 ExplodeControls)의 스냅 누름 버튼: 기본 켬, 누르면 도구가 끄고 sync가 누름·설명을 맞춘다', () => {
     const c = new ExplodeControls(
       () => {},
       () => {},
@@ -240,13 +240,13 @@ describe('분해 끌기의 붙잡기(jsdom 끌기)', () => {
     );
     document.body.append(...c.els);
     const btn = c.els[3]!.querySelector<HTMLButtonElement>('.explode-snap')!;
-    expect([btn.textContent, btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['붙잡기', 'true', true]);
-    expect(btn.title).toMatch(/^붙잡기 켬/);
+    expect([btn.textContent, btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['스냅', 'true', true]);
+    expect(btn.title).toMatch(/^스냅 켬/);
     // 누르면 막대 sync 없이도 단추가 바로 맞는다(끄는 동안 다른 손가락으로 누른 때)
     btn.click();
     expect(tool.snapOff).toBe(true);
     expect([btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['false', false]);
-    expect(btn.title).toMatch(/^붙잡기 끔/);
+    expect(btn.title).toMatch(/^스냅 끔/);
     c.sync(doc, 'all', true, 'x', null, tool.state(doc, 'x'));
     expect([btn.getAttribute('aria-pressed'), btn.classList.contains('on')]).toEqual(['false', false]);
     // 같은 상태로 다시 sync해도 설명을 다시 걸지 않는다(번역층이 옮긴 글을 덮지 않게)

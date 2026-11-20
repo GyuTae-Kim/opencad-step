@@ -88,7 +88,7 @@ export function pickedFace(fp: FacePick, point: V3): Picked {
 /** 모서리(snap이 있으면 그 꼭짓점·가운데 점) */
 export function pickedEdge(ep: EdgePick, point: V3, snap: { what: 'vertex' | 'mid'; point: V3 } | null = null): Picked {
   if (snap) {
-    const title = snap.what === 'vertex' ? '꼭짓점' : '모서리 가운데 점';
+    const title = snap.what === 'vertex' ? '꼭짓점' : '모서리 중간점';
     return { meshId: ep.meshId, what: snap.what, title, entity: { type: 'point', label: title, point: snap.point, meshId: ep.meshId }, point: snap.point, edge: ep };
   }
   return { meshId: ep.meshId, what: 'edge', title: edgeTitle(ep), entity: edgeEntity(ep), point, edge: ep };

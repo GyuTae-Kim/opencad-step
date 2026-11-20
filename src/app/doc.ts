@@ -682,7 +682,7 @@ export function bodyTitle(roots: readonly ProductNode[], scene: Scene3d, id: str
   const node = key ? productAt(roots, key) : null;
   if (!node || !hasBodies(node)) return name;
   const i = node.meshIds.indexOf(id);
-  if (i >= 0) return (found?.[0].name ?? id) !== node.name ? name : `${name} · 몸체 ${i + 1}`;
+  if (i >= 0) return (found?.[0].name ?? id) !== node.name ? name : `${name} · 바디 ${i + 1}`;
   const j = node.lineIds?.indexOf(id) ?? -1;
   if (j < 0) return name;
   const own = bodyName(node, found?.[0], true);
@@ -708,7 +708,7 @@ export function toggledItems(cur: readonly string[], ids: readonly string[]): st
  * 부품 단위라도 나무 몸체 줄로 부품의 일부 몸체만 골랐으면 그것은 몸체로 센다 — "부품 2개 · 몸체 1개"
  */
 export function multiLabel(roots: readonly ProductNode[], ids: readonly string[], unit: PickUnit = 'part'): string {
-  if (unit === 'body') return `몸체 ${ids.length}개`;
+  if (unit === 'body') return `바디 ${ids.length}개`;
   const owner = new Map<string, [string, number]>();
   const walk = (l: readonly ProductNode[], prefix: string) =>
     l.forEach((n, i) => {
@@ -731,7 +731,7 @@ export function multiLabel(roots: readonly ProductNode[], ids: readonly string[]
   for (const [n, own] of groups.values())
     if (n >= own) parts++;
     else bodies += n;
-  return bodies ? (parts ? `부품 ${parts}개 · 몸체 ${bodies}개` : `몸체 ${bodies}개`) : `부품 ${parts}개`;
+  return bodies ? (parts ? `부품 ${parts}개 · 바디 ${bodies}개` : `바디 ${bodies}개`) : `부품 ${parts}개`;
 }
 
 /** 형상이 바로 놓인 마디(부품 자리) 수 */
@@ -777,7 +777,7 @@ export function docStatus(d: StepDoc): StatusItem[] {
   items.push({ text: u ? `단위 ${u}` : '단위 모름', title: d.info.lengthUnit ? `파일 길이 단위: ${d.info.lengthUnit}` : '파일에 길이 단위가 없습니다' });
   items.push({ text: formatBytes(d.size), title: `파일 크기 ${fmtCount(d.size)} 바이트` });
   const c = sceneCounts(d.scene);
-  items.push({ text: `삼각형 ${fmtCount(c.triangles)}`, title: `그물 ${fmtCount(c.meshes)}개` });
+  items.push({ text: `삼각형 ${fmtCount(c.triangles)}`, title: `메시 ${fmtCount(c.meshes)}개` });
   items.push({ text: `부품 ${fmtCount(partCount(d.products))}`, title: `제품 ${fmtCount(d.info.productCounts.length)}종, 놓인 형상 ${fmtCount(c.meshes)}개` });
   const st = d.info.stats;
   items.push({

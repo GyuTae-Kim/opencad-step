@@ -141,8 +141,8 @@ const screenMin = (w: View, at: (t: number) => V3, lo: number, hi: number, c: { 
 const ellPoly = endPolyline(curveEndsAt(scene.meshes, ex, ELL_START)[0]!);
 const bsPoly = endPolyline(curveEndsAt(scene.meshes, ex, BS_START)[0]!);
 
-describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 curveSnap)', () => {
-  it('B-스플라인 판 모서리 끝에서 원기둥 윗 테두리로 내린 수직 발: 코어는 현 위 발, 앱은 원 위 정확한 발(1e-9)이고 거리도 그 발까지', () => {
+describe('측정 스냅을 B-rep 곡선 위로(코어 0.14.0 refine + 앱 curveSnap)', () => {
+  it('B-스플라인 판 모서리 끝에서 원기둥 윗 테두리로 내린 수직점: 코어는 현 위 발, 앱은 원 위 정확한 발(1e-9)이고 거리도 그 발까지', () => {
     const F = BS_CORNER;
     // 코어가 수직 발을 찾는 테두리 토막(첫 점에서 현에 내린 발이 토막 안 — 원의 발은 첫 점 쪽 반지름 방향)
     let pick: { k: number; foot: V3 } | null = null;
@@ -151,7 +151,7 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
       const u = f ? dist(f, rimPoly[k]!) / dist(rimPoly[k + 1]!, rimPoly[k]!) : -1;
       if (f && u > 0.2 && u < 0.8 && dot(sub(f, [0, 0, RIM_H]), sub(F, [0, 0, 0])) > 0) pick = { k, foot: f };
     }
-    expect(pick, '수직 발이 놓인 테두리 토막').toBeTruthy();
+    expect(pick, '수직점이 놓인 테두리 토막').toBeTruthy();
     const { k, foot } = pick!;
     // 원 위 정확한 발: 첫 점 쪽 반지름 방향
     const phi = Math.atan2(F[1], F[0]);
@@ -180,7 +180,7 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     expect(Math.abs(dot(sub(F, h.point), T))).toBeLessThan(1e-9);
     // 잠글 방향도 첫 점 → 다듬은 발
     close(h.direction!, sub(exact, F).map((c) => c / dist(exact, F)), 1e-12);
-    expect(hoverSnapLabel(h)).toBe('수직 발');
+    expect(hoverSnapLabel(h)).toBe('수직점');
     const got: MeasureResult[] = [];
     v.onMeasure((m) => m && got.push(m));
     clickAt(w, foot);
@@ -192,7 +192,7 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     expect(v.measurePoints[1]!.refined).toBe(true);
   });
 
-  it('곡선 붙잡기를 주지 않으면(조각을 받기 전) 같은 자리의 수직 발은 꺾은선 위 그대로', () => {
+  it('곡선 스냅을 주지 않으면(조각을 받기 전) 같은 자리의 수직점은 꺾은선 위 그대로', () => {
     const F = BS_CORNER;
     let k = -1;
     let foot: V3 | null = null;
@@ -269,7 +269,7 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     expect(hoverSnapLabel(h)).toBe('면 위 점');
   });
 
-  it('곡선 가운데 점(앱 pointsFor)은 곡선 길이 가운데: 타원 호 위(1e-9)이고 두 끝에서 잰 호 길이가 같다(1e-9)', () => {
+  it('곡선 중간점(앱 pointsFor)은 곡선 길이 가운데: 타원 호 위(1e-9)이고 두 끝에서 잰 호 길이가 같다(1e-9)', () => {
     const w = view();
     const { v } = w;
     // 타원 호 길이 가운데의 매개변수(시험이 따로 — 심프슨 적분과 반 나눔)
@@ -334,7 +334,7 @@ describe('측정 붙잡기를 B-rep 곡선 위로(코어 0.14.0 refine + 앱 cur
     shiftUp(w);
   });
 
-  it('곡선 위로 다듬은 커서 아래 점: 첫 점(테두리 이음 꼭짓점·타원 호 가운데 점)에서 같은 곡선 위면 접선', () => {
+  it('곡선 위로 다듬은 커서 아래 점: 첫 점(테두리 이음 꼭짓점·타원 호 중간점)에서 같은 곡선 위면 접선', () => {
     // 끝에서: 테두리 이음 꼭짓점 → 원 위로 다듬은 토막 위 점
     const w = view();
     const { v, tl } = w;

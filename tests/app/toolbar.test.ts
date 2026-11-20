@@ -67,7 +67,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     vi.restoreAllMocks();
   });
 
-  it('보기·측정 단추만 좁은 화면에 남기고, 나머지는 wide-only', () => {
+  it('보기·측정 버튼만 좁은 화면에 남기고, 나머지는 wide-only', () => {
     const tb = new Toolbar(host());
     const wide = [...tb.el.querySelectorAll('button.wide-only .btn-label')].map((e) => e.textContent);
     expect(wide).toEqual(['고른 부품 보기', '원근', '음영 + 모서리', '격자', '뷰 큐브', '좌표축', '내보내기']);
@@ -119,7 +119,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     expect(document.querySelector('.menu')).toBeNull();
   });
 
-  it('보기 설정의 "그리기 모드…": 같은 단추 자리에 그리기 모드 메뉴(넓은 화면 단추와 같은 열 항목)를 다시 열고, 고르면 닫는다', () => {
+  it('보기 설정의 "그리기 모드…": 같은 버튼 자리에 그리기 모드 메뉴(넓은 화면 버튼과 같은 열 항목)를 다시 열고, 고르면 닫는다', () => {
     const h = { ...host(), renderMode: 'hiddenLine' as const };
     const tb = new Toolbar(h);
     document.body.append(tb.el);
@@ -165,7 +165,7 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
     expect(document.activeElement?.textContent).toContain('원근 투영');
   });
 
-  it('표준 뷰 메뉴: 홈 뷰(Home)와 "지금 보기를 홈 뷰로", 면 단면이면 단면 단추가 켜짐 · "단면 면"', () => {
+  it('표준 뷰 메뉴: 홈 뷰(Home)와 "지금 보기를 홈 뷰로", 면 단면이면 단면 버튼이 켜짐 · "단면 면"', () => {
     const h = host();
     const tb = new Toolbar(h);
     document.body.append(tb.el);
@@ -250,10 +250,10 @@ describe('도구 막대: 좁은 화면(휴대폰) 한 줄과 보기 설정 메�
   });
 });
 
-describe('고르기 메뉴: 단위(부품·몸체·면·모서리)와 여러 개 고르기', () => {
+describe('고르기 메뉴: 단위(부품·바디·면·모서리)와 여러 개 고르기', () => {
   afterEach(() => closeMenu());
 
-  it('단위 하나 고르기와 여러 개 고르기 켜고 끄기, 단추 글·아이콘·켜짐이 단위를 따른다', () => {
+  it('단위 하나 고르기와 여러 개 고르기 켜고 끄기, 버튼 글·아이콘·켜짐이 단위를 따른다', () => {
     document.body.innerHTML = '';
     const h = host();
     const tb = new Toolbar(h);
@@ -266,7 +266,7 @@ describe('고르기 메뉴: 단위(부품·몸체·면·모서리)와 여러 개
     const items = [...document.querySelectorAll<HTMLButtonElement>('.menu-item')];
     expect(items.map((b) => [b.querySelector('.menu-label')!.textContent, b.getAttribute('role'), b.getAttribute('aria-checked'), b.disabled])).toEqual([
       ['부품', 'menuitemradio', 'true', false],
-      ['몸체', 'menuitemradio', 'false', false],
+      ['바디', 'menuitemradio', 'false', false],
       ['면·모서리', 'menuitemradio', 'false', false],
       ['여러 개 고르기', 'menuitemcheckbox', 'false', false],
     ]);
@@ -278,7 +278,7 @@ describe('고르기 메뉴: 단위(부품·몸체·면·모서리)와 여러 개
     // 몸체 단위: 단추 글·아이콘이 바뀌고 켜짐
     const body = { ...host(), pickUnit: 'body' as const };
     const tb2 = new Toolbar(body);
-    const b2 = button(tb2, '몸체 고르기');
+    const b2 = button(tb2, '바디 고르기');
     expect(b2.dataset.icon).toBe('body');
     expect(b2.classList.contains('on')).toBe(true);
     // 면·모서리(예전 면 고르기): 여러 개 고르기는 쓸 수 없다
@@ -297,7 +297,7 @@ describe('고르기 메뉴: 단위(부품·몸체·면·모서리)와 여러 개
 });
 
 describe('도구 막대 말풍선 번역', () => {
-  it('표준 뷰 단추의 단축키 안내가 다른 언어에서 한국어 없이', () => {
+  it('표준 뷰 버튼의 단축키 안내가 다른 언어에서 한국어 없이', () => {
     document.body.innerHTML = '';
     const tb = new Toolbar(host());
     document.body.append(tb.el);

@@ -320,7 +320,7 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'endpoint':
       return '끝점';
     case 'midpoint':
-      return '가운데 점';
+      return '중간점';
     case 'center':
       return '중심';
     case 'tangent':
@@ -332,7 +332,7 @@ export function snapLabel(kind: SnapKind | null | undefined, axis?: SnapAxis | n
     case 'intersection':
       return '교차점';
     case 'perpendicular':
-      return track ? TRACK_PERPENDICULAR_LABEL : '수직 발';
+      return track ? TRACK_PERPENDICULAR_LABEL : '수직점';
     case 'axis':
       return axis ? (track ? trackLabel(axis, track) : AXIS_LABEL[axis]) : '축 방향';
     case 'parallel':

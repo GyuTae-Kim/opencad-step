@@ -48,8 +48,8 @@ function halfMoon(): Uint8Array {
   return w.bytes();
 }
 
-describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
-  it('circleCenters: 구멍 위아래 원의 중심을 그물 id와 함께, 자리 변환(matrix)을 반영한 세계 좌표로', () => {
+describe('두 점 측정 스냅 점(코어 0.8.0 setMeasureSnap)', () => {
+  it('circleCenters: 구멍 위아래 원의 중심을 메시 id와 함께, 자리 변환(matrix)을 반영한 세계 좌표로', () => {
     const w = new StepText();
     const ctx = w.context();
     const part = w.product('plate', [plateWithHole(w)], ctx);
@@ -95,7 +95,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     near(pts[0]!.point, [0, 0, 0]);
   });
 
-  it('edgeSnapPoints: 원호 모서리는 끝점 둘·곡선 가운데 점·중심, 직선 모서리는 끝점·가운데 점', () => {
+  it('edgeSnapPoints: 원호 모서리는 끝점 둘·곡선 중간점·중심, 직선 모서리는 끝점·중간점', () => {
     const s = stepToScene(halfMoon());
     const ex = stepEdgeIndex(s)!;
     const mesh = s.meshes[0]!;
@@ -126,19 +126,19 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(edgeSnapPoints(pick(lineE), s.meshes, ex, cs)![2]!.point).toEqual(line[2]!.point);
   });
 
-  it('snapLabel·snapPair: 붙잡은 종류 이름(접점은 코어 0.38.0 tangent — 61차, 그 밖의 앱 점 point는 "점"), 붙잡기를 켜지 않았거나 둘 다 자유 점이면 null', () => {
-    expect(['vertex', 'endpoint', 'midpoint', 'center', 'tangent', 'point', null].map((k) => snapLabel(k as never))).toEqual(['꼭짓점', '끝점', '가운데 점', '중심', '접점', '점', '면 위 점']);
+  it('snapLabel·snapPair: 붙잡은 종류 이름(접점은 코어 0.38.0 tangent — 61차, 그 밖의 앱 점 point는 "점"), 스냅을 켜지 않았거나 둘 다 자유 점이면 null', () => {
+    expect(['vertex', 'endpoint', 'midpoint', 'center', 'tangent', 'point', null].map((k) => snapLabel(k as never))).toEqual(['꼭짓점', '끝점', '중간점', '중심', '접점', '점', '면 위 점']);
     expect(snapPair({ snapA: 'endpoint', snapB: 'tangent' })).toEqual(['끝점', '접점']);
     expect(snapPair({ snapA: 'endpoint', snapB: 'point' })).toEqual(['끝점', '점']);
     expect(snapPair({})).toBeNull();
     expect(snapPair({ snapA: null, snapB: null })).toBeNull();
     expect(snapPair({ snapA: 'center', snapB: null })).toEqual(['중심', '면 위 점']);
-    expect(snapPair({ snapA: 'midpoint', snapB: 'endpoint' })).toEqual(['가운데 점', '끝점']);
+    expect(snapPair({ snapA: 'midpoint', snapB: 'endpoint' })).toEqual(['중간점', '끝점']);
   });
 
-  it('추론 붙잡기 이름(코어 0.9.0): 교차점·수직 발·축 방향 — 결과의 축은 코어 0.9.1 axisA·axisB에서', () => {
+  it('추론 스냅 이름(코어 0.9.0): 교차점·수직점·축 방향 — 결과의 축은 코어 0.9.1 axisA·axisB에서', () => {
     expect(snapLabel('intersection')).toBe('교차점');
-    expect(snapLabel('perpendicular')).toBe('수직 발');
+    expect(snapLabel('perpendicular')).toBe('수직점');
     expect(snapLabel('axis', 'y')).toBe('Y축 방향');
     expect(snapLabel('axis')).toBe('축 방향');
     // 코어가 만든 결과(measureResult — onMeasure·측정 글 꼴이 받는 값): 축 붙잡기면 axisB가 실린다
@@ -151,7 +151,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapPair({ snapA: 'axis', snapB: 'center', axisA: 'x' })).toEqual(['X축 방향', '중심']);
     // 축을 모르면(추론 없이 만든 결과 등) 이름만
     expect(snapPair({ snapA: 'vertex', snapB: 'axis' })).toEqual(['꼭짓점', '축 방향']);
-    expect(snapPair(measureResult([0, 0, 0], [3, 4, 0], [{ kind: 'center' }, { kind: 'perpendicular' }]))).toEqual(['중심', '수직 발']);
+    expect(snapPair(measureResult([0, 0, 0], [3, 4, 0], [{ kind: 'center' }, { kind: 'perpendicular' }]))).toEqual(['중심', '수직점']);
     // 커서 아래(measureHoverSnap): 없으면 null, 모형 위 자유 점이면 '면 위 점', 축이면 그 축
     expect(hoverSnapLabel(null)).toBeNull();
     expect(hoverSnapLabel({ snap: null })).toBe('면 위 점');
@@ -170,7 +170,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(snapPair({ snapA: 'vertex', snapB: 'axis', axisB: 'x' })).toEqual(['꼭짓점', 'X축 방향']);
   });
 
-  it('끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs): trackFrom이 있고 잠그지 않은 나란함·수직만 그 이름, 첫 점의 나란함·수직 발은 그대로', () => {
+  it('끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs): trackFrom이 있고 잠그지 않은 나란함·수직만 그 이름, 첫 점의 나란함·수직점은 그대로', () => {
     // 가르는 법(코어 0.28.0 README): snap 'parallel'·'perpendicular' + trackFrom + locked 없음
     expect(isTrackDir({ snap: 'parallel', trackFrom: [1, 2, 3] })).toBe(true);
     expect(isTrackDir({ snap: 'perpendicular', trackFrom: [1, 2, 3] })).toBe(true);
@@ -185,7 +185,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(TRACK_PERPENDICULAR_LABEL).toBe('끌어온 점에서 모서리에 수직');
     // 첫 점의 나란함(0.10.0 — direction, trackFrom 없음)·첫 점에서 내린 수직 발은 예전 이름
     expect(hoverSnapLabel({ snap: 'parallel', direction: [0.6, 0.8, 0] })).toBe('모서리와 나란히');
-    expect(hoverSnapLabel({ snap: 'perpendicular', direction: [0, 1, 0] })).toBe('수직 발');
+    expect(hoverSnapLabel({ snap: 'perpendicular', direction: [0, 1, 0] })).toBe('수직점');
     // 잠근 나란함 위 끌어온 점과 나란한 자리(0.21.0 lockTracks — locked + trackFrom)는 잠근 선 이름
     expect(hoverSnapLabel({ snap: 'parallel', direction: [0.6, 0.8, 0], locked: true, trackFrom: [1, 2, 3] })).toBe('잠근 방향 · 끌어온 점과 나란히');
     // 결과: 코어 결과에는 나란함·수직만 실려 앱이 찍은 점의 isTrackDir를 trackA·trackB로 옮긴다
@@ -197,11 +197,11 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     for (const code of ['en', 'ja', 'zh-CN', 'de'])
       for (const l of [TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL]) {
         expect(translate(l, code), `${code}: ${l}`).not.toMatch(/[가-힣]/);
-        expect(translate(l, code)).not.toBe(translate(l === TRACK_PARALLEL_LABEL ? '모서리와 나란히' : '수직 발', code));
+        expect(translate(l, code)).not.toBe(translate(l === TRACK_PARALLEL_LABEL ? '모서리와 나란히' : '수직점', code));
       }
   });
 
-  it('straightEdgeFilter(코어 0.28.0 trackDirs { edge }): 곧은 B-rep 모서리의 윤곽선 선분만 받고, 원호를 나눈 현·선 묶음·표가 없는 그물은 받지 않는다', () => {
+  it('straightEdgeFilter(코어 0.28.0 trackDirs { edge }): 곧은 B-rep 모서리의 윤곽선 선분만 받고, 원호를 나눈 현·선 묶음·표가 없는 메시는 받지 않는다', () => {
     const s = stepToScene(halfMoon());
     const ex = stepEdgeIndex(s)!;
     const mesh = s.meshes[0]!;
@@ -321,20 +321,20 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(translate('잠근 접선 · 면 위', 'de')).toBe('Gesperrte Tangente · Auf Fläche');
   });
 
-  it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직 발은 그대로 "수직 발"', () => {
+  it('곡선 위로 다듬은 점(코어 0.14.0 refined): 붙잡지 않은 점이면 "곡선 위 점", 수직점은 그대로 "수직점"', () => {
     expect(CURVE_POINT_LABEL).toBe('곡선 위 점');
     expect(snapLabel(null, undefined, true)).toBe('곡선 위 점');
     // 코어는 선분 위 점을 다듬은 점에 그 선분 식별자(segment — 0.16.0)를 싣는다
     expect(hoverSnapLabel({ snap: null, refined: true, segment: { kind: 'edge' } })).toBe('곡선 위 점');
-    expect(hoverSnapLabel({ snap: 'perpendicular', refined: true })).toBe('수직 발');
+    expect(hoverSnapLabel({ snap: 'perpendicular', refined: true })).toBe('수직점');
     // 결과(코어 결과에는 refined가 없어 앱이 찍은 점 measurePoints에서 옮겨 담는다)
     expect(snapPair({ snapA: null, snapB: null, refinedA: true })).toEqual(['곡선 위 점', '면 위 점']);
     expect(snapPair({ snapA: 'endpoint', snapB: null, refinedB: true })).toEqual(['끝점', '곡선 위 점']);
-    expect(snapPair({ snapA: 'endpoint', snapB: 'perpendicular', refinedB: true })).toEqual(['끝점', '수직 발']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'perpendicular', refinedB: true })).toEqual(['끝점', '수직점']);
     expect(snapPair({ snapA: null, snapB: null })).toBeNull();
   });
 
-  it('measureSnapOptions: 측정 중 윤곽선 고르기·원 중심·추론 붙잡기를 켜고, 같은 모서리는 한 번만 구한다', () => {
+  it('measureSnapOptions: 측정 중 윤곽선 고르기·원 중심·추론 스냅을 켜고, 같은 모서리는 한 번만 구한다', () => {
     const s = stepToScene(halfMoon());
     const ex = stepEdgeIndex(s)!;
     const centers = circleCenters(s.meshes, ex);
@@ -386,7 +386,7 @@ describe('두 점 측정 붙잡기 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(seen).toHaveLength(1);
   });
 
-  it('구멍 중심에서 판 모서리로 내린 수직 발(코어 perpendicularFoot)이 B-rep 모서리 위 — STEP 윤곽선이 추론 붙잡기의 선분이 된다', () => {
+  it('구멍 중심에서 판 모서리로 내린 수직점(코어 perpendicularFoot)이 B-rep 모서리 위 — STEP 윤곽선이 추론 스냅의 선분이 된다', () => {
     const w = new StepText();
     const ctx = w.context();
     w.product('plate', [plateWithHole(w)], ctx);
@@ -423,7 +423,7 @@ describe('두 점 측정 방향 잠금(코어 0.10.0 추론 잠금·모서리와
     expect(translate('모서리와 나란히', 'de')).toBe('Parallel zur Kante');
   });
 
-  it('잠금 이름·안내: 잠갔으면 잠근 방향, 끝점을 잡는 동안 키보드 기기는 Shift로 잠글 방향이 있으면 Shift·화살표, 없으면 화살표 안내, 손가락 기기는 단추라 없음', () => {
+  it('잠금 이름·안내: 잠갔으면 잠근 방향, 끝점을 잡는 동안 키보드 기기는 Shift로 잠글 방향이 있으면 Shift·화살표, 없으면 화살표 안내, 손가락 기기는 버튼라 없음', () => {
     expect(lockName(null)).toBeNull();
     expect(lockName({ kind: 'axis', axis: 'y' })).toBe('y');
     expect(lockName({ kind: 'parallel' })).toBe('parallel');

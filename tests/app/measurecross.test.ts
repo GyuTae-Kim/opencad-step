@@ -113,7 +113,7 @@ describe('코어 0.15.0 열린 후보 다듬기(앱 curveSnap)', () => {
     expect(h.snap).toBe('perpendicular');
     expect(h.refined).toBe(true);
     close(h.point, FAR_FOOT);
-    expect(hoverSnapLabel(h)).toBe('수직 발');
+    expect(hoverSnapLabel(h)).toBe('수직점');
     // 코어 점(토막 끝 꼭짓점)이 아니라 원 위 발 — 가장 가까운 꼭짓점과도 떨어져 있다
     expect(Math.min(...rimPoly.map((p) => dist(p, FAR_FOOT)))).toBeGreaterThan(0.1);
     const got: MeasureResult[] = [];
@@ -151,7 +151,7 @@ describe('코어 0.15.0 열린 후보 다듬기(앱 curveSnap)', () => {
     expect(got).toHaveLength(3);
   });
 
-  it('곡선 붙잡기를 주지 않으면(조각을 받기 전) 먼 발·넓힌 교차점 후보가 없다', () => {
+  it('곡선 스냅을 주지 않으면(조각을 받기 전) 먼 발·넓힌 교차점 후보가 없다', () => {
     const w = view(false);
     const { v } = w;
     clickAt(w, FAR);
