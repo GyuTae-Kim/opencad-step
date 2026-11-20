@@ -2627,6 +2627,10 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
 2D 뷰어 안에서 STEP 파일을 3D 탭으로 열던 화면(제품 나무 패널, 리본, 웹 워커 — `src/app/view3d/`)은 이 저장소의 혼자 도는 앱(`src/app/`)으로
 새로 짰습니다(제품 나무·워커 프로토콜·이전 목록 등은 그 커밋의 코드를 옮겨 다듬었습니다).
 
+## 기여
+
+버그 신고, 잘못 읽는 파일 제보, 번역 고침을 반깁니다. 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)(한국어·영어)에 있고, 참여하는 모든 분은 [행동 강령](CODE_OF_CONDUCT.md)을 따릅니다.
+
 ## 라이선스
 
 MIT. 의존성 earcut은 ISC입니다([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
