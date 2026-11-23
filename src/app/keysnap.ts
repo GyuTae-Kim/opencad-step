@@ -86,7 +86,7 @@ export function keyHelpBody(v: Pick<Viewer3d, 'keyboardSnap'>): HTMLElement[] {
   const ks = v.keyboardSnap;
   const rows = ks ? keyHelpRows(ks) : [];
   return [
-    h('p', {}, '3D 보기를 Tab으로 고른 뒤 화살표를 누르면 가상 커서가 켜집니다. 마우스처럼 측정 점을 붙잡고 면·모서리를 고르며, 바뀔 때마다 화면 읽기 프로그램에 알립니다.'),
+    h('p', {}, '3D 보기를 Tab으로 고른 뒤 화살표를 누르면 가상 커서가 켜집니다. 마우스처럼 측정 점에 스냅하고 면·모서리를 고르며, 바뀔 때마다 화면 읽기 프로그램에 알립니다.'),
     h(
       'table',
       { class: 'key-help' },
