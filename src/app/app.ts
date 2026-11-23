@@ -469,7 +469,7 @@ export class StepApp {
       else if (this.multiPick) this.toggleMultiPick(false);
       else if (this.clearSelection()) this.selectionChanged();
     });
-    this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 붙잡을 점', hidden: true });
+    this.measureHoverEl = h('span', { class: 'mb-hover', 'aria-hidden': 'true', title: '커서 아래 스냅할 점', hidden: true });
     // 알림은 글 칸(mb-text)만(53차 — 전에는 띠 전체도 status라 겹친 알림 영역이 되고 단추 이름까지 읽혔다)
     this.measureBar = h('div', { class: 'measure-bar', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureLock, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
@@ -505,7 +505,7 @@ export class StepApp {
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
     this.statusSel = h('div', { class: 'status-sel' });
-    this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 붙잡을 점', hidden: true });
+    this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 스냅할 점', hidden: true });
     const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel, this.sayEl);
 
     const workspace = h('main', { class: 'workspace' }, this.viewEl, this.panel.el);
