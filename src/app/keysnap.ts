@@ -7,6 +7,7 @@
  * - 알림 글(announce)은 화면 밖 aria-live="polite" 영역에 넣는다. 글 틀(messages)은 코어 기본 한국어 틀을 열쇠로 앱 사전(site/locales)에서 옮긴다 —
  *   그래서 영역은 번역층이 건드리지 않는다(data-i18n-skip — 이미 화면 언어 글)
  * - 캔버스 aria-keyshortcuts(코어 키 표와 뷰어 키 F·1~7)와 도움말 키 표(keyHelpBody — 코어 keyLabel)
+ * - 116차: 가상 커서가 꺼진 마우스 측정 미리 보기의 Tab·Shift+Tab 후보 돌리기·Esc 풀기(코어 0.116.0 tabCycle)를 aria-keyshortcuts와 도움말 안내 줄에
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  * - 66차: 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식(코어 0.54.0 facePreview·faceRanges — 측정 모드에서는 코어가 그리지 않는다),
  *   면 고르기·여러 개 고르기·고르기 단위가 바뀌어도 sync(켜진 커서의 후보 묶음을 다시 만든다 — 65차까지는 커서를 옮길 때까지 앞 묶음 그대로였다)
@@ -48,7 +49,8 @@ const MOVES: readonly KeySnapAction[] = ['left', 'right', 'up', 'down'];
 
 /**
  * 캔버스 aria-keyshortcuts 값(WAI-ARIA 꼴 — KeyboardEvent.key, 수정 키는 앞에 'Shift+'): 코어 키 표(옮기기는 Shift와 함께도 — 크게 옮기기),
- * 후보·찍기·끄기, 뷰어 키(F 전체 보기, 1~7 표준 뷰)
+ * 후보·찍기·끄기, 마우스 미리 보기 후보 돌리기(116차 — 코어 0.116.0 tabCycle은 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 기본 키 표에는 이미 있다),
+ * 뷰어 키(F 전체 보기, 1~7 표준 뷰)
  */
 export function keyShortcuts(keys: Readonly<Record<KeySnapAction, readonly string[]>>): string {
   const out = new Set<string>();
@@ -58,6 +60,7 @@ export function keyShortcuts(keys: Readonly<Record<KeySnapAction, readonly strin
       if (!/(^|\+)shift\+/i.test(k)) out.add(`Shift+${k}`);
     }
   for (const a of ['next', 'prev', 'commit', 'exit'] as const) for (const k of keys[a]) out.add(k);
+  for (const k of ['Tab', 'Shift+Tab', 'Escape']) out.add(k);
   out.add('F');
   for (const k of Object.keys(VIEW_KEYS)) out.add(k);
   return [...out].join(' ');
@@ -93,6 +96,8 @@ export function keyHelpBody(v: Pick<Viewer3d, 'keyboardSnap'>): HTMLElement[] {
       h('tbody', {}, ...rows.map(([k, what]) => h('tr', {}, h('th', { scope: 'row' }, h('kbd', { translate: 'no' }, k)), h('td', {}, what)))),
     ),
     h('p', { class: 'hint' }, '두 점 측정에서 가상 커서가 꺼져 있고 마우스가 3D 보기 위에 있으면 화살표는 방향 잠금입니다(→ X축 · ← Y축 · ↑ Z축 · ↓ 지금 방향).'),
+    // 116차: 마우스 미리 보기 Tab 후보 돌리기(코어 0.116.0 tabCycle — measureSnapOptions가 켠다)
+    h('p', { class: 'hint' }, '두 점 측정에서 가상 커서가 꺼져 있고 마우스 자리에 스냅 후보가 둘 이상이면 Tab · Shift+Tab으로 후보를 돌리고, 누르면 보이는 후보를 찍습니다(Esc는 돌리기를 풀고 첫 후보로).'),
   ];
 }
 

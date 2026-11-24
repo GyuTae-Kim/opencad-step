@@ -10,17 +10,22 @@
  * - app.ts 원문: sceneSnap이 없고, 뷰어를 만들 때 onMeasureHoverChange 하나(측정 중에만 showHoverSnap), 3D 보기의 포인터 이동·떠남은 다음 프레임 읽기를 잡지 않는다
  * - putVisibility(looks.ts — 106차에 앱 입구 applyVisibility에서 뷰어 조각으로 옮김): 앞과 같은 setItemVisible 호출
  * 가리키는 자리는 상자 모서리에서 상자 안쪽으로 3화소(경계·구석을 정확히 가리키지 않는다)
+ * - 116차(코어 0.115.0·0.116.0 — measureSnapOptions가 켠다): 첫 점에서 지나간 곧은 모서리에 수직인 방향 위 점은 "모서리에 수직"(수직 발 「수직점」과 가름 —
+ *   뷰어 조각 trackdir.ts guideSnapLabel, app.ts는 그 이름 ?? hoverSnapLabel), 찍은 둘째 점의 결과 이름도. 겹친 후보 자리에서 Tab·Shift+Tab이 마우스 미리 보기를
+ *   돌리고(measureCandidates 차례) 앱 이름이 코어 미리 보기 알림으로 따라오며, 돌리는 중 Esc는 돌리기를 풀고 첫 후보로(측정 지우기보다 먼저)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Viewer3d } from 'opencad-viewer3d';
+import type { MeasureHoverSnap, MeasureResult, Viewer3d } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
 import { touchPointerEvent } from '../../src/app/aim';
 import { stepEdgeIndex } from '../../src/app/doc';
 import { installKeySnap } from '../../src/app/keysnap';
 import { putVisibility } from '../../src/app/looks';
-import { circleCenters, hoverSnapLabel, measureSnapOptions } from '../../src/app/snap';
+import { circleCenters, hoverSnapLabel, measureSnapOptions, snapPair } from '../../src/app/snap';
+import { guideSnapLabel, straightEdgeFilter } from '../../src/app/trackdir';
+import { translate } from '../../site/i18n.mjs';
 import { cube, StepText } from '../stepText';
 import { jsdomViewer } from './jsdomview';
 
@@ -276,6 +281,151 @@ describe('측정 중 장면 길 뒤 스냅 이름(106차·108차)', () => {
   });
 });
 
+/** 캔버스에 키를 누른다(코어 캔버스 리스너가 받는다 — 앱처럼 keyboard 켬) */
+const key = (el: EventTarget, k: string, o: KeyboardEventInit = {}): KeyboardEvent => {
+  const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o });
+  el.dispatchEvent(e);
+  return e;
+};
+
+/** app.ts의 스냅 이름 길(showHoverSnap·onMeasure): 뷰어 조각 이름(guideSnapLabel)이 먼저, 없으면 첫 화면 hoverSnapLabel */
+const appName = (h: MeasureHoverSnap | null | undefined): string | null => guideSnapLabel(h) ?? hoverSnapLabel(h);
+
+const C30 = Math.cos(Math.PI / 6);
+const S30 = Math.sin(Math.PI / 6);
+/** 한 변 10 상자를 Z축 둘레로 30° 돌려 놓은 조립(measurelock.test.ts와 같다 — 윗면 z = 10의 모서리가 축과 나란하지 않다) */
+function tilted(): Uint8Array {
+  const w = new StepText();
+  const ctx = w.context();
+  const box = w.product('tilt-box', [w.ax2([0, 0, 0]), cube(w, 10, [0, 0, 0], 'tilt-body').solid], ctx);
+  const root = w.product('tilt', [w.ax2([0, 0, 0])], ctx, 'SHAPE_REPRESENTATION');
+  w.place(root, box, w.ax2([0, 0, 0], [0, 0, 1], [C30, S30, 0]), 'tilt-1');
+  return w.bytes();
+}
+/** 상자 자리 좌표(윗면 z = 10) → 세계 좌표 */
+const onTop = (u: number, w: number): [number, number, number] => [u * C30 - w * S30, u * S30 + w * C30, 10];
+const E2: readonly number[] = [-S30, C30, 0];
+
+describe('첫 점에서 모서리에 수직인 방향·Tab 후보 돌리기(116차 — 코어 0.115.0 perpendicularDirs·0.116.0 tabCycle)', () => {
+  it('첫 점(윗면 빈 곳) 뒤 곧은 모서리를 지나 그 모서리에 수직인 방향 위를 가리키면 미리 보기가 perpendicularDir이고 앱 이름은 "모서리에 수직"(첫 화면 hoverSnapLabel만으로는 「수직점」), 찍은 둘째 점의 결과 이름도', () => {
+    const j = jsdomViewer({ keyboard: true });
+    restore = j.restore;
+    const v = j.viewer;
+    const sc = stepToScene(tilted());
+    v.setScene(sc);
+    v.setView('top', false);
+    v.fit(false);
+    v.renderNow();
+    const ex = stepEdgeIndex(sc)!;
+    // 앱처럼(syncMeasureSnap — 뷰어 조각의 곧은 모서리 거르기를 받은 뒤)
+    v.setMeasureSnap(measureSnapOptions(sc.meshes, ex, circleCenters(sc.meshes, ex), null, false, straightEdgeFilter(ex), true));
+    v.setMeasureMode(true);
+    const got: MeasureResult[] = [];
+    v.onMeasure((m) => m && got.push(m));
+    const names: (string | null)[] = [];
+    v.onMeasureHoverChange(() => names.push(v.measureMode ? appName(v.measureHoverSnap) : null));
+    const scr = (p: readonly number[]): { x: number; y: number } => {
+      const q = v.project(p)!;
+      expect(q.onScreen, `화면 안 ${p}`).toBe(true);
+      return { x: q.x + 0.37, y: q.y - 0.29 };
+    };
+    const hoverAt = (p: readonly number[]): void => {
+      const q = scr(p);
+      v.canvas.dispatchEvent(touchPointerEvent('pointermove', 1, q.x, q.y, 'mouse'));
+      v.renderNow();
+    };
+    // 첫 점: 윗면 빈 곳(상자 자리 (7, 5) — 모서리·꼭짓점에서 3 넘게)
+    const F = onTop(7, 5);
+    const f = scr(F);
+    expect(v.commitMeasureCandidate(f.x, f.y, 0)).toBe(true);
+    expect(v.measurePointCount).toBe(1);
+    // 기준: 윗면 맞은편 모서리(상자 자리 w = 10)를 지난다
+    hoverAt(onTop(3, 10));
+    expect(v.measureHoverSnap?.segment?.kind).toBe('edge');
+    // 그 모서리에 수직인 방향(첫 점 → 발 = 상자 자리 +w)으로 2.5 — 첫 점 X·Y축·나란함 선과 화면에서 떨어진 자리
+    // (Z축은 위에서 본 화면 가운데(상자 윗면 가운데)에서 첫 점 쪽으로 뻗는다 — 첫 점을 가운데에서 상자 자리 +u 쪽에 두어 +w 방향과 직각)
+    const T = onTop(7, 7.5);
+    const t = scr(T);
+    for (const d of [[1, 0, 0], [0, 1, 0], [C30, S30, 0]]) {
+      const a = v.project(F.map((x, i) => x - d[i]! * 5))!;
+      const b = v.project(F.map((x, i) => x + d[i]! * 5))!;
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      expect(len, `첫 점 선 ${d}`).toBeGreaterThan(50);
+      expect(Math.abs((b.x - a.x) * (t.y - a.y) - (b.y - a.y) * (t.x - a.x)) / len, `첫 점 선 ${d}에서 화면 거리`).toBeGreaterThan(20);
+    }
+    hoverAt(T);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('perpendicular');
+    expect(h.perpendicularDir).toBe(true);
+    expect(h.trackFrom).toBeUndefined();
+    expect(Math.abs(h.direction![0]! * E2[0]! + h.direction![1]! * E2[1]! + h.direction![2]! * E2[2]!)).toBeGreaterThan(1 - 1e-6);
+    expect(Math.hypot(h.point[0]! - T[0], h.point[1]! - T[1], h.point[2]! - T[2])).toBeLessThan(0.2);
+    expect(appName(h)).toBe('모서리에 수직');
+    expect(names[names.length - 1]).toBe('모서리에 수직');
+    expect(hoverSnapLabel(h)).toBe('수직점');
+    for (const code of ['en', 'ja', 'zh-CN', 'de']) {
+      expect(translate(appName(h)!, code), code).not.toMatch(/[가-힣]/);
+      expect(translate(appName(h)!, code), code).not.toBe(translate('수직점', code));
+    }
+    // Shift로 잠글 방향도 그 방향(앱 잠금 이름 「모서리에 수직으로 잠금」)
+    expect(v.measureHoverLock?.kind).toBe('perpendicular');
+    // 찍으면: 결과에는 snapB 'perpendicular'만 — 앱(onMeasure)은 찍은 점의 뷰어 조각 이름을 trackMeetB로
+    expect(v.commitMeasureCandidate(t.x, t.y, 0)).toBe(true);
+    expect(got).toHaveLength(1);
+    const m = got[0]!;
+    expect(m.snapB).toBe('perpendicular');
+    const pts = v.measurePoints;
+    expect(pts[1]!.perpendicularDir).toBe(true);
+    const mB = guideSnapLabel(pts[1]);
+    expect(snapPair({ ...m, ...(mB ? { trackMeetB: mB } : {}) })![1]).toBe('모서리에 수직');
+    expect(snapPair(m)![1]).toBe('수직점');
+  });
+
+  it('겹친 후보 자리에서 Tab·Shift+Tab이 미리 보기를 measureCandidates 차례로 돌리고(기본 동작 막음) 앱 이름이 코어 미리 보기 알림으로 따라온다 — 돌리는 중 Esc는 돌리기를 풀고 첫 후보로(측정 지우기보다 먼저), 푼 뒤 Tab은 초점 이동', () => {
+    const r = rig();
+    // 첫 점: 왼쪽 상자 앞면 왼쪽 위 꼭짓점
+    const a = r.v.project([0, 0, 10])!;
+    expect(r.v.commitMeasureCandidate(a.x, a.y, 0)).toBe(true);
+    expect(r.v.measurePointCount).toBe(1);
+    hover(r);
+    const list = r.v.measureCandidates(r.at.x, r.at.y);
+    expect(list.length, '겹친 후보').toBeGreaterThanOrEqual(2);
+    expect(r.v.measureHoverSnap?.point).toEqual(list[0]!.point);
+    expect(r.now.text).toBe(hoverSnapLabel(list[0]));
+    const n = list.length;
+    const steps: [string, KeyboardEventInit, number][] = [
+      ['Tab', {}, 1],
+      ['Tab', {}, 2 % n],
+      ['Shift+Tab', { shiftKey: true }, 1],
+      ['Shift+Tab', { shiftKey: true }, 0],
+      ['Shift+Tab(끝으로)', { shiftKey: true }, n - 1],
+      ['Tab(처음으로)', {}, 0],
+      ['Tab', {}, 1],
+    ];
+    for (const [what, o, want] of steps) {
+      const c = r.now.calls;
+      expect(key(r.v.canvas, 'Tab', o).defaultPrevented, what).toBe(true);
+      frame(r);
+      const now = r.v.measureHoverSnap;
+      expect(now?.point, what).toEqual(list[want]!.point);
+      expect(now?.snap, what).toBe(list[want]!.snap);
+      expect(r.now.calls - c, what).toBe(1);
+      expect(r.now.text, what).toBe(hoverSnapLabel(list[want]));
+    }
+    // 돌리는 중 Esc: 돌리기를 풀고 첫 후보로 — 찍은 첫 점은 그대로
+    const esc = key(r.v.canvas, 'Escape');
+    expect(esc.defaultPrevented).toBe(true);
+    frame(r);
+    expect(r.v.measurePointCount).toBe(1);
+    expect(r.v.measureHoverSnap?.point).toEqual(list[0]!.point);
+    expect(r.now.text).toBe(hoverSnapLabel(list[0]));
+    // 푼 뒤 그 자리 Tab은 초점 이동(막지 않는다), 다음 Esc는 측정 지우기
+    expect(key(r.v.canvas, 'Tab').defaultPrevented).toBe(false);
+    expect(key(r.v.canvas, 'Escape').defaultPrevented).toBe(true);
+    expect(r.v.measurePointCount).toBe(0);
+  });
+});
+
 describe('app.ts 길(108차 — 106차 sceneSnap을 코어 알림 하나로)', () => {
   const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
   /** 클래스 메서드 하나(머리 줄부터 메서드를 닫는 중괄호 앞까지) */
@@ -324,6 +474,15 @@ describe('app.ts 길(108차 — 106차 sceneSnap을 코어 알림 하나로)', (
     // 가상 커서 알림·Shift 뗌·창 흐려짐·잠금 바뀜(refreshLock)
     expect(app.match(/this\.scheduleHoverSnap\(\)/g)).toHaveLength(4);
     expect(method('private refreshLock(): void {')).toContain('requestAnimationFrame(() => this.scheduleHoverSnap())');
+  });
+
+  it('116차: 스냅 이름은 뷰어 조각 이름(guideLabelOf = trackdir.ts guideSnapLabel — 끌어온 점 안내 선이 만나는 점·첫 점에서 모서리에 수직인 방향)이 먼저, 없으면 hoverSnapLabel — 미리 보기와 찍은 두 점 모두', () => {
+    expect(app).toContain('this.guideLabelOf = core.guideSnapLabel;');
+    expect(app).not.toContain('trackMeetLabelOf');
+    expect(method('private showHoverSnap(): void {')).toContain('(this.guideLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v)))');
+    const onMeasure = method('private onMeasure(m: MeasureResult | null): void {');
+    expect(onMeasure).toContain('this.guideLabelOf?.(pts[0])');
+    expect(onMeasure).toContain('this.guideLabelOf?.(pts[1])');
   });
 });
 

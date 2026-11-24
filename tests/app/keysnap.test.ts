@@ -176,6 +176,9 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
 
   it('키 표 글(aria-keyshortcuts)과 도움말 키 표(keyLabel — 기본 걸음 5·50화소)', () => {
     expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'F', '1', '2', '3', '4', '5', '6', '7']);
+    // 116차: 마우스 미리 보기 Tab 돌리기(코어 0.116.0 tabCycle)는 가상 커서 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 키 표를 바꿔도 남는다
+    const custom = keyShortcuts({ ...KEY_SNAP_KEYS, next: ['n'], prev: ['p'], exit: ['q'] }).split(' ');
+    for (const k of ['Tab', 'Shift+Tab', 'Escape']) expect(custom, k).toContain(k);
     const rows = keyHelpRows({ step: 5, bigStep: 50, keys: KEY_SNAP_KEYS });
     expect(rows.map((r) => r[0])).toEqual(['←→↑↓', 'Shift+←→↑↓', 'Tab · Shift+Tab', 'Enter', 'Esc', 'Shift+F10', 'F · 1~7']);
     expect(rows[0]![1]).toBe('가상 커서 켜기·옮기기(5화소)');
@@ -185,8 +188,12 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
     const { viewer: v } = cubeViewer();
     installKeySnap(v, { tr: (ko) => ko, pickThrough: () => false });
     const body = keyHelpBody(v);
-    expect(body.map((el) => el.tagName)).toEqual(['P', 'TABLE', 'P']);
+    expect(body.map((el) => el.tagName)).toEqual(['P', 'TABLE', 'P', 'P']);
     expect([...body[1]!.querySelectorAll('kbd')].map((k) => [k.textContent, k.getAttribute('translate')])).toEqual(rows.map((r) => [r[0], 'no']));
-    for (const el of [body[0]!, body[2]!]) for (const code of CODES) expect(translate(el.textContent!, code)).not.toMatch(hangul);
+    // 116차: 마우스 미리 보기 Tab 돌리기(코어 0.116.0 tabCycle) — 화살표 방향 잠금 안내와 같은 꼴의 안내 한 줄
+    expect(body[3]!.className).toBe('hint');
+    expect(body[3]!.textContent).toContain('Tab · Shift+Tab');
+    expect(body[3]!.textContent).toContain('Esc');
+    for (const el of [body[0]!, body[2]!, body[3]!]) for (const code of CODES) expect(translate(el.textContent!, code)).not.toMatch(hangul);
   });
 });

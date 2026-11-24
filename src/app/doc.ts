@@ -117,8 +117,9 @@ export interface StepDoc {
    * trackA·trackB = 끌어온 축·첫 점 축 위 점으로 찍었다(snap.ts trackMark) — "끌어온 점에서 Z축", 모서리·면과 만나면 "… · 모서리 위"·"… · 면 위",
    * 끌어온 축끼리의 교차면 "끌어온 X축과 Y축의 교차", 첫 점 축이 모서리·면과 만나면 "X축 · 모서리 위"·"X축 · 면 위",
    * 나란함·수직에 true면 끌어온 점에서 모서리와 나란히·수직인 선 위 점으로 찍었다(snap.ts isTrackDir — "끌어온 점에서 모서리와 나란히"·"… 모서리에 수직"),
-   * trackMeetA·trackMeetB = 그 선이 첫 점 축·첫 점의 나란함·다른 끌어온 점의 축·모서리·면과 만나는 점으로 찍었을 때의 이름(뷰어 조각 trackdir.ts trackDirMeetLabel —
-   * "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 모서리 위", 코어 0.29.0 trackDirs { meets }),
+   * trackMeetA·trackMeetB = 그 선이 첫 점 축·첫 점의 나란함·다른 끌어온 점의 축·모서리·면과 만나는 점으로 찍었을 때의 이름(뷰어 조각 trackdir.ts guideSnapLabel —
+   * "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 모서리 위", 코어 0.29.0 trackDirs { meets }), 116차부터 첫 점에서 모서리에 수직인 방향 위 점으로 찍었을 때의
+   * "모서리에 수직"도(코어 0.115.0 — 결과에는 snapB 'perpendicular'만이라 찍은 점의 perpendicularDir로 가른다),
    * lockMeetB = 잠근 선이 모서리와 만나는 점·면을 뚫는 점·끌어온 점의 축과 만나는 점으로 찍었다(snap.ts lockMeet) — "잠근 X축 · 모서리 위"·"잠근 X축 · 끌어온 점 Y축 위")
    */
   measure:
