@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * 106차: 두 점 측정 중 마우스를 멈춘 채 장면이 바뀐 뒤 상태 막대·측정 띠의 스냅 이름(app.ts showHoverSnap — 코어 measureHoverSnap).
+ * 106차·108차: 두 점 측정 중 마우스를 멈춘 채 장면이 바뀐 뒤 상태 막대·측정 띠의 스냅 이름(app.ts showHoverSnap — 코어 measureHoverSnap).
  * - 실제 코어(jsdom, 가짜 WebGL): 보이기(H·I — setItemVisible)는 다음 그림에서 그 커서 자리로 미리 보기를 다시 구하고(0.98.0), 겉모습(setItemLooks)·붙잡기 선택
- *   다시 주기(곡선 계산 조각을 받은 뒤 setMeasureSnap)·단면은 버린다. 그동안 앱이 이름을 다시 읽던 사건(3D 보기의 포인터 사건·가상 커서 알림)은 하나도 오지 않는다 —
- *   코어 'refresh' 알림은 가상 커서를 켰을 때만이다. 단면만 코어 알림(onSectionChange)이 온다
- * - 앱처럼 이름을 맞추는 흉내: 105차 길(포인터 사건·가상 커서 알림만)은 앞 이름이 남고, 106차 길(장면 길 뒤 sceneSnap — 측정 중에만)은 다음 프레임에 코어와 같다.
- *   측정이 꺼져 있으면 장면 길이 프레임을 잡지 않는다
- * - app.ts 원문: 장면을 바꾸는 자리와 코어 단면 알림이 sceneSnap을 부르고, sceneSnap은 measureMode일 때만 scheduleHoverSnap
+ *   다시 주기(곡선 계산 조각을 받은 뒤 setMeasureSnap)·단면은 버린다. 그동안 3D 보기의 포인터 사건·가상 커서 알림은 하나도 오지 않는다(단면만 코어 onSectionChange)
+ * - 108차: 코어 0.103.0 onMeasureHoverChange가 미리 보기 값이 바뀐 그 그림 뒤 한 번 알린다 — 앱은 이 알림 하나로 이름을 읽는다(106차 sceneSnap 여섯 곳과
+ *   포인터 이동·떠남 뒤 다음 프레임 읽기를 걷음). 105차 길(포인터 사건·가상 커서 알림만)은 앞 이름이 남는다. 포인터 이동·떠남 뒤 이름은 다음 프레임 읽기와 같고
+ *   값이 같은 이동은 알림이 없다. 측정이 꺼져 있으면 알림이 오지 않는다
+ * - app.ts 원문: sceneSnap이 없고, 뷰어를 만들 때 onMeasureHoverChange 하나(측정 중에만 showHoverSnap), 3D 보기의 포인터 이동·떠남은 다음 프레임 읽기를 잡지 않는다
  * - putVisibility(looks.ts — 106차에 앱 입구 applyVisibility에서 뷰어 조각으로 옮김): 앞과 같은 setItemVisible 호출
  * 가리키는 자리는 상자 모서리에서 상자 안쪽으로 3화소(경계·구석을 정확히 가리키지 않는다)
  */
@@ -47,29 +47,18 @@ function pair(): Uint8Array {
   return w.bytes();
 }
 
-/**
- * 앱처럼 스냅 이름을 맞추는 흉내(app.ts scheduleHoverSnap·showHoverSnap): 다시 읽을 사건이 오면 다음 프레임(코어가 그린 뒤)에 measureHoverSnap을 읽는다.
- * sceneEdits = 106차 길(장면 길 뒤 sceneSnap — 측정 중에만), 아니면 105차 길(3D 보기 포인터 사건·가상 커서 알림만)
- */
-class SnapStatus {
+/** 105차 길 흉내(포인터 사건·가상 커서 알림만): 사건이 오면 다음 프레임(코어가 그린 뒤)에 measureHoverSnap을 읽는다 — 106차까지 포인터 길도 이 꼴 */
+class FrameRead {
   text: string | null = null;
-  /** 잡은 프레임 수 */
-  frames = 0;
   private due = false;
   constructor(
     private readonly v: Viewer3d,
     host: HTMLElement,
-    private readonly sceneEdits: boolean,
   ) {
     for (const t of ['pointermove', 'pointerleave']) host.addEventListener(t, () => this.schedule());
   }
   schedule(): void {
     this.due = true;
-    this.frames++;
-  }
-  /** app.ts sceneSnap */
-  sceneSnap(): void {
-    if (this.sceneEdits && this.v.measureMode) this.schedule();
   }
   /** 코어가 그린 다음(같은 프레임의 뒤 예약) */
   read(): void {
@@ -79,8 +68,22 @@ class SnapStatus {
   }
 }
 
+/** 108차 길 흉내(app.ts v.onMeasureHoverChange(() => v.measureMode && this.showHoverSnap())): 알림이 오면 그 자리에서 읽는다(측정 중에만) */
+class HoverNote {
+  text: string | null = null;
+  /** 받은 알림 수 */
+  calls = 0;
+  constructor(v: Viewer3d) {
+    v.onMeasureHoverChange(() => {
+      this.calls++;
+      if (v.measureMode) this.text = hoverSnapLabel(v.measureHoverSnap);
+    });
+  }
+}
+
 interface Rig {
   v: Viewer3d;
+  host: HTMLElement;
   /** 오른쪽 상자 앞면 오른쪽 위 모서리에서 상자 안쪽으로 3화소 */
   at: { x: number; y: number };
   right: string;
@@ -88,8 +91,8 @@ interface Rig {
   resnap: () => void;
   /** 3D 보기의 포인터 사건·가상 커서 알림·코어 단면 알림 */
   seen: string[];
-  old: SnapStatus;
-  now: SnapStatus;
+  old: FrameRead;
+  now: HoverNote;
 }
 
 function rig(): Rig {
@@ -108,15 +111,14 @@ function rig(): Rig {
   v.setMeasureMode(true);
   const seen: string[] = [];
   for (const t of ['pointermove', 'pointerleave']) j.host.addEventListener(t, () => seen.push(t));
-  const old = new SnapStatus(v, j.host, false);
-  const now = new SnapStatus(v, j.host, true);
+  const old = new FrameRead(v, j.host);
+  const now = new HoverNote(v);
   installKeySnap(v, {
     tr: (ko) => ko,
     pickThrough: () => false,
     announced: (a) => {
       seen.push(`announce ${a.reason}`);
       old.schedule();
-      now.schedule();
     },
   });
   v.onSectionChange(() => seen.push('section'));
@@ -126,48 +128,56 @@ function rig(): Rig {
   const at = { x: c.x + (m.x - c.x) * k, y: c.y + (m.y - c.y) * k };
   const p = v.pick(at.x, at.y);
   expect(p, '오른쪽 상자 위').toBeTruthy();
-  return { v, at, right: p!.id, resnap, seen, old, now };
+  return { v, host: j.host, at, right: p!.id, resnap, seen, old, now };
 }
 
-/** 다음 프레임: 코어가 그리고(미리 보기를 구한다) 앱이 읽는다 */
+/** 다음 프레임: 코어가 그리고(미리 보기를 구하고 값이 바뀌었으면 알린다) 105차 흉내가 읽는다 */
 function frame(r: Rig): void {
   r.v.renderNow();
   r.old.read();
-  r.now.read();
+}
+
+/** 마우스를 그 자리로 옮긴다(그리기 없이) */
+function move(r: Rig, at = r.at): void {
+  r.v.canvas.dispatchEvent(touchPointerEvent('pointermove', 1, at.x, at.y, 'mouse'));
 }
 
 /** 마우스를 그 자리로 옮기고 다음 프레임 */
-function hover(r: Rig): void {
-  r.v.canvas.dispatchEvent(touchPointerEvent('pointermove', 1, r.at.x, r.at.y, 'mouse'));
+function hover(r: Rig, at = r.at): void {
+  move(r, at);
   frame(r);
 }
 
-/** 앱의 장면 길 뒤(106차 sceneSnap — 105차 흉내는 아무것도 하지 않는다) */
-function sceneSnap(r: Rig): void {
-  r.old.sceneSnap();
-  r.now.sceneSnap();
+/** 마우스가 3D 보기를 떠나고 다음 프레임(pointerleave는 거품이 일지 않아 브라우저처럼 캔버스와 호스트에 따로) */
+function leave(r: Rig): void {
+  r.v.canvas.dispatchEvent(touchPointerEvent('pointerleave', 1, 0, 0, 'mouse'));
+  r.host.dispatchEvent(touchPointerEvent('pointerleave', 1, 0, 0, 'mouse'));
+  frame(r);
 }
 
-describe('측정 중 장면 길 뒤 스냅 이름(106차)', () => {
-  it('마우스를 멈춘 채 H로 커서 아래 바디를 숨기면 코어는 다음 그림에서 그 자리 미리 보기를 다시 구한다(없음) — 앱이 듣던 사건은 오지 않아 105차 길은 앞 이름, 106차 길은 숨김', () => {
+describe('측정 중 장면 길 뒤 스냅 이름(106차·108차)', () => {
+  it('마우스를 멈춘 채 H로 커서 아래 바디를 숨기면 코어는 다음 그림에서 그 자리 미리 보기를 다시 구하고(없음) 그 그림 뒤 알림이 한 번 — 앱이 듣던 사건은 오지 않아 105차 길은 앞 이름, 108차 길은 숨김', () => {
     const r = rig();
     hover(r);
     const name = hoverSnapLabel(r.v.measureHoverSnap);
     expect(['끝점', '꼭짓점']).toContain(name);
     expect([r.old.text, r.now.text]).toEqual([name, name]);
     const n = r.seen.length;
-    // app.ts hideSelection → setItemsVisible → applyVisibility(setItemVisible 뒤 sceneSnap)
+    const c = r.now.calls;
+    // app.ts hideSelection → setItemsVisible → applyVisibility(setItemVisible — 106차의 다음 프레임 읽기는 걷음)
     r.v.setItemVisible(r.right, false);
-    sceneSnap(r);
+    // 그리기 전에는 알리지 않는다(그 그림 뒤)
+    expect(r.now.calls).toBe(c);
     frame(r);
     expect(r.v.measureHoverSnap).toBeNull();
     // 포인터 사건도 가상 커서 알림('refresh' — 커서를 켰을 때만)도 오지 않는다
     expect(r.seen.slice(n)).toEqual([]);
+    expect(r.now.calls - c).toBe(1);
     expect(r.old.text).toBe(name);
     expect(r.now.text).toBeNull();
   });
 
-  it('겉모습(I로 흐리게 풀기 — setItemLooks)·붙잡기 선택 다시 주기(곡선 계산 조각)·단면은 미리 보기를 버린다 — 알림은 단면의 onSectionChange뿐, 105차 길은 앞 이름', () => {
+  it('겉모습(I로 흐리게 풀기 — setItemLooks)·붙잡기 선택 다시 주기(곡선 계산 조각)·단면은 미리 보기를 버리고 그 그림 뒤 알림이 한 번 — 앱이 듣던 사건은 단면의 onSectionChange뿐, 105차 길은 앞 이름', () => {
     const r = rig();
     const steps: [string, () => void, (() => void) | null][] = [
       ['겉모습', () => void r.v.setItemLooks([[r.right, { opacity: 0.5 }]]), () => void r.v.setItemLooks([[r.right, null]])],
@@ -180,8 +190,8 @@ describe('측정 중 장면 길 뒤 스냅 이름(106차)', () => {
       expect(name, what).toBeTruthy();
       expect([r.old.text, r.now.text], what).toEqual([name, name]);
       const n = r.seen.length;
+      const c = r.now.calls;
       edit();
-      sceneSnap(r);
       frame(r);
       expect(r.v.measureHoverSnap, what).toBeNull();
       const after = r.seen.slice(n);
@@ -190,34 +200,64 @@ describe('측정 중 장면 길 뒤 스냅 이름(106차)', () => {
         what,
       ).toEqual([]);
       expect(after.includes('section'), what).toBe(what === '단면');
+      expect(r.now.calls - c, what).toBe(1);
       expect(r.old.text, what).toBe(name);
       expect(r.now.text, what).toBeNull();
       undo?.();
     }
   });
 
-  it('측정이 꺼져 있으면 106차 장면 길은 프레임을 잡지 않고 이름도 없다(105차 길과 같은 프레임 수) — 측정 중에만 장면 길마다 한 번', () => {
+  it('포인터 이동·떠남도 그 그림 뒤 알림 — 이름은 포인터 이동 뒤 다음 프레임 읽기(105·106차 포인터 길)와 같고, 같은 자리로 다시 옮겨 값이 같으면 알림이 없다', () => {
+    const r = rig();
+    const mid = r.v.project([25, 0, 5])!;
+    const steps: [string, () => void, number | null][] = [
+      ['모서리 가까이', () => hover(r), 1],
+      ['오른쪽 상자 앞면 가운데', () => hover(r, mid), null],
+      [
+        '한 그림 앞 두 이동(늦은 자리 = 모서리 가까이)',
+        () => {
+          move(r, mid);
+          move(r, r.at);
+          frame(r);
+        },
+        null,
+      ],
+      ['같은 자리', () => hover(r), 0],
+      ['떠남', () => leave(r), 1],
+    ];
+    for (const [what, act, want] of steps) {
+      const c = r.now.calls;
+      act();
+      const name = hoverSnapLabel(r.v.measureHoverSnap);
+      expect(r.old.text, what).toBe(name);
+      expect(r.now.text, what).toBe(name);
+      if (want === null) expect(r.now.calls - c, what).toBeLessThanOrEqual(1);
+      else expect(r.now.calls - c, what).toBe(want);
+    }
+    expect(r.now.text).toBeNull();
+  });
+
+  it('측정이 꺼져 있으면 포인터 이동·장면 길 모두 알림이 오지 않고 이름도 없다 — 켜면 다음 가리킴부터 알림', () => {
     const r = rig();
     r.v.setMeasureMode(false);
     hover(r);
-    expect([r.old.frames, r.now.frames]).toEqual([1, 1]);
     r.v.setItemVisible(r.right, false);
-    sceneSnap(r);
-    r.v.setItemLooks([[r.right, { opacity: 0.5 }]]);
-    sceneSnap(r);
     r.v.setSectionAxis('x', 0.5);
-    sceneSnap(r);
     frame(r);
-    expect([r.old.frames, r.now.frames]).toEqual([1, 1]);
+    hover(r);
+    expect(r.now.calls).toBe(0);
     expect([r.old.text, r.now.text]).toEqual([null, null]);
-    r.v.setMeasureMode(true);
     r.v.setSection(null);
-    sceneSnap(r);
-    expect([r.old.frames, r.now.frames]).toEqual([1, 2]);
+    r.v.setItemVisible(r.right, true);
+    r.v.setMeasureMode(true);
+    hover(r);
+    expect(r.now.calls).toBe(1);
+    expect(r.now.text).toBeTruthy();
+    expect(r.now.text).toBe(hoverSnapLabel(r.v.measureHoverSnap));
   });
 });
 
-describe('app.ts 길(106차)', () => {
+describe('app.ts 길(108차 — 106차 sceneSnap을 코어 알림 하나로)', () => {
   const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
   /** 클래스 메서드 하나(머리 줄부터 메서드를 닫는 중괄호 앞까지) */
   const method = (head: string): string => {
@@ -225,9 +265,19 @@ describe('app.ts 길(106차)', () => {
     expect(i, head).toBeGreaterThan(0);
     return app.slice(i, app.indexOf('\n  }\n', i));
   };
+  /** 글 a부터 그 뒤 b 앞까지 */
+  const between = (a: string, b: string): string => {
+    const i = app.indexOf(a);
+    expect(i, a).toBeGreaterThan(0);
+    const j = app.indexOf(b, i);
+    expect(j, b).toBeGreaterThan(i);
+    return app.slice(i, j);
+  };
 
-  it('sceneSnap은 두 점 측정 중에만 다음 프레임 읽기를 잡고, 장면을 바꾸는 자리와 코어 단면 알림(syncSection)이 그것만 부른다 — 보이기 고리는 뷰어 조각으로', () => {
-    expect(method('private sceneSnap(): void {')).toMatch(/\{\n\s*if \(this\.viewer\?\.measureMode\) this\.scheduleHoverSnap\(\);$/);
+  it('뷰어를 만들 때 onMeasureHoverChange 하나(측정 중에만 showHoverSnap)를 달고 sceneSnap은 없다 — 장면을 바꾸는 여섯 자리는 이름을 읽지 않는다', () => {
+    expect(app).not.toMatch(/sceneSnap\(/);
+    expect(app.match(/onMeasureHoverChange\(/g)).toHaveLength(1);
+    expect(app).toMatch(/\n\s*v\.onMeasureHoverChange\(\(\) => v\.measureMode && this\.showHoverSnap\(\)\);\n/);
     const sites: Record<string, string> = {
       applyVisibility: 'private applyVisibility(ids?: readonly string[]): void {',
       setGroupVisible: 'setGroupVisible(group: string, on: boolean): void {',
@@ -236,17 +286,25 @@ describe('app.ts 길(106차)', () => {
       syncMeasureSnap: 'private syncMeasureSnap(): void {',
       fetchFaceSurfaces: 'private fetchFaceSurfaces(d: StepDoc): void {',
     };
-    for (const [name, head] of Object.entries(sites)) {
-      const body = method(head);
-      expect(body, name).toContain('this.sceneSnap();');
-      expect(body, name).not.toContain('scheduleHoverSnap');
-    }
-    expect(app.match(/this\.sceneSnap\(\);/g)).toHaveLength(Object.keys(sites).length);
-    // 단면은 코어가 알린다(onSectionChange → syncSection)
+    for (const [name, head] of Object.entries(sites)) expect(method(head), name).not.toMatch(/scheduleHoverSnap|showHoverSnap/);
+    // 단면 막대·도구 막대는 그대로 코어 단면 알림으로
     expect(app).toMatch(/v\.onSectionChange\(\(st\) => this\.syncSection\(st\)\);/);
-    // 보이기를 거는 고리는 뷰어 조각(looks.ts putVisibility — 첫 화면 JS 밖)
+    // 보이기를 거는 고리는 뷰어 조각(looks.ts putVisibility — 106차 그대로, 첫 화면 JS 밖)
     expect(method(sites.applyVisibility)).toContain('this.ent!.putVisibility(v, d.vis, d.scene, ids);');
     expect(app).not.toContain('setItemVisible(id, on)');
+  });
+
+  it('3D 보기의 포인터 이동·떠남은 다음 프레임 읽기를 잡지 않는다(알림이 맡음) — Shift 없이 움직이면 접선 잠금 풀기·마우스가 3D 보기 위인지는 그대로, 다음 프레임 읽기는 키·잠금 길 넷에만', () => {
+    const move = between("this.hostEl.addEventListener('pointermove'", "this.hostEl.addEventListener('pointerleave'");
+    expect(move).toContain('if (!e.shiftKey) this.tangentShift(false);');
+    expect(move).toContain("this.pointerIn = e.pointerType !== 'touch';");
+    expect(move).not.toContain('HoverSnap');
+    const leave = between("this.hostEl.addEventListener('pointerleave'", 'this.viewer = v;');
+    expect(leave).toContain('this.pointerIn = false;');
+    expect(leave).not.toContain('HoverSnap');
+    // 가상 커서 알림·Shift 뗌·창 흐려짐·잠금 바뀜(refreshLock)
+    expect(app.match(/this\.scheduleHoverSnap\(\)/g)).toHaveLength(4);
+    expect(method('private refreshLock(): void {')).toContain('requestAnimationFrame(() => this.scheduleHoverSnap())');
   });
 });
 
