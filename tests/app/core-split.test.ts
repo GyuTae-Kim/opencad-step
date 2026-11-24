@@ -209,6 +209,9 @@ describe('코어 나눠 받기', () => {
     expect(m.installKeyNav).toBe((await import('../../src/app/keynav')).installKeyNav);
     // 66차: 같은 조각의 부품 겉모습 걸기, 69차: 코어가 미룬 올리기의 상태 표시(앱이 뷰어를 만든 뒤·문서를 올릴 때 쓴다)
     expect(m.LookSync).toBe((await import('../../src/app/looks')).LookSync);
+    // 106차: 같은 조각의 보이기 걸기(앱 입구 applyVisibility에서 옮김 — 첫 화면 JS 밖)
+    expect(typeof m.putVisibility).toBe('function');
+    expect(m.putVisibility).toBe((await import('../../src/app/looks')).putVisibility);
     expect(m.holdUpload).toBe((await import('../../src/app/upload')).holdUpload);
     expect((await import('../../src/app/looks')).translucentView).toBe((await import('../../src/app/doc')).translucentView);
     // 같은 조각의 작업 메뉴(64차 — 3D 보기 화면 점의 메뉴와 겹친 것 고르기 목록)

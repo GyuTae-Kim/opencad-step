@@ -215,3 +215,26 @@ export class LookSync {
     return this.moveMap;
   }
 }
+
+/**
+ * 문서의 보이기(visibility.ts — 나무 눈 단추·레이어·PMI·격리를 함께 따진 값)를 뷰어 묶음에 건다(ids를 주면 그것만, 없으면 장면의 그물·선·점 모두).
+ * 숨길 묶음은 늘 다시 건다(코어 0.64.0부터 같은 값이면 아무것도 하지 않는다), 보일 묶음은 뷰어와 다를 때만.
+ * 106차: 앱 입구 applyVisibility에서 옮겼다(뷰어가 있어야 건다 — 첫 화면 JS 밖)
+ */
+export function putVisibility(
+  v: Pick<Viewer3d, 'isVisible' | 'setItemVisible'>,
+  vis: { visible(id: string): boolean },
+  scene: { meshes: readonly { id: string }[]; lines: readonly { id: string }[]; points?: readonly { id: string }[] },
+  ids?: readonly string[],
+): void {
+  const set = (id: string): void => {
+    const on = vis.visible(id);
+    if (v.isVisible(id) !== on || !on) v.setItemVisible(id, on);
+  };
+  if (ids) for (const id of ids) set(id);
+  else {
+    for (const m of scene.meshes) set(m.id);
+    for (const l of scene.lines) set(l.id);
+    for (const p of scene.points ?? []) set(p.id);
+  }
+}
