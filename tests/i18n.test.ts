@@ -1,6 +1,8 @@
 import { metadataForLanguage } from '../site/i18n.mjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 const { JSDOM } = createRequire(import.meta.url)('jsdom');
 import { installLocalization } from '../src/app/i18n';
 import { catalogs, currentLanguage, languageUrl, languages, translate } from '../site/i18n.mjs';
@@ -195,6 +197,24 @@ describe('language URLs and UI presentation', () => {
     for (const [ko, en, de] of one) expect([translate(ko, 'en'), translate(ko, 'de')], ko).toEqual([en, de]);
     expect(translate('경고 2개', 'en')).toBe('2 warnings');
     expect(translate('OBJ로 내보냈습니다: 메시 1개 · 삼각형 12개 · 단위 mm', 'en')).toBe('Exported as OBJ: meshes 1 · triangles 12 · unit mm');
+  });
+  it('translates the core Error text before it fills the image-save failure notice (115th)', () => {
+    // 그림 저장 실패 알림(app.ts imageSaveFailed): 코어 Error 글은 틀 「그림을 저장하지 못했습니다: {0}」의 자리 값이라 번역층이 그대로 두므로
+    // 앱이 끼우기 전에 화면 언어로 옮긴다. 글은 설치한 코어 viewer.ts의 throw에서 읽는다(코어가 새 글을 던지면 사전에 없다고 알린다)
+    const core = readFileSync(join(process.cwd(), 'node_modules/opencad-viewer3d/src/viewer.ts'), 'utf8');
+    const constant = (name: string) => core.match(new RegExp(`const ${name} = '([^']*)'`))?.[1] ?? name;
+    const thrown = [...new Set([...core.matchAll(/new Error\((?:'([^']*)'|`([^`]*)`|([A-Z][A-Z0-9_]*))\)/g)]
+      .map((m) => m[1] ?? m[2]?.replace(/\$\{[^}]*\}/g, '512') ?? constant(m[3]!)))];
+    expect(thrown).toContain('3D 보기 문맥이 없어 그림을 만들 수 없습니다');
+    expect(thrown).toContain('그림을 만들지 못했습니다(512×512)');
+    const notice = (reason: string, code: string) => translate(`그림을 저장하지 못했습니다: ${translate(reason, code)}`, code);
+    for (const {code} of languages.filter(item => item.code !== 'ko'))
+      for (const reason of thrown) {
+        expect(translate(reason, code), `${code}: ${reason}`).not.toMatch(/[가-힣]/);
+        expect(notice(reason, code), `${code}: ${reason}`).not.toMatch(/[가-힣]/);
+      }
+    expect(notice('3D 보기 문맥이 없어 그림을 만들 수 없습니다', 'en')).toBe('Failed to save the image: Cannot create the image because the 3D view has no graphics context');
+    expect(notice('그림을 만들지 못했습니다(1024×768)', 'de')).toBe('Bild konnte nicht gespeichert werden: Bild konnte nicht erstellt werden (1024×768)');
   });
   it('translates each line of a multi-line message, even when a trailing {0} would swallow the next line', () => {
     // 줄바꿈으로 이은 글: "…: {0}"의 {0}이 다음 줄까지 잡아 둘째 줄이 한국어로 남던 것(공용 번역기 맞춤)
