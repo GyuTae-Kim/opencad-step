@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * 106차·108차: 두 점 측정 중 마우스를 멈춘 채 장면이 바뀐 뒤 상태 막대·측정 띠의 스냅 이름(app.ts showHoverSnap — 코어 measureHoverSnap).
- * - 실제 코어(jsdom, 가짜 WebGL): 보이기(H·I — setItemVisible)는 다음 그림에서 그 커서 자리로 미리 보기를 다시 구하고(0.98.0), 겉모습(setItemLooks)·붙잡기 선택
- *   다시 주기(곡선 계산 조각을 받은 뒤 setMeasureSnap)·단면은 버린다. 그동안 3D 보기의 포인터 사건·가상 커서 알림은 하나도 오지 않는다(단면만 코어 onSectionChange)
+ * 106차·108차·111차: 두 점 측정 중 마우스를 멈춘 채 장면이 바뀐 뒤 상태 막대·측정 띠의 스냅 이름(app.ts showHoverSnap — 코어 measureHoverSnap).
+ * - 실제 코어(jsdom, 가짜 WebGL): 보이기(H·I — setItemVisible)는 다음 그림에서 그 커서 자리로 미리 보기를 다시 구하고(0.98.0), 겉모습(setItemLooks)·단면도
+ *   코어 0.109.0부터 그렇게 다시 구한다(0.108.0은 버렸다 — 111차). 붙잡기 선택 다시 주기(곡선 계산 조각을 받은 뒤 setMeasureSnap)는 그대로 버린다.
+ *   그동안 3D 보기의 포인터 사건·가상 커서 알림은 하나도 오지 않는다(단면만 코어 onSectionChange)
  * - 108차: 코어 0.103.0 onMeasureHoverChange가 미리 보기 값이 바뀐 그 그림 뒤 한 번 알린다 — 앱은 이 알림 하나로 이름을 읽는다(106차 sceneSnap 여섯 곳과
  *   포인터 이동·떠남 뒤 다음 프레임 읽기를 걷음). 105차 길(포인터 사건·가상 커서 알림만)은 앞 이름이 남는다. 포인터 이동·떠남 뒤 이름은 다음 프레임 읽기와 같고
  *   값이 같은 이동은 알림이 없다. 측정이 꺼져 있으면 알림이 오지 않는다
@@ -177,32 +178,50 @@ describe('측정 중 장면 길 뒤 스냅 이름(106차·108차)', () => {
     expect(r.now.text).toBeNull();
   });
 
-  it('겉모습(I로 흐리게 풀기 — setItemLooks)·붙잡기 선택 다시 주기(곡선 계산 조각)·단면은 미리 보기를 버리고 그 그림 뒤 알림이 한 번 — 앱이 듣던 사건은 단면의 onSectionChange뿐, 105차 길은 앞 이름', () => {
+  it('겉모습(I로 흐리게 풀기 — setItemLooks)·단면은 코어 0.109.0부터 그 커서 자리에서 다시 구해 값이 바뀔 때만 그 그림 뒤 알림이 한 번, 붙잡기 선택 다시 주기(곡선 계산 조각)는 버리고 알림이 한 번 — 앱이 듣던 사건은 단면의 onSectionChange뿐, 105차 길은 앞 이름', () => {
     const r = rig();
-    const steps: [string, () => void, (() => void) | null][] = [
-      ['겉모습', () => void r.v.setItemLooks([[r.right, { opacity: 0.5 }]]), () => void r.v.setItemLooks([[r.right, null]])],
-      ['붙잡기 선택', r.resnap, null],
-      ['단면', () => r.v.setSectionAxis('x', 0.5), null],
+    // [무엇, 바꾸기, 되돌리기, 그림 뒤 미리 보기: 'same' = 바꾸기 전과 같은 값(알림 없음 — 0.108.0은 버려 null), null = 없음(알림 한 번)]
+    const steps: [string, () => void, (() => void) | null, 'same' | null][] = [
+      // 반투명만: 붙잡기 선택에 반투명 너머 고르기가 없어 측정 고르기는 그대로 오른쪽 바디
+      ['겉모습(반투명)', () => void r.v.setItemLooks([[r.right, { opacity: 0.5 }]]), () => void r.v.setItemLooks([[r.right, null]]), 'same'],
+      // 앱 나머지 흐리게(looks.ts — 반투명·고르지 않음): 커서 아래 바디를 고르지 않으면 그 자리에 붙잡을 것이 없다
+      ['겉모습(고르지 않음)', () => void r.v.setItemLooks([[r.right, { opacity: 0.5, pickable: false }]]), () => void r.v.setItemLooks([[r.right, null]]), null],
+      ['붙잡기 선택', r.resnap, null, null],
+      // x 가운데(15) 단면을 뒤집으면 x < 15(왼쪽 바디)만 잘라 내 커서 아래 오른쪽 바디는 그대로
+      ['단면(왼쪽을 잘라 냄)', () => r.v.setSectionAxis('x', 0.5, { flip: true }), () => r.v.setSection(null), 'same'],
+      // 뒤집지 않으면 x > 15(커서 아래 오른쪽 바디)를 잘라 내 붙잡을 것이 없다
+      ['단면(오른쪽을 잘라 냄)', () => r.v.setSectionAxis('x', 0.5), null, null],
     ];
-    for (const [what, edit, undo] of steps) {
+    for (const [what, edit, undo, want] of steps) {
       hover(r);
-      const name = hoverSnapLabel(r.v.measureHoverSnap);
+      const before = r.v.measureHoverSnap;
+      const name = hoverSnapLabel(before);
       expect(name, what).toBeTruthy();
       expect([r.old.text, r.now.text], what).toEqual([name, name]);
       const n = r.seen.length;
       const c = r.now.calls;
       edit();
       frame(r);
-      expect(r.v.measureHoverSnap, what).toBeNull();
       const after = r.seen.slice(n);
       expect(
         after.filter((e) => e !== 'section'),
         what,
       ).toEqual([]);
-      expect(after.includes('section'), what).toBe(what === '단면');
-      expect(r.now.calls - c, what).toBe(1);
+      expect(after.includes('section'), what).toBe(what.startsWith('단면'));
       expect(r.old.text, what).toBe(name);
-      expect(r.now.text, what).toBeNull();
+      if (want === 'same') {
+        // 같은 점·같은 붙잡기 종류로 다시 구한다. 반투명 묶음은 고르는 차례가 달라 같은 끝점을 낸 모서리(segment)가 다를 수 있어
+        // 코어가 값이 바뀌었다고 한 번 알릴 수 있지만(0.103.0 — 모든 필드 비교) 앱 이름은 같다
+        const now = r.v.measureHoverSnap;
+        expect(now?.point, what).toEqual(before?.point);
+        expect(now?.snap, what).toBe(before?.snap);
+        expect(r.now.calls - c, what).toBeLessThanOrEqual(1);
+        expect(r.now.text, what).toBe(name);
+      } else {
+        expect(r.v.measureHoverSnap, what).toBeNull();
+        expect(r.now.calls - c, what).toBe(1);
+        expect(r.now.text, what).toBeNull();
+      }
       undo?.();
     }
   });
