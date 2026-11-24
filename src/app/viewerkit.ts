@@ -25,7 +25,8 @@
  * - 3D 강조 그리기(hipaint.ts — 65차, 앱 입구의 showFace를 옮김): 고른 것의 항목·구간 강조와 면·모서리 강조 선을 함께 그린다(앱은 그린 것을 기억해 겹친 것 목록 미리 강조 뒤 되돌린다).
  *   겹친 것 고르기 후보 묶음 열쇠(picklist.ts pickGroup — 코어 0.53.0 group)는 가상 커서 Tab에도 준다
  * - 부품 겉모습 걸기(looks.ts LookSync — 66차, 앱 입구에서 옮김): 불투명도·흐리게·부품 색·분해 행렬을 바뀐 묶음만 코어에 건다(뷰어가 있어야 건다 —
- *   앱의 반투명 보기 판정 translucentView는 doc.ts). 코어가 묶어 그리기 조각을 기다려 미룬 올리기의 상태 표시(upload.ts holdUpload — 69차, 코어 0.56.0)도
+ *   앱의 반투명 보기 판정 translucentView는 doc.ts). 코어가 묶어 그리기 조각을 기다려 미룬 올리기의 상태 표시(upload.ts holdUpload — 69차, 코어 0.56.0)도.
+ *   문서의 보이기를 뷰어 묶음에 거는 고리(looks.ts putVisibility — 106차, 앱 입구 applyVisibility에서 옮김)도
  * - 묶어 그리기 조각 미리 받기(upload.ts warmMerging — 74차, 코어 0.60.0): 이 조각이 들어오면 곧 받기 시작한다(기다리지 않는다 — 아래)
  * 여기에 더한 모듈은 앱 입구에서 값으로 가져오지 않는다(타입만 — tests/app/core-split.test.ts가 본다).
  */
@@ -41,8 +42,9 @@ export { imageDialogBody } from './imagedlg';
 export { infoView } from './infoview';
 export { installKeyNav } from './keynav';
 export { installKeySnap, keyHelpBody } from './keysnap';
-// 66차: 부품 겉모습 걸기(looks.ts LookSync — 불투명도·흐리게·부품 색·분해 행렬, 뷰어가 있어야 건다 — 첫 화면 JS에서 옮김)
-export { LookSync } from './looks';
+// 66차: 부품 겉모습 걸기(looks.ts LookSync — 불투명도·흐리게·부품 색·분해 행렬, 뷰어가 있어야 건다 — 첫 화면 JS에서 옮김).
+// 106차: 보이기 걸기(putVisibility — 앱 applyVisibility의 고리)도 같은 모듈에서
+export { LookSync, putVisibility } from './looks';
 export { openNotice, sceneIssueLines } from './opennotice';
 export { pickGroup } from './picklist';
 // 뷰 큐브 면 글(코어가 캔버스에 그린다 — 앱이 화면 언어로 바꾼다, app.ts relabelCube). 61차: 코어 0.44.0에서 커진 viewcube 모듈을 첫 화면 JS에서 빼려고
