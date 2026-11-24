@@ -2485,7 +2485,7 @@ export class StepApp {
       trackExport('png');
       this.toast(how === 'shared' ? '지금 화면 그림을 공유했습니다.' : '지금 화면을 PNG로 저장했습니다.');
     } catch (e) {
-      this.toast(`그림을 저장하지 못했습니다: ${errorText(e)}`, 'error');
+      this.toast(imageSaveFailed(e), 'error');
     }
   }
 
@@ -2518,7 +2518,7 @@ export class StepApp {
       trackExport('png');
       this.toast(how === 'shared' ? `그림을 공유했습니다(${size.width} × ${size.height} 화소).` : `PNG를 저장했습니다(${size.width} × ${size.height} 화소).`);
     } catch (e) {
-      this.toast(`그림을 저장하지 못했습니다: ${errorText(e)}`, 'error');
+      this.toast(imageSaveFailed(e), 'error');
     }
   }
 
@@ -3331,4 +3331,12 @@ function logMeasure(d: StepDoc, r: MeasureRecord): void {
 /** 파일·클립보드로 나가는 글(DOM 밖이라 번역층이 못 바꾼다)을 지금 화면 언어로 */
 function translateUi(ko: string): string {
   return translateCatalog(ko, document.documentElement.lang || 'ko');
+}
+
+/**
+ * 그림 저장 실패 알림. 까닭(코어 Error 글 — 「3D 보기 문맥이 없어 그림을 만들 수 없습니다」 등)은 틀 「그림을 저장하지 못했습니다: {0}」의
+ * 자리 값이라 번역층이 그대로 두므로, 끼우기 전에 화면 언어로 옮긴다(115차 — 전에는 다른 언어 화면에서도 까닭이 한국어로 남음)
+ */
+function imageSaveFailed(e: unknown): string {
+  return `그림을 저장하지 못했습니다: ${translateUi(errorText(e))}`;
 }
