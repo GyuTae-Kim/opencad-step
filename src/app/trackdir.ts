@@ -3,6 +3,7 @@
  * - 기준 선분 거르기(코어 0.28.0 inference.trackDirs { edge }, 0.29.0 첫 점 나란함 parallelEdge에도 같은 함수)
  * - 끌어온 점의 나란함·수직 선이 만나는 점(코어 0.29.0 trackDirs { meets }, 0.30.0 { guides: true } — 두 끌어온 점의 안내 선끼리)의 이름:
  *   상태 막대·측정 띠·결과에 "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 다른 끌어온 점에서 수직인 선 위"처럼
+ * - 116차: 첫 점에서 모서리에 수직인 방향 위 점(코어 0.115.0 perpendicularDir)의 이름 "모서리에 수직"(guideSnapLabel — 위 이름과 함께 앱이 먼저 묻는다)
  * 측정 붙잡기 계산이라 뷰어 조각(viewerkit.ts — 첫 화면 JS 밖)에 들어 있고, 앱은 뷰어를 만들 때 이 함수들을 쥐어
  * 측정 붙잡기 선택(snap.ts measureSnapOptions)에 넘기고 붙잡을 점·찍은 점의 이름을 고른다.
  */
@@ -83,4 +84,21 @@ export function trackDirMeetLabel(p: TrackDirMeetInput | null | undefined): stri
   const m = trackDirMeet(p);
   if (!m) return null;
   return `${p!.snap === 'parallel' ? TRACK_PARALLEL_LABEL : TRACK_PERPENDICULAR_LABEL} · ${trackDirMeetPlace(m)}`;
+}
+
+/**
+ * 첫 점에서 지나간 모서리에 수직인 방향 위 점(116차 — 코어 0.115.0 inference.perpendicularDirs, 값에 perpendicularDir)의 이름.
+ * 첫 점 나란함 "모서리와 나란히"·끌어온 점 수직 선 "끌어온 점에서 모서리에 수직"과 같은 말이고, 첫 점에서 내린 수직 발(같은 snap 'perpendicular')은 그대로 「수직점」
+ */
+export const PERPENDICULAR_DIR_LABEL = '모서리에 수직';
+
+/**
+ * 뷰어 조각이 고르는 안내 선 위 점의 이름(116차 — app.ts는 이 이름 ?? snap.ts hoverSnapLabel·snapLabel, 미리 보기와 찍은 점 모두):
+ * 첫 점에서 모서리에 수직인 방향 위 점(잠그지 않았고 끌어온 점 선이 아닌 perpendicularDir — 코어 0.115.0)이면 "모서리에 수직",
+ * 끌어온 점 안내 선이 만나는 점이면 trackDirMeetLabel, 아니면 null. 첫 화면 hoverSnapLabel을 늘리지 않으려고 이 조각에 둔다
+ * (코어 결과(onMeasure)에는 snapB 'perpendicular'만 실려 앱은 찍은 점 measurePoints로 가른다 — 끌어온 점 안내 선과 같은 길)
+ */
+export function guideSnapLabel(p: (TrackDirMeetInput & { perpendicularDir?: boolean }) | null | undefined): string | null {
+  if (p?.perpendicularDir && p.snap === 'perpendicular' && !p.locked && !p.trackFrom) return PERPENDICULAR_DIR_LABEL;
+  return trackDirMeetLabel(p);
 }

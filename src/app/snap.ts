@@ -158,7 +158,11 @@ export function edgeSnapPoints(
  * 0.30.0 meets { guides: true }, 정확한 직선끼리라 다듬지 않는다)에도 붙는다. 그 선이 곡선 모서리 꺾은선의 활꼴만 지나 현과 만나지 않는 자리(0.31.0 open)와
  * 곡면을 나눈 삼각형을 비켜 가며 곡면만 뚫는 자리(0.32.0 openFaces)도 앱 refine·refineFace가 곡선·곡면과의 정확한 교차로 풀어 붙는다.
  * tangents(43차 — 접점 붙잡기)를 켜면 첫 점을 찍은 뒤 고른 곡선 모서리에 첫 점에서 그은 접선의 접점도 더한다(curve.more — 첫 점은 코어 0.38.0
- * pointsFor의 둘째 인자 ctx.first, pointsForFirst로 첫 점을 찍거나 지우면 같은 고르기도 코어가 다시 부른다)
+ * pointsFor의 둘째 인자 ctx.first, pointsForFirst로 첫 점을 찍거나 지우면 같은 고르기도 코어가 다시 부른다).
+ * 116차: 기준 선분 거르기가 있으면 첫 점에서 그 기준(첫 점 나란함과 같은 곧은 모서리)에 수직인 방향에도 붙는다(코어 0.115.0 perpendicularDirs —
+ * 이름은 뷰어 조각의 trackdir.ts guideSnapLabel 「모서리에 수직」. 거르기가 없으면 곡선을 나눈 현도 기준이 되어 켜지 않는다).
+ * 마우스 미리 보기에서 같은 자리 후보가 둘 이상이면 Tab·Shift+Tab으로 돌리고 누르면 보이는 후보를 찍는다(코어 0.116.0 tabCycle — 돌리는 중 Esc는 돌리기를 풀고
+ * 첫 후보로. 캔버스 키는 코어 리스너가 받는다 — 앱은 캔버스 Tab을 가로채지 않는다)
  */
 export function measureSnapOptions(
   meshes: readonly Mesh3d[],
@@ -175,7 +179,10 @@ export function measureSnapOptions(
   let last: SnapPoint[] | null = null;
   return {
     edges: true,
-    inference: trackDirEdge ? { ...MEASURE_INFERENCE, parallelEdge: trackDirEdge, trackDirs: { edge: trackDirEdge, meets: { guides: true, open: true, openFaces: true } } } : MEASURE_INFERENCE,
+    inference: trackDirEdge
+      ? { ...MEASURE_INFERENCE, parallelEdge: trackDirEdge, perpendicularDirs: true, trackDirs: { edge: trackDirEdge, meets: { guides: true, open: true, openFaces: true } } }
+      : MEASURE_INFERENCE,
+    tabCycle: true,
     ...(through ? { throughTranslucent: true } : {}),
     points: centers,
     pointsFor: (p, ctx) => {
@@ -410,7 +417,9 @@ export function snapPair(m: {
  * 모형 위지만 붙잡지 않으면 '면 위 점'(곡선 모서리 위로 다듬은 점이면 '곡선 위 점', B-rep 곡면 위로 다듬은 점이면 '곡면 위 점').
  * 곡선 접선으로 잠근 선 위 점이면(tangent) "접선 방향 · 잠금".
  * 잠근 선이 모서리와 만나는 점·면을 뚫는 점(코어 0.19.0 lockEdges·lockFaces — lockMeet)이면 "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위",
- * 끌어온 점의 축과 만나는 점·끌어온 점과 나란한 자리(0.21.0 lockTracks)면 "잠근 X축 · 끌어온 점 Y축 위"·"잠근 X축 · 끌어온 점과 나란히"
+ * 끌어온 점의 축과 만나는 점·끌어온 점과 나란한 자리(0.21.0 lockTracks)면 "잠근 X축 · 끌어온 점 Y축 위"·"잠근 X축 · 끌어온 점과 나란히".
+ * 끌어온 점 안내 선이 만나는 점(0.29.0)과 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 perpendicularDir — 여기서는 수직 발과 같은 「수직점」)은
+ * 앱이 뷰어 조각의 trackdir.ts guideSnapLabel로 먼저 이름을 고른다(app.ts showHoverSnap — 그 이름 ?? 이것, 첫 화면 JS를 늘리지 않게)
  */
 export function hoverSnapLabel(
   h:

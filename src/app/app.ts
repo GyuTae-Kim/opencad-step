@@ -249,8 +249,11 @@ export class StepApp {
   private ent: typeof import('./viewerkit') | null = null;
   /** 끌어온 점 나란함·수직의 기준 선분 거르기 만들기(trackdir.ts straightEdgeFilter — 코어와 같은 viewerkit 조각, 뷰어를 만들기 전에 채운다) */
   private trackDirEdgeOf: typeof import('./trackdir').straightEdgeFilter | null = null;
-  /** 같은 조각의 끌어온 점 안내 선이 만나는 점 이름(trackdir.ts trackDirMeetLabel — 코어 0.29.0 trackDirs { meets }, 만나는 점이 아니면 null) */
-  private trackMeetLabelOf: typeof import('./trackdir').trackDirMeetLabel | null = null;
+  /**
+   * 같은 조각의 안내 선 위 점 이름(trackdir.ts guideSnapLabel — 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets }),
+   * 116차부터 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 perpendicularDir — 「모서리에 수직」), 둘 다 아니면 null이라 snap.ts 이름 그대로)
+   */
+  private guideLabelOf: typeof import('./trackdir').guideSnapLabel | null = null;
   /** 같은 조각의 곡선 붙잡기 만들기(curvesnap.ts curveSnap — 받기 전·못 받으면 null이라 꺾은선 위 점 그대로) */
   private curveSnapOf: typeof import('./tangent').curveSnap | null = null;
   /** 같은 조각의 개체 측정 최소 거리 다듬기(exactdist.ts — 받기 전·못 받으면 null이라 삼각형 값 ≈ 그대로) */
@@ -950,7 +953,7 @@ export class StepApp {
     // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다). 끌어온 점 나란함·수직의 기준 선분 거르기도
     this.ent = core;
     this.trackDirEdgeOf = core.straightEdgeFilter;
-    this.trackMeetLabelOf = core.trackDirMeetLabel;
+    this.guideLabelOf = core.guideSnapLabel;
     // 제품 나무·부품별 보이기 표의 가상 목록(나무 조각 treeview.ts)도 같은 조각에 들어 있다 — 패널은 문서를 보일 때(이 뒤) 그린다
     this.panel.kit = core;
     // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
@@ -1341,9 +1344,10 @@ export class StepApp {
     // 끌어온 점에서 모서리와 나란히·수직(코어 0.27.0 trackDirs)으로 찍은 점도 결과에는 나란함·수직만 실리므로 찍은 점의 trackFrom으로 가른다(isTrackDir)
     const tA = m?.snapA === 'axis' ? trackMark(pts[0]) : isTrackDir(pts[0]);
     const tB = m?.snapB === 'axis' && pts[1] ? trackMark({ ...pts[1], direction: pts[1].direction ?? m.directionB }) : isTrackDir(pts[1]);
-    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })으로 찍었으면 찍은 점의 axis·direction·trackOther·segment·face로 "… · X축 위" 같은 이름(뷰어 조각)
-    const mA = m ? (this.trackMeetLabelOf?.(pts[0]) ?? null) : null;
-    const mB = m ? (this.trackMeetLabelOf?.(pts[1]) ?? null) : null;
+    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })으로 찍었으면 찍은 점의 axis·direction·trackOther·segment·face로 "… · X축 위" 같은 이름(뷰어 조각),
+    // 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 — 결과에는 snapB 'perpendicular'만, 찍은 점에 perpendicularDir)이면 "모서리에 수직"(116차 — 수직 발 「수직점」과 가름)
+    const mA = m ? (this.guideLabelOf?.(pts[0]) ?? null) : null;
+    const mB = m ? (this.guideLabelOf?.(pts[1]) ?? null) : null;
     // 잠근 선이 모서리와 만나는 점·면을 뚫는 점(0.19.0)·끌어온 점의 축과 만나는 점(0.21.0): 결과에는 잠금만 실리므로 찍은 점의 segment·face·trackOther·trackFrom으로
     const meet = m?.lockedB ? lockMeet(pts[1]) : null;
     const rA = refinedKind(pts[0]);
@@ -2113,7 +2117,8 @@ export class StepApp {
    * 현의 가운데라 쓰지 않는다(곧은 모서리의 가운데 점은 모서리 표가 같은 점을 준다).
    * 코어 0.9.0 추론 붙잡기(교차점·수직 발·축 방향)도 켠다 — 원 중심이 512개를 넘으면 코어가 점 색인(BVH)으로 찾는다.
    * 모서리 표가 있으면 끌어온 점에서 곧은 모서리와 나란히·수직(코어 0.27.0 trackDirs — 곡선을 나눈 현은 0.28.0 거르기로 뺀다)도 켜고,
-   * 첫 점의 "모서리와 나란히"도 같은 거르기로 곧은 모서리만 기준으로 받는다(0.29.0 parallelEdge)
+   * 첫 점의 "모서리와 나란히"도 같은 거르기로 곧은 모서리만 기준으로 받는다(0.29.0 parallelEdge). 116차: 같은 기준에 첫 점에서 수직인 방향(0.115.0 perpendicularDirs)과
+   * 마우스 미리 보기 Tab 후보 돌리기(0.116.0 tabCycle)도 measureSnapOptions가 켠다
    */
   private syncMeasureSnap(): void {
     const v = this.viewer;
@@ -2191,9 +2196,10 @@ export class StepApp {
     if (v && this.doc && !this.entMeasuring) this.tangents?.track(v);
     // Shift를 누르고 떼거나 이동의 shiftKey로 코어가 건·푼 잠금도 여기서 맞춘다
     this.refreshLock();
-    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })이면 만난 것을 덧붙인 이름(뷰어 조각의 trackdir.ts — "… · X축 위"·"… · 모서리 위")
+    // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })이면 만난 것을 덧붙인 이름(뷰어 조각의 trackdir.ts — "… · X축 위"·"… · 모서리 위"),
+    // 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 perpendicularDir)이면 "모서리에 수직"(116차 — 같은 뷰어 조각 이름, Tab으로 돌린 후보도 같은 알림·같은 길)
     const h = v?.measureHoverSnap;
-    const text = v && this.doc && v.measureMode && !this.entMeasuring ? (this.trackMeetLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v))) : null;
+    const text = v && this.doc && v.measureMode && !this.entMeasuring ? (this.guideLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v))) : null;
     if (text === this.hoverSnapText) return;
     this.hoverSnapText = text;
     for (const el of [this.statusSnap, this.measureHoverEl]) {

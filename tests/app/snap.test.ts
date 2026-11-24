@@ -28,7 +28,7 @@ import {
   viewerLockHint,
   viewerLockName,
 } from '../../src/app/snap';
-import { straightEdgeFilter } from '../../src/app/trackdir';
+import { guideSnapLabel, PERPENDICULAR_DIR_LABEL, straightEdgeFilter, trackDirMeetLabel } from '../../src/app/trackdir';
 import { translate } from '../../site/i18n.mjs';
 import { StepText, plateWithHole } from '../stepText';
 
@@ -201,6 +201,32 @@ describe('두 점 측정 스냅 점(코어 0.8.0 setMeasureSnap)', () => {
       }
   });
 
+  it('첫 점에서 모서리에 수직인 방향 위 점(116차 — 코어 0.115.0 perpendicularDir): 뷰어 조각 guideSnapLabel이 "모서리에 수직"(수직 발 「수직점」과 가름), 수직 발·잠근 값·끌어온 점 선은 아니다 — 결과는 찍은 점의 이름을 trackMeetB로', () => {
+    const p = { snap: 'perpendicular' as const, direction: [0.6, 0.8, 0], perpendicularDir: true as const };
+    expect(PERPENDICULAR_DIR_LABEL).toBe('모서리에 수직');
+    expect(guideSnapLabel(p)).toBe(PERPENDICULAR_DIR_LABEL);
+    // 앱 길(app.ts showHoverSnap): 뷰어 조각 이름이 먼저 — 첫 화면 hoverSnapLabel만으로는 수직 발과 같은 「수직점」
+    expect(guideSnapLabel(p) ?? hoverSnapLabel(p)).toBe('모서리에 수직');
+    expect(hoverSnapLabel(p)).toBe('수직점');
+    // 수직 발(perpendicularDir 없음)·잠근 값(코어는 싣지 않는다 — 실려도)·끌어온 점의 수직 선은 null(앱은 hoverSnapLabel 그대로)
+    expect(guideSnapLabel({ snap: 'perpendicular', direction: [0, 1, 0] })).toBeNull();
+    expect(guideSnapLabel({ ...p, locked: true })).toBeNull();
+    expect(guideSnapLabel({ snap: 'perpendicular', trackFrom: [1, 2, 3] })).toBeNull();
+    expect(guideSnapLabel(null)).toBeNull();
+    // 끌어온 점 안내 선이 만나는 점은 그대로 trackDirMeetLabel
+    const meet = { snap: 'parallel' as const, trackFrom: [1, 2, 3], axis: 'x' as const };
+    expect(guideSnapLabel(meet)).toBe(trackDirMeetLabel(meet));
+    expect(guideSnapLabel(meet)).toBe(`${TRACK_PARALLEL_LABEL} · X축 위`);
+    // 결과: 코어 결과에는 snapB 'perpendicular'만 실려 앱(onMeasure)이 찍은 점의 뷰어 조각 이름을 trackMeetB로 옮긴다
+    expect(snapPair({ snapA: 'endpoint', snapB: 'perpendicular', trackMeetB: guideSnapLabel(p)! })).toEqual(['끝점', '모서리에 수직']);
+    expect(snapPair({ snapA: 'endpoint', snapB: 'perpendicular' })).toEqual(['끝점', '수직점']);
+    expect(translate(PERPENDICULAR_DIR_LABEL, 'en')).toBe('Perpendicular to edge');
+    for (const code of ['en', 'ja', 'zh-CN', 'de']) {
+      expect(translate(PERPENDICULAR_DIR_LABEL, code), code).not.toMatch(/[가-힣]/);
+      for (const other of ['수직점', TRACK_PERPENDICULAR_LABEL, '모서리와 나란히']) expect(translate(PERPENDICULAR_DIR_LABEL, code), `${code} ${other}`).not.toBe(translate(other, code));
+    }
+  });
+
   it('straightEdgeFilter(코어 0.28.0 trackDirs { edge }): 곧은 B-rep 모서리의 윤곽선 선분만 받고, 원호를 나눈 현·선 묶음·표가 없는 메시는 받지 않는다', () => {
     const s = stepToScene(halfMoon());
     const ex = stepEdgeIndex(s)!;
@@ -355,6 +381,8 @@ describe('두 점 측정 스냅 점(코어 0.8.0 setMeasureSnap)', () => {
       lockFaces: true,
       lockTracks: true,
     });
+    // 116차(코어 0.116.0): 마우스 미리 보기에서 같은 자리 후보를 Tab·Shift+Tab으로 돌린다(거르기를 받기 전에도)
+    expect(o.tabCycle).toBe(true);
     // 반투명 보기가 아니면 반투명 그물 너머를 고르지 않는다(코어 0.23.0 throughTranslucent — 주지 않는다)
     expect(o).not.toHaveProperty('throughTranslucent');
     expect(measureSnapOptions(s.meshes, ex, centers, null, true).throughTranslucent).toBe(true);
@@ -362,10 +390,12 @@ describe('두 점 측정 스냅 점(코어 0.8.0 setMeasureSnap)', () => {
     expect(o.inference).toBe(MEASURE_INFERENCE);
     // 받으면 0.27.0 끌어온 점에서 모서리와 나란히·수직을 그 거르기와 함께 켠다(0.28.0 { edge } — 곧은 모서리만 기준).
     // 첫 점 나란함의 기준도 같은 함수로 거르고(0.29.0 parallelEdge), 그 선이 다른 것과 만나는 점도 켠다(0.29.0 meets — 0.30.0 두 끌어온 점의 안내 선끼리도,
-    // 0.31.0·0.32.0 곡선 모서리 활꼴·곡면만 지나는 열린 교차도)
+    // 0.31.0·0.32.0 곡선 모서리 활꼴·곡면만 지나는 열린 교차도). 116차: 첫 점에서 그 기준에 수직인 방향도(코어 0.115.0 perpendicularDirs — 같은 기준이라 거르기와 함께만)
     const f = straightEdgeFilter(ex);
-    const fi = measureSnapOptions(s.meshes, ex, centers, null, false, f).inference as Record<string, unknown>;
-    expect(fi).toEqual({ ...MEASURE_INFERENCE, parallelEdge: f, trackDirs: { edge: f, meets: { guides: true, open: true, openFaces: true } } });
+    const fo = measureSnapOptions(s.meshes, ex, centers, null, false, f);
+    const fi = fo.inference as Record<string, unknown>;
+    expect(fi).toEqual({ ...MEASURE_INFERENCE, parallelEdge: f, perpendicularDirs: true, trackDirs: { edge: f, meets: { guides: true, open: true, openFaces: true } } });
+    expect(fo.tabCycle).toBe(true);
     expect(fi.parallelEdge).toBe((fi.trackDirs as { edge: unknown }).edge);
     expect(o.midpoints).toBeUndefined();
     expect(o.points).toBe(centers);

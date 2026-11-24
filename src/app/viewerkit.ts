@@ -6,7 +6,8 @@
  *   해석적으로 재는 entmeasure.ts와 최소 거리용 코어 bvh·closest 모듈도 함께 이 조각에
  * - 그래픽 문맥 잃음·되찾음 안내(gpucontext.ts — 코어 0.25.0 알림): 뷰어를 만들 때 단다
  * - 끌어온 점 나란함·수직의 기준 선분 거르기(trackdir.ts — 코어 0.28.0 trackDirs { edge }, 0.29.0 parallelEdge): 뷰어를 만들 때 쥐어 측정 붙잡기 선택에 넘긴다.
- *   그 선이 만나는 점의 이름(trackDirMeetLabel — 코어 0.29.0 trackDirs { meets })도 같은 모듈에 — 상태 막대·측정 띠·결과 이름을 고를 때 쓴다
+ *   그 선이 만나는 점과 첫 점에서 모서리에 수직인 방향 위 점의 이름(guideSnapLabel — 코어 0.29.0 trackDirs { meets }·116차 0.115.0 perpendicularDir)도 같은 모듈에 —
+ *   상태 막대·측정 띠·결과 이름을 고를 때 쓴다
  * - 나무 조각(treeview.ts — 49차, 제품 나무·부품별 보이기 표를 보이는 줄만 그리는 가상 목록): 뷰어를 만들 때 패널에 넣는다(패널은 문서를 보일 때 나무를 그린다)
  * - 작업 메뉴 항목·불투명도 메뉴(ctxmenu.ts — 52차): 작업 메뉴는 뷰어가 있어야 열린다(3D 오른쪽 누르기·길게 누르기, 나무 줄, 여러 개 고르기 띠).
  *   64차: 3D 보기 화면 점에서 여는 길(contextAt — 앱 입구에서 옮김)과 겹친 것 고르기 목록(picklist.ts — 코어 0.47.0 pickCandidates)도
@@ -52,7 +53,7 @@ export { pickGroup } from './picklist';
 export { CUBE_FACES } from 'opencad-viewer3d/viewcube';
 export { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } from './physics';
 export { pmiView } from './pmiview';
-export { straightEdgeFilter, trackDirMeetLabel } from './trackdir';
+export { guideSnapLabel, straightEdgeFilter } from './trackdir';
 export { groupGrid, treeView } from './treeview';
 export { holdUpload, sceneUpload, uploadOptions } from './upload';
 // 면 기준 보기·자르기 계산(viewhelp.ts — 63차에 첫 화면 JS에서 옮김: 면을 고른 뒤에만 쓴다)과 저장된 보기 방향 → 각(코어 camera dirToAngles —
