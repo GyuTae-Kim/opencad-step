@@ -1047,17 +1047,18 @@ export class StepApp {
     // 첫 측정 점은 코어 알림이 없어(결과가 생길 때만) 떼기 뒤에 띠를 맞춘다(코어 듣기 다음, 버블 단계).
     // 손가락으로 편 뷰 큐브 자리는 거리 글상자 비키기가 코어 알림으로 맞춘다(65차 — labelavoid.ts, 코어 0.53.0 onViewCubeExpandedChange)
     this.hostEl.addEventListener('pointerup', () => v.measureMode && this.refreshBar());
-    // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 다음 프레임에 구하므로 그 뒤 프레임에 읽는다
-    // (정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보내 여기로 올라온다)
+    // 커서 아래 붙잡을 점의 종류(교차점·수직 발·X축 방향 등): 코어가 미리 보기 값이 바뀐 그림 뒤 한 번 알린다(코어 0.103.0 onMeasureHoverChange — 108차).
+    // 포인터 이동·떠남(정밀 조준의 십자선 미리 보기도 캔버스에 pointermove를 보낸다)·가상 커서 키와, 코어가 포인터 밖에서 다시 구하거나 버린 것
+    // (보이기·묶음 보이기·겉모습·단면·새 장면·붙잡기 선택·곡면 정의 뒤) 모두 — 106차 sceneSnap 여섯 곳과 포인터 이동·떠남 뒤 다음 프레임 읽기를 이것으로 걷었다.
+    // 값이 같으면 오지 않는다(읽어도 같은 이름). 측정이 꺼져 있으면 바로 돌아간다(끌 때는 toggleMeasure가 읽는다)
+    v.onMeasureHoverChange(() => v.measureMode && this.showHoverSnap());
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
     this.hostEl.addEventListener('pointermove', (e) => {
       if (!e.shiftKey) this.tangentShift(false);
       this.pointerIn = e.pointerType !== 'touch';
-      this.scheduleHoverSnap();
     });
     this.hostEl.addEventListener('pointerleave', () => {
       this.pointerIn = false;
-      this.scheduleHoverSnap();
     });
     this.viewer = v;
     // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(코어 포인터 맡기 훅 — 길게 눌러 잡은 손가락은 정밀 조준 뒤 같은 캡처 단계에서 듣는다)
@@ -1179,11 +1180,10 @@ export class StepApp {
     this.viewer?.setSectionPosition(Math.max(0, Math.min(1, t)));
   }
 
-  /** 단면 막대·손잡이·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서 — 코어가 버린 측정 미리 보기의 스냅 이름도 다시 읽는다) */
+  /** 단면 막대·손잡이·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서 — 코어가 버린 측정 미리 보기의 스냅 이름은 코어 미리 보기 알림이 읽는다) */
   private syncSection(st: SectionState | null): void {
     this.sectionBar.sync(st);
     this.toolbar.refresh();
-    this.sceneSnap();
   }
 
   /** 단면이 켜져 있는지(축 단면이든 면 단면이든) */
@@ -1604,14 +1604,13 @@ export class StepApp {
 
   /**
    * 모든 항목(그물·선·점)의 뷰어 보이기를 doc.vis에 맞춘다(ids를 주면 그것만 — 거는 고리는 뷰어 조각의 looks.ts putVisibility, 106차에 옮김).
-   * 측정 중이면 그 뒤 스냅 이름을 다시 읽는다(sceneSnap)
+   * 측정 중이면 코어가 다음 그림에서 미리 보기를 다시 구하고 그 뒤 알림으로 스냅 이름을 읽는다(108차)
    */
   private applyVisibility(ids?: readonly string[]): void {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
     this.ent!.putVisibility(v, d.vis, d.scene, ids);
-    this.sceneSnap();
   }
 
   setItemsVisible(ids: readonly string[], on: boolean): void {
@@ -1628,7 +1627,6 @@ export class StepApp {
 
   setGroupVisible(group: string, on: boolean): void {
     this.viewer?.setGroupVisible(group, on);
-    this.sceneSnap();
     this.panel.onVisibility();
   }
 
@@ -1778,7 +1776,6 @@ export class StepApp {
       fixed: d.vis.pmiIds,
     });
     this.syncPickThrough();
-    this.sceneSnap();
   }
 
   /**
@@ -2131,9 +2128,8 @@ export class StepApp {
     // 기준 선분 거르기는 모서리 표가 있을 때만(붙잡기 선택을 다시 줄 때마다 새로 — 코어도 그때 받은 기준을 잊는다)
     const edge = d.edges && this.trackDirEdgeOf ? this.trackDirEdgeOf(d.edges) : null;
     // 접점(43차)은 접선 조각을 받은 뒤 곡선 붙잡기(curveSnapFor)와 함께 — 첫 점은 코어가 pointsFor에 넘긴다(61차 — 코어 0.38.0 pointsForFirst)
+    // 코어가 미리 보기를 버린다 — 곡선 계산 조각을 받은 뒤·새 문서에서 마우스를 멈춘 채여도 스냅 이름은 코어 미리 보기 알림이 비운다(108차)
     v.setMeasureSnap(measureSnapOptions(d.scene.meshes, d.edges, centers, this.curveSnapFor(d), translucentView(d), edge, true));
-    // 코어가 미리 보기를 버린다 — 곡선 계산 조각을 받은 뒤·새 문서에서 마우스를 멈춘 채면 스냅 이름도 다시 읽는다(106차)
-    this.sceneSnap();
   }
 
   /** 문서의 곡선 붙잡기(곡선 계산 조각을 받기 전이면 null — 문서마다 한 번 만든다) */
@@ -2164,11 +2160,8 @@ export class StepApp {
     Promise.all([this.client.faceSurfaces(), loadCurveTangents().then((m) => m.loadFaceSurfaces())]).then(
       ([p, m]) => {
         this.faceSurfs.set(d, m.reviveFaceSurfaces(p));
-        // 코어는 그 커서 자리 미리 보기를 곡면 위로 다시 구한다 — 스냅 이름도(106차)
-        if (this.doc === d) {
-          this.viewer?.clearMeasureRefine();
-          this.sceneSnap();
-        }
+        // 코어는 그 커서 자리 미리 보기를 곡면 위로 다시 구한다 — 이름이 바뀌면 코어 미리 보기 알림이 읽는다(108차)
+        if (this.doc === d) this.viewer?.clearMeasureRefine();
         // 개체 측정 결과가 곡면 정의를 기다리던 "≈"면 곡면 위로 다시 잰다
         if (this.doc === d && d.ent.result?.approx) this.measureEntityPair(d);
       },
@@ -2176,10 +2169,11 @@ export class StepApp {
     );
   }
 
-  /** 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(두 점 측정 중에만) */
+  /**
+   * 다음 프레임에 커서 아래 붙잡을 점을 읽어 상태 막대·측정 띠에 보인다(가상 커서 알림·Shift 뗌·창 흐려짐·잠금 바뀜 뒤 — 앱 쪽 잠금 안내도 맞춘다).
+   * 미리 보기 값이 바뀐 것은 코어 알림(onMeasureHoverChange — 108차)이 그 그림 뒤 읽으므로, 이 예약이 코어 그림보다 먼저 돌아 옛 점을 읽어도 그 알림이 고친다
+   */
   private scheduleHoverSnap(): void {
-    // 코어는 캔버스의 pointermove에서 프레임을 예약하고 그 프레임에 붙잡을 점을 구한다 — 앞서 잡아 둔 예약(Shift를 뗀 뒤 잠금 안내 고침 등)이
-    // 그보다 먼저 돌면 옛 점을 읽고 커서가 멈추면 그대로 남으므로, 지우고 그 뒤로 다시 잡는다
     this.hoverSnapRaf = nextFrame(this.hoverSnapRaf, () => {
       this.hoverSnapRaf = 0;
       this.showHoverSnap();
@@ -2187,14 +2181,10 @@ export class StepApp {
   }
 
   /**
-   * 장면 조각·붙잡기 자료를 바꾼 뒤(보이기·겉모습·단면·붙잡기 선택·곡면 정의 — 106차): 코어는 두 점 측정 미리 보기를 다음 그림에서 그 커서 자리로 다시 구하거나
-   * (보이기 0.98.0·다듬기 비우기 0.21.0) 버리지만(겉모습·단면·새 장면·붙잡기 선택) 마우스에는 알리지 않는다('refresh'는 가상 커서만 — 겉모습·단면 뒤에는 그것도 없다).
-   * 마우스를 멈춘 채 H·I·단면 키·파일 열기를 하면 스냅 이름이 앞 것으로 남았으므로 그 그림 뒤 프레임에 한 번 다시 읽는다. 측정이 꺼져 있으면 아무것도 하지 않는다
+   * 상태 막대·측정 띠의 스냅 이름(코어 measureHoverSnap)과 잠금 안내를 맞춘다. 코어 미리 보기 알림(측정 중 — 108차), 다음 프레임 읽기, 측정 켜고 끄기가 부른다.
+   * 코어 0.99.0~0.102.0은 마우스 미리 보기를 포인터 밖에서 다시 구하거나 버려도(보이기·겉모습·단면·새 장면·붙잡기 선택·곡면 정의) 알리지 않아
+   * 106차에 장면을 바꾼 자리 여섯 곳에서 다음 프레임에 읽었다(sceneSnap — 108차에 걷음)
    */
-  private sceneSnap(): void {
-    if (this.viewer?.measureMode) this.scheduleHoverSnap();
-  }
-
   private showHoverSnap(): void {
     const v = this.viewer;
     // 첫 점 뒤 마지막으로 본 잠글 것이 곡선 접선인지 남긴다(커서가 떠난 뒤 ↓·잠금 단추 — 코어의 "마지막으로 본 방향"과 같은 차례)
