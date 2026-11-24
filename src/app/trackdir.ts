@@ -3,7 +3,8 @@
  * - 기준 선분 거르기(코어 0.28.0 inference.trackDirs { edge }, 0.29.0 첫 점 나란함 parallelEdge에도 같은 함수)
  * - 끌어온 점의 나란함·수직 선이 만나는 점(코어 0.29.0 trackDirs { meets }, 0.30.0 { guides: true } — 두 끌어온 점의 안내 선끼리)의 이름:
  *   상태 막대·측정 띠·결과에 "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 다른 끌어온 점에서 수직인 선 위"처럼
- * - 116차: 첫 점에서 모서리에 수직인 방향 위 점(코어 0.115.0 perpendicularDir)의 이름 "모서리에 수직"(guideSnapLabel — 위 이름과 함께 앱이 먼저 묻는다)
+ * - 116차: 첫 점에서 모서리에 수직인 방향 위 점(코어 0.115.0 perpendicularDir)의 이름 "모서리에 수직"(guideSnapLabel — 위 이름과 함께 앱이 먼저 묻는다).
+ *   117차: 그 점인지(isPerpendicularDir)를 가상 커서 알림 글(keysnap.ts keySnapAnnounceText)도 함께 쓴다
  * 측정 붙잡기 계산이라 뷰어 조각(viewerkit.ts — 첫 화면 JS 밖)에 들어 있고, 앱은 뷰어를 만들 때 이 함수들을 쥐어
  * 측정 붙잡기 선택(snap.ts measureSnapOptions)에 넘기고 붙잡을 점·찍은 점의 이름을 고른다.
  */
@@ -93,12 +94,20 @@ export function trackDirMeetLabel(p: TrackDirMeetInput | null | undefined): stri
 export const PERPENDICULAR_DIR_LABEL = '모서리에 수직';
 
 /**
+ * 첫 점에서 모서리에 수직인 방향 위 점인지(잠그지 않았고 끌어온 점 선이 아닌 perpendicularDir — 코어 0.115.0). 그 이름(PERPENDICULAR_DIR_LABEL)을
+ * 상태 막대·측정 띠·결과(guideSnapLabel)와 가상 커서 알림 글(117차 — keysnap.ts keySnapAnnounceText)이 같은 규칙으로 고른다
+ */
+export function isPerpendicularDir(p: { snap?: SnapKind | null; perpendicularDir?: boolean; locked?: boolean; trackFrom?: readonly number[] } | null | undefined): boolean {
+  return !!p?.perpendicularDir && p.snap === 'perpendicular' && !p.locked && !p.trackFrom;
+}
+
+/**
  * 뷰어 조각이 고르는 안내 선 위 점의 이름(116차 — app.ts는 이 이름 ?? snap.ts hoverSnapLabel·snapLabel, 미리 보기와 찍은 점 모두):
  * 첫 점에서 모서리에 수직인 방향 위 점(잠그지 않았고 끌어온 점 선이 아닌 perpendicularDir — 코어 0.115.0)이면 "모서리에 수직",
  * 끌어온 점 안내 선이 만나는 점이면 trackDirMeetLabel, 아니면 null. 첫 화면 hoverSnapLabel을 늘리지 않으려고 이 조각에 둔다
  * (코어 결과(onMeasure)에는 snapB 'perpendicular'만 실려 앱은 찍은 점 measurePoints로 가른다 — 끌어온 점 안내 선과 같은 길)
  */
 export function guideSnapLabel(p: (TrackDirMeetInput & { perpendicularDir?: boolean }) | null | undefined): string | null {
-  if (p?.perpendicularDir && p.snap === 'perpendicular' && !p.locked && !p.trackFrom) return PERPENDICULAR_DIR_LABEL;
+  if (isPerpendicularDir(p)) return PERPENDICULAR_DIR_LABEL;
   return trackDirMeetLabel(p);
 }
