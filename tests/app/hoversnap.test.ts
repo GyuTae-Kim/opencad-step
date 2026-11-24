@@ -210,8 +210,12 @@ describe('측정 중 장면 길 뒤 스냅 이름(106차·108차)', () => {
       expect(after.includes('section'), what).toBe(what.startsWith('단면'));
       expect(r.old.text, what).toBe(name);
       if (want === 'same') {
-        expect(r.v.measureHoverSnap, what).toEqual(before);
-        expect(r.now.calls - c, what).toBe(0);
+        // 같은 점·같은 붙잡기 종류로 다시 구한다. 반투명 묶음은 고르는 차례가 달라 같은 끝점을 낸 모서리(segment)가 다를 수 있어
+        // 코어가 값이 바뀌었다고 한 번 알릴 수 있지만(0.103.0 — 모든 필드 비교) 앱 이름은 같다
+        const now = r.v.measureHoverSnap;
+        expect(now?.point, what).toEqual(before?.point);
+        expect(now?.snap, what).toBe(before?.snap);
+        expect(r.now.calls - c, what).toBeLessThanOrEqual(1);
         expect(r.now.text, what).toBe(name);
       } else {
         expect(r.v.measureHoverSnap, what).toBeNull();
