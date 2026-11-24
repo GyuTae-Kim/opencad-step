@@ -8,6 +8,8 @@
  *   그래서 영역은 번역층이 건드리지 않는다(data-i18n-skip — 이미 화면 언어 글)
  * - 캔버스 aria-keyshortcuts(코어 키 표와 뷰어 키 F·1~7)와 도움말 키 표(keyHelpBody — 코어 keyLabel)
  * - 116차: 가상 커서가 꺼진 마우스 측정 미리 보기의 Tab·Shift+Tab 후보 돌리기·Esc 풀기(코어 0.116.0 tabCycle)를 aria-keyshortcuts와 도움말 안내 줄에
+ * - 117차: 알림 글의 스냅 이름을 상태 막대와 맞춘다 — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)는 코어 틀이 수직 발과 같은
+ *   「수직점」이라 「모서리에 수직」으로 바꿔 넣는다(keySnapAnnounceText — 코어 0.117.0 README 앱이 할 일, 이름은 trackdir.ts와 같은 규칙·같은 사전 글)
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  * - 66차: 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식(코어 0.54.0 facePreview·faceRanges — 측정 모드에서는 코어가 그리지 않는다),
  *   면 고르기·여러 개 고르기·고르기 단위가 바뀌어도 sync(켜진 커서의 후보 묶음을 다시 만든다 — 65차까지는 커서를 옮길 때까지 앞 묶음 그대로였다)
@@ -17,6 +19,7 @@ import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
 import type { StepDoc } from './doc';
 import { h } from './dom';
 import { pickFaceRanges, pickGroup, type PickRowHost } from './picklist';
+import { isPerpendicularDir, PERPENDICULAR_DIR_LABEL } from './trackdir';
 
 /** 한국어 글 → 지금 화면 언어(앱 사전) */
 type Tr = (ko: string) => string;
@@ -43,6 +46,20 @@ export function keySnapMessagesFor(tr: Tr): Partial<Record<KeySnapMessageKey, st
     if (t && t !== key) out[k] = t;
   }
   return out;
+}
+
+/**
+ * 알림 영역에 넣을 글(117차): 측정 후보 알림(켜기·옮기기·후보 돌리기·다시 구함)의 지금 후보가 첫 점에서 모서리에 수직인 방향 위 점(trackdir.ts isPerpendicularDir —
+ * 코어 0.115.0 perpendicularDir)이면 코어 글의 첫 수직 발 이름(화면 언어 틀 'snap.perpendicular' — 「수직점」)을 상태 막대·측정 띠·결과와 같은 「모서리에 수직」
+ * (PERPENDICULAR_DIR_LABEL을 화면 언어로 — 116차에 네 언어 사전에 있음)으로 바꾼다. 후보 글은 '{종류}[ 차례/수]: 점 …'이라 종류 이름이 글에서 처음 나온다
+ * (켜기 글의 앞 글·키 안내에는 그 이름이 없다). 찍기·끄기 알림(찍은 점·측정 결과 글 — 지금 후보 이름이 아니다)·고르기·다른 후보는 코어 글 그대로.
+ * 코어 틀 열쇠를 더하지 않고 앱이 고르는 까닭: 코어에 새 열쇠를 두면 옮긴 틀을 주는 앱의 다른 언어 화면에 한국어 기본 글이 섞인다(코어 0.117.0 README)
+ */
+export function keySnapAnnounceText(a: KeyboardSnapAnnouncement, msgs: Partial<Record<KeySnapMessageKey, string>>, tr: Tr): string {
+  if (a.mode !== 'measure' || a.reason === 'commit' || a.reason === 'end' || !isPerpendicularDir(a.snap)) return a.text;
+  const foot = msgs['snap.perpendicular'] ?? KEY_SNAP_MESSAGES['snap.perpendicular'];
+  const name = tr(PERPENDICULAR_DIR_LABEL);
+  return a.text.replace(foot, () => name);
 }
 
 const MOVES: readonly KeySnapAction[] = ['left', 'right', 'up', 'down'];
@@ -138,13 +155,15 @@ export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; 
   const group: PickGroupKey | undefined = host.group ?? (P ? (p) => pickGroup(P, p) : undefined);
   const faceRanges = P ? (p: Pick3d) => pickFaceRanges(P.doc, p) : undefined;
   const sync = (): void => {
+    const messages = keySnapMessagesFor(host.tr);
     v.setKeyboardSnap({
       announce: (a) => {
-        live.textContent = a.text;
+        // 117차: 첫 점에서 모서리에 수직인 방향 위 후보는 「모서리에 수직」(상태 막대와 같은 이름 — 코어 글은 수직 발과 같은 「수직점」)
+        live.textContent = keySnapAnnounceText(a, messages, host.tr);
         host.announced?.(a);
       },
       pickCycle: { throughTranslucent: host.pickThrough(), group, facePreview: true, faceRanges },
-      messages: keySnapMessagesFor(host.tr),
+      messages,
     });
     const ks = v.keyboardSnap;
     if (ks) v.canvas.setAttribute('aria-keyshortcuts', keyShortcuts(ks.keys));

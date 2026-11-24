@@ -5,12 +5,33 @@
 //   (창 캡처에서 막으면 코어는 커서를 켜지 않는다), 아니면 코어가 받아 앱(창 버블)에 가지 않는다
 // - 실제 코어 뷰어(jsdom): aria-keyshortcuts, 알림이 화면 밖 aria-live 영역에 화면 언어로, Enter 고르기는 pointerType 'keyboard', pickCycle은 앱 반투명 너머 고르기와 같다
 // - 도움말 키 표(코어 keyLabel)
+// - 117차: 알림 글의 스냅 이름(keySnapAnnounceText) — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)만 코어 틀 「수직점」을
+//   상태 막대와 같은 「모서리에 수직」으로(화면 언어 틀, 코어 candidateText로 만든 글). 수직 발·잠근 값·끌어온 점 선·찍기·고르기 알림은 그대로
 import { afterEach, describe, expect, it } from 'vitest';
-import { KEY_SNAP_KEYS, KEY_SNAP_MESSAGES, keySnapAction, type KeySnapMessageKey } from 'opencad-viewer3d';
+import {
+  candidateText,
+  KEY_SNAP_KEYS,
+  KEY_SNAP_MESSAGES,
+  keySnapAction,
+  keySnapMessages,
+  keySnapText,
+  type KeyboardSnapAnnouncement,
+  type KeySnapMessageKey,
+  type MeasureHoverSnap,
+} from 'opencad-viewer3d';
 import { catalogs, translate } from '../../site/i18n.mjs';
 import { stepToScene } from '../../src/index';
 import { arrowOwner, routeKey } from '../../src/app/keys';
-import { installKeySnap, keyHelpBody, keyHelpRows, KEYED_PREFIX, keyShortcuts, keySnapCatalogKey, keySnapMessagesFor } from '../../src/app/keysnap';
+import {
+  installKeySnap,
+  keyHelpBody,
+  keyHelpRows,
+  KEYED_PREFIX,
+  keyShortcuts,
+  keySnapAnnounceText,
+  keySnapCatalogKey,
+  keySnapMessagesFor,
+} from '../../src/app/keysnap';
 import { cube, StepText } from '../stepText';
 import { jsdomViewer, VIEW_H, VIEW_W } from './jsdomview';
 
@@ -195,5 +216,55 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
     expect(body[3]!.textContent).toContain('Tab · Shift+Tab');
     expect(body[3]!.textContent).toContain('Esc');
     for (const el of [body[0]!, body[2]!, body[3]!]) for (const code of CODES) expect(translate(el.textContent!, code)).not.toMatch(hangul);
+  });
+});
+
+describe('알림 글의 스냅 이름(117차 — 코어 0.117.0 앱이 할 일·0.115.0 남은 한계)', () => {
+  const ko = (s: string): string => s;
+  /** 측정 후보 알림(코어 keyAnnounce 'move'와 같은 글 — 화면 언어 틀로 코어 candidateText, 첫 차례·후보 둘(o.count)·첫 점에서 거리 5 mm) */
+  const ann = (snap: Partial<MeasureHoverSnap>, tr: (s: string) => string, o: Partial<KeyboardSnapAnnouncement> = {}): KeyboardSnapAnnouncement => {
+    const s = { snap: 'perpendicular', point: [1, 2, 3], ...snap } as MeasureHoverSnap;
+    const count = o.count ?? 2;
+    const text = candidateText({ kind: s.snap, axis: s.axis, locked: s.locked, point: s.point }, 0, count, (v) => String(v), 5, 'mm', keySnapMessages(keySnapMessagesFor(tr)));
+    return { reason: 'move', mode: 'measure', x: 0, y: 0, snap: s, index: 0, count, pick: null, text, ...o };
+  };
+  const dir: Partial<MeasureHoverSnap> = { perpendicularDir: true, direction: [0, 1, 0] };
+
+  it('첫 점에서 모서리에 수직인 방향 위 후보(perpendicularDir)는 코어 틀 「수직점」을 「모서리에 수직」으로 — 켤 때 글·후보 하나 글도, 네 언어 화면 틀', () => {
+    const a = ann(dir, ko);
+    expect(a.text).toBe('수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    const m = keySnapMessagesFor(ko);
+    expect(keySnapAnnounceText(a, m, ko)).toBe('모서리에 수직 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    const M = keySnapMessages(m);
+    expect(keySnapAnnounceText({ ...a, reason: 'start', text: keySnapText(M, 'start', [a.text, '옮기기 ←→↑↓']) }, m, ko)).toBe(
+      '가상 커서를 켰습니다. 모서리에 수직 1/2: X 1, Y 2, Z 3, 거리 5 mm. 옮기기 ←→↑↓',
+    );
+    const one = ann(dir, ko, { reason: 'cycle', count: 1 });
+    expect(keySnapAnnounceText({ ...one, text: keySnapText(M, 'only', [one.text]) }, m, ko)).toBe('모서리에 수직: X 1, Y 2, Z 3, 거리 5 mm (후보 하나)');
+    expect(keySnapAnnounceText({ ...a, reason: 'refresh' }, m, ko)).toBe('모서리에 수직 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    for (const code of CODES) {
+      const tr = (s: string): string => translate(s, code);
+      const t = keySnapAnnounceText(ann(dir, tr), keySnapMessagesFor(tr), tr);
+      expect(t, code).toContain(translate('모서리에 수직', code));
+      expect(t, code).not.toContain(translate('수직점', code));
+      expect(t, code).not.toMatch(hangul);
+    }
+    expect(keySnapAnnounceText(ann(dir, (s) => translate(s, 'en')), keySnapMessagesFor((s) => translate(s, 'en')), (s) => translate(s, 'en'))).toBe(
+      'Perpendicular to edge 1/2: X 1, Y 2, Z 3, distance 5 mm',
+    );
+  });
+
+  it('첫 점에서 내린 수직 발·잠근 값·끌어온 점 수직 선·찍기·고르기 알림은 코어 글 그대로', () => {
+    const m = keySnapMessagesFor(ko);
+    const same = (a: KeyboardSnapAnnouncement): void => expect(keySnapAnnounceText(a, m, ko)).toBe(a.text);
+    same(ann({}, ko));
+    expect(ann({}, ko).text).toBe('수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    same(ann({ ...dir, locked: true }, ko));
+    expect(ann({ ...dir, locked: true }, ko).text).toBe('잠근 선 위 수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    same(ann({ ...dir, trackFrom: [0, 0, 0] }, ko));
+    same(ann(dir, ko, { reason: 'commit' }));
+    same(ann(dir, ko, { reason: 'end' }));
+    same(ann(dir, ko, { mode: 'pick' }));
+    same(ann({ ...dir, snap: 'axis', axis: 'x' }, ko));
   });
 });

@@ -13,6 +13,8 @@
  * - 116차(코어 0.115.0·0.116.0 — measureSnapOptions가 켠다): 첫 점에서 지나간 곧은 모서리에 수직인 방향 위 점은 "모서리에 수직"(수직 발 「수직점」과 가름 —
  *   뷰어 조각 trackdir.ts guideSnapLabel, app.ts는 그 이름 ?? hoverSnapLabel), 찍은 둘째 점의 결과 이름도. 겹친 후보 자리에서 Tab·Shift+Tab이 마우스 미리 보기를
  *   돌리고(measureCandidates 차례) 앱 이름이 코어 미리 보기 알림으로 따라오며, 돌리는 중 Esc는 돌리기를 풀고 첫 후보로(측정 지우기보다 먼저)
+ * - 117차(코어 0.117.0 앱이 할 일): 가상 커서를 첫 점에서 모서리에 수직인 방향 위로 옮기면 화면 읽기 알림 글(keysnap.ts 알림 영역)도 상태 막대와 같은
+ *   「모서리에 수직」(코어 틀 'snap.perpendicular'만으로는 수직 발과 같은 「수직점」), 화면 언어를 바꾼 뒤(영어)도
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -423,6 +425,91 @@ describe('첫 점에서 모서리에 수직인 방향·Tab 후보 돌리기(116�
     expect(key(r.v.canvas, 'Tab').defaultPrevented).toBe(false);
     expect(key(r.v.canvas, 'Escape').defaultPrevented).toBe(true);
     expect(r.v.measurePointCount).toBe(0);
+  });
+});
+
+describe('가상 커서 알림의 「모서리에 수직」(117차 — 코어 0.117.0 앱이 할 일·0.115.0 남은 한계)', () => {
+  it('첫 점(윗면 빈 곳) 뒤 곧은 모서리를 지나고 가상 커서를 그 모서리에 수직인 방향 위로 옮기면 화면 읽기 알림 글이 상태 막대와 같은 「모서리에 수직」(코어 틀만으로는 「수직점」) — 화면 언어를 바꿔도(영어)', () => {
+    const j = jsdomViewer({ keyboard: true });
+    restore = j.restore;
+    const v = j.viewer;
+    const sc = stepToScene(tilted());
+    v.setScene(sc);
+    v.setView('top', false);
+    v.fit(false);
+    v.renderNow();
+    const ex = stepEdgeIndex(sc)!;
+    // 앱처럼(syncMeasureSnap — 뷰어 조각의 곧은 모서리 거르기를 받은 뒤), 키보드 붙잡기는 app.ts처럼 installKeySnap(화면 언어 tr)
+    v.setMeasureSnap(measureSnapOptions(sc.meshes, ex, circleCenters(sc.meshes, ex), null, false, straightEdgeFilter(ex), true));
+    v.setMeasureMode(true);
+    let lang = 'ko';
+    const ks = installKeySnap(v, { tr: (s) => (lang === 'ko' ? s : translate(s, lang)), pickThrough: () => false });
+    const px = (p: readonly number[]): { x: number; y: number } => {
+      const q = v.project(p)!;
+      expect(q.onScreen, `화면 안 ${p}`).toBe(true);
+      return q;
+    };
+    // 첫 점·기준은 116차 시험과 같다: 윗면 빈 곳(상자 자리 (7, 5)) → 마우스로 맞은편 모서리(상자 자리 w = 10)를 지난다
+    const F = onTop(7, 5);
+    const f = px(F);
+    expect(v.commitMeasureCandidate(f.x + 0.37, f.y - 0.29, 0)).toBe(true);
+    expect(v.measurePointCount).toBe(1);
+    const e = px(onTop(3, 10));
+    v.canvas.dispatchEvent(touchPointerEvent('pointermove', 1, e.x + 0.37, e.y - 0.29, 'mouse'));
+    v.renderNow();
+    expect(v.measureHoverSnap?.segment?.kind).toBe('edge');
+    // 가상 커서 켜기(캔버스 가운데 — 윗면 가운데)
+    expect(key(v.canvas, 'ArrowUp').defaultPrevented).toBe(true);
+    const c0 = v.keyboardCursor!;
+    expect(c0.mode).toBe('measure');
+    const step = v.keyboardSnap!.step;
+    // 목표: 116차 시험의 수직 방향 위 자리(상자 자리 (7, 7.5)) 둘레 7화소 안의 가상 커서 자리(가운데에서 걸음 단위) 가운데 첫 점 → 그 자리 화면 선에 가장 가까운 것
+    // (그 시험이 그 자리가 첫 점 X·Y축·나란함 선에서 20화소 넘게 떨어진 것을 본다 — 7화소 안이면 붙잡기 10화소 밖)
+    const t = px(onTop(7, 7.5));
+    const len = Math.hypot(t.x - f.x, t.y - f.y);
+    const lineDist = (x: number, y: number): number => Math.abs((t.x - f.x) * (y - f.y) - (t.y - f.y) * (x - f.x)) / len;
+    let g = { x: c0.x, y: c0.y };
+    let best = Infinity;
+    for (let i = Math.floor((t.x - 7 - c0.x) / step); i <= Math.ceil((t.x + 7 - c0.x) / step); i++)
+      for (let k = Math.floor((t.y - 7 - c0.y) / step); k <= Math.ceil((t.y + 7 - c0.y) / step); k++) {
+        const x = c0.x + i * step;
+        const y = c0.y + k * step;
+        if (Math.hypot(x - t.x, y - t.y) > 7 || lineDist(x, y) >= best) continue;
+        best = lineDist(x, y);
+        g = { x, y };
+      }
+    expect(best, '수직 방향 선에서 화면 거리').toBeLessThan(3);
+    // 화살표로 옮긴다(윗면 안쪽만 지나 기준 모서리가 바뀌지 않는다)
+    const goTo = (to: { x: number; y: number }): void => {
+      for (let n = 0; n < 200; n++) {
+        const c = v.keyboardCursor!;
+        const k = c.x < to.x ? 'ArrowRight' : c.x > to.x ? 'ArrowLeft' : c.y < to.y ? 'ArrowDown' : c.y > to.y ? 'ArrowUp' : null;
+        if (!k) return;
+        expect(key(v.canvas, k).defaultPrevented).toBe(true);
+      }
+    };
+    goTo(g);
+    expect(v.keyboardCursor).toMatchObject(g);
+    const h = v.measureHoverSnap!;
+    expect(h.snap).toBe('perpendicular');
+    expect(h.perpendicularDir).toBe(true);
+    expect(h.trackFrom).toBeUndefined();
+    expect(h.locked).toBeFalsy();
+    expect(appName(h)).toBe('모서리에 수직');
+    const said = ks.live.textContent!;
+    expect(said.startsWith('모서리에 수직'), said).toBe(true);
+    expect(said).not.toContain('수직점');
+    expect(said).toContain(', 거리 ');
+    // 화면 언어를 바꾸면(app.ts는 sync) 다음 알림부터 그 언어 — 한 걸음 옆에 갔다 같은 자리로 돌아온다
+    lang = 'en';
+    ks.sync();
+    goTo({ x: g.x - step, y: g.y });
+    goTo(g);
+    expect(v.measureHoverSnap?.perpendicularDir).toBe(true);
+    const en = ks.live.textContent!;
+    expect(en.startsWith(translate('모서리에 수직', 'en')), en).toBe(true);
+    expect(en).not.toContain(translate('수직점', 'en'));
+    expect(en).not.toMatch(/[가-힣]/);
   });
 });
 
