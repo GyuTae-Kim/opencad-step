@@ -7,6 +7,8 @@
 // - 도움말 키 표(코어 keyLabel)
 // - 117차: 알림 글의 스냅 이름(keySnapAnnounceText) — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)만 코어 틀 「수직점」을
 //   상태 막대와 같은 「모서리에 수직」으로(화면 언어 틀, 코어 candidateText로 만든 글). 수직 발·잠근 값·끌어온 점 선·찍기·고르기 알림은 그대로
+// - 118차: 마우스 Tab 돌리기 차례·수(hoverCycleLabel — 코어 0.118.0 cycle): 가상 커서 알림과 같은 틀 'order'로 「끝점 2/4」, 이름 마디는 한국어 그대로
+//   (번역층이 마디마다 옮긴다)·알림 글은 화면 언어, 네 언어
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   candidateText,
@@ -23,6 +25,7 @@ import { catalogs, translate } from '../../site/i18n.mjs';
 import { stepToScene } from '../../src/index';
 import { arrowOwner, routeKey } from '../../src/app/keys';
 import {
+  hoverCycleLabel,
   installKeySnap,
   keyHelpBody,
   keyHelpRows,
@@ -266,5 +269,35 @@ describe('알림 글의 스냅 이름(117차 — 코어 0.117.0 앱이 할 일·
     same(ann(dir, ko, { reason: 'end' }));
     same(ann(dir, ko, { mode: 'pick' }));
     same(ann({ ...dir, snap: 'axis', axis: 'x' }, ko));
+  });
+});
+
+describe('마우스 Tab 돌리기 스냅 이름의 차례·수(118차 — 코어 0.118.0 MeasureHoverSnap.cycle·앱이 할 일)', () => {
+  const ko = (s: string): string => s;
+
+  it('가상 커서 알림과 같은 틀 \'order\'(코어 기본 「{0} {1}/{2}」 — 사전에 옮기지 않는 자리 글 틀)로 「끝점 2/4」: 이름 마디는 한국어 그대로·차례 마디 따로, 이으면 keySnapText 글', () => {
+    expect(keySnapCatalogKey('order')).toBeNull();
+    const m = keySnapMessagesFor(ko);
+    const c = hoverCycleLabel('끝점', { index: 1, count: 4 }, m, ko);
+    expect(c).toEqual({ parts: ['끝점', ' 2/4'], said: '끝점 2/4' });
+    expect(c.parts.join('')).toBe(keySnapText(keySnapMessages(m), 'order', ['끝점', 2, 4]));
+    expect(hoverCycleLabel('모서리에 수직', { index: 0, count: 2 }, m, ko)).toEqual({ parts: ['모서리에 수직', ' 1/2'], said: '모서리에 수직 1/2' });
+    // 앱이 틀을 옮겨 주면 그 틀(이름 자리가 가운데여도 이름은 한 마디)
+    expect(hoverCycleLabel('끝점', { index: 2, count: 3 }, { order: '[{1}/{2}] {0} ·' }, ko)).toEqual({ parts: ['[3/3] ', '끝점', ' ·'], said: '[3/3] 끝점 ·' });
+  });
+
+  it('네 언어: 마디마다 옮기면(번역층) 알림 글(화면 언어 — 이름만 tr)과 같고 한글이 없다 — 가상 커서 후보 글의 차례 꼴과 같은 글', () => {
+    for (const code of CODES) {
+      const tr = (s: string): string => translate(s, code);
+      const m = keySnapMessagesFor(tr);
+      for (const name of ['끝점', '모서리에 수직', '접선 방향 · 잠금']) {
+        const c = hoverCycleLabel(name, { index: 1, count: 4 }, m, tr);
+        expect(c.parts, `${code} ${name}`).toEqual([name, ' 2/4']);
+        expect(c.parts.map(tr).join(''), `${code} ${name}`).toBe(c.said);
+        expect(c.said, `${code} ${name}`).not.toMatch(hangul);
+        expect(c.said).toBe(keySnapText(keySnapMessages(m), 'order', [tr(name), 2, 4]));
+      }
+    }
+    expect(hoverCycleLabel('끝점', { index: 1, count: 4 }, keySnapMessagesFor((s) => translate(s, 'en')), (s) => translate(s, 'en')).said).toBe('Endpoint 2/4');
   });
 });
