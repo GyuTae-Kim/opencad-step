@@ -1067,10 +1067,11 @@ export class StepApp {
     // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(코어 포인터 맡기 훅 — 길게 눌러 잡은 손가락은 정밀 조준 뒤 같은 캡처 단계에서 듣는다)
     this.tweakTool?.attach(v);
     // 곡선 모서리 끝의 접선 잠금과 곡선 위로 다듬기는 측정에서만 쓰므로 뷰어를 만들 때 나눠 받는다
-    // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine·곡선 가운데 점)
+    // (받지 못하면 다음 뷰어에서 다시 — 그동안 코어 판정과 꺾은선 위 점만). 받으면 붙잡기 선택을 다시 준다(refine·곡선 가운데 점).
+    // 122차: 접선 잠금은 3D 보기 캔버스의 포인터 자리를 들어 같은 누름의 Shift+Tab 되돌리기를 둔다
     void loadCurveTangents().then(
       (m) => {
-        this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null));
+        this.tangents ??= new m.TangentLock(() => (this.doc ? { meshes: this.doc.scene.meshes, ex: this.doc.edges } : null), v.canvas);
         // 거리 글상자가 측정 띠·위 띠·단면 막대·뷰 큐브를 비켜 그리게(휴대폰에서 띠·큐브 밑으로 들어가던 것)
         this.labelAvoid ??= new m.LabelAvoid(v, this.viewEl);
         this.exactOf ??= m;
@@ -2245,14 +2246,18 @@ export class StepApp {
   }
 
   /**
-   * 곡선 모서리 끝의 접선 잠금 Shift(tangent.ts): 누름은 창 keydown 캡처 단계에서 코어보다 먼저(코어는 잠금이 있으면 Shift를 넘긴다 —
-   * 커서 아래가 곡선 위가 아니면 아무것도 하지 않아 코어가 제 판정으로 잠근다), 뗌은 keyup·창 흐려짐·Shift 없이 움직임
+   * 곡선 모서리 끝의 접선 잠금 Shift(tangent.ts key): 창 keydown 캡처 단계에서 코어보다 먼저 모든 키를 받는다 — Shift 누름은 커서 아래가 곡선 위면 접선으로 잠그고
+   * (코어는 잠금이 있으면 Shift를 넘긴다 — 곡선 위가 아니면 아무것도 하지 않아 코어가 제 판정으로 잠근다), 122차: 그 누름 뒤 첫 Shift+Tab은 접선 잠금을 되돌려
+   * 코어 마우스 Tab 돌리기에 넘기고 다른 키는 되돌리기를 버린다(코어 0.120.0이 남긴 앱 몫). 뗌(false)은 keyup·창 흐려짐·Shift 없이 움직임.
+   * 코어 Tab 돌리기가 그 Shift+Tab을 받았으면 true(사건은 tangent.ts가 멈춘다)
    */
-  private tangentShift(down: boolean): void {
+  private tangentShift(ev: KeyboardEvent | false): boolean {
     const v = this.viewer;
     const t = this.tangents;
-    if (!v || !t || !this.doc || this.entMeasuring) return;
-    if (down ? t.shiftDown(v) : t.shiftUp(v)) this.refreshLock();
+    if (!v || !t || !this.doc || this.entMeasuring) return false;
+    const r = ev ? t.key(v, ev) : +t.shiftUp(v);
+    if (r) this.refreshLock();
+    return r > 1;
   }
 
   /** ↓·잠금 단추의 지금 방향: 곡선 접선이 먼저(tangent.ts — 커서 아래가 그 곡선 위일 때), 아니면 코어 판정 */
@@ -2849,14 +2854,14 @@ export class StepApp {
   private bindWindow(): void {
     // 키: bubble 단계(캔버스가 받은 키는 뷰어가 전파를 멈춘다)
     window.addEventListener('keydown', (ev) => this.onKey(ev));
-    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에).
+    // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에) — 122차: 모든 키를 먼저 넘긴다
+    // (그 누름 뒤 첫 Shift+Tab은 접선 잠금을 되돌려 코어 Tab 돌리기에 — 받았으면 아래 키를 보지 않음, 다른 키는 되돌리기를 버림).
     // 분해 손질 거리(43차)도: 끄는 동안 숫자 글쇠는 막대의 거리 칸으로(코어의 1~7 표준 뷰 키보다 먼저), 막 끈 뒤 Enter는 그 칸으로
     window.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-        if (ev.key === 'Shift' && !ev.repeat && !isTextTarget(ev.target)) this.tangentShift(true);
-        else if (
+        if (this.tangentShift(ev) || ev.ctrlKey || ev.metaKey || ev.altKey || ev.key === 'Shift') return;
+        if (
           this.tweakTool?.key(ev.key, ev.target) ||
           // 62차: 3D 보기가 받은 화살표는 코어 가상 커서가 쓴다 — 두 점 측정에서 가상 커서가 꺼져 있고 마우스·펜이 3D 보기 위면 방향 잠금이 먼저(코어보다 앞, keys.ts arrowOwner)
           (ev.target === this.viewer?.canvas && arrowOwner(!!this.viewer.keyboardCursor, this.pointerIn) === 'lock' && this.arrowMeasureLock(ev))

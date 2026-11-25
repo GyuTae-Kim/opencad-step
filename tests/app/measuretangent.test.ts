@@ -4,7 +4,12 @@
  * 포인터·키 사건을 넣는다. Shift는 앱처럼 접선 잠금이 코어보다 먼저 보고(창 keydown 캡처 단계), 떼면 코어 다음에 푼다.
  * - 코어는 첫 점(곡선 끝)에서 꺾은선 꼭짓점을 가리키면 그 토막(현) 방향으로 잠그려 한다 — 커서 아래 점이 곡선 위면 접선이 먼저다.
  * - 커서 아래가 방향 추론(축 등)이면 코어 판정 그대로다.
+ * - 122차(코어 0.120.0 앱 몫): Shift 누름이 건 접선 잠금은 그 같은 누름의 첫 Shift+Tab이 걸기 전으로 되돌리고 그 Tab을 코어 마우스 Tab 돌리기에 넘긴다
+ *   (TangentLock.key — 앱 창 keydown 캡처 단계, 코어 캔버스 리스너보다 먼저). 받지 못하는 자리는 같은 접선으로 다시 잠가 121차와 같고,
+ *   다른 키·4화소 넘는 이동·떠남 뒤에는 버린다. 곡선 밖 자리는 코어 0.120.0 되돌리기 그대로
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Viewer3d, type MeasureResult } from 'opencad-viewer3d';
 import { stepToScene } from '../../src/index';
@@ -482,5 +487,263 @@ describe('코어 0.16.0 선분 식별자로 찾은 첫 점의 곡선과 커서 �
     expect(compare(view(), bsPoly[k]!, [bsPoly[k + 1]!, bsPoly[k - 1]!, bsPoly[k + 3]!, bsWorld([12, -4, 0])], 'segment', [bsPoly[k - 1]!, bsPoly[k + 1]!])).toBeGreaterThanOrEqual(2);
     expect(compare(view(), RIM, [rimPoly[2]!, rimPoly[rimPoly.length - 3]!, halfway(rimPoly)], 'coords')).toBeGreaterThanOrEqual(2);
     expect(compare(view(), halfway(ellPoly), [ELL_END, ELL_START], 'coords')).toBe(2);
+  });
+});
+
+/** 122차: 키 사건(브라우저처럼 막기·멈춤을 적는다 — 막은 사건은 코어 handleKey가 다시 받지 않는다) */
+interface KeyEv {
+  key: string;
+  code: string;
+  shiftKey: boolean;
+  repeat: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  defaultPrevented: boolean;
+  stopped: boolean;
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+const kev = (k: string, o: { shiftKey?: boolean; repeat?: boolean } = {}): KeyEv => ({
+  key: k,
+  code: k,
+  shiftKey: o.shiftKey ?? k === 'Shift',
+  repeat: !!o.repeat,
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  defaultPrevented: false,
+  stopped: false,
+  preventDefault() {
+    this.defaultPrevented = true;
+  },
+  stopPropagation() {
+    this.stopped = true;
+  },
+});
+
+/**
+ * 앱처럼 창 keydown 한 번: 캡처 단계에서 접선 잠금이 먼저(122차 TangentLock.key — 그것이 없던 121차 판은 app.ts 그때 길: Shift 누름만 shiftDown),
+ * 사건을 멈추지 않았으면 코어 캔버스 리스너(handleKey), 그리고 다음 그림. 앱 길이 돌려준 값(0 그대로·1 잠금 바뀜·2 코어 Tab 돌리기가 받음)
+ */
+const appKey = (w: View, e: KeyEv): number => {
+  const tl = w.tl as TangentLock & { key?: TangentLock['key'] };
+  const k = e as unknown as KeyboardEvent;
+  const r = typeof tl.key === 'function' ? tl.key(w.v, k) : e.key === 'Shift' && !e.repeat ? +tl.shiftDown(w.v) : 0;
+  if (!e.stopped) w.v.handleKey(k);
+  w.v.renderNow();
+  return r;
+};
+
+/** 첫 점을 찍은 새 뷰어 — 접선 잠금이 3D 보기 캔버스의 포인터 자리를 듣는다(app.ts처럼 v.canvas를 준다) */
+function keyFrom(p: V3): View {
+  const w = view();
+  const kw: View = { ...w, tl: new TangentLock(() => ({ meshes: scene.meshes, ex }), w.canvas as unknown as EventTarget) };
+  clickAt(kw, p);
+  expect(kw.v.measurePointCount).toBe(1);
+  return kw;
+}
+
+/**
+ * 원 위 꺾은선 꼭짓점 rimPoly[1]에서 윗면 가운데 쪽으로 3화소 — 그 꼭짓점(첫 후보·접선)과 윗면 점이 겹친 자리(꼭짓점 바로 위는 후보가 하나뿐이다).
+ * 경계를 정확히 가리키지 않는다
+ */
+const nearRim = (w: View): { x: number; y: number } => {
+  const c = at(w, rimPoly[1]!);
+  const m = at(w, [0, 0, RIM[2]]);
+  const k = 3 / Math.hypot(m.x - c.x, m.y - c.y);
+  return { x: c.x + (m.x - c.x) * k, y: c.y + (m.y - c.y) * k };
+};
+/** 화면 자리로 커서를 옮기고 그린 뒤 앱처럼 커서 아래를 읽는다 */
+const hoverPx = (w: View, q: { x: number; y: number }, shift = false): void => {
+  ptr(w, 'pointermove', q.x, q.y, 0, shift);
+  w.v.renderNow();
+  w.tl.track(w.v);
+};
+/** 겹친 후보 자리(nearRim)의 걸기 전 후보와 그 첫 후보가 꼭짓점 rimPoly[1]·접선인지 */
+const overlapAt = (w: View): { q: { x: number; y: number }; list: ReturnType<Viewer3d['measureCandidates']>; n: number } => {
+  const q = nearRim(w);
+  hoverPx(w, q);
+  const list = w.v.measureCandidates(q.x, q.y);
+  expect(list.length, '그 자리 후보(걸기 전)').toBeGreaterThanOrEqual(2);
+  expect(w.v.measureHoverSnap!.cycle).toBeUndefined();
+  expect(w.v.measureHoverSnap!.point).toEqual(list[0]!.point);
+  expect(dist(list[0]!.point, rimPoly[1]!)).toBeLessThan(1e-4);
+  close(w.tl.now(w.v), RIM_TANGENT);
+  return { q, list, n: list.length };
+};
+
+describe('곡선 위 Shift+Tab을 누르려고 먼저 누른 Shift의 접선 잠금 되돌리기(122차 — 코어 0.120.0 앱 몫, 실제 코어 Tab 돌리기)', () => {
+  it('원 위 꺾은선 꼭짓점과 윗면 점이 겹친 자리(돌리지 않던 자리)에서 Shift는 접선 잠금, 같은 누름의 첫 Shift+Tab은 잠금을 풀고 잠그지 않은 그 자리 후보의 끝(코어 차례 n/n — 기본 동작 막음·사건 멈춤) — 4화소 안 이동·키 되풀이·다른 Shift 누름에 다시 잠그지 않고 다음 Shift+Tab은 코어가 이어 돎, 뗀 뒤 새 Shift는 다시 접선 잠금·그 누름도 되돌림', () => {
+    const w = keyFrom(RIM);
+    const { v, tl } = w;
+    const { q, list, n } = overlapAt(w);
+    // Shift 누름: 121차처럼 접선 잠금
+    expect(appKey(w, kev('Shift'))).toBe(1);
+    expect(tl.locked(v)).toBe(true);
+    close(v.measureInferenceLock!.direction, RIM_TANGENT);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    // 같은 누름의 첫 Shift+Tab: 잠금 없이 코어 Tab 돌리기의 앞 후보(돌리지 않던 자리 → 끝 후보)
+    const tab = kev('Tab', { shiftKey: true });
+    expect(appKey(w, tab)).toBe(2);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(tab.stopped).toBe(true);
+    expect(v.measureInferenceLock).toBeNull();
+    expect(tl.locked(v)).toBe(false);
+    expect(viewerLockName(v, tl)).toBeNull();
+    expect(v.measureHoverSnap!.cycle).toEqual({ index: n - 1, count: n });
+    expect(v.measureHoverSnap!.point).toEqual(list[n - 1]!.point);
+    // 같은 누름: Shift 누른 채 4화소 안 이동·키 되풀이·다른 Shift 키 누름 — 다시 잠그지 않고 돌리기도 그대로
+    ptr(w, 'pointermove', q.x + 2, q.y + 1, 0, true);
+    v.renderNow();
+    tl.track(v);
+    expect(appKey(w, kev('Shift', { repeat: true }))).toBe(0);
+    expect(appKey(w, kev('Shift'))).toBe(0);
+    expect(v.measureInferenceLock).toBeNull();
+    expect(v.measureHoverSnap!.cycle).toEqual({ index: n - 1, count: n });
+    // 다음 Shift+Tab: 앱은 넘기지 않고 코어가 이어 돈다
+    const tab2 = kev('Tab', { shiftKey: true });
+    expect(appKey(w, tab2)).toBe(0);
+    expect(tab2.defaultPrevented).toBe(true);
+    expect(tab2.stopped).toBe(false);
+    expect(v.measureHoverSnap!.cycle).toEqual({ index: n - 2, count: n });
+    expect(v.measureInferenceLock).toBeNull();
+    // 뗀 뒤: 그 자리를 벗어났다 돌아와 새 Shift는 다시 접선 잠금, 그 누름의 Shift+Tab도 되돌린다
+    shiftUp(w);
+    hoverPx(w, { x: q.x + 12, y: q.y + 12 });
+    hoverPx(w, q);
+    expect(v.measureHoverSnap!.cycle).toBeUndefined();
+    expect(v.measureHoverSnap!.point).toEqual(list[0]!.point);
+    expect(appKey(w, kev('Shift'))).toBe(1);
+    expect(tl.locked(v)).toBe(true);
+    expect(appKey(w, kev('Tab', { shiftKey: true }))).toBe(2);
+    expect(v.measureInferenceLock).toBeNull();
+    expect(v.measureHoverSnap!.cycle).toEqual({ index: n - 1, count: n });
+    shiftUp(w);
+    expect(v.measureInferenceLock).toBeNull();
+  });
+
+  it('되돌리기를 버리는 차례(Shift 누른 채 4화소 넘게 갔다 돌아옴·다른 키·3D 보기를 떠났다 돌아옴) 뒤 Shift+Tab은 121차처럼 접선 잠근 채 코어가 받는다 — Tab 없는 Shift는 지금처럼 잠갔다 뗄 때 풂', () => {
+    const w = keyFrom(RIM);
+    const { v, tl } = w;
+    const { q } = overlapAt(w);
+    const back = (): void => hoverPx(w, q, true);
+    const cases: [string, () => void][] = [
+      [
+        '4화소 넘게 갔다 돌아옴',
+        () => {
+          ptr(w, 'pointermove', q.x + 6, q.y, 0, true);
+          v.renderNow();
+          back();
+        },
+      ],
+      ['다른 키', () => void appKey(w, kev('Control'))],
+      [
+        '떠났다 돌아옴',
+        () => {
+          w.canvas.fire('pointerleave', { clientX: q.x, clientY: q.y, pointerId: 1, pointerType: 'mouse' });
+          v.renderNow();
+          back();
+        },
+      ],
+    ];
+    for (const [what, between] of cases) {
+      expect(appKey(w, kev('Shift')), what).toBe(1);
+      expect(tl.locked(v), what).toBe(true);
+      between();
+      expect(tl.locked(v), what).toBe(true);
+      const tab = kev('Tab', { shiftKey: true });
+      expect(appKey(w, tab), what).toBe(0);
+      expect(tab.stopped, what).toBe(false);
+      expect(tl.locked(v), what).toBe(true);
+      close(v.measureInferenceLock!.direction, RIM_TANGENT);
+      shiftUp(w);
+      expect(v.measureInferenceLock, what).toBeNull();
+      // 다음 차례를 같은 자리(돌리지 않던 첫 후보)에서
+      hoverPx(w, { x: q.x + 12, y: q.y + 12 });
+      hoverPx(w, q);
+    }
+    // Tab 없는 Shift: 잠갔다 떼면 푼다(121차와 같음)
+    expect(appKey(w, kev('Shift'))).toBe(1);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    shiftUp(w);
+    expect(v.measureInferenceLock).toBeNull();
+  });
+
+  it('걸기 전 그 자리 후보가 하나(꺾은선 꼭짓점 바로 위)면 코어 Tab 돌리기가 받지 않아 같은 접선으로 다시 잠근다 — 121차처럼 잠근 채 코어가 받음(잠근 선 위 후보를 돎)', () => {
+    const w = keyFrom(RIM);
+    const { v, tl } = w;
+    hoverAt(w, rimPoly[1]!);
+    const q = at(w, rimPoly[1]!);
+    expect(v.measureCandidates(q.x, q.y)).toHaveLength(1);
+    expect(appKey(w, kev('Shift'))).toBe(1);
+    expect(tl.locked(v)).toBe(true);
+    const tab = kev('Tab', { shiftKey: true });
+    expect(appKey(w, tab)).toBe(0);
+    expect(tab.stopped).toBe(false);
+    expect(v.measureHoverSnap!.locked).toBe(true);
+    expect(tl.locked(v)).toBe(true);
+    expect(v.measureInferenceLock).toMatchObject({ kind: 'parallel', source: 'api' });
+    close(v.measureInferenceLock!.direction, RIM_TANGENT);
+    expect(viewerLockName(v, tl)).toBe('tangent');
+    shiftUp(w);
+    expect(v.measureInferenceLock).toBeNull();
+  });
+
+  it('Tab으로 돌리다 Esc로 푼 자리도 코어 Tab 돌리기가 받지 않아 같은 접선으로 다시 잠근다(121차처럼 잠근 채·초점 이동)', () => {
+    const w = keyFrom(RIM);
+    const { v, tl } = w;
+    const { list } = overlapAt(w);
+    const first = list[0]!.point;
+    const t1 = kev('Tab');
+    expect(appKey(w, t1)).toBe(0);
+    expect(t1.defaultPrevented).toBe(true);
+    expect(v.measureHoverSnap!.cycle?.index).toBe(1);
+    const esc = kev('Escape');
+    appKey(w, esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(v.measurePointCount).toBe(1);
+    expect(v.measureHoverSnap!.cycle).toBeUndefined();
+    expect(v.measureHoverSnap!.point).toEqual(first);
+    expect(appKey(w, kev('Shift'))).toBe(1);
+    expect(tl.locked(v)).toBe(true);
+    const tab = kev('Tab', { shiftKey: true });
+    expect(appKey(w, tab)).toBe(0);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(tab.stopped).toBe(false);
+    expect(tl.locked(v)).toBe(true);
+    expect(v.measureInferenceLock).toMatchObject({ kind: 'parallel', source: 'api' });
+    close(v.measureInferenceLock!.direction, RIM_TANGENT);
+    shiftUp(w);
+    expect(v.measureInferenceLock).toBeNull();
+  });
+
+  it('곡선 밖 자리(첫 점 아래 축 — 코어가 잠금)는 앱이 잠그지도 되돌릴 것을 두지도 않아 코어 0.120.0 되돌리기와 같다(앱 없이 코어만 받은 뷰어와 같은 잠금·미리 보기·막기)', () => {
+    const below: V3 = [RIM[0], RIM[1], RIM[2] - 6];
+    const go = (app: boolean) => {
+      const w = keyFrom(RIM);
+      const { v } = w;
+      hoverAt(w, below);
+      expect(v.measureHoverSnap!.snap).toBe('axis');
+      const press = (e: KeyEv): number => {
+        if (app) return appKey(w, e);
+        v.handleKey(e as unknown as KeyboardEvent);
+        v.renderNow();
+        return 0;
+      };
+      expect(press(kev('Shift'))).toBe(0);
+      expect(v.measureInferenceLock).toMatchObject({ axis: 'z', source: 'shift' });
+      const tab = kev('Tab', { shiftKey: true });
+      expect(press(tab)).toBe(0);
+      return { lock: v.measureInferenceLock, hover: v.measureHoverSnap, prevented: tab.defaultPrevented, stopped: tab.stopped };
+    };
+    expect(go(true)).toEqual(go(false));
+  });
+
+  it('app.ts 길: 창 keydown 캡처가 모든 키를 먼저 접선 잠금(key)에 넘기고 코어 Tab 돌리기가 받았으면 손질·화살표 키를 보지 않으며, 접선 잠금에 3D 보기 캔버스를 준다', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toContain("if (this.tangentShift(ev) || ev.ctrlKey || ev.metaKey || ev.altKey || ev.key === 'Shift') return;");
+    expect(app).toContain('const r = ev ? t.key(v, ev) : +t.shiftUp(v);');
+    expect(app).toMatch(/new m\.TangentLock\(\(\) => \(this\.doc \? \{[^\n]*\} : null\), v\.canvas\)/);
   });
 });

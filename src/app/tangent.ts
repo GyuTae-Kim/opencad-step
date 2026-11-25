@@ -40,6 +40,7 @@ import { edgeCurve, nearestOnCurve } from '../edgecurve';
 import type { StepEdgeTable } from '../scene';
 import { curveDistance, dirToWorld, edgeHit, toLocal, toWorld } from './curvesnap';
 import { edgeAt } from './edges';
+import { isTextTarget } from './keys';
 import type { SnapEdgeIndex } from './snap';
 
 export { curveSnap } from './curvesnap';
@@ -564,6 +565,11 @@ export function curveTangentThrough(ons: readonly CurveOn[], a: ArrayLike<number
 
 /** 이 모듈이 쓰는 뷰어 기능(시험에서 가짜로 바꿀 수 있게) */
 export type TangentViewer = Pick<Viewer3d, 'measureMode' | 'measurePointCount' | 'measurePoints' | 'measureHoverSnap' | 'measureHoverLock' | 'measureInferenceLock' | 'setMeasureInferenceLock'>;
+/** 키(TangentLock.key — 122차)가 더 쓰는 뷰어 기능: 코어 키 처리(Tab 돌리기에 넘기기)·가상 커서·3D 보기 캔버스 */
+export type TangentKeyViewer = TangentViewer & Pick<Viewer3d, 'handleKey' | 'keyboardCursor' | 'canvas'>;
+
+/** Shift+Tab 되돌리기를 버리는 포인터 이동(화면 화소 — 누른 자리에서 이만큼 가면, 코어 0.120.0 DRAG_START_PX와 같다) */
+const UNDO_PX = 4;
 
 /** 접선 잠금이 찾을 장면(그물과 모서리 표 색인) */
 export interface TangentScene {
@@ -580,8 +586,10 @@ const CHORD_SAME = 1 - 5e-9;
 
 /**
  * 곡선 접선 잠금의 앱 쪽 상태: 코어 측정 모드가 잠금 상태와 판정을 가지고, 이것은 곡선 끝에서 접선으로 잠그는 손잡이만 둔다.
- * Shift는 앱이 창 keydown 캡처 단계에서 코어보다 먼저 shiftDown을 불러 잠그고(코어는 잠금이 있으면 Shift를 넘긴다), 떼면 shiftUp이 푼다
- * (코어는 제가 Shift로 잠근 것만 푼다). ↓·잠금 단추는 lockNow. 둘째 점을 찍거나 측정을 지우면 코어가 잠금을 푼다
+ * Shift는 앱이 창 keydown 캡처 단계에서 코어보다 먼저 key(→ shiftDown)를 불러 잠그고(코어는 잠금이 있으면 Shift를 넘긴다), 떼면 shiftUp이 푼다
+ * (코어는 제가 Shift로 잠근 것만 푼다). ↓·잠금 단추는 lockNow. 둘째 점을 찍거나 측정을 지우면 코어가 잠금을 푼다.
+ * 122차: 코어 0.120.0은 제 Shift 누름이 건 잠금만 같은 누름의 Shift+Tab에서 되돌려(앱이 건 잠금은 그대로) 곡선 위에서는 Shift+Tab이 잠근 선 위 후보를 돌았다 —
+ * key가 같은 꼴로 이 접선 잠금을 되돌린다(코어 README 0.120.0 「앱이 할 일」)
  */
 export class TangentLock {
   private ends: CurveEnd[] = [];
@@ -599,8 +607,39 @@ export class TangentLock {
   private firstKey = '';
   /** 접선 잠금으로 찍은 둘째 점을 결과에서 알아보려고 남기는 방향(다른 잠금·첫 점이 바뀌면 지운다) */
   private resultDir: V3 | null = null;
+  /**
+   * 122차: 이 Shift 누름이 건 접선 잠금의 되돌리기 — 누를 때 포인터 자리(화면 화소). 그 누름의 첫 Shift+Tab이 쓰고(key), 다른 키·3D 보기 누르기·
+   * 그 자리에서 UNDO_PX 넘는 이동·떠남·휠·뗌·다른 잠금이면 버린다(코어 0.120.0 shiftUndo와 같은 차례 — 휠은 코어의 카메라 다시 구하기)
+   */
+  private undo: { x: number; y: number } | null = null;
+  /** 이 누름에서 되돌렸다 — 뗄 때까지 다시 잠그지 않는다(되풀이가 아닌 다른 Shift 키 누름도. 코어도 같은 누름에는 다시 잠그지 않는다) */
+  private undone = false;
+  /** 3D 보기 위 마지막 마우스·펜 자리(생성자에 캔버스를 주었을 때만 — 손가락이면·떠나면 null) */
+  private ptr: { x: number; y: number } | null = null;
 
-  constructor(private readonly scene: () => TangentScene | null) {}
+  /**
+   * canvas = 3D 보기 캔버스: 주면 포인터 자리를 들어 같은 누름의 Shift+Tab 되돌리기를 둔다(122차 — app.ts가 준다).
+   * 주지 않으면 121차처럼 되돌리지 않는다(누를 때 자리를 모른다)
+   */
+  constructor(
+    private readonly scene: () => TangentScene | null,
+    canvas: EventTarget | null = null,
+  ) {
+    if (!canvas) return;
+    const drop = (): void => void (this.undo = null);
+    canvas.addEventListener('pointermove', (e) => {
+      const { clientX: x, clientY: y, pointerType } = e as PointerEvent;
+      this.ptr = pointerType === 'touch' ? null : { x, y };
+      const u = this.undo;
+      if (u && !(Math.hypot(x - u.x, y - u.y) < UNDO_PX)) drop();
+    });
+    canvas.addEventListener('pointerdown', drop);
+    canvas.addEventListener('wheel', drop, { passive: true });
+    canvas.addEventListener('pointerleave', () => {
+      this.ptr = null;
+      drop();
+    });
+  }
 
   /**
    * 첫 점 a에서 커서 아래 점 p가 놓인 곡선 모서리의 접선과 코어가 그 곡선에서 잠그려 할 현: a가 그 곡선의 끝이면 끝 접선,
@@ -674,8 +713,47 @@ export class TangentLock {
     return true;
   }
 
-  /** Shift 뗌·창 흐려짐: Shift로 건 접선 잠금이면 푼다(둘째 점을 찍어 코어가 이미 풀었으면 그대로). 무엇이 바뀌었으면 true */
+  /**
+   * 122차: 창 keydown 캡처 단계(코어 캔버스 리스너보다 먼저)의 키 — app.ts가 모든 키를 넘긴다.
+   * - Shift 누름(되풀이·글 칸·Ctrl·Meta·Alt와 함께가 아닐 때): shiftDown처럼 커서 아래 곡선 접선으로 잠근다. 잠갔고 마우스·펜이 3D 보기 위(누른 자리를 앎)이며
+   *   가상 커서가 꺼져 있고 Tab으로 돌리던 후보(cycle)가 아니면 그 누름의 첫 Shift+Tab이 되돌리게 둔다 — 돌리던 차례·가상 커서 후보 목록은 코어 안에 있어
+   *   앱이 되살리지 못한다(풀고 넘기면 처음부터 다시 구한 목록의 끝·잠근 목록을 돈다). 이 누름에서 이미 되돌렸으면 뗄 때까지 잠그지 않는다
+   * - 그 밖의 키는 되돌리기를 버린다. 다만 그 첫 Shift+Tab(3D 보기가 받은 키, 잠금이 그 누름이 건 접선 그대로)이면 접선 잠금을 풀고 코어 handleKey에 넘겨
+   *   코어 마우스 Tab 돌리기(0.116.0 tabCycle)가 잠그지 않은 그 자리 후보를 돌게 한다 — 받으면(돌리지 않던 자리라 그 자리 끝 후보 「n/n」, 코어 0.120.0이
+   *   제 잠금을 되돌릴 때와 같은 차례) 사건을 더 보내지 않는다(코어 캔버스 리스너가 다시 받지 않게). 받지 못하면(걸기 전 그 자리 후보가 하나·없음,
+   *   Esc로 푼 자리, tabCycle 끔) 같은 접선으로 다시 잠가 코어가 잠근 채 받는다(121차와 같음)
+   * 돌려주는 값: 0 = 잠금 그대로, 1 = 잠금이 바뀜, 2 = 잠금을 되돌리고 코어 Tab 돌리기가 받음
+   */
+  key(v: TangentKeyViewer, ev: KeyboardEvent): 0 | 1 | 2 {
+    const mod = ev.ctrlKey || ev.metaKey || ev.altKey;
+    if (ev.key === 'Shift') {
+      if (mod || ev.repeat || this.undone || isTextTarget(ev.target)) return 0;
+      const cycling = !!v.measureHoverSnap?.cycle;
+      if (!this.shiftDown(v)) return 0;
+      const p = this.ptr;
+      this.undo = p && !cycling && !v.keyboardCursor ? { ...p } : null;
+      return 1;
+    }
+    const u = this.undo;
+    const t = this.tangent;
+    this.undo = null;
+    if (!u || !t || mod || ev.key !== 'Tab' || !ev.shiftKey || (ev.target && ev.target !== v.canvas) || v.keyboardCursor || !this.shift || !this.locked(v)) return 0;
+    v.setMeasureInferenceLock(false);
+    if (v.handleKey(ev)) {
+      this.forget();
+      this.undone = true;
+      ev.stopPropagation();
+      return 2;
+    }
+    if (this.lockTangent(v, t)) return 0;
+    this.forget();
+    return 1;
+  }
+
+  /** Shift 뗌·창 흐려짐: Shift로 건 접선 잠금이면 푼다(둘째 점을 찍어 코어가 이미 풀었으면 그대로). 무엇이 바뀌었으면 true. 같은 누름의 되돌리기 기록도 지운다(122차) */
   shiftUp(v: TangentViewer): boolean {
+    this.undone = false;
+    this.undo = null;
     if (!this.shift) return false;
     this.shift = false;
     if (this.locked(v)) {
@@ -700,11 +778,12 @@ export class TangentLock {
     return true;
   }
 
-  /** 접선 잠금 기록을 지운다(다른 잠금으로 바꾸거나 풀었다) */
+  /** 접선 잠금 기록을 지운다(다른 잠금으로 바꾸거나 풀었다 — Shift+Tab 되돌리기도) */
   forget(): void {
     this.tangent = null;
     this.resultDir = null;
     this.shift = false;
+    this.undo = null;
   }
 
   /**
@@ -733,6 +812,7 @@ export class TangentLock {
   /** 측정을 끄거나 문서를 바꿨다 */
   reset(): void {
     this.forget();
+    this.undone = false;
     this.seen = null;
     this.firstKey = '';
     this.ends = [];
