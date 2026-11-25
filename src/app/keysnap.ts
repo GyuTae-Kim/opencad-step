@@ -10,11 +10,24 @@
  * - 116차: 가상 커서가 꺼진 마우스 측정 미리 보기의 Tab·Shift+Tab 후보 돌리기·Esc 풀기(코어 0.116.0 tabCycle)를 aria-keyshortcuts와 도움말 안내 줄에
  * - 117차: 알림 글의 스냅 이름을 상태 막대와 맞춘다 — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)는 코어 틀이 수직 발과 같은
  *   「수직점」이라 「모서리에 수직」으로 바꿔 넣는다(keySnapAnnounceText — 코어 0.117.0 README 앱이 할 일, 이름은 trackdir.ts와 같은 규칙·같은 사전 글)
+ * - 118차: 마우스 미리 보기 Tab 돌리기로 돌린 동안(코어 0.118.0 MeasureHoverSnap.cycle) 상태 막대·측정 띠 스냅 이름 뒤에 차례·수 「끝점 2/4」 — 가상 커서 알림과
+ *   같은 틀 'order'로 만들고(hoverCycleLabel — installKeySnap의 cycleLabel이 지금 틀·화면 언어로 부른다), 같은 글을 화면 언어로 이 알림 영역에도(app.ts showHoverSnap)
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  * - 66차: 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식(코어 0.54.0 facePreview·faceRanges — 측정 모드에서는 코어가 그리지 않는다),
  *   면 고르기·여러 개 고르기·고르기 단위가 바뀌어도 sync(켜진 커서의 후보 묶음을 다시 만든다 — 65차까지는 커서를 옮길 때까지 앞 묶음 그대로였다)
  */
-import { KEY_SNAP_MESSAGES, keyLabel, type KeyboardSnapAnnouncement, type KeySnapAction, type KeySnapMessageKey, type Pick3d, type PickGroupKey, type Viewer3d } from 'opencad-viewer3d';
+import {
+  formatKeySnapMessage,
+  KEY_SNAP_MESSAGES,
+  keyLabel,
+  type KeyboardSnapAnnouncement,
+  type KeySnapAction,
+  type KeySnapMessageKey,
+  type MeasureHoverSnap,
+  type Pick3d,
+  type PickGroupKey,
+  type Viewer3d,
+} from 'opencad-viewer3d';
 import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
 import type { StepDoc } from './doc';
 import { h } from './dom';
@@ -60,6 +73,27 @@ export function keySnapAnnounceText(a: KeyboardSnapAnnouncement, msgs: Partial<R
   const foot = msgs['snap.perpendicular'] ?? KEY_SNAP_MESSAGES['snap.perpendicular'];
   const name = tr(PERPENDICULAR_DIR_LABEL);
   return a.text.replace(foot, () => name);
+}
+
+/** 118차: 마우스 미리 보기 Tab 돌리기의 지금 차례(0부터)·그 자리 후보 수(코어 0.118.0 MeasureHoverSnap.cycle — Tab으로 돌린 동안만 있다) */
+export type HoverCycle = NonNullable<MeasureHoverSnap['cycle']>;
+
+/** 118차: 차례·수를 붙인 스냅 이름 — parts는 상태 막대·측정 띠에 넣을 글 마디, said는 같은 글의 화면 언어(알림 영역) */
+export interface HoverCycleLabel {
+  parts: string[];
+  said: string;
+}
+
+/**
+ * 118차: 스냅 이름 뒤에 마우스 미리 보기 Tab 돌리기의 차례·수를 붙인 글(코어 0.118.0 README 앱이 할 일 — 「끝점 2/4」). 꼴은 가상 커서 알림 후보 글의 차례와 같은 틀 'order'
+ * (코어 기본 '{0} {1}/{2}' — 자리 글뿐이라 사전에 옮기지 않아(keySnapCatalogKey) 네 언어 모두 이 꼴, 앱이 옮긴 틀을 주면 그 틀).
+ * - parts: 틀을 이름 자리({0})로 나눠 나머지 자리(차례·수)만 채운 글 마디 사이에 받은 이름(한국어)을 한 마디로 끼운다(빈 마디는 뺀다). 상태 막대·측정 띠는 번역층이
+ *   글 마디마다 옮기므로 이름 마디만 화면 언어가 되고 「 2/4」 마디는 한글이 없어 그대로다(한 마디 「끝점 2/4」는 사전에 그 열쇠가 없다). 이으면 keySnapText(틀, 'order', [이름, 차례 + 1, 수])
+ * - said: 같은 글을 화면 언어로(이름만 tr — 마디를 번역층처럼 옮긴 글과 같다) — 번역층이 건너뛰는 가상 커서 알림 영역에 넣는다
+ */
+export function hoverCycleLabel(name: string, c: HoverCycle, msgs: Partial<Record<KeySnapMessageKey, string>>, tr: Tr): HoverCycleLabel {
+  const segs = (msgs.order ?? KEY_SNAP_MESSAGES.order).split('{0}').map((s) => formatKeySnapMessage(s, ['', c.index + 1, c.count]));
+  return { parts: segs.flatMap((s, i) => (i ? [name, s] : [s])).filter((s) => s !== ''), said: segs.join(tr(name)) };
 }
 
 const MOVES: readonly KeySnapAction[] = ['left', 'right', 'up', 'down'];
@@ -146,16 +180,18 @@ export interface KeySnapHost {
 
 /**
  * 뷰어에 키보드 붙잡기를 켜고 알림 영역·캔버스 aria-keyshortcuts를 단다. sync()는 화면 언어·반투명 너머 고르기·고르기 모드(면·여러 개·단위)가 바뀌면 다시 건다
- * (켜진 가상 커서는 그대로 — 고르기 모드면 새 선택·새 묶음으로 후보를 다시 구한다, 알리지는 않는다)
+ * (켜진 가상 커서는 그대로 — 고르기 모드면 새 선택·새 묶음으로 후보를 다시 구한다, 알리지는 않는다).
+ * cycleLabel(118차)은 마우스 Tab 돌리기 차례·수를 붙인 이름(hoverCycleLabel)을 지금 글 틀·화면 언어로 만든다 — app.ts showHoverSnap이 부르고 said를 live에 넣는다
  */
-export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; live: HTMLElement } {
+export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; live: HTMLElement; cycleLabel(name: string, c: HoverCycle): HoverCycleLabel } {
   const live = h('div', { class: 'sr-only', 'aria-live': 'polite', 'data-i18n-skip': '' });
   (v.canvas.parentElement ?? document.body).append(live);
   const P = host.pick;
   const group: PickGroupKey | undefined = host.group ?? (P ? (p) => pickGroup(P, p) : undefined);
   const faceRanges = P ? (p: Pick3d) => pickFaceRanges(P.doc, p) : undefined;
+  let messages: Partial<Record<KeySnapMessageKey, string>> = {};
   const sync = (): void => {
-    const messages = keySnapMessagesFor(host.tr);
+    messages = keySnapMessagesFor(host.tr);
     v.setKeyboardSnap({
       announce: (a) => {
         // 117차: 첫 점에서 모서리에 수직인 방향 위 후보는 「모서리에 수직」(상태 막대와 같은 이름 — 코어 글은 수직 발과 같은 「수직점」)
@@ -177,5 +213,5 @@ export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; 
     e.preventDefault();
     e.stopPropagation();
   });
-  return { sync, live };
+  return { sync, live, cycleLabel: (name, c) => hoverCycleLabel(name, c, messages, host.tr) };
 }

@@ -15,6 +15,9 @@
  *   돌리고(measureCandidates 차례) 앱 이름이 코어 미리 보기 알림으로 따라오며, 돌리는 중 Esc는 돌리기를 풀고 첫 후보로(측정 지우기보다 먼저)
  * - 117차(코어 0.117.0 앱이 할 일): 가상 커서를 첫 점에서 모서리에 수직인 방향 위로 옮기면 화면 읽기 알림 글(keysnap.ts 알림 영역)도 상태 막대와 같은
  *   「모서리에 수직」(코어 틀 'snap.perpendicular'만으로는 수직 발과 같은 「수직점」), 화면 언어를 바꾼 뒤(영어)도
+ * - 118차(코어 0.118.0 앱이 할 일): 겹친 후보 자리에서 마우스 Tab·Shift+Tab으로 돌린 동안(미리 보기 값의 cycle)만 상태 막대·측정 띠 이름 뒤에 「i+1/n」
+ *   (keysnap.ts cycleLabel — 가상 커서 알림 틀 'order', 이름 마디는 번역층이 옮김)·같은 글을 화면 언어로 알림 영역에. 포인터가 벗어나거나 Esc로 풀면(첫 후보에서도
+ *   코어가 한 번 더 알림) 없어지고 돌리기 전·뒤 글은 116차 이름 그대로. app.ts showHoverSnap 원문도
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -101,9 +104,12 @@ interface Rig {
   seen: string[];
   old: FrameRead;
   now: HoverNote;
+  /** 키보드 붙잡기(app.ts처럼 installKeySnap — 118차: 알림 영역·Tab 돌리기 차례 글) */
+  ks: ReturnType<typeof installKeySnap>;
 }
 
-function rig(): Rig {
+/** tr: 화면 언어(118차 — 주지 않으면 한국어) */
+function rig(tr: (ko: string) => string = (ko) => ko): Rig {
   const j = jsdomViewer({ keyboard: true });
   restore = j.restore;
   const v = j.viewer;
@@ -121,8 +127,8 @@ function rig(): Rig {
   for (const t of ['pointermove', 'pointerleave']) j.host.addEventListener(t, () => seen.push(t));
   const old = new FrameRead(v, j.host);
   const now = new HoverNote(v);
-  installKeySnap(v, {
-    tr: (ko) => ko,
+  const ks = installKeySnap(v, {
+    tr,
     pickThrough: () => false,
     announced: (a) => {
       seen.push(`announce ${a.reason}`);
@@ -136,7 +142,7 @@ function rig(): Rig {
   const at = { x: c.x + (m.x - c.x) * k, y: c.y + (m.y - c.y) * k };
   const p = v.pick(at.x, at.y);
   expect(p, '오른쪽 상자 위').toBeTruthy();
-  return { v, host: j.host, at, right: p!.id, resnap, seen, old, now };
+  return { v, host: j.host, at, right: p!.id, resnap, seen, old, now, ks };
 }
 
 /** 다음 프레임: 코어가 그리고(미리 보기를 구하고 값이 바뀌었으면 알린다) 105차 흉내가 읽는다 */
@@ -513,6 +519,123 @@ describe('가상 커서 알림의 「모서리에 수직」(117차 — 코어 0.
   });
 });
 
+/**
+ * 118차 app.ts showHoverSnap 길 흉내(코어 미리 보기 알림 — 측정 중에만): 이름(appName)에 Tab으로 돌린 동안(cycle)만 뷰어 조각 cycleLabel 마디를 넣고
+ * 같은 글(화면 언어)을 가상 커서 알림 영역에 넣는다 — 글이 앞과 같으면 아무것도 하지 않는다
+ */
+class AppSnap {
+  text: string | null = null;
+  /** 상태 막대·측정 띠 스냅 이름 요소 */
+  readonly el = document.createElement('div');
+  /** 알림 영역에 넣은 글 */
+  readonly said: string[] = [];
+  constructor(
+    private readonly v: Viewer3d,
+    private readonly ks: ReturnType<typeof installKeySnap>,
+  ) {
+    v.onMeasureHoverChange(() => v.measureMode && this.show());
+  }
+  show(): void {
+    const h = this.v.measureHoverSnap;
+    const name = this.v.measureMode ? appName(h) : null;
+    const c = name && h?.cycle ? this.ks.cycleLabel(name, h.cycle) : undefined;
+    const text = c ? c.parts.join('') : name;
+    if (text === this.text) return;
+    this.text = text;
+    this.el.hidden = !text;
+    if (c) this.el.replaceChildren(...c.parts);
+    else this.el.textContent = text ?? '';
+    if (c) {
+      this.ks.live.textContent = c.said;
+      this.said.push(c.said);
+    }
+  }
+  /** 번역층처럼 글 마디마다 옮긴 글 */
+  shown(code: string): string {
+    return [...this.el.childNodes].map((n) => translate(n.nodeValue ?? '', code)).join('');
+  }
+}
+
+describe('마우스 Tab 돌리기 스냅 이름의 차례·수(118차 — 코어 0.118.0 MeasureHoverSnap.cycle·앱이 할 일)', () => {
+  it('겹친 후보 자리에서 Tab·Shift+Tab으로 돌린 동안만 이름 뒤에 「i+1/n」(이름 마디는 번역층이 옮김)·알림 영역에도 그때만 — 포인터가 자리를 벗어나거나 Esc로 풀면(첫 후보에서도 코어가 한 번 더 알림) 없어지고, 돌리기 전·뒤 글은 116차 이름 그대로', () => {
+    let lang = 'ko';
+    const r = rig((s) => (lang === 'ko' ? s : translate(s, lang)));
+    const app = new AppSnap(r.v, r.ks);
+    // 첫 점: 왼쪽 상자 앞면 왼쪽 위 꼭짓점(116차 시험과 같다)
+    const a = r.v.project([0, 0, 10])!;
+    expect(r.v.commitMeasureCandidate(a.x, a.y, 0)).toBe(true);
+    hover(r);
+    const list = r.v.measureCandidates(r.at.x, r.at.y);
+    const n = list.length;
+    expect(n, '겹친 후보').toBeGreaterThanOrEqual(2);
+    // 돌리기 전: 칸 없음 — 이름 한 마디(116차와 같은 글), 알림 영역에 쓰지 않음
+    const first = appName(list[0])!;
+    expect(first).toBeTruthy();
+    const plain = (what: string): void => {
+      expect(r.v.measureHoverSnap?.cycle, what).toBeUndefined();
+      expect(r.v.measureHoverSnap?.point, what).toEqual(list[0]!.point);
+      expect(app.text, what).toBe(first);
+      expect(app.el.textContent, what).toBe(first);
+      expect(app.el.childNodes, what).toHaveLength(1);
+    };
+    plain('돌리기 전');
+    expect(app.said).toEqual([]);
+    const tab = (what: string, o: KeyboardEventInit, want: number): void => {
+      const c = r.now.calls;
+      expect(key(r.v.canvas, 'Tab', o).defaultPrevented, what).toBe(true);
+      frame(r);
+      expect(r.now.calls - c, what).toBe(1);
+      expect(r.v.measureHoverSnap?.cycle, what).toEqual({ index: want, count: n });
+      const name = appName(list[want])!;
+      expect(app.text, what).toBe(`${name} ${want + 1}/${n}`);
+      expect([...app.el.childNodes].map((x) => x.nodeValue), what).toEqual([name, ` ${want + 1}/${n}`]);
+      expect(r.ks.live.textContent, what).toBe(`${lang === 'ko' ? name : translate(name, lang)} ${want + 1}/${n}`);
+    };
+    /** 포인터를 그 자리에서 벗어났다(4화소 넘게) 돌아온다 — 칸이 없어지고, Esc로 푼 뒤에도 그 자리 Tab을 다시 받는다 */
+    const away = (what: string): void => {
+      const said = app.said.length;
+      hover(r, { x: r.at.x - 8, y: r.at.y + 8 });
+      expect(r.v.measureHoverSnap?.cycle, what).toBeUndefined();
+      hover(r);
+      plain(what);
+      expect(app.said, what).toHaveLength(said);
+    };
+    tab('Tab', {}, 1);
+    tab('Tab', {}, 2 % n);
+    tab('Shift+Tab', { shiftKey: true }, 1);
+    expect(app.said).toHaveLength(3);
+    away('벗어남');
+    // 돌리는 중 Esc(둘째 후보): 돌리기를 풀고 첫 후보 — 칸이 없어져 이름 그대로, 알림 영역에 새로 쓰지 않음, 찍은 첫 점은 그대로
+    tab('Tab', {}, 1);
+    expect(key(r.v.canvas, 'Escape').defaultPrevented).toBe(true);
+    frame(r);
+    expect(r.v.measurePointCount).toBe(1);
+    plain('Esc(둘째 후보)');
+    expect(app.said).toHaveLength(4);
+    // 첫 후보로 돌아와(1/n) Esc: 미리 보기는 같고 칸만 없어지는데 코어가 한 번 더 알려(0.118.0 바뀐 기본 동작) 이름이 「1/n」에 남지 않는다
+    away('Esc 뒤 벗어남');
+    tab('Tab', {}, 1);
+    tab('Shift+Tab', { shiftKey: true }, 0);
+    expect(app.text).toBe(`${first} 1/${n}`);
+    const c = r.now.calls;
+    expect(key(r.v.canvas, 'Escape').defaultPrevented).toBe(true);
+    frame(r);
+    expect(r.now.calls - c).toBe(1);
+    plain('Esc(첫 후보)');
+    // 화면 언어(영어 — app.ts는 languagechange에서 sync): 상태 막대 마디는 한국어 이름 그대로(번역층이 옮김)·알림 글은 영어, 둘이 같은 글
+    away('언어 바꾸기 전');
+    lang = 'en';
+    r.ks.sync();
+    tab('Tab(영어)', {}, 1);
+    const en = r.ks.live.textContent!;
+    expect(en).toBe(`${translate(appName(list[1])!, 'en')} 2/${n}`);
+    expect(en).not.toMatch(/[가-힣]/);
+    expect(app.shown('en')).toBe(en);
+    away('영어 뒤 벗어남');
+    expect(app.shown('en')).toBe(translate(first, 'en'));
+  });
+});
+
 describe('app.ts 길(108차 — 106차 sceneSnap을 코어 알림 하나로)', () => {
   const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
   /** 클래스 메서드 하나(머리 줄부터 메서드를 닫는 중괄호 앞까지) */
@@ -570,6 +693,18 @@ describe('app.ts 길(108차 — 106차 sceneSnap을 코어 알림 하나로)', (
     const onMeasure = method('private onMeasure(m: MeasureResult | null): void {');
     expect(onMeasure).toContain('this.guideLabelOf?.(pts[0])');
     expect(onMeasure).toContain('this.guideLabelOf?.(pts[1])');
+  });
+
+  it('118차: showHoverSnap은 Tab으로 돌린 동안(코어 0.118.0 cycle)만 뷰어 조각 cycleLabel 마디를 두 요소에 넣고 알림 영역에 화면 언어 글 — 칸이 없으면 117차와 같은 textContent(위 AppSnap 흉내와 같은 길)', () => {
+    const show = method('private showHoverSnap(): void {');
+    expect(show).toContain('const c = name && h?.cycle ? this.keySnap?.cycleLabel(name, h.cycle) : undefined;');
+    expect(show).toContain('const text = c ? c.parts.join(\'\') : name;');
+    expect(show).toContain('if (text === this.hoverSnapText) return;');
+    expect(show).toMatch(/el\.hidden = !text;\n\s*if \(c\) el\.replaceChildren\(\.\.\.c\.parts\);\n\s*else el\.textContent = text \?\? '';/);
+    expect(show).toContain('if (c) this.keySnap!.live.textContent = c.said;');
+    // 뷰어 조각 값은 첫 화면 JS에 값으로 들어오지 않는다(키보드 붙잡기 객체는 뷰어를 만들 때 core.installKeySnap)
+    expect(app).toContain('this.keySnap = core.installKeySnap(v, {');
+    expect(app).not.toMatch(/import \{[^}]*\b(hoverCycleLabel|installKeySnap)\b[^}]*\} from '\.\/keysnap'/);
   });
 });
 

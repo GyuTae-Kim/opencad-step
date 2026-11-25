@@ -291,8 +291,8 @@ export class StepApp {
   pickCb: ((p: Pick3d | null, e: PickEvent) => void) | null = null;
   /** 3D에 그린 고른 것의 강조(65차 — paint, 겹친 것 목록 줄 미리 강조를 닫으면 이것으로 되돌린다: ctxmenu.ts) */
   hi: Hi = {};
-  /** 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다 */
-  private keySnap: { sync(): void } | null = null;
+  /** 키보드로 3D 붙잡기·고르기(62차 — keysnap.ts): 화면 언어·반투명 너머 고르기가 바뀌면 다시 건다. 118차: 알림 영역(live)·마우스 Tab 돌리기 차례 이름(cycleLabel)도 */
+  private keySnap: ReturnType<typeof import('./keysnap').installKeySnap> | null = null;
   /** 마우스·펜이 3D 보기 위에 있는지(62차 — 3D 보기가 받은 화살표를 방향 잠금과 가상 커서가 나눠 쓴다, keys.ts arrowOwner) */
   private pointerIn = false;
   /** 누르기·측정이 반투명 그물 너머를 고르는지(코어 0.23.0 throughTranslucent — looks.ts translucentView) */
@@ -2199,13 +2199,19 @@ export class StepApp {
     // 끌어온 점 안내 선이 만나는 점(코어 0.29.0 trackDirs { meets })이면 만난 것을 덧붙인 이름(뷰어 조각의 trackdir.ts — "… · X축 위"·"… · 모서리 위"),
     // 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 perpendicularDir)이면 "모서리에 수직"(116차 — 같은 뷰어 조각 이름, Tab으로 돌린 후보도 같은 알림·같은 길)
     const h = v?.measureHoverSnap;
-    const text = v && this.doc && v.measureMode && !this.entMeasuring ? (this.guideLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v))) : null;
+    const name = v && this.doc && v.measureMode && !this.entMeasuring ? (this.guideLabelOf?.(h) ?? hoverSnapLabel(h, !!this.tangents?.locked(v))) : null;
+    // 118차: 마우스 미리 보기 Tab으로 돌린 동안(코어 0.118.0 cycle)만 이름 뒤에 차례·수 「끝점 2/4」(뷰어 조각 keysnap.ts — 가상 커서 알림과 같은 틀 'order').
+    // 이름 마디는 한국어 그대로(번역층이 옮긴다)·차례 마디는 따로 넣고, 같은 글을 화면 언어로 가상 커서 알림 영역에 — Tab을 누른 때만이라 마우스 이동으로는 알리지 않는다
+    const c = name && h?.cycle ? this.keySnap?.cycleLabel(name, h.cycle) : undefined;
+    const text = c ? c.parts.join('') : name;
     if (text === this.hoverSnapText) return;
     this.hoverSnapText = text;
     for (const el of [this.statusSnap, this.measureHoverEl]) {
       el.hidden = !text;
-      el.textContent = text ?? '';
+      if (c) el.replaceChildren(...c.parts);
+      else el.textContent = text ?? '';
     }
+    if (c) this.keySnap!.live.textContent = c.said;
   }
 
   /**
