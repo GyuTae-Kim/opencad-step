@@ -289,6 +289,16 @@ export class ExplodeControls {
     this.snapBtn.title = SNAP_TITLES[off ? 'off' : 'on'];
   }
 
+  /**
+   * 128차: 초점이 있던 되돌리기·다시 하기·모두 되돌리기가 이번 맞추기로 숨었으면(그 버튼으로 마지막 단계를 되돌림·다시 함·모두 지움) 반대쪽으로 가는 버튼 —
+   * 되돌리기 → 다시 하기, 다시 하기·모두 되돌리기(한 단계라 되돌리면 돌아온다) → 되돌리기 — 이 보이면 그리로 초점을 옮긴다(NC 120차·DWG 289차와 같은 꼴).
+   * 전에는 키보드 길잡이(keynav.ts — 53차)가 3D 보기로 돌려 막대 안 제자리를 잃었다. 반대쪽도 숨었으면(막대째 닫힘) 그대로 — 길잡이가 3D 보기로
+   */
+  private keepFocus(was: Element | null): void {
+    const to = was === this.undoBtn ? this.redoBtn : was === this.redoBtn || was === this.resetBtn ? this.undoBtn : null;
+    if (to && was?.closest('[hidden]') && !to.closest('[hidden]')) to.focus({ preventScroll: true });
+  }
+
   /** 거리 칸 맞추기(null = 숨기기). 쳐 넣는 중(칸에 초점)이면 글은 그대로 두고 보일 값만 기억한다 */
   private showDistance(s: DistState | null): void {
     this.distSeg.hidden = !s;
@@ -341,6 +351,7 @@ export class ExplodeControls {
    */
   sync(d: StepDoc | null, mode: ExplodeMode, open: boolean, axis: ExplodeAxis = 'free', view?: ExplodeView | null, tweak?: TweakState): void {
     const tw = tweak ?? { on: false, count: 0, undo: false };
+    const was = document.activeElement;
     this.moveBtn.classList.toggle('on', tw.on);
     this.moveBtn.setAttribute('aria-pressed', String(tw.on));
     this.showSnap(!!tw.snapOff);
@@ -349,6 +360,7 @@ export class ExplodeControls {
     this.resetBtn.hidden = !tw.count;
     this.undoSeg.hidden = !tw.undo && !tw.redo;
     this.resetSeg.hidden = !tw.count;
+    this.keepFocus(was);
     this.anyTweak = !!tw.any;
     this.showDistance(open ? (tw.dist ?? null) : null);
     for (const [k, b] of this.btns) {

@@ -4,7 +4,7 @@ import { basisFromAngles } from 'opencad-viewer3d/camera';
 import type { LineSet3d, Mesh3d, Scene3d } from 'opencad-viewer3d/types';
 import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, type ExplodeAxis, type ExplodeMode, type ExplodePlan } from '../../src/app/explode';
-import { ExplodeControls } from '../../src/app/explodebar';
+import { ExplodeControls, type TweakState } from '../../src/app/explodebar';
 import { ExplodeTweaks } from '../../src/app/explodetweak';
 import { translate } from '../../site/i18n.mjs';
 
@@ -325,6 +325,54 @@ describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () =
         ...[move!, file!, undo!, redo!, reset!].flatMap((b) => [b.textContent!, b.title].filter(Boolean)),
       ])
         expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
+  });
+
+  it('128차: 누른 되돌리기·다시 하기·모두 되돌리기가 그 누름으로 숨으면 초점이 반대쪽 버튼으로(전에는 키보드 길잡이가 3D 보기로), 숨지 않거나 초점이 딴 데거나 막대째 숨으면 그대로', () => {
+    const d = doc(1);
+    // 손질 도구처럼: 누르면 그 단계 뒤 상태로 막대를 맞춘다(앱 redrawExplode → syncExplode — 같은 누름 안에서)
+    let next: TweakState = { on: false, count: 0, undo: false };
+    const apply = () => c.sync(d, 'step', true, 'z', null, next);
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      { undo: apply, redo: apply, reset: apply },
+    );
+    const bar = document.createElement('div');
+    bar.append(...c.els);
+    document.body.append(bar);
+    const [move, , , undo, redo, reset] = [...c.els[3]!.querySelectorAll<HTMLButtonElement>('button')];
+    // 키보드로 누름(jsdom은 숨긴 버튼에서 초점을 떼는 focus fixup을 하지 않는다 — 고치기 전에는 숨은 버튼에 남음)
+    const press = (b: HTMLButtonElement, then: TweakState): Element | null => {
+      next = then;
+      b.focus();
+      b.click();
+      return document.activeElement;
+    };
+    c.sync(d, 'step', true, 'z', null, { on: false, count: 2, undo: true });
+    // 되돌릴 단계가 남으면 되돌리기가 그대로라 초점도 그대로
+    expect(press(undo!, { on: false, count: 1, undo: true, redo: true })).toBe(undo);
+    // 마지막 되돌리기: 되돌리기가 숨고 다시 하기가 보임 → 다시 하기
+    expect(press(undo!, { on: false, count: 0, undo: false, redo: true })).toBe(redo);
+    expect([undo!.hidden, redo!.hidden]).toEqual([true, false]);
+    // 다시 할 단계가 남으면 그대로, 마지막 다시 하기면 되돌리기로
+    expect(press(redo!, { on: false, count: 1, undo: true, redo: true })).toBe(redo);
+    expect(press(redo!, { on: false, count: 2, undo: true, redo: false })).toBe(undo);
+    // 모두 되돌리기(한 단계 — 되돌리면 돌아온다): 모두 되돌리기 칸이 숨고 되돌리기로
+    expect(press(reset!, { on: false, count: 0, undo: true, redo: false })).toBe(undo);
+    expect([reset!.hidden, reset!.parentElement!.hidden, undo!.hidden]).toEqual([true, true, false]);
+    // 초점이 다른 버튼이면(마우스로 눌러 초점을 옮기지 않는 브라우저·Ctrl+Z) 옮기지 않는다
+    move!.focus();
+    next = { on: false, count: 0, undo: false, redo: true };
+    apply();
+    expect(undo!.hidden).toBe(true);
+    expect(document.activeElement).toBe(move);
+    // 막대째 닫히면 반대쪽도 숨어 옮기지 않는다(키보드 길잡이가 3D 보기로 — keynav 시험)
+    c.sync(d, 'step', true, 'z', null, { on: false, count: 1, undo: true });
+    undo!.focus();
+    bar.hidden = true;
+    c.sync(d, 'step', false, 'z', null, { on: false, count: 0, undo: false, redo: true });
+    expect(document.activeElement).toBe(undo);
+    bar.remove();
   });
 });
 
