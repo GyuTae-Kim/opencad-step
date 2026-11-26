@@ -45,7 +45,7 @@ import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, 
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
-import { recentId, RecentStore, recentTimeLabel, type RecentEntry } from './recent';
+import { recentFocus, recentId, RecentStore, recentTimeLabel, type RecentEntry } from './recent';
 import { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, isTrackDir, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
@@ -323,6 +323,8 @@ export class StepApp {
   private readonly recentList = h('ul', { class: 'recent-list' });
   private readonly recentCard = h('section', { class: 'recent', 'aria-labelledby': 'recent-title', hidden: true });
   private recentSeq = 0;
+  /** 시작 화면 「파일 열기」(최근 문서를 다 지운 뒤 키보드 초점을 받는다 — 142차) */
+  private startOpen: HTMLElement | null = null;
 
   constructor(root: HTMLElement) {
     root.addEventListener('languagechange', () => {
@@ -529,6 +531,7 @@ export class StepApp {
   private buildStart(): HTMLElement {
     const open = h('button', { type: 'button', class: 'btn primary large' }, icon('open'), h('span', {}, '파일 열기'));
     open.addEventListener('click', () => this.pickFile());
+    this.startOpen = open;
     const sample = h('button', { type: 'button', class: 'btn large' }, icon('sample'), h('span', {}, '예제 열기'));
     sample.addEventListener('click', () => void this.openSample());
     const drop = h(
@@ -544,7 +547,11 @@ export class StepApp {
       if (e.target === drop) this.pickFile();
     });
     const clearRecent = h('button', { type: 'button', class: 'recent-clear' }, '모두 지우기');
-    clearRecent.addEventListener('click', () => void this.recent.clear().then(() => this.refreshRecent()));
+    clearRecent.addEventListener('click', () => {
+      // 다 지우면 카드째 숨는다 — 키보드로 눌렀으면 초점을 「파일 열기」로(142차, recentFocus)
+      const back = recentFocus(clearRecent, this.recentList, open);
+      void this.recent.clear().then(() => this.refreshRecent()).then(back);
+    });
     this.recentCard.append(
       h('div', { class: 'recent-head' }, h('h3', { id: 'recent-title' }, '최근 문서'), clearRecent),
       this.recentList,
@@ -666,7 +673,11 @@ export class StepApp {
     open.addEventListener('click', () => void this.openRecent(r));
     const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${isolateText(r.name)}` });
     del.append(icon('close', 16));
-    del.addEventListener('click', () => void this.recent.remove(r.id).then(() => this.refreshRecent()));
+    del.addEventListener('click', () => {
+      // 다시 그리면 이 줄이 빠진다 — 키보드로 눌렀으면 초점을 그 자리에 온 줄(끝 줄이면 앞 줄)의 열기 버튼, 목록이 비면 「파일 열기」로(142차, recentFocus)
+      const back = recentFocus(del, this.recentList, this.startOpen);
+      void this.recent.remove(r.id).then(() => this.refreshRecent()).then(back);
+    });
     return h('li', { class: 'recent-row' }, open, del);
   }
 

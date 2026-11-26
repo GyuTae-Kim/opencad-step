@@ -100,6 +100,22 @@ export function cleanEntries(list: readonly RecentEntry[]): RecentEntry[] {
     .map(({ id, name, size, time, explode }) => ({ id, name, size, time, ...(explode && typeof explode === 'object' ? { explode } : {}) }));
 }
 
+/**
+ * 시작 화면 최근 문서 ✕·「모두 지우기」 뒤 키보드 초점(142차 — DWG 289차 꼴): 누를 때 불러 두고, 지우고 목록을 다시 그린 뒤 돌려준 함수를 부른다.
+ * 누를 때 초점이 그 버튼에 있었고 지금 문서로 빠졌거나 숨은 그 버튼에 남았으면, 지운 줄 자리에 온 줄(끝 줄이었으면 앞 줄)의 첫 칸(열기 버튼),
+ * 목록이 비면 open(「파일 열기」)으로 준다. 그 사이 다른 칸으로 옮겼으면 그대로. 전에는 줄을 모두 새로 만들거나 카드를 숨겨 초점이 문서로 빠졌다
+ */
+export function recentFocus(btn: HTMLElement, list: Element, open: HTMLElement | null): () => void {
+  const held = document.activeElement === btn;
+  const at = [...list.children].indexOf(btn.parentElement!);
+  return () => {
+    const a = document.activeElement;
+    if (!held || (a !== btn && a !== document.body)) return;
+    const rows = list.children;
+    ((rows[Math.min(at, rows.length - 1)]?.firstElementChild as HTMLElement | null | undefined) ?? open)?.focus();
+  };
+}
+
 export class RecentStore {
   constructor(
     /** 저장소(분해 조각이 항목의 분해 손질을 읽고 쓴다) */
