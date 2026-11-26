@@ -15,6 +15,8 @@ export interface SectionBarHost {
   readonly fmt: Fmt;
   readonly hasDoc: boolean;
   setSectionAxis(axis: SectionAxis | null): void;
+  /** 알림 칸(155차 — 숫자 칸이 받지 않는 값) */
+  toast?(msg: string, kind: 'warn', ms: number): void;
 }
 
 export class SectionBar {
@@ -27,6 +29,8 @@ export class SectionBar {
   private readonly num: HTMLInputElement;
   private readonly unit: HTMLElement;
   private readonly flipBtn: HTMLButtonElement;
+  /** 숫자 칸에 보인 지금 위치 글(받지 않는 값이면 되돌린다 — 155차) */
+  private shown = '';
   private drag: { id: number; x: number; y: number } | null = null;
 
   constructor(private readonly host: SectionBarHost) {
@@ -98,11 +102,20 @@ export class SectionBar {
     this.handle.addEventListener('pointercancel', end);
   }
 
-  /** 숫자 칸 값(표시 단위) → 단면 위치(장면 단위, 기준 방향 위치) */
+  /**
+   * 숫자 칸 값(표시 단위) → 단면 위치(장면 단위, 기준 방향 위치). 155차: 빈 칸·읽지 못한 글(브라우저가 빈 글로 돌림)은 전처럼 `Number('')` = 0으로
+   * 단면을 0 위치로 말없이 옮기지 않고 칸을 보이던 위치로 되돌려 알림 칸에 까닭(분해 거리 칸 꼴). 범위 밖 수는 코어가 받는 값이라 그대로
+   */
   private applyNumber(): void {
-    const v = Number(this.num.value.replace(',', '.'));
+    const s = this.num.value.replace(',', '.');
+    const v = Number(s);
     const viewer = this.host.viewerRef;
-    if (!viewer || !Number.isFinite(v)) return;
+    if (!viewer) return;
+    if (!s || !Number.isFinite(v)) {
+      this.num.value = this.shown;
+      this.host.toast?.('단면 위치를 읽지 못했습니다 — 수 하나를 쳐 넣으십시오.', 'warn', 5000);
+      return;
+    }
     viewer.setSectionPosition(this.host.fmt.toScene(v), { world: true });
   }
 
@@ -121,7 +134,7 @@ export class SectionBar {
       const f = this.host.fmt;
       this.label.textContent = st.axis ? `${st.axis.toUpperCase()} =` : '위치';
       // 숫자 칸은 언어와 상관없이 점 소수(input type=number)
-      const n = String(Number((st.position * f.factor).toFixed(f.decimals)));
+      const n = (this.shown = String(Number((st.position * f.factor).toFixed(f.decimals))));
       if (document.activeElement !== this.num) this.num.value = n;
       this.num.step = String(10 ** -Math.min(3, f.decimals));
       this.unit.textContent = f.unit;

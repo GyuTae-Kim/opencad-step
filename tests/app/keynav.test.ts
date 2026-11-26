@@ -22,6 +22,7 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { SectionBar } from '../../src/app/sectionbar';
 import type { SectionState, Viewer3d } from 'opencad-viewer3d';
+import { translate } from '../../site/i18n.mjs';
 
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => {
   const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
@@ -506,6 +507,44 @@ describe('147차: 측정 띠 글 칸이 CSS로 숨는 화면에서는 패널 아
     expect(app).toContain("\nconst NARROW = '(max-width: 759.98px)';");
     expect(app).toContain("\nconst COARSE = '(pointer: coarse)';");
     expect(app).toContain('get touch(): boolean {\n    return !!this.coarse?.matches;');
+  });
+});
+
+/**
+ * 155차(WCAG 3.3.1 오류 알아보기·4.1.3 상태 알림): 단면 위치 숫자 칸(type=number)을 비우거나 읽지 못한 글(「-」·「1e」 — 브라우저가 값을 빈 글로 돌림)을 넣고
+ * Enter·칸 떠남을 하면 전에는 `Number('')` = 0으로 단면을 0 위치로 말없이 옮겼다(칸에는 빈 칸이 남고 무엇이 틀렸는지 알리는 글 없음).
+ * 이제 옮기지 않고 칸을 보이던 위치로 되돌린 뒤 알림 칸에 경고로 까닭을 알린다(분해 거리 칸 43차 꼴 — warn·5초). 범위 밖 수는 코어가 받는 값이라 그대로 옮긴다
+ */
+describe('155차: 단면 위치 숫자 칸에 받지 않는 값', () => {
+  const MSG = '단면 위치를 읽지 못했습니다 — 수 하나를 쳐 넣으십시오.';
+
+  it('빈 칸·읽지 못한 글(Enter·칸 떠남)은 단면을 0으로 옮기지 않고 칸을 되돌려 경고로 알리고, 바른 수는 그대로 옮긴다', () => {
+    const calls: number[] = [];
+    const viewer = { section: null, canvas: document.createElement('canvas'), setSectionPosition: (p: number) => calls.push(p) } as unknown as Viewer3d;
+    const told: unknown[][] = [];
+    const bar = new SectionBar({ viewerRef: viewer, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {}, toast: (...a: unknown[]) => told.push(a) });
+    document.body.append(bar.el);
+    bar.sync({ axis: 'z', flip: false, position: -12.5, min: -40, max: 10, t: 0.55 } as SectionState);
+    const num = bar.el.querySelector<HTMLInputElement>('.section-num')!;
+    expect(num.value).toBe('-12.5');
+    num.focus();
+    num.value = '';
+    key(num, 'Enter');
+    expect([calls, num.value, told]).toEqual([[], '-12.5', [[MSG, 'warn', 5000]]]);
+    // 읽지 못한 글(type=number라 jsdom도 빈 글로 돌림)을 넣고 칸을 떠남
+    num.value = 'abc';
+    num.dispatchEvent(new Event('change'));
+    expect([calls, num.value, told.length]).toEqual([[], '-12.5', 2]);
+    num.value = '-30';
+    key(num, 'Enter');
+    num.value = '500';
+    num.dispatchEvent(new Event('change'));
+    expect([calls, told.length]).toEqual([[-30, 500], 2]);
+  });
+
+  it('알림 글은 네 언어로 옮긴다(같은 사전의 「단면 위치」·「거리를 읽지 못했습니다 — 수 하나를 쳐 넣으십시오」 꼴)', () => {
+    expect(translate(MSG, 'en')).toBe('Could not read the section position — type one number.');
+    for (const l of ['ja', 'zh-CN', 'de']) expect(translate(MSG, l)).not.toMatch(/[가-힣]/);
   });
 });
 

@@ -74,6 +74,8 @@ export interface PanelHost {
   selectItems(ids: readonly string[] | null, label: string, fit?: boolean): void;
   /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³, null = 안 씀) */
   setDensity(kgm3: number | null): void;
+  /** 알림 칸(155차 — 밀도 칸이 받지 않는 값) */
+  toast?(msg: string, kind: 'warn', ms: number): void;
   /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
   openContextMenu(clientX: number, clientY: number): void;
   /** 의미 PMI가 가리키는 면 강조·맞춰 보기 */
@@ -642,10 +644,16 @@ export class Panel {
     });
     // 밀도 직접 넣기(g/cm³)
     const inp = h('input', { type: 'number', class: 'dlg-input', min: '0', step: '0.01', inputmode: 'decimal', 'aria-label': '밀도 직접 입력(g/cm³)', placeholder: 'g/cm³' }) as HTMLInputElement;
-    if (d.density !== null) inp.value = String(Number((d.density / 1000).toPrecision(6)));
+    const shown = d.density === null ? '' : String(Number((d.density / 1000).toPrecision(6)));
+    inp.value = shown;
+    // 빈 칸은 밀도 지우기. 155차: 0·음수·읽지 못한 글(브라우저가 빈 글로 돌리고 badInput)은 전처럼 골라 둔 밀도를 말없이 지우지 않고 칸을 되돌려 알림 칸에 까닭(분해 거리 칸 꼴)
     inp.addEventListener('change', () => {
-      const g = Number(inp.value.replace(',', '.'));
-      this.host.setDensity(Number.isFinite(g) && g > 0 ? g * 1000 : null);
+      const s = inp.value.replace(',', '.');
+      const g = Number(s);
+      if (inp.validity.badInput || (s && !(Number.isFinite(g) && g > 0))) {
+        inp.value = shown;
+        this.host.toast?.('밀도를 바꾸지 않았습니다 — 0보다 큰 수를 쳐 넣으십시오(g/cm³).', 'warn', 5000);
+      } else this.host.setDensity(s ? g * 1000 : null);
     });
     const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
     const el = section(
