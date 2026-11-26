@@ -9,7 +9,8 @@
  * - 캔버스 aria-keyshortcuts(코어 키 표와 뷰어 키 F·1~7)와 도움말 키 표(keyHelpBody — 코어 keyLabel)
  * - 116차: 가상 커서가 꺼진 마우스 측정 미리 보기의 Tab·Shift+Tab 후보 돌리기·Esc 풀기(코어 0.116.0 tabCycle)를 aria-keyshortcuts와 도움말 안내 줄에
  * - 117차: 알림 글의 스냅 이름을 상태 막대와 맞춘다 — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)는 코어 틀이 수직 발과 같은
- *   「수직점」이라 「모서리에 수직」으로 바꿔 넣는다(keySnapAnnounceText — 코어 0.117.0 README 앱이 할 일, 이름은 trackdir.ts와 같은 규칙·같은 사전 글)
+ *   「수직점」이라 「모서리에 수직」으로 바꿔 넣는다(keySnapAnnounceText — 코어 0.117.0 README 앱이 할 일, 이름은 trackdir.ts와 같은 규칙·같은 사전 글).
+ *   124차: 잠그지 않은 나란함·끌어온 점 선 후보도 상태 막대 이름으로(첫 점 나란함 「모서리와 나란히」, 끌어온 점 나란한·수직인 선·만나는 점 — 코어 틀은 「나란한 선」·「수직점」)
  * - 118차: 마우스 미리 보기 Tab 돌리기로 돌린 동안(코어 0.118.0 MeasureHoverSnap.cycle) 상태 막대·측정 띠 스냅 이름 뒤에 차례·수 「끝점 2/4」 — 가상 커서 알림과
  *   같은 틀 'order'로 만들고(hoverCycleLabel — installKeySnap의 cycleLabel이 지금 틀·화면 언어로 부른다), 같은 글을 화면 언어로 이 알림 영역에도(app.ts showHoverSnap)
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
@@ -32,7 +33,7 @@ import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
 import type { StepDoc } from './doc';
 import { h } from './dom';
 import { pickFaceRanges, pickGroup, type PickRowHost } from './picklist';
-import { isPerpendicularDir, PERPENDICULAR_DIR_LABEL } from './trackdir';
+import { announceSnapName } from './trackdir';
 
 /** 한국어 글 → 지금 화면 언어(앱 사전) */
 type Tr = (ko: string) => string;
@@ -67,12 +68,16 @@ export function keySnapMessagesFor(tr: Tr): Partial<Record<KeySnapMessageKey, st
  * (PERPENDICULAR_DIR_LABEL을 화면 언어로 — 116차에 네 언어 사전에 있음)으로 바꾼다. 후보 글은 '{종류}[ 차례/수]: 점 …'이라 종류 이름이 글에서 처음 나온다
  * (켜기 글의 앞 글·키 안내에는 그 이름이 없다). 찍기·끄기 알림(찍은 점·측정 결과 글 — 지금 후보 이름이 아니다)·고르기·다른 후보는 코어 글 그대로.
  * 코어 틀 열쇠를 더하지 않고 앱이 고르는 까닭: 코어에 새 열쇠를 두면 옮긴 틀을 주는 앱의 다른 언어 화면에 한국어 기본 글이 섞인다(코어 0.117.0 README)
+ * 124차: 같은 길로 잠그지 않은 나란함·끌어온 점 선 후보도 상태 막대 이름으로(trackdir.ts announceSnapName) — 첫 점 나란함 「모서리와 나란히」·끌어온 점 나란한 선
+ * 「끌어온 점에서 모서리와 나란히」(코어 'snap.parallel' 「나란한 선」), 끌어온 점 수직인 선 「끌어온 점에서 모서리에 수직」(코어 'snap.perpendicular' 「수직점」 — 수직 발과 같은 이름),
+ * 끌어온 점 안내 선이 만나는 점 「… · X축 위」 등. 이름은 화면 언어로(tr — 「 · 」 조각마다 옮김). 잠근 후보·축·붙잡지 않은 점은 코어 글 그대로
  */
 export function keySnapAnnounceText(a: KeyboardSnapAnnouncement, msgs: Partial<Record<KeySnapMessageKey, string>>, tr: Tr): string {
-  if (a.mode !== 'measure' || a.reason === 'commit' || a.reason === 'end' || !isPerpendicularDir(a.snap)) return a.text;
-  const foot = msgs['snap.perpendicular'] ?? KEY_SNAP_MESSAGES['snap.perpendicular'];
-  const name = tr(PERPENDICULAR_DIR_LABEL);
-  return a.text.replace(foot, () => name);
+  const own = a.mode === 'measure' && a.reason !== 'commit' && a.reason !== 'end' ? announceSnapName(a.snap) : null;
+  if (!own) return a.text;
+  const kind = msgs[own.key] ?? KEY_SNAP_MESSAGES[own.key];
+  const name = tr(own.name);
+  return a.text.replace(kind, () => name);
 }
 
 /** 118차: 마우스 미리 보기 Tab 돌리기의 지금 차례(0부터)·그 자리 후보 수(코어 0.118.0 MeasureHoverSnap.cycle — Tab으로 돌린 동안만 있다) */
