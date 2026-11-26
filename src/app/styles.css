@@ -1286,7 +1286,7 @@ table.grid tr.off td .dim,
 }
 .pmi-grid .link-btn {
   flex: 0 1 auto;
-  min-width: 24px;
+  /* 최소 폭은 .link-btn(마우스 24px·손가락 44px)을 따른다 — 여기 두면 손가락 규칙을 덮었다(165차) */
 }
 .pmi-grid .small {
   font-size: 11px;
