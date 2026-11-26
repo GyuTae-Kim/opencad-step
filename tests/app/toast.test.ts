@@ -5,10 +5,12 @@
  * 다시 볼 곳이 없는 오류(그림 저장 실패·문서를 연 채 열기 실패)와 경고(최근 문서·공유 받기·분해 손질 파일 등 — 경고 23자리 가운데 18자리가 알림 상자뿐)가
  * 뒤이은 안내(I 글쇠를 누를 때마다 뜨는 「먼저 부품을 고르십시오」 등)에 밀려 제 시간 전에 빠지지 않는다.
  * 알림은 app.ts `toast`와 같은 꼴(class `toast <종류>`, 오류 role=alert·그 밖 status, keep이면 data-keep)로 실제 `h`가 만든다.
+ * 160차: 저절로 닫는 시간(ms)도 `pushToast`가 맡는다 — 마우스를 올려 두었거나 초점이 그 안(닫기·동작 버튼)이면 멈추고, 둘 다 떠나면 처음 시간을 다시 센다
+ * (WCAG 2.2.1 시간 조절의 연장 — 전에는 읽거나 버튼에 가 있는 동안에도 3.2~9초(새 버전 60초) 뒤 사라졌고, 초점이 있던 버튼과 함께 사라지면 초점이 문서로 빠졌다).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, pushToast } from '../../src/app/dom';
 
 type Kind = 'info' | 'warn' | 'error';
@@ -70,6 +72,93 @@ describe('알림 칸 한도에서 빼는 차례(152차)', () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
     expect(app).toContain("kind: 'info' | 'warn' | 'error' = 'info'");
     expect(app).toContain('class: `toast ${kind}`');
-    expect(app).toContain('pushToast(this.toasts, t, 3);');
+    expect(app).toContain('pushToast(this.toasts, t, 3');
+  });
+});
+
+describe('알림이 저절로 닫히는 시간 — 마우스·초점이 그 안이면 멈춤(160차)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  /** 문서에 붙은 알림 칸과 app.ts 꼴 알림(글·동작 버튼·닫기 버튼) 하나 */
+  function setup() {
+    vi.useFakeTimers();
+    const el = h('div', { class: 'toasts', 'aria-live': 'polite' });
+    const out = h('button', { type: 'button' }, '밖');
+    document.body.append(out, el);
+    const make = (msg: string) => {
+      const act = h('button', { type: 'button', class: 'btn small toast-act' }, '새로 고침');
+      const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
+      return { t: h('div', { class: 'toast info', role: 'status' }, h('span', {}, msg), act, close), act, close };
+    };
+    return { el, out, make };
+  }
+
+  it('마우스·초점이 없으면 ms 뒤 닫히고, ms를 주지 않으면(144·152차 꼴) 닫지 않는다', () => {
+    const { el, make } = setup();
+    const a = make('PNG를 저장했습니다.');
+    pushToast(el, a.t, 3, 3500);
+    vi.advanceTimersByTime(3499);
+    expect(a.t.isConnected).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(a.t.isConnected).toBe(false);
+    const b = make('남는 알림');
+    pushToast(el, b.t, 3);
+    vi.advanceTimersByTime(60_000);
+    expect(b.t.isConnected).toBe(true);
+  });
+
+  it('마우스를 올려 두면 멈추고, 떠나면 처음 시간을 다시 센다', () => {
+    const { el, make } = setup();
+    const a = make('보기 링크를 복사했습니다.');
+    pushToast(el, a.t, 3, 3500);
+    vi.advanceTimersByTime(3000);
+    a.t.dispatchEvent(new Event('pointerenter'));
+    vi.advanceTimersByTime(60_000);
+    expect(a.t.isConnected).toBe(true);
+    a.t.dispatchEvent(new Event('pointerleave'));
+    vi.advanceTimersByTime(3499);
+    expect(a.t.isConnected).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(a.t.isConnected).toBe(false);
+  });
+
+  it('초점이 동작·닫기 버튼에 있으면 멈추고 안에서 옮겨도 그대로, 마우스와 초점이 모두 떠나야 다시 센다(초점은 옮기지 않음)', () => {
+    const { el, out, make } = setup();
+    const a = make('그림을 저장하지 못했습니다');
+    pushToast(el, a.t, 3, 9000);
+    a.act.focus();
+    vi.advanceTimersByTime(20_000);
+    expect(a.t.isConnected).toBe(true);
+    a.close.focus();
+    vi.advanceTimersByTime(20_000);
+    expect([a.t.isConnected, document.activeElement]).toEqual([true, a.close]);
+    // 마우스가 올라 있으면 초점이 밖으로 가도 멈춘 채
+    a.t.dispatchEvent(new Event('pointerenter'));
+    out.focus();
+    vi.advanceTimersByTime(20_000);
+    expect(a.t.isConnected).toBe(true);
+    a.t.dispatchEvent(new Event('pointerleave'));
+    vi.advanceTimersByTime(8999);
+    expect(a.t.isConnected).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, out]);
+    // 초점이 문서로 떠나도(blur — relatedTarget 문서) 다시 센다
+    const b = make('새 버전이 있습니다.');
+    pushToast(el, b.t, 3, 3500);
+    b.close.focus();
+    vi.advanceTimersByTime(10_000);
+    expect(b.t.isConnected).toBe(true);
+    b.close.blur();
+    vi.advanceTimersByTime(3500);
+    expect(b.t.isConnected).toBe(false);
+  });
+
+  it('앱(원문): 알림 시간을 pushToast에 넘기고 따로 setTimeout으로 닫지 않는다', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toContain('pushToast(this.toasts, t, 3, ms);');
+    expect(app).not.toContain('setTimeout(remove, ms)');
   });
 });
