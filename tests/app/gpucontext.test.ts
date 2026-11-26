@@ -5,6 +5,7 @@
  * - 앱은 놓기 선택(release)을 쓰지 않으므로 되찾은 뒤 다시 줄 것이 없다(restoreNeed null)
  * - 두 문구는 네 언어 사전에 있다
  * - 잃음 안내는 앱 알림 칸 한도(셋)에 밀려나지 않는다(144차 — 닫을 때까지 남기는 안내는 data-keep, 넣기·한도는 pushToast)
+ * - 그 밖은 가장 오래된 안내부터 빠져 잃은 동안의 저장 오류가 안내에 밀리지 않는다(152차 — 종류 class, 차례는 tests/app/toast.test.ts)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,12 +42,13 @@ function toasts() {
   return { list, toast, open: () => list.filter((t) => t.open) };
 }
 
-/** 앱 알림 칸 흉내(app.ts toast — 닫을 때까지 남기는 안내는 data-keep, 넣기와 한도 셋은 pushToast) */
+/** 앱 알림 칸 흉내(app.ts toast — 종류 class(기본 info), 닫을 때까지 남기는 안내는 data-keep, 넣기와 한도 셋은 pushToast) */
 function toastBox() {
   const box = dom.host();
-  const toast = (msg: string, _kind?: string, _ms?: number, keep = false) => {
+  const toast = (msg: string, kind = 'info', _ms?: number, keep = false) => {
     const t = dom.host();
     t.textContent = msg;
+    t.className = `toast ${kind}`;
     if (keep) t.setAttribute('data-keep', '');
     pushToast(box as unknown as Element, t as unknown as Element, 3);
     return () => t.remove();
@@ -96,7 +98,7 @@ describe('그래픽 문맥 잃음·되찾음 안내', () => {
     v.dispose();
   });
 
-  it('잃음 안내는 알림 칸 한도(셋)에 밀려나지 않고 되찾으면 닫힌다 — 그 밖의 알림은 가장 오래된 것부터 빠진다(144차)', () => {
+  it('잃음 안내는 알림 칸 한도(셋)에 밀려나지 않고 되찾으면 닫힌다 — 그 밖은 가장 오래된 안내부터, 없으면 가장 오래된 것부터 빠진다(144·152차)', () => {
     // 잃음 안내가 없으면 지금처럼 가장 오래된 것부터
     const plain = toastBox();
     for (const m of ['가', '나', '다', '라']) plain.toast(m);
@@ -108,14 +110,15 @@ describe('그래픽 문맥 잃음·되찾음 안내', () => {
     lose();
     expect(a.shown()).toEqual(['앞 알림', CONTEXT_LOST_MESSAGE]);
     expect(a.kept()).toEqual([CONTEXT_LOST_MESSAGE]);
-    // 잃은 동안 PNG 저장을 거듭 누르고(오류 알림 셋) 다른 알림이 하나 더 와도 잃음 안내는 남는다(그 밖은 오래된 것부터 빠짐)
+    // 잃은 동안 PNG 저장을 거듭 누르고(오류 알림 셋) 안내가 하나 더 와도 잃음 안내는 남는다 — 오류끼리는 오래된 것부터 빠지고,
+    // 안내는 오류를 밀어내지 않아 새 안내가 곧 빠진다(152차 — 전에는 가장 오래된 오류가 빠져 오류 하나와 안내가 남음)
     const err = '그림을 저장하지 못했습니다: 3D 보기 문맥이 없어 그림을 만들 수 없습니다';
     for (let i = 0; i < 3; i++) a.toast(err, 'error');
     a.toast('부품 단위로 고릅니다.');
-    expect(a.shown()).toEqual([CONTEXT_LOST_MESSAGE, err, '부품 단위로 고릅니다.']);
+    expect(a.shown()).toEqual([CONTEXT_LOST_MESSAGE, err, err]);
     // 되찾으면 잃음 안내를 닫고 짧은 알림(남기지 않는 알림)
     restore();
-    expect(a.shown()).toEqual([err, '부품 단위로 고릅니다.', CONTEXT_RESTORED_MESSAGE]);
+    expect(a.shown()).toEqual([err, err, CONTEXT_RESTORED_MESSAGE]);
     expect(a.kept()).toEqual([]);
     v.dispose();
   });
