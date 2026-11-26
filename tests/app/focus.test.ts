@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { openDialog } from '../../src/app/dialog';
+import { closeDialog, dialogOpen, openDialog, selectRow } from '../../src/app/dialog';
+import { controlOf, isTextTarget, routeKey } from '../../src/app/keys';
 import { openMenu } from '../../src/app/menu';
 import { recentFocus } from '../../src/app/recent';
 
@@ -157,5 +158,56 @@ describe('초점 돌려주기(키보드 사용)', () => {
     expect(app).toMatch(/open\.addEventListener\('click', \(\) => void this\.openRecent\(r, recentFocus\(open, this\.recentList, this\.startOpen\)\)\);/);
     expect(app).toMatch(/private async openRecent\(r: RecentEntry, back\?: \(\) => void\): Promise<boolean>/);
     expect(app).toMatch(/await this\.recent\.remove\(r\.id\);\s*(\/\/[^\n]*\n\s*)*void this\.refreshRecent\(\)\.then\(back\);\s*return false;/);
+  });
+
+  it('154차: 모달 대화 상자가 열린 동안(showModal이 없는 open 속성 갈래도) 앱 창 글쇠는 Esc 말고 받지 않는다 — 열린 것은 dialog.ts가 쥔 상태로 안다', () => {
+    // 앱(원문): 창 bubble onKey 판정에 그 상태를 넘기고, 창 캡처 리스너(곡선 접선 Shift·분해 손질 글쇠·3D 보기 화살표)도 맨 앞에서 돌아선다
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toMatch(/const action = routeKey\(\{ [^\n]*, modal: dialogOpen\(\) \}\);/);
+    expect(app).toMatch(/\(ev\) => \{\n\s*if \(dialogOpen\(\)\) return;\n\s*if \(this\.tangentShift\(ev\) \|\| /);
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    // app.ts onKey와 같은 판정(창 bubble)
+    const routed: (string | null)[] = [];
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return;
+      routed.push(routeKey({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, inText: isTextTarget(e.target), control: controlOf(e.target), hasDoc: true, modal: dialogOpen() }));
+    };
+    const press = (el: Element, key: string, init: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+    addEventListener('keydown', onKey);
+    try {
+      expect(dialogOpen()).toBe(false);
+      opener.focus();
+      const d = openDialog('표시 설정', [selectRow('단위', [['mm', 'mm'], ['in', 'in']], 'mm', () => {})]);
+      // jsdom에는 showModal이 없어 open 속성 갈래로 뜬다
+      expect(d.el.hasAttribute('open')).toBe(true);
+      expect(dialogOpen()).toBe(true);
+      const close = d.el.querySelector<HTMLButtonElement>('.dlg-close')!;
+      close.focus();
+      // 전에는 숨기기·격리·홈 뷰·격자·전체 보기·표준 뷰·방향 잠금·화살표·파일 열기·분해 되돌리기·다시 하기가 대화 상자 뒤에 들었다
+      for (const k of ['h', 'i', 'Home', 'F7', 'f', '1', 'Shift', 'ArrowLeft']) press(close, k);
+      press(close, 'o', { ctrlKey: true });
+      press(close, 'z', { metaKey: true });
+      press(close, 'y', { ctrlKey: true });
+      expect(routed).toEqual(Array(11).fill(null));
+      // 고르기 칸은 전처럼 글 칸, Esc는 앱의 대화 상자 닫기(Esc 차례의 첫 칸)
+      routed.length = 0;
+      press(d.el.querySelector('select')!, 'h');
+      press(close, 'Escape');
+      expect(routed).toEqual([null, 'escape']);
+      // 닫으면 글쇠가 다시 앱 것
+      expect(closeDialog()).toBe(true);
+      expect(dialogOpen()).toBe(false);
+      routed.length = 0;
+      press(opener, 'h');
+      press(opener, 'Home');
+      expect(routed).toEqual(['hide', 'home']);
+      // 닫기 단추로 닫아도 풀린다
+      openDialog('그림 저장', [document.createElement('p')]).el.querySelector<HTMLButtonElement>('.dlg-close')!.click();
+      expect(dialogOpen()).toBe(false);
+    } finally {
+      removeEventListener('keydown', onKey);
+      opener.remove();
+    }
   });
 });

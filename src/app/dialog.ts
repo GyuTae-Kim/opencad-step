@@ -11,6 +11,11 @@ export interface DialogHandle {
   close(): void;
 }
 
+/** 대화 상자가 열려 있는지(closeDialog가 닫을 것 — showModal·open 속성 갈래 모두). 154차: 열린 동안 앱 창 글쇠는 Esc 말고 받지 않는다(keys.ts routeKey) */
+export function dialogOpen(): boolean {
+  return !!current;
+}
+
 /** 열린 대화 상자 닫기(있었으면 true) */
 export function closeDialog(): boolean {
   if (!current) return false;
