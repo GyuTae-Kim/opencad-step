@@ -12,6 +12,7 @@ import * as TV from '../../src/app/treeview';
 import { siblingInfo, type TreeView } from '../../src/app/treeview';
 import { Fmt } from '../../src/app/display';
 import { h } from '../../src/app/dom';
+import { translate } from '../../site/i18n.mjs';
 
 const VIEW = 280;
 const TREE_TOP = 120;
@@ -415,6 +416,32 @@ describe('제품 나무 가상 목록', () => {
     panel.onVisibility();
     expect(eye.isConnected).toBe(false);
     expect(document.activeElement).toBe(row('0/0/1')!.querySelector('.eye'));
+  });
+
+  it('130차: 이름·제품 번호 없는 마디 줄의 "(이름 없음)"은 화면 글(.tree-name-gen — 번역층이 옮김), 이름·제품 번호와 자리 이름은 파일 글 그대로', () => {
+    const leaf = (name: string, productId: string, instance: string, mesh: string): ProductNode => ({ name, productId, instance, meshIds: [mesh], children: [] });
+    const products = [{ name: 'asm', productId: 'asm', meshIds: [], children: [leaf('', '', 'slot-1', 'mesh-0'), leaf('블록', 'pp-2', 'p2', 'mesh-1'), leaf('', 'PID-7', '', 'mesh-2')] }];
+    const d = createDoc('names.stp', 1, { scene: { meshes: [], lines: [], meta: { products } }, ms: 1 } as unknown as ParseResult);
+    const { rows, row } = mount(d);
+    expect(rows().map((r) => r.dataset.key)).toEqual(['0', '0/0', '0/1', '0/2']);
+    // 이름 없음: 번역층이 건너뛰는 .tree-name·translate="no" 밖, 자리 이름만 파일 글(fileSpan)
+    const anon = row('0/0')!;
+    expect(anon.querySelector('.tree-name')).toBeNull();
+    const gen = anon.querySelector<HTMLElement>('.tree-name-gen')!;
+    expect(gen.textContent).toBe('(이름 없음) · slot-1');
+    expect(gen.hasAttribute('translate')).toBe(false);
+    expect(gen.firstChild!.nodeValue).toBe('(이름 없음)');
+    expect(gen.closest('[translate="no"], [data-i18n-skip], .tree-name')).toBeNull();
+    expect(gen.querySelector('.ftext')!.textContent).toBe('slot-1');
+    expect(gen.querySelector('.ftext')!.getAttribute('translate')).toBe('no');
+    expect(anon.querySelector('.eye')!.getAttribute('aria-label')).toBe('(이름 없음) 숨기기');
+    // 이름(사전 열쇠와 같은 "블록"도)·제품 번호는 파일 글 — 지금처럼 .tree-name
+    expect(row('0/1')!.querySelector('.tree-name-gen')).toBeNull();
+    expect(row('0/1')!.querySelector('.tree-name .ftext')!.textContent).toBe('블록');
+    expect(row('0/1')!.querySelector('.tree-name .ftext')!.getAttribute('translate')).toBe('no');
+    expect(row('0/2')!.querySelector('.tree-name-gen')).toBeNull();
+    expect(row('0/2')!.querySelector('.tree-name .ftext')!.textContent).toBe('PID-7');
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) expect(translate('(이름 없음)', lang), lang).not.toMatch(/[가-힣]/);
   });
 });
 
