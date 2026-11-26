@@ -286,6 +286,8 @@ export class Panel {
           kids.push(h('div', { class: 'vol-line', title: `겹친 부피 ≈ ${f.vol(p.volume)} ± ${f.vol(p.volumeErr ?? 0)}` }, h('span', {}, '겹친 부피'), ' ', h('span', { class: 'vol-val' }, text)));
         }
       }
+      // 140차: 자른 목록 밑에 남은 쌍 수(머리 줄의 「간섭」은 온 수 — 전에는 알리지 않았다)
+      if (r.pairs.length > LIMIT) kids.push(h('p', { class: 'hint' }, `그 밖 ${fmtCount(r.pairs.length - LIMIT)}쌍은 목록에 넣지 않았습니다.`));
       if (inside) kids.push(h('p', { class: 'hint' }, '안에 든 부품은 바깥 부품에 가려 보이지 않을 수 있습니다 — X-ray 그리기나 나머지 흐리게로 보십시오.'));
       if (r.volumes?.done)
         kids.push(h('p', { class: 'hint' }, '겹친 부피(≈)는 화면 메시를 광선으로 훑은 어림값이고, ±는 어림 오차입니다.'));
