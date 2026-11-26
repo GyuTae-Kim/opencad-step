@@ -5,14 +5,15 @@
  *   상태 막대·측정 띠·결과에 "끌어온 점에서 모서리와 나란히 · X축 위"·"… · 다른 끌어온 점에서 수직인 선 위"처럼
  * - 116차: 첫 점에서 모서리에 수직인 방향 위 점(코어 0.115.0 perpendicularDir)의 이름 "모서리에 수직"(guideSnapLabel — 위 이름과 함께 앱이 먼저 묻는다).
  *   117차: 그 점인지(isPerpendicularDir)를 가상 커서 알림 글(keysnap.ts keySnapAnnounceText)도 함께 쓴다.
- *   124차: 알림 글이 잠그지 않은 나란함·수직 후보에 쓸 상태 막대 이름(announceSnapName — 첫 점 나란함·끌어온 점 나란한·수직인 선·만나는 점까지)
+ *   124차: 알림 글이 잠그지 않은 나란함·수직 후보에 쓸 상태 막대 이름(첫 점 나란함·끌어온 점 나란한·수직인 선·만나는 점까지)
+ *   125차: 알림 글이 모든 측정 후보·찍은 첫 점에 쓸 상태 막대 이름(snapNameOf — 이 조각 이름 ?? 첫 화면 hoverSnapLabel, 축·붙잡지 않은 점·잠근 후보까지)
  * 측정 붙잡기 계산이라 뷰어 조각(viewerkit.ts — 첫 화면 JS 밖)에 들어 있고, 앱은 뷰어를 만들 때 이 함수들을 쥐어
  * 측정 붙잡기 선택(snap.ts measureSnapOptions)에 넘기고 붙잡을 점·찍은 점의 이름을 고른다.
  */
-import type { SnapAxis, SnapSegment, TrackDirKind } from 'opencad-viewer3d';
+import type { MeasureHoverSnap, MeasurePoint, SnapAxis, SnapSegment, TrackDirKind } from 'opencad-viewer3d';
 import type { SnapKind } from 'opencad-viewer3d/types';
 import { edgeAt } from './edges';
-import { isTrackDir, type SnapEdgeIndex, TRACK_PARALLEL_LABEL, TRACK_PERPENDICULAR_LABEL } from './snap';
+import { hoverSnapLabel, isTrackDir, type SnapEdgeIndex } from './snap';
 
 /**
  * 곧은 B-rep 모서리(모서리 표 종류 'line')의 윤곽선 선분만 받는다. 원·타원·B-스플라인과 종류를 모르는 꺾은선 모서리('other')를 나눈 현,
@@ -80,12 +81,13 @@ export function trackDirMeetPlace(m: TrackDirMeet): string {
 
 /**
  * 끌어온 점 안내 선이 만나는 점의 이름: "끌어온 점에서 모서리와 나란히 · X축 위"·"끌어온 점에서 모서리에 수직 · 모서리 위"처럼 안내 이름(snap.ts — 0.27.0)에
- * 만난 것을 덧붙인다. 만나는 점이 아니면 null(앱은 그때 snap.ts hoverSnapLabel·snapLabel 그대로)
+ * 만난 것을 덧붙인다. 만나는 점이 아니면 null(앱은 그때 snap.ts hoverSnapLabel·snapLabel 그대로).
+ * 안내 이름은 snap.ts hoverSnapLabel이 끌어온 점 선(isTrackDir — 잠그지 않음)에 고르는 TRACK_PARALLEL_LABEL·TRACK_PERPENDICULAR_LABEL 그대로다
+ * (125차: 이름 상수 둘 대신 알림 이름(snapNameOf)도 쓰는 그 함수 하나를 첫 화면 조각에서 가져온다 — 첫 화면 조각의 내보내기를 늘리지 않게)
  */
 export function trackDirMeetLabel(p: TrackDirMeetInput | null | undefined): string | null {
   const m = trackDirMeet(p);
-  if (!m) return null;
-  return `${p!.snap === 'parallel' ? TRACK_PARALLEL_LABEL : TRACK_PERPENDICULAR_LABEL} · ${trackDirMeetPlace(m)}`;
+  return m ? `${hoverSnapLabel(p)} · ${trackDirMeetPlace(m)}` : null;
 }
 
 /**
@@ -114,23 +116,12 @@ export function guideSnapLabel(p: (TrackDirMeetInput & { perpendicularDir?: bool
 }
 
 /**
- * 첫 점을 지나 지나간 모서리와 나란한 선 위 점(코어 0.10.0 'parallel' — 끌어온 점 선이 아님)의 이름: snap.ts snapLabel('parallel')과 같은 글
- * (뷰어 조각이 첫 화면 조각에서 새로 가져오는 이름을 늘리지 않으려고 여기 따로 둔다 — tests/app/keysnap.test.ts가 상태 막대 이름과 같은지 본다)
+ * 125차: 상태 막대·측정 띠의 스냅 이름(app.ts showHoverSnap — 이 조각의 guideSnapLabel ?? 첫 화면 snap.ts hoverSnapLabel)과 같은 규칙의 이름.
+ * 가상 커서 알림 글(keysnap.ts keySnapAnnounceText)이 코어 틀 이름(「나란한 선」·「수직점」·「X축」·「스냅하지 않은 점」·「잠근 선 위 …」) 대신 쓴다 —
+ * 미리 보기 후보(measureHoverSnap)와 찍은 첫 점(measurePoints — 결과 이름 snapPair와 같은 규칙). tangent = 코어 잠금이 앱 곡선 접선 잠금인지
+ * (tangent.ts TangentLock.locked — 그러면 「접선 방향 · 잠금」·「잠근 접선 · 모서리 위」). 124차까지는 잠그지 않은 나란함·수직만 골랐다
+ * (잠근 후보·축·붙잡지 않은 점은 코어 글 그대로 — 접선 잠금을 모르고, 첫 화면 이름 함수를 가져오지 않았다)
  */
-export const PARALLEL_EDGE_LABEL = '모서리와 나란히';
-
-/**
- * 124차: 가상 커서 알림 글(keysnap.ts keySnapAnnounceText)에서 코어 틀 이름을 상태 막대 이름으로 바꿀 후보 — 잠그지 않은 나란함('parallel')·수직('perpendicular')만.
- * name은 상태 막대·측정 띠(app.ts showHoverSnap — 이 조각의 guideSnapLabel ?? 첫 화면 hoverSnapLabel)와 같은 규칙: 첫 점에서 모서리에 수직인 방향(117차 「모서리에 수직」)·
- * 끌어온 점 안내 선이 만나는 점(「끌어온 점에서 모서리와 나란히 · X축 위」 등), 끌어온 점 나란한·수직인 선(「끌어온 점에서 모서리와 나란히」·「…에 수직」), 첫 점 나란한 선(「모서리와 나란히」).
- * key는 코어 글에 그 종류 이름으로 든 틀 열쇠(코어 snapKindText — 「나란한 선」·「수직점」). 첫 점에서 내린 수직 발은 코어 이름과 같은 「수직점」이라 null.
- * 잠근 후보는 null — 상태 막대는 접선 잠금이면 「접선 방향 · 잠금」인데 이 조각은 앱 접선 잠금을 모른다(코어 글 「잠근 선 위 …」 그대로)
- */
-export function announceSnapName(
-  p: (TrackDirMeetInput & { perpendicularDir?: boolean }) | null | undefined,
-): { key: 'snap.parallel' | 'snap.perpendicular'; name: string } | null {
-  if (!p || p.locked || (p.snap !== 'parallel' && p.snap !== 'perpendicular')) return null;
-  const par = p.snap === 'parallel';
-  const name = guideSnapLabel(p) ?? (isTrackDir(p) ? (par ? TRACK_PARALLEL_LABEL : TRACK_PERPENDICULAR_LABEL) : par ? PARALLEL_EDGE_LABEL : null);
-  return name ? { key: par ? 'snap.parallel' : 'snap.perpendicular', name } : null;
+export function snapNameOf(p: MeasureHoverSnap | MeasurePoint | null | undefined, tangent = false): string | null {
+  return guideSnapLabel(p) ?? hoverSnapLabel(p, tangent);
 }
