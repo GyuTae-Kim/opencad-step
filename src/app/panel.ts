@@ -247,7 +247,7 @@ export class Panel {
     const d = this.doc;
     if (!d || d.panelTab !== 'tree') return;
     if (this.interferenceEl && d.interference) {
-      const el = this.interferenceSection(d);
+      const el = this.interferenceSection(d, true);
       this.swap(this.interferenceEl, el);
       this.interferenceEl = el;
       // 아래 부품별 보이기 표의 자리가 바뀌었다 — 보이는 줄을 다시 센다
@@ -262,14 +262,18 @@ export class Panel {
     }
   }
 
-  private interferenceSection(d: StepDoc): HTMLElement {
+  /**
+   * fresh: 워커 알림으로 묶음을 갈아 끼울 때(onInterference). 그때 새로 붙는 오류 줄은 role=alert로 화면 읽기 프로그램이 읽게 한다(143차 — 전에는 role·aria-live 없는 새 줄이라
+   * 「검사 중…」 뒤 아무것도 듣지 못했다. 쌍 수는 앱 알림 상자가 알린다). 탭을 다시 그릴 때(나무 펼치기·거르기·보이기)는 같은 오류를 다시 읽히지 않게 role 없이
+   */
+  private interferenceSection(d: StepDoc, fresh = false): HTMLElement {
     const st = d.interference!;
     const kids: HTMLElement[] = [];
     const clear = h('button', { type: 'button', class: 'btn small' }, st.running ? '멈추기' : '결과 지우기');
     clear.addEventListener('click', () => this.host.clearInterference());
     const count = st.total ? ` ${fmtCount(st.done)} / ${fmtCount(st.total)}` : '';
     if (st.running && !st.result) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사 중…'), count));
-    else if (st.error) kids.push(h('p', { class: 'hint' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
+    else if (st.error) kids.push(h('p', { class: 'hint', role: fresh && 'alert' }, h('span', {}, '검사하지 못했습니다:'), ` ${st.error}`));
     if (st.result) {
       const r = st.result;
       const f = this.host.fmt;
