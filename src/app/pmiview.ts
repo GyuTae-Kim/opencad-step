@@ -137,7 +137,17 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
         if (x.faces?.length) {
           const b = h('button', { type: 'button', class: 'link-btn', title: SEM_TAP }, fileSpan(x.name || '—'));
-          b.addEventListener('click', () => (d.items?.label === label ? host.selectItems(null, label) : host.showPmiFaces(x.faces!, label)));
+          // 137차: 두 번 누르기의 둘째 누름(detail 2)은 풀지 않고, 첫 누름이 풀었으면 다시 강조·맞춤 — 두 번 누르기는 표현 PMI 줄처럼 늘 강조된 채 끝난다
+          // (전에는 첫 누름이 강조·맞춤, 둘째 누름이 곧 풀었다). 한 번 누르기(Enter·Space는 0)는 다시 누르면 풂, 셋째부터는 받지 않음
+          b.addEventListener('click', (ev) => {
+            const on = d.items?.label === label;
+            if (ev.detail === 2) {
+              if (!on) host.showPmiFaces(x.faces!, label);
+            } else if (ev.detail <= 1) {
+              if (on) host.selectItems(null, label);
+              else host.showPmiFaces(x.faces!, label);
+            }
+          });
           nameCell = h('span', { class: 'sem-name', role: 'cell' }, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
         } else (nameCell = fileSpan(x.name || '—', '', x.name || undefined)).setAttribute('role', 'cell');
         const value = fileSpan(x.value || '—', 'mono', x.value);
