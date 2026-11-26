@@ -3076,7 +3076,10 @@ export class StepApp {
     this.updateAll();
   }
 
-  /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차) */
+  /**
+   * 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차).
+   * ms 뒤 닫는 시계는 pushToast가 맡아 마우스가 올라 있거나 초점이 그 안이면 멈춘다(160차)
+   */
   toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }, keep = false): () => void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
@@ -3088,8 +3091,7 @@ export class StepApp {
     });
     const remove = () => t.remove();
     close.addEventListener('click', remove);
-    pushToast(this.toasts, t, 3);
-    setTimeout(remove, ms);
+    pushToast(this.toasts, t, 3, ms);
     return remove;
   }
 

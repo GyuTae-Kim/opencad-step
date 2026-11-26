@@ -55,14 +55,33 @@ export function iconButton(name: IconName, label: string, opts: { title?: string
 /**
  * 알림 칸에 알림 t를 넣고, max개를 넘으면 하나씩 뺀다 — 닫을 때까지 남기는 안내(data-keep: 그래픽 문맥 잃음 — 되찾을 때까지)는
  * 건너뛰고(144차 — 잃은 동안 저장 오류 알림이 쌓여 그 안내가 먼저 빠졌다), 가장 오래된 안내(class info)부터, 안내가 없으면 가장 오래된 것부터 뺀다
- * (152차 — 다시 볼 곳 없는 오류·경고가 뒤이은 안내에 밀려 제 시간 전에 빠졌다). 모두 남길 것이면 맨 앞을 빼 한도는 늘 지킨다
+ * (152차 — 다시 볼 곳 없는 오류·경고가 뒤이은 안내에 밀려 제 시간 전에 빠졌다). 모두 남길 것이면 맨 앞을 빼 한도는 늘 지킨다.
+ * ms를 주면 그 시간 뒤 저절로 닫되, 마우스가 올라 있거나 초점이 그 안(닫기·동작 버튼)이면 멈추고 둘 다 떠나면 처음 시간을 다시 센다
+ * (160차 — WCAG 2.2.1 시간 조절의 연장: 전에는 읽거나 버튼에 가 있는 동안에도 사라졌고, 초점이 있던 버튼과 함께 사라지면 초점이 문서로 빠졌다).
+ * 처음 시간을 다시 주어 끝 무렵에 올렸다 떼도 곧바로 사라지지 않는다. 손가락은 누르는 동안만(pointerenter~pointerleave) 멈춘다
  */
-export function pushToast(box: Element, t: Element, max: number): void {
+export function pushToast(box: Element, t: Element, max: number, ms?: number): void {
   box.append(t);
   while (box.children.length > max) {
     const free = [...box.children].filter((c) => !c.hasAttribute('data-keep'));
     (free.find((c) => /\binfo\b/.test(c.className)) ?? free[0] ?? box.children[0]!).remove();
   }
+  if (ms === undefined) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let over = false;
+  let inside = false;
+  const on = (type: string, set: (e: Event) => void) =>
+    t.addEventListener(type, (e) => {
+      set(e);
+      clearTimeout(timer);
+      timer = over || inside ? undefined : setTimeout(() => t.remove(), ms);
+    });
+  on('pointerenter', () => (over = true));
+  on('pointerleave', () => (over = false));
+  on('focusin', () => (inside = true));
+  // 안에서 옮기면(동작 ↔ 닫기) relatedTarget이 안이라 멈춘 채, 밖·창 밖(null)이면 떠남
+  on('focusout', (e) => (inside = t.contains((e as FocusEvent).relatedTarget as Node | null)));
+  timer = setTimeout(() => t.remove(), ms);
 }
 
 /**

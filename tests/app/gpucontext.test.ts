@@ -126,7 +126,7 @@ describe('그래픽 문맥 잃음·되찾음 안내', () => {
   it('앱(원문): 알림 함수가 남기는 안내에 data-keep을 달고 pushToast로 넣으며, 문맥 안내에 넘기는 함수가 keep을 넘긴다(144차)', () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
     expect(app).toContain("'data-keep': keep");
-    expect(app).toContain('pushToast(this.toasts, t, 3);');
+    expect(app).toContain('pushToast(this.toasts, t, 3');
     expect(app).not.toContain('this.toasts.children.length > 3');
     expect(app).toContain('core.watchGraphicsContext(v, (msg, kind, ms, keep) => this.toast(msg, kind, ms, undefined, keep));');
   });
