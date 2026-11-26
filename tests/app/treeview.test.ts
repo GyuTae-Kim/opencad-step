@@ -10,6 +10,7 @@ import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import { siblingInfo, type TreeView } from '../../src/app/treeview';
+import { AIM_SLOP_PX, HOLD_MENU_MS, touchPointerEvent } from '../../src/app/aim';
 import { Fmt } from '../../src/app/display';
 import { h } from '../../src/app/dom';
 import { translate } from '../../site/i18n.mjs';
@@ -473,5 +474,88 @@ describe('부품별 보이기 표 가상 목록', () => {
     cb.checked = !cb.checked;
     cb.dispatchEvent(new Event('change'));
     expect(calls.at(-1)).toBe(`group 부품 이름이 아주 긴 묶음-${n + 1} ${cb.checked}`);
+  });
+});
+
+/**
+ * 132차: 나무 줄 손가락 길게 누르기 → 작업 메뉴. iOS·iPadOS Safari는 길게 누르기에 contextmenu를 내지 않으므로(MDN 호환 표 — WebKit 213953)
+ * 브라우저 contextmenu 없이 터치 pointer 사건과 가짜 시계만으로 본다(3D 보기의 정밀 조준 aim.ts와 같은 HOLD_MENU_MS·AIM_SLOP_PX)
+ */
+describe('132차: 나무 줄 손가락 길게 누르기로 작업 메뉴(contextmenu를 내지 않는 iOS·iPadOS)', () => {
+  afterEach(() => vi.useRealTimers());
+  const touchTree = () => {
+    const m = mount(bigDoc());
+    (m.panel as unknown as { host: Record<string, unknown> }).host.openContextMenu = (x: number, y: number) => m.calls.push(`menu ${x},${y}`);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const ev = (el: Element, type: string, x: number, y: number, id = 1, kind = 'touch') => el.dispatchEvent(touchPointerEvent(type, id, x, y, kind));
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    const ctx = (el: Element, x: number, y: number) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    return { ...m, ev, click, ctx };
+  };
+
+  it('떨림(문턱 안)만 있고 HOLD_MENU_MS 누르면 그 줄을 고르고 손가락 자리에 작업 메뉴, 뗀 손가락의 click·늦은 contextmenu는 거르고 다음 누르기는 그대로', () => {
+    const { row, calls, ev, click, ctx } = touchTree();
+    const r = row('0/0/2')!;
+    ev(r, 'pointerdown', 40, 200);
+    ev(r, 'pointermove', 40 + AIM_SLOP_PX - 3, 200);
+    vi.advanceTimersByTime(HOLD_MENU_MS - 1);
+    expect(calls).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(calls).toEqual(['select 0/0/2', `menu ${40 + AIM_SLOP_PX - 3},200`]);
+    // 연 뒤의 움직임은 거두지 않고(이미 열림), 뗀 click(고르기 뒤집기)·늦게 온 contextmenu(다시 열기)는 거른다
+    ev(r, 'pointermove', 80, 200);
+    ev(r, 'pointerup', 80, 200);
+    click(r);
+    ctx(r, 80, 200);
+    expect(calls).toHaveLength(2);
+    // 새 누름(짧게)은 그대로 고르기 뒤집기
+    ev(r, 'pointerdown', 40, 200);
+    ev(r, 'pointerup', 40, 200);
+    click(r);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    expect(calls).toEqual(['select 0/0/2', `menu ${40 + AIM_SLOP_PX - 3},200`, 'select null']);
+  });
+
+  it('문턱을 넘게 움직이면(목록 굴리기)·취소되면·일찍 떼면·다른 손가락이 닿으면·마우스면 열지 않고, 오른쪽 누르기(contextmenu)는 그 자리에 한 번', () => {
+    const { row, calls, ev, click, ctx } = touchTree();
+    const r = row('0/0/2')!;
+    ev(r, 'pointerdown', 40, 200);
+    ev(r, 'pointermove', 40, 200 + AIM_SLOP_PX);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    ev(r, 'pointercancel', 40, 210);
+    ev(r, 'pointerdown', 40, 200);
+    ev(r, 'pointercancel', 40, 200);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    ev(r, 'pointerdown', 40, 200);
+    vi.advanceTimersByTime(HOLD_MENU_MS - 100);
+    ev(r, 'pointerup', 40, 200);
+    click(r);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    expect(calls).toEqual(['select 0/0/2']);
+    ev(r, 'pointerdown', 40, 200, 1);
+    ev(document.body, 'pointerdown', 90, 200, 2);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    ev(r, 'pointerup', 40, 200, 1);
+    ev(document.body, 'pointerup', 90, 200, 2);
+    ev(r, 'pointerdown', 40, 200, 3, 'mouse');
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    ev(r, 'pointerup', 40, 200, 3, 'mouse');
+    ctx(r, 41, 201);
+    expect(calls).toEqual(['select 0/0/2', 'menu 41,201']);
+  });
+
+  it('같은 누름에 브라우저 contextmenu(Android 등)가 먼저 오면 그것으로 한 번만 열고, 새 누름은 그대로', () => {
+    const { row, calls, ev, click, ctx } = touchTree();
+    const r = row('0/0/3')!;
+    ev(r, 'pointerdown', 40, 230);
+    vi.advanceTimersByTime(HOLD_MENU_MS - 100);
+    ctx(r, 41, 231);
+    vi.advanceTimersByTime(HOLD_MENU_MS);
+    ev(r, 'pointerup', 41, 231);
+    expect(calls).toEqual(['select 0/0/3', 'menu 41,231']);
+    ev(r, 'pointerdown', 40, 230);
+    ev(r, 'pointerup', 40, 230);
+    click(r);
+    expect(calls).toEqual(['select 0/0/3', 'menu 41,231', 'select null']);
   });
 });

@@ -240,6 +240,17 @@ describe('손가락 기기 규칙(styles.css)', () => {
     expect(short[0]!.media).toMatch(/max-width:\s*759\.98px/);
     expect(short[0]!.style.getPropertyValue('--sheet-h').trim()).toBe('60%');
   });
+
+  it('132차: 나무 줄은 손가락 기기에서 글 고르기·iOS 말풍선을 끈다(길게 누르기는 작업 메뉴 — 3D 보기 .viewer-host와 같게), 마우스 화면은 그대로', () => {
+    expect(last.get('.tree-row')?.['user-select']).toBe('none');
+    // jsdom CSSOM은 -webkit- 접두 속성을 버리므로 원문 규칙으로 본다(손가락 기기 규칙은 두 칸 들여 씀, 매체 조건 없는 규칙은 줄 맨 앞)
+    const coarse = /^ {2}\.tree-row \{\s*min-height: 44px;([^}]*)\}/m.exec(css)?.[1] ?? '';
+    expect(coarse).toMatch(/-webkit-touch-callout: none;/);
+    expect(coarse).toMatch(/-webkit-user-select: none;/);
+    const plain = /^\.tree-row \{([^}]*)\}/m.exec(css)?.[1] ?? '';
+    expect(plain).toMatch(/min-height: 28px;/);
+    expect(plain).not.toMatch(/user-select|touch-callout/);
+  });
 });
 
 describe('레이어·PMI 표의 보이기 칸', () => {

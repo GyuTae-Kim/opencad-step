@@ -8,6 +8,7 @@
  * - 표는 ARIA table(aria-rowcount·aria-rowindex). 칸의 고르기 상자에 초점이 들면 앞뒤 줄을 만들어 두어 Tab이 끊기지 않는다.
  */
 import type { GroupInfo } from 'opencad-viewer3d';
+import { AIM_SLOP_PX, HOLD_MENU_MS } from './aim';
 import { h, icon } from './dom';
 import { fileSpan, isolateText } from './ftext';
 import { bodyName, instanceCounts, itemById, nodeItems, selectedBody, wireLabel, type StepDoc } from './doc';
@@ -206,6 +207,85 @@ export function findToFilter(ev: KeyboardEvent, f: HTMLInputElement | null = fin
   return true;
 }
 
+/**
+ * 132차: 나무 줄을 손가락으로 길게 누르면 작업 메뉴(오른쪽 누르기와 같은 일). 줄은 브라우저 contextmenu만 들었는데 iOS·iPadOS Safari는 길게 누르기에
+ * contextmenu를 내지 않는다(MDN 호환 표 — WebKit 버그 213953). 그래서 3D 보기의 정밀 조준 모듈(aim.ts)과 같은 시간(HOLD_MENU_MS)·떨림 문턱(AIM_SLOP_PX)으로
+ * 직접 센다: 한 손가락이 문턱 안에 머물면 그 손가락 자리에 연다. 문턱을 넘게 움직이면(목록 굴리기)·떼면·취소되면·다른 손가락이 닿으면 거둔다.
+ * 같은 누름에 브라우저 contextmenu(Android 등)가 먼저 오면 그것으로 열고 시계를 거둔다(한 번만). 길게 눌러 연 누름 동안과 뗀 뒤 0.8초 안(새 누름 전)의
+ * click(뗀 손가락 — 줄 고르기 뒤집기·눈·펼침 단추나 그 자리에 뜬 메뉴 항목)과 contextmenu는 그 누름의 것이라 거른다
+ */
+let hold: { id: number; x0: number; y0: number; x: number; y: number; timer?: ReturnType<typeof setTimeout>; open: ((x: number, y: number) => void) | null } | null = null;
+/** 길게 눌러 메뉴를 연 누름을 뗀 시각(없으면 -1) */
+let heldUp = -1;
+let holdBound = false;
+
+/** 길게 누르기를 그만 센다(연 누름을 뗐으면 그 시각을 남긴다) */
+function dropHold(up?: Event): void {
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  if (up && !hold.open) heldUp = up.timeStamp;
+  hold = null;
+}
+
+/** 이 click·contextmenu가 길게 누르기의 것인지(거른다). 세는 중인 누름의 contextmenu면 시계를 거두고 false — 그것으로 연다 */
+function holdTaken(e: Event): boolean {
+  if (!hold) return heldUp >= 0 && e.timeStamp - heldUp < 800;
+  if (!hold.open) return true;
+  if (e.type === 'contextmenu') {
+    clearTimeout(hold.timer);
+    hold.open = null;
+  }
+  return false;
+}
+
+/** 나무 줄 pointerdown: 손가락 하나면 길게 누르기를 센다(open — 그 줄의 작업 메뉴) */
+function holdStart(ev: PointerEvent, open: (x: number, y: number) => void): void {
+  if (!holdBound) {
+    holdBound = true;
+    const end = (e: Event): void => void ((e as PointerEvent).pointerId === hold?.id && dropHold(e));
+    document.addEventListener(
+      'pointerdown',
+      (e) => {
+        heldUp = -1;
+        if (e.pointerId !== hold?.id) dropHold();
+      },
+      true,
+    );
+    document.addEventListener(
+      'pointermove',
+      (e) => {
+        if (e.pointerId !== hold?.id) return;
+        hold.x = e.clientX;
+        hold.y = e.clientY;
+        if (hold.open && !(Math.hypot(hold.x - hold.x0, hold.y - hold.y0) < AIM_SLOP_PX)) dropHold();
+      },
+      true,
+    );
+    document.addEventListener('pointerup', end, true);
+    document.addEventListener('pointercancel', end, true);
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (!holdTaken(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
+  }
+  if (ev.pointerType !== 'touch' || !ev.isPrimary) return;
+  dropHold();
+  const { pointerId: id, clientX: x, clientY: y } = ev;
+  const p: NonNullable<typeof hold> = { id, x0: x, y0: y, x, y, open };
+  p.timer = setTimeout(() => {
+    const f = p.open;
+    if (hold !== p || !f) return;
+    p.open = null;
+    f(p.x, p.y);
+  }, HOLD_MENU_MS);
+  hold = p;
+}
+
 export interface TreeView {
   readonly el: HTMLElement;
   readonly list: VList;
@@ -396,14 +476,20 @@ export function treeView(o: TreeOpts): TreeView {
       else if (ev.detail <= 1) select(!isSel());
     });
     // 오른쪽 누르기(휴대폰은 길게 누르기)로 그 마디를 고르고 작업 메뉴
-    item.addEventListener('contextmenu', (ev) => {
-      ev.preventDefault();
+    const menu = (x: number, y: number): void => {
       // 여러 개 고르기 중에는 이 마디를 모은 것에 더해(이미 있으면 그대로) 메뉴가 모은 것 전체에 쓰이게 한다
       if (host.multiPick) {
         if (!rowMarks(d, r, treePicked(d))[0]) host.toggleInSelection(r.itemIds);
       } else if (!isSel()) select(true);
-      host.openContextMenu(ev.clientX, ev.clientY);
+      host.openContextMenu(x, y);
+    };
+    item.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      // 132차: 손가락 길게 누르기가 이미 열었으면 다시 열지 않는다(세는 중이면 이것으로 연다 — holdTaken)
+      if (!holdTaken(ev)) menu(ev.clientX, ev.clientY);
     });
+    // 132차: 손가락 길게 누르기는 직접 센다(iOS·iPadOS Safari는 contextmenu를 내지 않는다 — holdStart)
+    item.addEventListener('pointerdown', (ev) => holdStart(ev, menu));
     item.addEventListener('focusin', () => setActive(i));
     item.addEventListener('keydown', (ev) => {
       const k = ev.key;
