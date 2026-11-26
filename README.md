@@ -1258,14 +1258,17 @@ const { bytes: step } = await unpackStep(fileBytes);
 
 | 경로 | 내용 |
 |---|---|
-| `index.html`, `public/` | 앱 진입 페이지, 아이콘, 앱 정보(공유 받기·파일 열기) |
+| `index.html`, `public/` | 앱 진입 페이지, 아이콘, 앱 정보(공유 받기·파일 열기), 공유 이미지(`og-opencad.jpg`) |
 | `tools/site.mjs`, `tools/sw-source.mjs` | 이 앱의 사이트 설정(앱 정보 원본·서비스 워커 판 이름 짓기 — `vite.config.ts`와 시험이 같이 씀)과 오프라인 서비스 워커 본문(미리 담은 것 쓰기·공유 받기). 언어 페이지·검색 정보·사이트맵·언어별 앱 정보·`dist/sw.js`는 [공용 사이트 도구](https://github.com/GyuTae-Kim/opencad-site-kit)의 Vite 플러그인이 이 설정으로 만든다 |
-| `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json`)를 넘기고 사전을 넣는다 |
+| `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/`, `site/metadata.json`, `site/content-history.json` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json` — 검색·공유 정보의 원본)를 넘기고 사전을 넣는다, 콘텐츠 수정일 기록(아래 「검색·공유 메타데이터와 콘텐츠 수정일」) |
 | `src/app/main.ts`, `src/app/app.ts`, `src/app/core.ts`, `src/app/viewerkit.ts`, `src/app/gpucontext.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키, 3D 뷰어 코어·곡선 접선 잠금 나눠 받기, 코어와 함께 받는 조각, 그래픽 문맥 잃음·되찾음 안내 |
+| `src/app/i18n.ts`, `src/app/ftext.ts`, `src/app/measure.ts`, `src/app/recent.ts` | 첫 화면 조각에 드는 것: 화면 번역층(공용 언어 메뉴를 제목 막대에 달고, 고른 언어 사전만 `import()`로 받아 문서 변화 관찰자로 화면 글·말풍선·화면 읽기 이름·검색 정보를 옮김 — 파일 글·입력 칸·`translate="no"`는 건너뜀), 파일 글 넣기 도우미(길이 한도·방향 가두기·번역 막기), 측정 띠·패널 측정의 안내와 결과 글(거리·dx·dy·dz, 고른 면·모서리 주요 치수 — 손가락 기기는 Esc 대신 길게 누르기 안내), 최근 문서(이 브라우저 IndexedDB에만 — 목록과 파일 바이트를 따로, 새것부터 8개·60MB까지, 지운 뒤 초점 자리) |
+| `src/app/aim.ts`, `src/app/ctxmenu.ts`, `src/app/picklist.ts`, `src/app/hipaint.ts`, `src/app/keynav.ts`, `src/app/keysnap.ts`, `src/app/infoview.ts`, `src/app/imagedlg.ts`, `src/app/opennotice.ts`, `src/app/upload.ts` | 뷰어를 만든 뒤에만 쓰는 것(모두 뷰어 조각 `viewerkit.ts`로 받음): 정밀 조준(손가락 길게 누르기 십자선·작업 메뉴), 작업 메뉴 항목·불투명도 메뉴, 겹친 것 고르기 목록, 3D 강조 그리기(항목·구간·선 세 길을 함께), 키보드 길잡이(탭·라디오·도구 막대 화살표와 초점 되찾기), 키보드로 3D 붙잡기·고르기(가상 커서 알림 글·키 도움말), 정보 탭 본문, 큰 그림 저장 대화 상자 본문, 연 뒤 알림 한 줄(끊긴 파일·조립 자리 상한·경고 수·장면 고침), 큰 장면 GPU 나눠 올리기 몫 |
+| `src/app/labelavoid.ts` | 측정 거리 글상자가 3D 보기 위 앱 요소(측정 띠·분해·격리 띠·단면 막대·뷰 큐브)를 비켜 그리게 그 화면 사각형을 코어에 알리기(측정 접선 조각으로 받음) |
 | `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/treeview.ts`, `src/app/pmiview.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 나무 조각(제품 나무 줄·부품별 보이기 표·PMI 표의 가상 목록 — 뷰어 조각에 든다), 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
 | `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/explode.ts`, `src/app/explodebar.ts`, `src/app/explodetweak.ts`, `src/app/explodedrag.ts`, `src/app/explodetool.ts`, `src/app/explodefile.ts`, `src/app/explodesnap.ts`, `src/app/snap.ts`, `src/app/trackdir.ts`, `src/app/tangent.ts`, `src/app/curvesnap.ts`, `src/app/facesnap.ts`, `src/app/exactdist.ts`, `src/app/exactbound.ts`, `src/app/edgecross.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림(이 둘은 코어 조각으로 받음), 부품 겉모습(불투명도·흐리게·부품 색·분해 이동 걸기, 반투명 보기 판정, 문서 보이기 걸기(106차)), 분해 계획(조립 단계별·한꺼번에, 사방·X·Y·Z축 하나·화면 가로·세로·평면, 축 하나일 때 같은 자리에 겹친 부품 떼기 — 방식·방향 단추·단계 글과 함께 문서를 열 때 받음), 분해 손질(끌어 옮긴 덧이동·방향마다 되돌리기·다시 하기·보기 링크 꼴·끄는 길과 끌 단위·끄는 동안 거리 글과 그 자리, 코어를 고치지 않고 캔버스 부모에서 먼저 받는 끌기 손짓, 끌기·링크·최근 문서에 남기기·손질 파일 내보내기·불러오기를 묶은 도구, 손질 파일 꼴과 다른 문서에서 맞는 부품 고르기, 끄는 축 위에서 다른 부품 평면에 닿거나 같은 높이가 되는 자리 붙잡기(47차) — 다섯 다 분해 조각으로 받음), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름, 끌어온 점 나란함·수직의 기준 선분 거르기(곧은 모서리만 — 코어 조각으로 받음), 곡선 모서리 위(끝·가운데)의 접선 잠금과 측정 붙잡기 점을 B-rep 곡선 위로 다듬기(수직 발·모서리 위 점·두 곡선의 교차점·축과 곡선의 교차)·곡선 길이 가운데 점, 축이 면을 뚫는 점과 붙잡지 않은 면 위 점을 B-rep 곡면 위로 다듬기, 모서리 곡선이 다른 면을 뚫는 교차점, 개체 측정 최소 거리를 B-rep 곡면·곡선 정의로 다듬기와 오목한 자리 받기(시간 조각으로 나눠 돌림 — 모두 문서를 열 때 받는 접선 조각) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기·고르기 단위(부품·몸체)와 여러 개 고르기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
-| `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/selink.ts`, `src/app/interference.ts`, `src/app/overlap.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량), 면 기준 보기·자르기·카메라 옮기기(63차부터 뷰어 조각), STL·OBJ·CSV(문서를 열 때 받음), 보기 링크 글과 그 고른 것 ↔ 나무 자리 낱말(문서를 열 때 받음), 간섭 검사(교차·안에 듦)와 닫힌 입체 쌍의 겹친 부피(광선 표본 — 검사 워커) |
+| `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/selink.ts`, `src/app/interference.ts`, `src/app/overlap.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량·관성 모멘트), 면 기준 보기·자르기·카메라 옮기기(63차부터 뷰어 조각), STL·OBJ·CSV(문서를 열 때 받음), 보기 링크 글과 그 고른 것 ↔ 나무 자리 낱말(문서를 열 때 받음), 간섭 검사(교차·안에 듦)와 닫힌 입체 쌍의 겹친 부피(광선 표본 — 검사 워커) |
 | `src/app/protocol.ts`, `src/app/client.ts`, `src/app/job.ts`, `src/app/glyphs.ts`, `src/app/normals.ts`, `src/worker/parse.worker.ts`, `src/worker/check.worker.ts` | 해석 워커 메시지·이전 목록·삼각화 선택, 워커 손님(취소), 해석 일(압축 풀기 → 해석), 내장 글꼴에 없는 PMI 글자를 기기 글꼴 윤곽선으로(워커의 OffscreenCanvas), 넘기기 전 법선 줄이기(Int8 정점 4값), 해석 워커, 검사(간섭) 워커 |
 | `src/app/warnparts.ts` | 해석기 경고 한 줄 → 화면 조각(까닭 목록을 떼어 다국어 층이 조각마다 옮기게) |
 | `src/app/stepText.ts`, `src/app/sample.ts` | 작은 STEP 글쓴이(시험도 씀)와 예제 조립 모형 |
@@ -1282,7 +1285,7 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `src/massprops.ts`, `src/propsjob.ts` | 닫힌 입체의 질량 속성: 곡면 매개변수 공간의 가우스–그린 경계 적분, 삼각형으로 재는 면의 띠 메우기, 삼각화와 떼어 나중에 나눠 적분하기 |
 | `src/analysis.ts` | 틈·넓이·부피 검사, 닫힌 껍질 면 방향 맞추기(`orientFaces`) |
 | `scripts/sweep/` | 실제 파일 훑기(`npm run sweep`)와 결과 비교(`npm run sweep:compare`) — 고르기와 중복 빼기, vite-node 일꾼, 분류 코드, 품질 지표, 요약 |
-| `tools/mobile-browser-check.js`, `tools/performance-budget.json`, `tools/mobile-sample.stp` | 휴대폰 검사 워크플로의 사용 흐름 확인, 성능 예산(확인은 공용 도구의 `opencad-site check-performance-budget`), 합성 표본 |
+| `tools/mobile-browser-check.js`, `tools/check-browser-result.mjs`, `tools/mobile-browser.json`, `tools/performance-budget.json`, `tools/mobile-sample.stp` | 휴대폰 검사 워크플로의 사용 흐름 확인과 그 판정(돌린 값이 통과 글인지), 휴대폰 브라우저 설정(390×844·손가락), 성능 예산(확인은 공용 도구의 `opencad-site check-performance-budget`), 합성 표본 |
 
 ## 개발
 
@@ -3285,6 +3288,22 @@ SwiftShader 헤드리스(렌더러 이름 확인)로 main(0.67.0) 빌드와 올�
   - 크기(수정일 빌드의 vite 출력): 첫 화면 조각 210,393 → 210,442 B(+49 B — 148차 빌드와 견줌, vite gzip 74.50 → 74.51 kB, `gzip -9` 74,295 → 74,307 B로 +12 B).
     첫 화면 JS 예산(`tools/performance-budget.json` jsBytes 90,112 B — CI 값은 로컬 vite gzip보다 1.2 kB쯤 큼)에 어림 14.4 kB 여유입니다. 코어를 묶은 뷰어 조각 534,500 B·분해 조각 51,161 B·
     측정 접선 조각 85,347 B·스타일시트 37,353 B·해석 워커 조각 231,699 B·영어 사전 조각 82,354 B 그대로(첫 화면 조각 내보내기 105개 그대로 — 새 모듈 가져오기·내보내기 없음).
+- 150차(코어 0.121.0 그대로 — README 「구조」·「배포」·「검색·공유 메타데이터와 콘텐츠 수정일」·「다국어 UI와 정적 소개」를 코드와 대조): 코드·사전·스타일시트는 고치지 않았습니다(이 README만).
+  - 한 일: NC 132·133차 꼴(README가 약속·설명한 것을 코드와 맞대기)을 134~136차가 보지 않은 네 절에 했습니다. 「구조」 표는 경로가 모두 있었지만(없어진 파일 없음) 추적하는 `src` 104개 가운데
+    `src/app` 15개가 빠져 있었습니다 — 첫 화면 조각의 `i18n.ts`·`ftext.ts`·`measure.ts`·`recent.ts`, 뷰어 조각의 `aim.ts`·`ctxmenu.ts`·`picklist.ts`·`hipaint.ts`·`keynav.ts`·`keysnap.ts`·
+    `infoview.ts`·`imagedlg.ts`·`opennotice.ts`·`upload.ts`, 측정 접선 조각의 `labelavoid.ts`(어느 조각인지는 가져오는 쪽이 값인지 타입인지로 셈). 줄 셋으로 더하고, 표 밖이던
+    `tools/check-browser-result.mjs`·`tools/mobile-browser.json`(휴대폰 검사 워크플로)·`site/content-history.json`·공유 이미지와 물리 속성 칸의 관성 모멘트(위 사용 설명에는 있음)를 넣었습니다.
+    「배포」는 두 워크플로가 typecheck·test 뒤 `test:seo`도 돌리고 `npm run build`가 `check:seo`·`check:i18n`까지 도는 것을, 「검색」은 사이트맵이 다섯 언어 페이지 주소와 언어 대안을 담는 것을,
+    「다국어」는 `check:i18n`이 언어별 홈 화면 앱 정보와 서비스 워커의 언어 페이지 미리 담기도 보는 것을(공용 사이트 도구 `check-i18n`) 적었습니다.
+    맞은 약속: 사이트 설정·서비스 워커 본문·번역기 파일 설명, 훑기 명령, `export.ts`·`viewhelp.ts`·`core.ts` 설명, 앱 정보(공유 받기·파일 열기), Pages 주소와 `base: './'`, 휴대폰 검사 워크플로,
+    검색 정보 태그·지문 비교 범위(초기 HTML `main`·메타·공유 이미지·`assets`의 JS·CSS, 날짜·소스 맵 뺌)·날짜 그대로 두기·`lastmod` = `dateModified`, 다섯 언어 주소, 고른 언어 사전만 받기,
+    지구본 단추·화살표·Escape·바깥 누름 닫기(앱 창 글쇠 듣기는 Escape를 막지 않음), URL 반영(해시 그대로), `test:i18n`의 언어 바꿈·문서 자료 보존 시험, 메뉴 다시 놓기, 이름표 숨김 폭.
+    코드가 약속과 다른 버그는 이 네 절에서 찾지 못했습니다.
+  - 보고 둔 것: `tools/sw-source.mjs`가 쓰는 `dist/sw.js` 첫 줄 주석이 공용 사이트 도구로 옮기며 지운 `tools/sw-plugin.mjs`를 가리킵니다(같은 파일 머리 주석은 맞음). README 밖 주석이고
+    고치면 `sw.js` 바이트가 바뀌어 설치한 서비스 워커가 새 판으로 바뀌므로(보이는 차이 없음) 이번에 넣지 않았습니다.
+  - 확인: 문서만이라 시험·tsc·`check:i18n`은 돌리지 않았습니다. 수정일 빌드는 내용이 같아 `site/content-history.json`을 바꾸지 않았고(첫 화면 조각 210,442 B·vite gzip 74.51 kB,
+    뷰어 조각 534,500 B·분해 조각 51,161 B·측정 접선 조각 85,347 B·스타일시트 37,353 B·해석 워커 조각 231,699 B·영어 사전 조각 82,354 B — 149차 그대로), `tools/`·`tests/`·`scripts/`에
+    README를 읽는 시험·도구는 없습니다. 전체 시험·빌드 검사·휴대폰 검사는 PR CI가 합니다.
 
 **법선 놓기를 재 본 것(코어 0.25.0 `release: { normals: true }`)**: 로컬 표본에서 가장 큰 조립 다섯 개(그물 94~161개, 그리는 삼각형 12만~61만 개 —
 같은 부품의 자리는 배열을 함께 씀)를 헤드리스 Chrome에서 열고 GPU 올리기·질량 속성이 끝난 뒤 GC를 두 번 하고 `Runtime.getHeapUsage`로 쟀습니다(두 번씩 번갈아, load average 16~22).
@@ -3689,8 +3708,9 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
 
 ## 배포
 
-`main`에 push하면 `.github/workflows/deploy.yml`이 typecheck → test → build를 거쳐 `dist/`를 `gh-pages` 가지에 올립니다
-(GitHub Pages: https://gyutae-kim.github.io/opencad-step/). 빌드는 상대 경로(`base: './'`)라 어느 하위 경로에서도 돕니다.
+`main`에 push하면 `.github/workflows/deploy.yml`이 typecheck → test → `test:seo` → build를 거쳐 `dist/`를 `gh-pages` 가지에 올립니다
+(GitHub Pages: https://gyutae-kim.github.io/opencad-step/). `npm run build`는 `tsc --noEmit`·vite 빌드 뒤 `check:seo`·`check:i18n`까지 돌려, 콘텐츠 수정일이 낡았거나
+언어 페이지가 어긋나면 여기서 멈춥니다(아래 「검색·공유 메타데이터와 콘텐츠 수정일」·「다국어 UI와 정적 소개」). 빌드는 상대 경로(`base: './'`)라 어느 하위 경로에서도 돕니다.
 끌어오기 요청은 `.github/workflows/ci.yml`이 같은 확인을 돌리고, `.github/workflows/mobile-validation.yml`이 휴대폰 검사(위 개발 절)를 돌립니다.
 
 ## 남은 일
@@ -4219,7 +4239,7 @@ MIT. 의존성 earcut은 ISC입니다([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTIC
 
 ## 검색·공유 메타데이터와 콘텐츠 수정일
 
-`site/metadata.json`을 공통 원본으로 삼아 Vite 플러그인이 제목·설명·canonical·Open Graph·Twitter Card·JSON-LD를 초기 HTML에 넣습니다. 같은 원본으로 앱의 공개 주소를 담은 `sitemap.xml`도 생성합니다. 공유 이미지는 각 앱의 `public/og-opencad.jpg`이며 앱 파일과 함께 배포합니다. `robots.txt`는 같은 호스트 루트(`https://gyutae-kim.github.io/robots.txt`)의 설정이 적용됩니다.
+`site/metadata.json`을 공통 원본으로 삼아 Vite 플러그인이 제목·설명·canonical·Open Graph·Twitter Card·JSON-LD를 초기 HTML에 넣습니다. 같은 원본으로 다섯 언어 페이지의 공개 주소(주소마다 서로 가리키는 언어 대안과 `x-default`)를 담은 `sitemap.xml`도 생성합니다. 공유 이미지는 각 앱의 `public/og-opencad.jpg`이며 앱 파일과 함께 배포합니다. `robots.txt`는 같은 호스트 루트(`https://gyutae-kim.github.io/robots.txt`)의 설정이 적용됩니다.
 
 `site/content-history.json`에는 실제 콘텐츠 수정 시각과 지문을 저장합니다. 초기 HTML 본문·메타데이터·공유 이미지와 빌드된 앱/워커 JavaScript·CSS를 비교하므로 앱 기능이 바뀌면 날짜 갱신이 필요합니다. 수정일 자체와 소스 맵은 비교에서 제외합니다.
 
@@ -4236,7 +4256,8 @@ MIT. 의존성 earcut은 ISC입니다([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTIC
 
 우측 상단 지구본 아이콘에서 언어를 선택합니다. 방향키로 이동하고 Escape나 바깥 클릭으로 닫을 수 있습니다. 언어 선택은 URL에 반영하며, 열린 문서나 편집 상태를 다시 만들지 않고 화면 문구·접근성 설명·오류·도움말을 갱신합니다. 명령 식별자·입력값·파일명·모델 이름·원본 도면의 문자는 번역하지 않습니다. 새 데이터 이름을 표시하는 요소에는 `translate="no"`를 지정하고, UI 문구의 `{0}` 같은 변수 자리를 변경하지 마세요. 여러 줄 메시지와 새 한국어 문구도 번역 사전에 추가해야 합니다. ` · `로 이은 문장은 짧은 변수 문구(예: `제품 번호 {0}`)가 뒤 조각까지 그대로 잡으면 조각마다 따로 옮깁니다(남는 한국어가 적은 쪽을 고름 — 잡은 이름은 여전히 그대로). 해석기 경고 안의 까닭 목록("삼각화하지 못한 면 3개 / 100개 (경계 고리 없음 2, 평면 삼각화 실패 1)")은 문장 틀의 자리 값이라 그대로 남으므로, 화면에서 까닭 조각을 따로 감싸 조각마다 사전으로 옮깁니다(`src/app/warnparts.ts`).
 
-`npm run test:i18n`은 언어 전환과 문서 데이터 보존을, `npm run check:i18n`은 다섯 언어의 정적 소개·canonical·언어 링크·사전 변수·에셋 경로를 검사합니다. 번역이나 앱을 수정하면 기존 콘텐츠 수정일 갱신 절차를 따른 뒤 다시 빌드합니다. 자동 번역 초안의 주요 메뉴와 제품명은 교정했으며, 긴 기술 설명에는 추가 원어민 감수가 필요합니다.
+`npm run test:i18n`은 언어 전환과 문서 데이터 보존을, `npm run check:i18n`은 다섯 언어의 정적 소개·canonical·언어 링크·사전 변수·에셋 경로와 언어별 홈 화면 앱 정보(언어·시작 주소·범위·공유 받기·파일 열기·아이콘),
+서비스 워커가 그 언어 페이지를 미리 담는지를 검사합니다. 번역이나 앱을 수정하면 기존 콘텐츠 수정일 갱신 절차를 따른 뒤 다시 빌드합니다. 자동 번역 초안의 주요 메뉴와 제품명은 교정했으며, 긴 기술 설명에는 추가 원어민 감수가 필요합니다.
 같은 소리 다른 뜻으로 옮긴 말(면을 솜·얼굴로, 고른을 고른(even)으로, 단면을 한 면으로, 머리(header)를 머리(head)로)과 기하 공차 이름(평면도·원통도·윤곽도·흔들림·경사도·위치도·데이텀)은
 표준 용어로 고쳤고, `tests/i18n.test.ts`가 그런 낱말이 사전에 남지 않는지 봅니다.
 
