@@ -98,4 +98,40 @@ describe('PMI 글자(TEXT_LITERAL)·의미 PMI ↔ 면·저장된 보기', () =>
     expect(v.distance).toBeCloseTo(10, 9);
     expect(v.target).toEqual([0.5, 0.5, 0.5]);
   });
+
+  it('맞춤은 세로·가로 두 낱말 — centre left·centre right는 세로 가운데에 왼쪽·오른쪽(135차)', () => {
+    const w = new StepText();
+    const ctx = w.context();
+    const c = cube(w, 10);
+    const part = w.product('p', [c.solid], ctx);
+    const font = w.add('DRAUGHTING_PRE_DEFINED_TEXT_FONT', `'ISO 3098'`);
+    const aligns = ['baseline left', 'centre left', 'centre right', 'centre centre', 'top right', 'bottom centre'];
+    const occs = aligns.map((a) => w.add('ANNOTATION_TEXT_OCCURRENCE', `'${a}',(),#${w.add('TEXT_LITERAL', `'','HI',#${w.ax2([0, 0, 10])},'${a}',.RIGHT.,#${font}`)}`));
+    const dm = w.add('DRAUGHTING_MODEL', `'dm',(${occs.map((o) => `#${o}`).join(',')}),#${ctx}`);
+    w.add('SHAPE_REPRESENTATION_RELATIONSHIP', `'','',#${dm},#${part.rep}`);
+    const s = stepToScene(w.bytes());
+    expect(s.warnings ?? []).toEqual([]);
+    const m = s.meta as unknown as StepMeta;
+    const pos = (a: string) => s.lines.find((l) => l.id === m.pmi!.presentations.find((p) => p.name === a)!.id)!.positions;
+    const base = pos('baseline left');
+    const r3 = (x: number) => Math.round(x * 1000) / 1000 + 0;
+    // 'baseline left' 대비 옮김(점마다 같음): 글줄 너비 1.5(글자 높이 단위) × 기본 높이 2.5 → 가로 0·−1.875·−3.75, 세로 0·−1.25·−2.5
+    expect(layoutText('HI').width).toBeCloseTo(1.5, 9);
+    const shift: Record<string, [number, number]> = {
+      'centre left': [0, -1.25],
+      'centre right': [-3.75, -1.25],
+      'centre centre': [-1.875, -1.25],
+      'top right': [-3.75, -2.5],
+      'bottom centre': [-1.875, 0],
+    };
+    for (const [a, [dx, dy]] of Object.entries(shift)) {
+      const p = pos(a);
+      expect(p.length).toBe(base.length);
+      const seen = new Set<string>();
+      for (let i = 0; i < p.length; i += 3) {
+        seen.add(`${r3(p[i]! - base[i]!)},${r3(p[i + 1]! - base[i + 1]!)},${r3(p[i + 2]! - base[i + 2]!)}`);
+      }
+      expect([a, ...seen]).toEqual([a, `${dx},${dy},0`]);
+    }
+  });
 });

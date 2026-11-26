@@ -2,7 +2,7 @@
  * PMI 글자(TEXT_LITERAL과 아형)를 내장 획 글꼴(strokefont.ts)로 선분으로 그린다(내장 글꼴에 없는 글자는 받은 글자 모양으로).
  * TEXT_LITERAL(name, literal, placement, alignment, path, font[, extent …]) — 배치(AXIS2_PLACEMENT_3D/2D)의 x축이 글줄 방향,
  * y축이 글자 위쪽이다. 글자 높이는 TEXT_LITERAL_WITH_EXTENT의 높이, 주석 양식의 TEXT_STYLE_WITH_BOX_CHARACTERISTICS BOX_HEIGHT,
- * 그것도 없으면 기본 2.5(모형 단위). 맞춤(alignment)은 'baseline left'를 기본으로 centre·right·top·middle을 따른다.
+ * 그것도 없으면 기본 2.5(모형 단위). 맞춤(alignment)은 'baseline left'를 기본으로 세로(top·centre·middle)와 가로(centre·right) 낱말을 따른다(alignShift).
  */
 import type { Geometry } from './geometry';
 import { isA, num, partOf, refId, refList, StepTyped, text, type StepFile } from './part21';
@@ -71,6 +71,24 @@ export function styleTextHeight(f: StepFile, styleIds: readonly number[]): numbe
 }
 
 /**
+ * 맞춤 글(소문자) → 글줄 옮김 [가로(글줄 너비 배), 세로(글자 높이 배)]. ISO 10303-46의 맞춤은 세로(top·centre·baseline·bottom)와
+ * 가로(left·centre·right) 두 낱말이라('centre left'·'top right' 꼴) 'centre'가 어느 쪽인지는 다른 낱말로 정한다: left·right와 함께면
+ * 세로 가운데, 세로 낱말과 함께면 가로 가운데, 둘 다 'centre'면 둘 다, 혼자면 가로 가운데. 'middle'은 세로 가운데
+ * (135차 — 전에는 'cent'가 들면 늘 가로 가운데라 'centre left'·'centre right'가 가로 가운데·기준선에 놓였다)
+ */
+function alignShift(align: string): [number, number] {
+  const left = align.includes('left');
+  const right = align.includes('right');
+  const top = align.includes('top');
+  const middle = align.includes('middle');
+  const vertical = top || middle || align.includes('bottom') || align.includes('baseline');
+  const centres = align.split('cent').length - 1;
+  const x = right ? -1 : !left && centres > 0 ? -0.5 : 0;
+  const y = top ? -1 : middle || (!vertical && centres >= (left || right ? 1 : 2)) ? -0.5 : 0;
+  return [x, y];
+}
+
+/**
  * 글자들 → 3D 선분 쌍(모형 좌표). 그리지 못한 글자 개수도.
  * glyphs: 내장 글꼴에 없는 글자(한글·일본어·중국어·그 밖의 기호)의 모양 — 없으면 그 글자는 빈 상자(boxes에 센다)
  */
@@ -100,12 +118,8 @@ export function textSegments(f: StepFile, g: Geometry, literals: readonly number
     }
     const lay = layoutText(lit, glyphs);
     boxes += lay.boxes;
-    let dx = 0;
-    let dy = 0;
-    if (align.includes('cent')) dx = -lay.width / 2;
-    else if (align.includes('right')) dx = -lay.width;
-    if (align.includes('top')) dy = -1;
-    else if (align.includes('middle') || align.includes('centre centre') || align.includes('center center')) dy = -0.5;
+    const [ax, dy] = alignShift(align);
+    const dx = ax * lay.width;
     const s = lay.segs;
     for (let i = 0; i + 1 < s.length; i += 2) {
       const u = (s[i]! + dx) * height;
