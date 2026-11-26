@@ -6,6 +6,7 @@ import { closeDialog, dialogOpen, openDialog, selectRow } from '../../src/app/di
 import { controlOf, isTextTarget, routeKey } from '../../src/app/keys';
 import { closeMenu, menuOpen, openMenu } from '../../src/app/menu';
 import { recentFocus } from '../../src/app/recent';
+import { findToFilter } from '../../src/app/treeview';
 
 describe('초점 돌려주기(키보드 사용)', () => {
   it('메뉴 항목을 고르면 초점이 메뉴를 연 단추로 돌아온 뒤 명령이 돈다', () => {
@@ -262,6 +263,57 @@ describe('초점 돌려주기(키보드 사용)', () => {
       closeMenu();
       removeEventListener('keydown', onKey);
       anchor.remove();
+    }
+  });
+
+  it('159차: 메뉴 항목에서 Ctrl·⌘+F로 앱이 초점을 나무 거르기 칸에 옮기면 메뉴를 닫는다 — 그 칸의 Esc·↓·Home·End는 칸 것(전에는 메뉴가 닫고 연 단추로·메뉴 항목으로 가져감), 닫은 뒤 글쇠도 158차 판정 그대로', () => {
+    const anchor = document.createElement('button');
+    const filter = document.createElement('input');
+    filter.type = 'search';
+    document.body.append(anchor, filter);
+    // 앱처럼 창 bubble: onKey 판정(bindWindow — 먼저 붙음) 뒤 나무의 Ctrl·⌘+F(findToFilter — 첫 나무를 그릴 때 붙음)
+    const routed: (string | null)[] = [];
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return;
+      routed.push(routeKey({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, inText: isTextTarget(e.target), control: controlOf(e.target), hasDoc: true, modal: dialogOpen() }));
+    };
+    const find = (e: KeyboardEvent): void => void findToFilter(e, filter);
+    const press = (el: Element, key: string, init: KeyboardEventInit = {}): KeyboardEvent => {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+      el.dispatchEvent(e);
+      return e;
+    };
+    addEventListener('keydown', onKey);
+    addEventListener('keydown', find);
+    try {
+      openMenu(
+        anchor,
+        [
+          { label: '숨기기', hint: 'H', run: () => {} },
+          { label: '격자', checked: true, toggle: true, run: () => {} },
+        ],
+        '작업 메뉴',
+      );
+      const item = document.querySelector<HTMLButtonElement>('.menu .menu-item')!;
+      // 연 때 초점은 켜진 항목(격자 ✓) — 메뉴 안에서 첫 항목으로 옮겨도 열린 채
+      item.focus();
+      expect(document.activeElement).toBe(item);
+      expect(menuOpen()).toBe(true);
+      expect(press(item, 'f', { ctrlKey: true }).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(filter);
+      expect([menuOpen(), anchor.getAttribute('aria-expanded')]).toEqual([false, 'false']);
+      routed.length = 0;
+      for (const k of ['Escape', 'ArrowDown', 'Home', 'End']) expect([k, press(filter, k).defaultPrevented]).toEqual([k, false]);
+      expect(document.activeElement).toBe(filter);
+      expect(routed).toEqual([null, null, null, null]);
+      press(anchor, 'h');
+      expect(routed.at(-1)).toBe('hide');
+    } finally {
+      closeMenu();
+      removeEventListener('keydown', onKey);
+      removeEventListener('keydown', find);
+      anchor.remove();
+      filter.remove();
     }
   });
 });
