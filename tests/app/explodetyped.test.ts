@@ -256,6 +256,36 @@ describe('분해 막대 거리 칸(ExplodeControls)', () => {
     expect(b.input.value).toBe('5');
   });
 
+  it('137차: 칸 이름(화면 읽기)은 칸이 받는 꼴대로 — 끌기 없이 연 빈 칸은 「옮길 거리」에 축 하나 (숫자)·화면 평면 (가로; 세로)·사방 (ΔX; ΔY; ΔZ), 끌기 칸은 그대로 「옮긴 거리(숫자)」', () => {
+    const b = bar();
+    const name = () => b.input.getAttribute('aria-label');
+    const fresh = (axis: DistState['axis']): DistState => ({ ...st('', axis), fresh: true });
+    expect(name()).toBe('옮긴 거리(숫자)');
+    // 빈 칸: 사방·화면 평면은 글 자판(성분을 쌍반점으로) — 이름도 그 성분, 축 하나는 숫자 자판에 수 하나
+    b.field().show(fresh('free'));
+    expect([name(), b.input.getAttribute('inputmode')]).toEqual(['옮길 거리(ΔX; ΔY; ΔZ)', 'text']);
+    b.field().show(fresh('sp'));
+    expect([name(), b.input.getAttribute('inputmode')]).toEqual(['옮길 거리(가로; 세로)', 'text']);
+    b.field().show(fresh('x'));
+    expect([name(), b.input.getAttribute('inputmode')]).toEqual(['옮길 거리(숫자)', 'decimal']);
+    // 화면 방향 하나(가로·세로)도 축 하나 꼴
+    b.field().show(fresh('sy'));
+    expect(name()).toBe('옮길 거리(숫자)');
+    // 끌기 칸(막 끈 뒤·끄는 동안, 한 번 옮긴 빈 칸)은 방향과 상관없이 전 이름·숫자 자판
+    for (const axis of ['free', 'sp', 'x'] as const) {
+      b.field().show(st('12.5', axis));
+      expect([name(), b.input.getAttribute('inputmode')], axis).toEqual(['옮긴 거리(숫자)', 'decimal']);
+    }
+    // 이름이 그대로면 다시 걸지 않는다(번역층이 옮긴 이름을 맞추기마다 덮지 않게), 바뀌면 건다. 숨겨도 이름은 그대로
+    b.input.setAttribute('aria-label', 'Moved distance (number)');
+    b.field().show(st('3', 'sp'));
+    expect(name()).toBe('Moved distance (number)');
+    b.field().show(fresh('sp'));
+    expect(name()).toBe('옮길 거리(가로; 세로)');
+    b.field().show(null);
+    expect(name()).toBe('옮길 거리(가로; 세로)');
+  });
+
   it('새 글(칸 이름·설명·알림)은 네 언어 사전에 있다', () => {
     const b = bar();
     const texts = [
@@ -276,6 +306,10 @@ describe('분해 막대 거리 칸(ExplodeControls)', () => {
       '옮길 거리 — ΔX; ΔY; ΔZ 세 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
       '거리를 읽지 못했습니다 — 가로; 세로 두 수를 쳐 넣으십시오.',
       '거리를 읽지 못했습니다 — ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.',
+      // 137차: 끌기 없이 연 빈 칸의 이름(화면 읽기)
+      '옮길 거리(숫자)',
+      '옮길 거리(가로; 세로)',
+      '옮길 거리(ΔX; ΔY; ΔZ)',
     ];
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) for (const text of texts) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
   });

@@ -96,6 +96,17 @@ const FRESH_TITLES = {
   sp: '옮길 거리 — 가로; 세로 두 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
   free: '옮길 거리 — ΔX; ΔY; ΔZ 세 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
 } as const;
+/** 거리 칸 이름(화면 읽기 — 끌기 칸은 방향과 상관없이 끈 거리 수 하나) */
+const DIST_NAME = '옮긴 거리(숫자)';
+/**
+ * 137차: 끌기 없이 연 빈 칸의 이름 — 위 설명과 같은 낱말로 받는 꼴(축 하나는 수, 화면 평면·사방은 글 자판에 쌍반점 성분).
+ * 전에는 늘 「옮긴 거리(숫자)」라 글 자판 칸도 「숫자」로 읽혔다
+ */
+const FRESH_NAMES = {
+  line: '옮길 거리(숫자)',
+  sp: '옮길 거리(가로; 세로)',
+  free: '옮길 거리(ΔX; ΔY; ΔZ)',
+} as const;
 
 /** 선 아이콘(16px, 24 격자 경로) */
 function lineIcon(d: string): SVGSVGElement {
@@ -134,6 +145,8 @@ export class ExplodeControls {
   private readonly distUnit: HTMLElement;
   private distShown = '';
   private distSent: string | null = null;
+  /** 마지막으로 건 칸 이름(원문 — 바뀔 때만 다시 걸어 번역층이 옮긴 이름을 맞추기마다 덮지 않게) */
+  private distName: string = DIST_NAME;
   /** 어느 방향에든 손질이 있는지(손질 파일 메뉴의 내보내기) — 마지막 sync 것 */
   private anyTweak = false;
   /** 장면·방식·방향마다 계획(묶음 범위를 한 번만 잰다 — 밀대를 움직일 때는 곱하기만). 화면 방향은 마지막 카메라 각 것만 둔다 */
@@ -229,7 +242,7 @@ export class ExplodeControls {
       enterkeyhint: 'done',
       autocomplete: 'off',
       spellcheck: 'false',
-      'aria-label': '옮긴 거리(숫자)',
+      'aria-label': DIST_NAME,
       title: DIST_TITLES.free,
     });
     this.distUnit = h('span', { class: 'explode-unit' });
@@ -322,6 +335,8 @@ export class ExplodeControls {
     const kind = s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line';
     const title = (s.fresh ? FRESH_TITLES : DIST_TITLES)[kind];
     if (this.distInput.title !== title) this.distInput.title = title;
+    const name = s.fresh ? FRESH_NAMES[kind] : DIST_NAME;
+    if (name !== this.distName) this.distInput.setAttribute('aria-label', (this.distName = name));
     this.distInput.setAttribute('inputmode', s.fresh && kind !== 'line' ? 'text' : 'decimal');
   }
 
