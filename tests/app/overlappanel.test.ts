@@ -13,8 +13,8 @@ import { overlapVolumes } from '../../src/app/overlap';
 import { cube, sphere, StepText } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
 
-function host(): PanelHost {
-  return new Proxy({ measuring: false, measureKind: 'points', touch: false, fmt: new Fmt('mm'), isVisible: () => true, groups: () => [] } as Record<string, unknown>, {
+function host(extra: Record<string, unknown> = {}): PanelHost {
+  return new Proxy({ measuring: false, measureKind: 'points', touch: false, fmt: new Fmt('mm'), isVisible: () => true, groups: () => [], ...extra } as Record<string, unknown>, {
     get: (t, k) => (k in t ? t[k as string] : () => {}),
   }) as unknown as PanelHost;
 }
@@ -124,6 +124,50 @@ describe('간섭 검사: 겹친 부피', () => {
     tab.focus();
     d.interference = { running: false, done: 0, total: 0, result };
     panel.onInterference();
+    expect(document.activeElement).toBe(tab);
+    panel.el.remove();
+  });
+
+  it('「결과 지우기」·쌍 전 「멈추기」로 묶음째 빠지면 그 안 초점은 같은 일을 다시 하는 나무 도구 「간섭 검사」 버튼으로, 묶음 밖 초점은 그대로(142차)', () => {
+    const d = doc();
+    const result = findInterference(d.scene.meshes);
+    // 앱 clearInterference 꼴: 쌍 전·결과 뒤에는 묶음을 지운다(겹친 부피 계산 중 멈추기는 쌍 목록을 남김 — 위 139차 시험)
+    const panel: Panel = new Panel(
+      host({
+        clearInterference: () => {
+          d.interference = undefined;
+          panel.onInterference();
+        },
+      }),
+    );
+    document.body.append(panel.el);
+    panel.show(d);
+    const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사');
+    const last = () => [...sec()!.querySelectorAll<HTMLElement>('button')].at(-1)!;
+    const check = () => [...panel.el.querySelectorAll<HTMLElement>('.tree-tools .btn')].find((b) => b.textContent === '간섭 검사')!;
+    // 결과 뒤 「결과 지우기」: 묶음이 빠지고 초점은 그 위 나무 도구 줄의 「간섭 검사」로(전에는 53차 차례가 빠진 묶음 뒤 칸으로 — 여기서는 칸이 없어 body)
+    d.interference = { running: false, done: 0, total: 0, result };
+    panel.onInterference();
+    last().focus();
+    expect(last().textContent).toBe('결과 지우기');
+    last().click();
+    expect(sec()).toBeUndefined();
+    expect(document.activeElement).toBe(check());
+    // 검사 중 쌍이 오기 전 「멈추기」도 같다
+    d.interference = { running: true, done: 3, total: 10 };
+    panel.onInterference();
+    expect(last().textContent).toBe('멈추기');
+    last().focus();
+    last().click();
+    expect(sec()).toBeUndefined();
+    expect(document.activeElement).toBe(check());
+    // 초점이 묶음 밖이면(고른 탭 — 마우스로 눌러 그 버튼에 초점을 두지 않는 브라우저 등) 그대로
+    d.interference = { running: false, done: 0, total: 0, result };
+    panel.onInterference();
+    const tab = panel.el.querySelector<HTMLElement>('[role=tab][aria-selected=true]')!;
+    tab.focus();
+    last().click();
+    expect(sec()).toBeUndefined();
     expect(document.activeElement).toBe(tab);
     panel.el.remove();
   });

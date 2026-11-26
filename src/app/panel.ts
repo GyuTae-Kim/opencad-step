@@ -178,6 +178,8 @@ export class Panel {
   private filterTimer = 0;
   /** 제품 탭의 간섭 검사 묶음(진행률만 바뀌면 이것만 다시 그린다) */
   private interferenceEl: HTMLElement | null = null;
+  /** 제품 탭 나무 도구 줄의 「간섭 검사」(결과 지우기로 묶음째 빠지면 그 안 초점을 받는다 — 142차) */
+  private checkBtn: HTMLElement | null = null;
   /** 속성 탭의 물리 속성 묶음(질량 속성 적분 진행에 따라 그것만 고친다 — onProps), 그 고른 것, "계산 중"을 보였는지, 다시 만들기 */
   private physEl: HTMLElement | null = null;
   private physSel: ReadonlySet<string> | null = null;
@@ -250,7 +252,14 @@ export class Panel {
       this.interferenceEl = el;
       // 아래 부품별 보이기 표의 자리가 바뀌었다 — 보이는 줄을 다시 센다
       this.groupList?.update();
-    } else this.renderBody();
+    } else {
+      // 「결과 지우기」·쌍 전 「멈추기」로 묶음째 빠질 때 그 안에 초점이 있었으면 같은 일을 다시 하는 나무 도구 「간섭 검사」로(142차 — SKP 137차 모두 고르기 ↔ ✕·
+      // 128차 되돌리기 ↔ 다시 하기 꼴. 전에는 53차 차례 돌려주기가 빠진 묶음 뒤 다른 칸으로, 뒤에 칸이 없으면 문서로 빠졌다). 먼저 떼어 그 차례 돌려주기가 다른 칸에 잠깐 주지 않게
+      const held = this.interferenceEl?.contains(document.activeElement);
+      if (held) (document.activeElement as HTMLElement).blur();
+      this.renderBody();
+      if (held) this.checkBtn?.focus();
+    }
   }
 
   private interferenceSection(d: StepDoc): HTMLElement {
@@ -465,6 +474,7 @@ export class Panel {
       const b = h('button', { type: 'button', class: 'btn small', title }, label);
       b.addEventListener('click', run);
       tools.append(b);
+      return b;
     };
     mk('모두 펼치기', '모델 트리를 모두 펼칩니다', () => {
       d.expanded = allExpandableKeys(roots);
@@ -476,7 +486,7 @@ export class Panel {
       this.renderBody();
     });
     mk('모두 보이기', '숨긴 부품을 모두 다시 보입니다(레이어로 끈 것은 레이어 탭에서 켭니다)', () => this.host.showAll());
-    if (d.scene.meshes.length > 1) mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가거나 한 부품이 다른 부품 안에 든 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference());
+    this.checkBtn = d.scene.meshes.length > 1 ? mk('간섭 검사', '보이는 부품끼리 서로 뚫고 지나가거나 한 부품이 다른 부품 안에 든 곳을 찾습니다(맞닿음은 간섭이 아님)', () => this.host.runInterference()) : null;
 
     // 나무 줄은 나무 조각의 가상 목록이 보이는 것만 만든다(renderBody가 자리를 잡은 뒤 update)
     const kit = this.kit;
