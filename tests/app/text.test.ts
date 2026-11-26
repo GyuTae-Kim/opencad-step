@@ -153,6 +153,24 @@ describe('키 규칙', () => {
     expect(controlOf(null)).toBeNull();
   });
 
+  it('153차 routeKey·controlOf: 초점이 탭 본문(role=tabpanel — Tab 멈춤 스크롤 영역) 자체면 굴리는 키(Home·End·Page·화살표)는 본문 것', () => {
+    const withRole = (role: string | null, tagName = 'DIV') => ({ tagName, getAttribute: (n: string) => (n === 'role' ? role : null) }) as unknown as EventTarget;
+    const body = withRole('tabpanel');
+    expect(controlOf(body)).toBe('scroll');
+    for (const key of ['Home', 'End', 'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(routeKey({ key, hasDoc: true, control: controlOf(body) }), key).toBeNull();
+    // 본문이 쓰지 않는 키는 그대로 앱 것(H 숨기기·I 격리·Esc·F7), Space는 코어가 받지 않아 기본 동작(굴리기) 그대로
+    expect(routeKey({ key: 'h', hasDoc: true, control: controlOf(body) })).toBe('hide');
+    expect(routeKey({ key: 'I', hasDoc: true, control: controlOf(body) })).toBe('isolate');
+    expect(routeKey({ key: 'Escape', hasDoc: true, control: controlOf(body) })).toBe('escape');
+    expect(routeKey({ key: 'F7', hasDoc: true, control: controlOf(body) })).toBe('grid');
+    expect(routeKey({ key: ' ', hasDoc: true, control: controlOf(body) })).toBe('viewer');
+    // 본문 안 칸·다른 역할(나무 줄·단추)·역할 없는 칸은 그대로 — Home은 홈 뷰
+    for (const t of [withRole('treeitem'), withRole('tab', 'BUTTON'), withRole(null), withRole(null, 'BUTTON')]) {
+      expect(controlOf(t)).toBeNull();
+      expect(routeKey({ key: 'Home', hasDoc: true, control: controlOf(t) })).toBe('home');
+    }
+  });
+
   it('isTextTarget', () => {
     const el = (tagName: string, extra: Record<string, unknown> = {}) => ({ tagName, isContentEditable: false, ...extra }) as unknown as EventTarget;
     expect(isTextTarget(el('INPUT', { type: 'text' }))).toBe(true);

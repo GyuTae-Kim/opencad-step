@@ -32,7 +32,7 @@ export interface KeyInput {
   shift?: boolean;
   /** 글 입력 칸(input·textarea·select·contentEditable)에서 눌렀는지 */
   inText?: boolean;
-  /** 초점이 있는 조작 칸(controlOf): 밀대는 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
+  /** 초점이 있는 조작 칸(controlOf): 밀대·탭 본문(153차)은 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
   control?: Control | null;
   /** 열린 문서가 있는지 */
   hasDoc?: boolean;
@@ -41,7 +41,7 @@ export interface KeyInput {
 /** 눌린 키 → 할 일(없으면 null) */
 export function routeKey(k: KeyInput): KeyAction | null {
   if (k.inText) return null;
-  if (k.control === 'range' && RANGE_KEYS.has(k.key)) return null;
+  if ((k.control === 'range' || k.control === 'scroll') && RANGE_KEYS.has(k.key)) return null;
   if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);
   if (mod && !k.alt && (k.key === 'o' || k.key === 'O')) return 'open';
@@ -65,15 +65,20 @@ export function arrowOwner(cursorOn: boolean, pointerIn: boolean): 'core' | 'loc
   return !cursorOn && pointerIn ? 'lock' : 'core';
 }
 
-/** 키보드로 값을 바꾸는 조작 칸 */
-export type Control = 'range' | 'radio';
+/** 키보드로 값을 바꾸는 조작 칸(scroll: 초점을 받은 탭 본문 — 굴리는 키를 스스로 쓴다, 153차) */
+export type Control = 'range' | 'radio' | 'scroll';
 
 const ARROW_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
 const RANGE_KEYS = new Set([...ARROW_KEYS, 'Home', 'End', 'PageUp', 'PageDown']);
 
-/** 이벤트 대상이 밀대(range)·라디오면 그 종류(그 칸이 쓰는 키는 뷰어·홈 뷰로 보내지 않는다) */
+/**
+ * 이벤트 대상이 밀대(range)·라디오면 그 종류(그 칸이 쓰는 키는 뷰어·홈 뷰로 보내지 않는다).
+ * 153차: 탭 본문(role=tabpanel — 속성·정보 탭은 본문 자체가 Tab 멈춤인 스크롤 영역) 자체면 'scroll' — Home만 홈 뷰로 가고 본문은 맨 위로 가지 않았다
+ */
 export function controlOf(t: EventTarget | null): Control | null {
-  if (!t || (t as HTMLElement).tagName !== 'INPUT') return null;
+  if (!t) return null;
+  if ((t as HTMLElement).getAttribute?.('role') === 'tabpanel') return 'scroll';
+  if ((t as HTMLElement).tagName !== 'INPUT') return null;
   const type = ((t as HTMLInputElement).type || '').toLowerCase();
   return type === 'range' || type === 'radio' ? type : null;
 }
