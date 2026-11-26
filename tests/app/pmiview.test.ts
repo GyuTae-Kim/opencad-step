@@ -164,6 +164,13 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(panel.el.querySelectorAll('.coarse-only').length).toBe(2);
     // 네 언어 사전에 있다(번역층이 옮김 — 한국어가 남지 않음)
     for (const p of [...pt, ...st]) for (const code of ['en', 'ja', 'zh-CN', 'de']) expect(translate(p.textContent!, code), `${code}: ${p.textContent}`).not.toMatch(/[가-힣]/);
+    // 손가락 기기에서만 보이는 표현 표 안내는 탭 낱말(같은 사전의 손가락 안내 꼴 — 말풍선 틀은 마우스에도 보여 누르기·두 번 누르기 낱말 그대로)
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate(pt[0]!.textContent!, code))).toEqual([
+      'Tap to highlight (double-tap to zoom to it)',
+      'タップで強調表示(ダブルタップで合わせて表示)',
+      '点按可突出显示(点按两次可缩放到它)',
+      'Antippen zum Hervorheben (doppelt antippen zum Einpassen)',
+    ]);
     // 면에 이어진 의미 PMI가 없으면 이름 단추가 없어 의미 표 안내도 없다(표현 표 안내는 그대로)
     document.body.innerHTML = '';
     const { panel: bare } = setup(() => []);
