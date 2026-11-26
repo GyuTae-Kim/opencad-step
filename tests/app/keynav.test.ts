@@ -216,6 +216,29 @@ describe('installKeyNav: 띠·패널을 닫으면 초점 돌려주기(WCAG 2.4.3
     await settle();
     expect(document.activeElement).toBe(root.querySelector('[data-tool=panel]'));
   });
+
+  it('126차: 측정 띠 "다시 재기"처럼 누른 결과 그 단추가 흐려지면(disabled) 초점이 3D 보기로, 흐려지지 않으면 그 단추에 그대로', async () => {
+    const root = app();
+    const bar = root.querySelector<HTMLElement>('.measure-bar')!;
+    const clear = button({ type: 'button', class: 'clear' }, '다시 재기');
+    const keep = button({ type: 'button', class: 'keep' }, '맞춰 보기');
+    bar.prepend(clear, keep);
+    // 앱의 다시 재기: 찍은 점과 결과를 지우면 지울 것이 없어 흐려진다
+    clear.addEventListener('click', () => (clear.disabled = true));
+    // 키보드: Enter keydown 뒤 브라우저가 누르기(click)를 낸다
+    clear.focus();
+    key(clear, 'Enter');
+    clear.click();
+    // jsdom은 흐려진 단추의 초점을 떼지 않는다(브라우저는 focus fixup으로 문서로 — 흐려진 요소는 초점 자리가 아님)
+    expect(document.activeElement).toBe(clear);
+    await settle();
+    expect(document.activeElement).toBe(root.querySelector('canvas'));
+    // 누른 단추가 그대로 쓸 수 있으면 초점은 그 단추에 남는다
+    keep.focus();
+    keep.click();
+    await settle();
+    expect(document.activeElement).toBe(keep);
+  });
 });
 
 const host = () =>
