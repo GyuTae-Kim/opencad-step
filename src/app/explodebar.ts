@@ -87,6 +87,15 @@ const DIST_TITLES = {
   sp: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(가로; 세로 두 수도 됩니다)',
   free: '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(ΔX; ΔY; ΔZ 세 수도 됩니다)',
 } as const;
+/**
+ * 136차: 끌기 없이 연 빈 칸(고른 것 옮기기 — 45차)의 설명. 끈 끌기가 없고, 화면 평면·사방은 끈 방향이 없어 수 하나를 받지 않는다(explodetweak typedDelta 'dir').
+ * 전에는 위 끌기 설명을 그대로 써 「이번 끌기」·「두 수도 됩니다」(수 하나도 된다는 뜻)라 적었다
+ */
+const FRESH_TITLES = {
+  line: '옮길 거리 — 수를 쳐 넣고 Enter를 누르면 고른 것을 지금 분해 방향으로 그만큼 옮깁니다(음수는 반대쪽)',
+  sp: '옮길 거리 — 가로; 세로 두 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
+  free: '옮길 거리 — ΔX; ΔY; ΔZ 세 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
+} as const;
 
 /** 선 아이콘(16px, 24 격자 경로) */
 function lineIcon(d: string): SVGSVGElement {
@@ -311,7 +320,7 @@ export class ExplodeControls {
     this.distUnit.textContent = s.unit;
     this.distUnit.hidden = !s.unit;
     const kind = s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line';
-    const title = DIST_TITLES[kind];
+    const title = (s.fresh ? FRESH_TITLES : DIST_TITLES)[kind];
     if (this.distInput.title !== title) this.distInput.title = title;
     this.distInput.setAttribute('inputmode', s.fresh && kind !== 'line' ? 'text' : 'decimal');
   }
