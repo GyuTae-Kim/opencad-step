@@ -204,6 +204,30 @@ describe('language URLs and UI presentation', () => {
     expect(translate('(이름 없음) 숨기기', 'en')).toBe('Hide (no name)');
     expect(translate('레이어 (레이어 없음)', 'de')).toBe('Layer (keine Layer)');
   });
+  it('keeps the CAD sense of fit-all, display-mode and assembly words on the toolbar, menu, help and start screens (131st review)', () => {
+    // 131차: 도구 막대·메뉴·문맥 메뉴·대화 상자·내보내기·그림 저장·도움말·시작 화면·보기 설정 글을 네 언어로 대조해 고친 것 — 전체 보기(F — 모두 맞춰 보기)를
+    // 같은 문맥 메뉴에 함께 나오는 모두 보이기(숨긴 것 다시 보이기)와 같은 말(全部显示)·한 글자 다른 말(Alles/Alle anzeigen)로, 그리기 모드(표시 방식)를
+    // 그림 그리기(绘图·描画)로, 조립(装配)을 조립하는 일(组装)로 옮긴 것이 다시 들어오지 않게(고친 글은 같은 사전의 말 — 맞춰 보기 缩放到所选·Einpassen,
+    // 그리기 모드 显示模式·表示モード, 조립 모델 트리 装配产品树)
+    const rules: [string, string, RegExp, RegExp][] = [
+      ['전체 보기', 'zh-CN', /缩放到全部/, /全部显示/],
+      ['전체 보기', 'de', /Alles einpassen/, /Alles anzeigen/],
+      ['그리기 모드', 'zh-CN', /显示模式/, /绘图/],
+      ['그리기 모드', 'ja', /表示モード/, /描画/],
+      ['조립 모델 트리', 'zh-CN', /装配产品树/, /组装/],
+    ];
+    for (const [term, code, need, ban] of rules)
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        if (!key.includes(term)) continue;
+        expect(value, `${code}: ${key}`).toMatch(need);
+        expect(value, `${code}: ${key}`).not.toMatch(ban);
+      }
+    // 빈 고르기의 문맥 메뉴에 함께 나오는 두 항목(전체 보기 F · 모두 보이기)은 네 언어 모두 다른 말
+    for (const {code} of languages.filter(item => item.code !== 'ko'))
+      expect(translate('전체 보기', code), code).not.toBe(translate('모두 보이기', code));
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('전체 보기 (F)', code))).toEqual(['View all (F)', '全体表示 (F)', '缩放到全部 (F)', 'Alles einpassen (F)']);
+    expect(translate('그리기 모드: 음영 · 음영+모서리 · 와이어프레임 · X-ray · 숨은선 제거 · 단색, 외곽선·부품 색 구분·분해 보기', 'de')).toMatch(/^Darstellungsmodus: Schattiert · /);
+  });
   it('keeps parameters, code names, numbers and brackets where the Korean source has them', () => {
     // 코드·STEP 낱말(ANNOTATION_TEXT·INVISIBILITY·createImageBitmap 등)은 옮기지 않는다(createImageBitmap을 "创建图像位图"으로, INVISIBILITY를 UNSICHTBAR로 옮긴 것)
     const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
