@@ -377,7 +377,8 @@ export function treeView(o: TreeOpts): TreeView {
       eye,
       // 이름 없는 몸체 줄의 "몸체 2"·"선 형상 1"은 화면 글이라 번역층이 옮긴다(파일 이름인 .tree-name은 건너뛴다)
       // 59차: 이름·자리 이름 조각마다 방향을 가두고 길이 한도(ftext.ts — 닫지 않은 RLO가 " · 자리 이름"을 뒤집었다)
-      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: 'tree-name', translate: bname ? 'no' : null }, isFile ? fileSpan(name) : name, instance ? h('span', { class: 'dim' }, ' · ', fileSpan(instance)) : null),
+      // 130차: 이름·제품 번호 없는 마디 줄의 "(이름 없음)"도 화면 글이라 .tree-name-gen(자리 이름은 fileSpan이라 그대로 건너뛴다)
+      bodyId && !bname ? h('span', { class: 'tree-name-gen' }, name) : h('span', { class: isFile ? 'tree-name' : 'tree-name-gen', translate: bname ? 'no' : null }, isFile ? fileSpan(name) : name, instance ? h('span', { class: 'dim' }, ' · ', fileSpan(instance)) : null),
       n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }, `×${n}`) : null,
     );
     // 이 줄 고르기·맞춰 보기(몸체 줄은 그 몸체 하나, 마디 줄은 그 마디 아래 통째)
