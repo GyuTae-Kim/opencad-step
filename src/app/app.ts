@@ -3158,8 +3158,9 @@ export class StepApp {
     const faceOk = mode === 'face' && !!d?.face && !!(d.face.normal || d.face.axis);
     this.faceLook.hidden = !faceOk;
     this.faceCut.hidden = !faceOk;
-    // 띠가 보이는 동안 측정 결과·고른 것은 띠 글 칸이 알리고 패널 아래 띠는 알리지 않는다(53차 — 둘 다 알려 같은 결과를 두세 번 읽었다)
-    this.panel.footLive(!mode);
+    // 띠가 보이는 동안 측정 결과·고른 것은 띠 글 칸이 알리고 패널 아래 띠는 알리지 않는다(53차 — 둘 다 알려 같은 결과를 두세 번 읽었다).
+    // 147차: 넓은 화면·마우스는 측정·여러 개 고르기만 띠를 보인다(styles.css) — 면 고르기·고른 부품 카드는 띠 글 칸이 숨어 읽히지 않으니 패널 아래 띠가 알린다
+    this.panel.footLive(!(mode === 'measure' || mode === 'multi' || (!!mode && (!!this.narrow?.matches || this.touch))));
     if (!mode || !d || !v) return;
     const fm = this.fmt;
     const t = h('div');

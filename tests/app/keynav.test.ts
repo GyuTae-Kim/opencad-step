@@ -7,6 +7,7 @@
  * 헤드리스 Chrome 점검(.runtime/r53 kbd53)에서 찾은 것을 jsdom으로 다시 본다(jsdom은 숨긴 칸의 초점을 스스로 떼지 않아, 숨기는 명령이 브라우저처럼 blur한다).
  * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴)
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
+ * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -421,6 +422,42 @@ describe('146차: 막대(input range)의 화면 읽기 값 — 속 수 대신 �
     doc.explode = 0.123;
     sync();
     expect(read()).toEqual(['12', '12%', '12%']);
+  });
+});
+
+describe('147차: 측정 띠 글 칸이 CSS로 숨는 화면에서는 패널 아래 띠가 결과를 알린다(SKP 152차 표 ⑤ 꼴)', () => {
+  it('넓은 화면·마우스의 면 고르기·고른 부품 카드는 띠가 숨어 패널 아래 띠 알림을 켜고, 띠가 보이는 화면(측정·여러 개·좁은 화면·손가락)은 53차대로 끈다', () => {
+    // app.ts 원문 refreshBar의 아래 띠 알림 줄(인자)을 잘라 mode·좁은 화면·손가락 기기를 바꿔 셈한다(앱 전체는 시험에서 띄우지 않는다)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const arg = /\n {4}this\.panel\.footLive\(([^\n]*)\);\n/.exec(app)?.[1];
+    expect(arg).toBeTruthy();
+    const live = (mode: string | null, narrow: boolean | null, touch: boolean): boolean =>
+      new Function('mode', `return ${arg};`).call({ narrow: narrow === null ? null : { matches: narrow }, touch }, mode);
+    const cases: [string | null, boolean | null, boolean][] = [
+      [null, false, false],
+      ['measure', false, false],
+      ['multi', false, false],
+      ['face', false, false],
+      ['select', false, false],
+      [null, true, false],
+      ['measure', true, false],
+      ['face', true, false],
+      ['select', true, false],
+      [null, false, true],
+      ['face', false, true],
+      ['select', false, true],
+      // matchMedia가 없는 환경(앱 narrow null)은 넓은 화면처럼
+      ['face', null, false],
+    ];
+    expect(cases.map(([m, n, t]) => live(m, n, t))).toEqual([true, false, false, true, true, true, false, false, false, true, false, false, true]);
+    // 위 조건이 styles.css의 띠 보이기 규칙과 같은지: 기본은 숨김, 넓은 화면은 측정·여러 개만, 좁은 화면·손가락 기기는 모든 띠 — 앱의 미디어 질의 상수와 손가락 게터도
+    const css = readFileSync(join(__dirname, '../../src/app/styles.css'), 'utf8');
+    expect(/\n\.measure-bar \{[^}]*\n {2}display: none;/.test(css)).toBe(true);
+    expect(css).toContain('\n.measure-bar.measuring:not([hidden]),\n.measure-bar.multi:not([hidden]) {\n  display: flex;\n}');
+    expect(css).toContain('\n@media (max-width: 759.98px), (pointer: coarse) {\n  .measure-bar:not([hidden]) {\n    display: flex;\n  }');
+    expect(app).toContain("\nconst NARROW = '(max-width: 759.98px)';");
+    expect(app).toContain("\nconst COARSE = '(pointer: coarse)';");
+    expect(app).toContain('get touch(): boolean {\n    return !!this.coarse?.matches;');
   });
 });
 
