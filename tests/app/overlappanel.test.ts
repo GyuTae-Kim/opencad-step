@@ -179,6 +179,8 @@ describe('간섭 검사: 겹친 부피', () => {
     const panel = new Panel(host());
     document.body.append(panel.el);
     panel.show(d);
+    // 앱처럼 패널을 연 채 검사(156차부터 닫힌 패널·다른 탭이면 알림 상자가 알린다 — 아래 156차 시험)
+    panel.setOpen(true);
     const err = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group .hint')].find((p) => p.textContent?.startsWith('검사하지 못했습니다'));
     const alerts = () => panel.el.querySelectorAll('.prop-group [role=alert]').length;
     // 앱 runInterference 꼴: 검사 중(처음은 탭째 그림) → 워커 오류(갈아 끼움 — 전에는 role·aria-live 없는 새 줄이라 읽히지 않았다)
@@ -294,5 +296,57 @@ describe('간섭 검사: 겹친 부피', () => {
     for (const s of sels) expect(s).not.toMatch(/[>+~]|:(first|last|nth|only)-/);
     expect(css).not.toMatch(/\[role/);
     expect(/(?:^|\})\s*\.prop-group \{([^}]*)\}/.exec(css)![1]).not.toMatch(/display/);
+  });
+
+  it('검사하지 못한 오류는 패널이 열린 제품 탭이면 그 줄(role=alert)만, 패널이 닫혔거나 다른 탭이면 같은 글을 알림 상자 오류로(숨은 줄은 role 없음 — 156차, NC 144차 꼴)', () => {
+    const d = doc();
+    const toasts: unknown[][] = [];
+    const panel = new Panel(host({ toast: (...a: unknown[]) => toasts.push(a) }));
+    document.body.append(panel.el);
+    panel.show(d);
+    const err = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group .hint')].find((p) => p.textContent?.startsWith('검사하지 못했습니다'));
+    const alerts = () => panel.el.querySelectorAll('.prop-group [role=alert]').length;
+    // 앱 runInterference 꼴: 검사 중 → 워커 오류(오류 알림·워커 멈춤)
+    const run = () => {
+      d.interference = { running: true, done: 0, total: 0 };
+      panel.onInterference();
+    };
+    const fail = (error: string) => {
+      d.interference = { running: false, done: 0, total: 0, error };
+      panel.onInterference();
+    };
+    // 패널이 열린 제품 탭: 줄만 알린다(143차), 알림 상자는 없음
+    panel.setOpen(true);
+    run();
+    fail('검사 워커가 멈췄습니다');
+    expect(err()!.getAttribute('role')).toBe('alert');
+    expect(toasts).toEqual([]);
+    // 검사 중 패널을 닫음(휴대폰은 아래 시트): 알림 상자 오류 한 번(글 조각 둘 — 번역층이 조각마다 옮김), 숨은 줄은 글 그대로·role 없음 — 다시 열어도 한 번 더 읽히지 않음
+    run();
+    panel.setOpen(false);
+    fail('검사 워커가 멈췄습니다');
+    expect(toasts).toEqual([[['검사하지 못했습니다:', '검사 워커가 멈췄습니다'], 'error', 9000]]);
+    expect(err()!.textContent).toBe('검사하지 못했습니다: 검사 워커가 멈췄습니다');
+    expect(err()!.getAttribute('role')).toBeNull();
+    panel.setOpen(true);
+    expect(alerts()).toBe(0);
+    // 검사 중 다른 탭(속성): 알림 상자 오류 한 번, 제품 탭으로 돌아오면 줄은 role 없이 보임
+    run();
+    panel.setTab('props');
+    fail('x');
+    expect(toasts).toHaveLength(2);
+    expect(toasts[1]).toEqual([['검사하지 못했습니다:', 'x'], 'error', 9000]);
+    panel.setTab('tree');
+    expect(err()!.textContent).toBe('검사하지 못했습니다: x');
+    expect(alerts()).toBe(0);
+    // 오류가 아닌 진행·결과는 패널이 닫혀 있어도 알림 상자로 보내지 않음(쌍 수는 앱이 따로 알림)
+    panel.setOpen(false);
+    run();
+    d.interference = { running: false, done: 0, total: 0, result: findInterference(d.scene.meshes) };
+    panel.onInterference();
+    expect(toasts).toHaveLength(2);
+    // 알림 상자의 두 조각은 사전에 있는 글(새 글 없음)
+    expect(['검사하지 못했습니다:', '검사 워커가 멈췄습니다'].map((m) => translate(m, 'en'))).toEqual(['Could not check:', 'The check worker stopped']);
+    panel.el.remove();
   });
 });
