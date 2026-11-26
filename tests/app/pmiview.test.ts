@@ -11,11 +11,13 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { groupGrid, treeView } from '../../src/app/treeview';
 import { pmiView } from '../../src/app/pmiview';
+import { translate } from '../../site/i18n.mjs';
 
 const NP = 1500;
 const NS = 620;
 
-function setup(): { panel: Panel; d: StepDoc; calls: string[] } {
+/** faces: 의미 PMI 줄마다 이어진 면(133차 — 기본은 짝수 줄만 면 하나) */
+function setup(faces: (i: number) => number[] = (i) => (i % 2 ? [] : [7])): { panel: Panel; d: StepDoc; calls: string[] } {
   const calls: string[] = [];
   let d!: StepDoc;
   let panel!: Panel;
@@ -49,7 +51,7 @@ function setup(): { panel: Panel; d: StepDoc; calls: string[] } {
     { get: (t, k) => (k in t ? t[k as string] : () => {}) },
   ) as unknown as PanelHost;
   const presentations = Array.from({ length: NP }, (_, i) => ({ id: `p${i}`, name: `치수 ${i + 1}`, type: 'annotation_curve_occurrence', stepId: 100 + i, plane: `평면 ${(i % 30) + 1}` }));
-  const semantic = Array.from({ length: NS }, (_, i) => ({ kind: 'dimension', type: 'DIMENSIONAL_SIZE', name: `형체 ${i + 1}`, value: `${i + 1} mm ±0.05`, stepId: 9000 + i, faces: i % 2 ? [] : [7] }));
+  const semantic = Array.from({ length: NS }, (_, i) => ({ kind: 'dimension', type: 'DIMENSIONAL_SIZE', name: `형체 ${i + 1}`, value: `${i + 1} mm ±0.05`, stepId: 9000 + i, faces: faces(i) }));
   const meta = { products: [], pmi: { presentations, semantic } };
   d = createDoc('p.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
   panel = new Panel(host);
@@ -141,5 +143,40 @@ describe('PMI 탭 본문(가상 목록)', () => {
     b.click();
     expect(calls.at(-1)).toBe('select null PMI \u{2068}형체 1\u{2069}');
     expect(rows[0]!.classList.contains('sel')).toBe(false);
+  });
+
+  it('133차: 이름 단추의 누르기 풀이(말풍선)를 손가락 기기 안내 줄(coarse-only — 같은 글)로 표마다 한 줄 표 위에, 이름 단추가 없는 의미 표에는 없다', () => {
+    const { panel } = setup();
+    const [pres, sem] = [...panel.el.querySelectorAll<HTMLElement>('.pmi-grid')].map((g) => g.closest('section')!);
+    const tips = (sec: HTMLElement) => [...sec.querySelectorAll<HTMLElement>(':scope > p.hint.coarse-only')];
+    const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // 표현 PMI: 이름 단추 말풍선의 끝 조각(누르기 풀이)과 같은 글, 표 위(가상 목록이라 표 밑은 끝까지 굴려야 보인다)
+    const pt = tips(pres);
+    expect(pt.map((p) => p.textContent)).toEqual(['누르면 강조(두 번 누르면 맞춰 보기)']);
+    expect(pres.querySelector('[role=rowgroup] .link-btn')!.getAttribute('title')!.split(' · ').at(-1)).toBe(pt[0]!.textContent);
+    expect(before(pt[0]!, pres.querySelector('.pmi-grid')!)).toBe(true);
+    // 의미 PMI: 이름 단추 말풍선과 같은 글, 표 위. 값 꼴 안내(모든 기기)는 그대로 표 뒤
+    const st = tips(sem);
+    expect(st.map((p) => p.textContent)).toEqual([sem.querySelector('[role=rowgroup] .link-btn')!.getAttribute('title')]);
+    expect(before(st[0]!, sem.querySelector('.pmi-grid')!)).toBe(true);
+    expect([...sem.querySelectorAll(':scope > p.hint:not(.coarse-only)')].map((p) => p.textContent)).toEqual(['치수(값·± 공차), 기하 공차(크기 | 데이텀), 데이텀을 STEP 의미 PMI에서 읽었습니다.']);
+    // 줄마다가 아니라 표마다 한 줄
+    expect(panel.el.querySelectorAll('.coarse-only').length).toBe(2);
+    // 네 언어 사전에 있다(번역층이 옮김 — 한국어가 남지 않음)
+    for (const p of [...pt, ...st]) for (const code of ['en', 'ja', 'zh-CN', 'de']) expect(translate(p.textContent!, code), `${code}: ${p.textContent}`).not.toMatch(/[가-힣]/);
+    // 손가락 기기에서만 보이는 표현 표 안내는 탭 낱말(같은 사전의 손가락 안내 꼴 — 말풍선 틀은 마우스에도 보여 누르기·두 번 누르기 낱말 그대로)
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate(pt[0]!.textContent!, code))).toEqual([
+      'Tap to highlight (double-tap to zoom to it)',
+      'タップで強調表示(ダブルタップで合わせて表示)',
+      '点按可突出显示(点按两次可缩放到它)',
+      'Antippen zum Hervorheben (doppelt antippen zum Einpassen)',
+    ]);
+    // 면에 이어진 의미 PMI가 없으면 이름 단추가 없어 의미 표 안내도 없다(표현 표 안내는 그대로)
+    document.body.innerHTML = '';
+    const { panel: bare } = setup(() => []);
+    const [pres2, sem2] = [...bare.el.querySelectorAll<HTMLElement>('.pmi-grid')].map((g) => g.closest('section')!);
+    expect(sem2.querySelector('.link-btn')).toBeNull();
+    expect(tips(sem2)).toEqual([]);
+    expect(tips(pres2).length).toBe(1);
   });
 });

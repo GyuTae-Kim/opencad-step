@@ -332,6 +332,7 @@
   "놓인 수": "Anzahl",
   "놓인 위치": "Lage (Ursprung)",
   "놓인 자리를 모두 센 삼각형 수": "Dreiecksanzahl über alle Platzierungen",
+  "누르면 강조(두 번 누르면 맞춰 보기)": "Antippen zum Hervorheben (doppelt antippen zum Einpassen)",
   "누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다": "Klicken, um die sich schneidenden Dreiecke hervorzuheben und beide Teile einzupassen",
   "누르면 그 보기의 카메라로 옮기고 그 보기에 든 표현 PMI만 보입니다(PMI 모두 보이기로 되돌립니다).": "Klicken, um zur Kamera dieser Ansicht zu wechseln und nur deren Darstellungs-PMI zu zeigen (mit „Alle PMI anzeigen“ zurücksetzen).",
   "누르면 안쪽 부품을 강조하고 그것으로 맞춰 봅니다": "Klicken, um das innere Teil hervorzuheben und darauf einzupassen",
