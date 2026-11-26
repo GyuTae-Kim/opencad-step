@@ -13,6 +13,8 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { groupGrid, treeView } from '../../src/app/treeview';
 import { pmiView } from '../../src/app/pmiview';
+import { SectionBar, type SectionBarHost } from '../../src/app/sectionbar';
+import type { SectionState, Viewer3d } from 'opencad-viewer3d';
 
 // TOUCH_CSS: 다른 판의 스타일시트로 같은 시험을 돌려 볼 때(앞 판에서 실패하는지 확인용)
 const css = readFileSync(process.env.TOUCH_CSS || join(__dirname, '../../src/app/styles.css'), 'utf8');
@@ -354,5 +356,40 @@ describe('패널 탭 줄: 고른 탭을 보이게', () => {
       expect(max, sel).toBeGreaterThanOrEqual(width + 10);
       expect(max, sel).toBeLessThan(width + 120);
     }
+  });
+});
+
+/**
+ * 123차: 단면 막대의 위치 숫자 칸은 축 좌표(면 단면은 법선 방향 위치)라 장면이 원점을 걸치면 음수를 쳐 넣는다. `inputmode="decimal"` 자판은
+ * 음수 기호를 약속하지 않아(HTML inputmode — 소수 자판은 "may or may not show a minus key") 휴대폰·태블릿에서 원점 아래쪽 위치를 쳐 넣지 못할 수 있었다.
+ * 그래서 inputmode를 두지 않고 type="number"에 맞춰 브라우저가 고르는 자판에 맡긴다(분해 거리 칸도 음수 기호·쌍반점을 쳐야 하는 꼴은 숫자 자판을 두지 않음).
+ * jsdom에는 화면 자판이 없어 속성과 칸 → 단면 위치 길만 본다
+ */
+describe('123차: 단면 막대 위치 숫자 칸의 손가락 자판', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const bar = () => {
+    const calls: [number, unknown][] = [];
+    const viewer = { section: null, canvas: document.createElement('canvas'), setSectionPosition: (p: number, o?: unknown) => calls.push([p, o]) } as unknown as Viewer3d;
+    const host: SectionBarHost = { viewerRef: viewer, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {} };
+    const b = new SectionBar(host);
+    document.body.append(b.el);
+    return { b, calls, num: b.el.querySelector<HTMLInputElement>('.section-num')! };
+  };
+
+  it('칸은 type="number"이고 inputmode를 두지 않는다(소수 자판 decimal은 음수 기호가 없을 수 있음)', () => {
+    const { num } = bar();
+    expect([num.type, num.getAttribute('inputmode')]).toEqual(['number', null]);
+  });
+
+  it('원점을 걸친 단면의 음수 위치를 칸에 보이고, 쳐 넣은 음수 위치로 옮긴다', () => {
+    const { b, calls, num } = bar();
+    b.sync({ axis: 'z', flip: false, position: -12.5, min: -40, max: 10, t: 0.55 } as SectionState);
+    expect([b.el.hidden, num.value]).toEqual([false, '-12.5']);
+    num.value = '-30';
+    num.dispatchEvent(new Event('change'));
+    expect(calls).toEqual([[-30, { world: true }]]);
   });
 });
