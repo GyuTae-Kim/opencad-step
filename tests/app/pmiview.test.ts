@@ -87,7 +87,7 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(row.lastElementChild!.textContent).toBe('평면 1');
   });
 
-  it('상자를 끄면 본문을 다시 그리지 않고 그 줄만 끈 표시(초점은 그 상자에 남음), 모두 끄기는 상자를 흐리게', () => {
+  it('상자를 끄면 본문을 다시 그리지 않고 그 줄만 끈 표시(초점은 그 상자에 남음), 모두 끄기는 상자를 흐리게 — 134차: 줄을 끈 동안 모두 보이기 상자는 섞임, 누르면 모두 보임', () => {
     const { panel, d, calls } = setup();
     const grid = panel.el.querySelector('.pmi-grid')!;
     const row = grid.querySelectorAll<HTMLElement>('[role=rowgroup] > [role=row]')[3]!;
@@ -101,8 +101,20 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(cb.checked).toBe(false);
     expect(document.activeElement).toBe(cb);
     const all = panel.el.querySelector<HTMLInputElement>('.all-check input')!;
+    // 134차: 줄 하나를 끄면 「표현 PMI 모두 보이기」 상자는 켜짐이 아니라 섞임(aria-checked="mixed")
+    expect([all.checked, all.indeterminate]).toEqual([false, true]);
+    all.click();
+    // 섞인 상자를 누르면 끈 줄까지 모두 보인다(133차까지는 모두 끄기만 바꿔 줄 숨김이 남았다)
+    expect(calls.at(-1)).toBe('pmi null true');
+    expect(d.vis.pmiOff).toBe(false);
+    expect(d.vis.pmiHidden.size).toBe(0);
+    expect(row.isConnected).toBe(true);
+    expect(row.classList.contains('off')).toBe(false);
+    expect(cb.checked).toBe(true);
+    expect([all.checked, all.indeterminate]).toEqual([true, false]);
     all.click();
     expect(d.vis.pmiOff).toBe(true);
+    expect([all.checked, all.indeterminate]).toEqual([false, false]);
     expect(row.isConnected).toBe(true);
     const first = grid.querySelector<HTMLInputElement>('[role=rowgroup] input[type=checkbox]')!;
     expect(first.disabled).toBe(true);
@@ -110,7 +122,35 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(first.closest('[role=row]')!.classList.contains('off')).toBe(true);
     all.click();
     expect(first.disabled).toBe(false);
-    expect(row.classList.contains('off')).toBe(true);
+    expect(row.classList.contains('off')).toBe(false);
+    expect([all.checked, all.indeterminate]).toEqual([true, false]);
+  });
+
+  it('134차: 저장된 보기처럼 줄마다 숨긴 표현 PMI가 있으면 모두 보이기 상자가 섞임이고, 안내(「PMI 모두 보이기로 되돌립니다」)대로 그 상자 한 번으로 모두 되돌린다', () => {
+    const { panel, d, calls } = setup();
+    // 앱 applySavedView와 같게: 모두 끄기를 풀고 보기에 든 PMI(p0·p2)만 남긴 뒤 패널에 알린다
+    const show = new Set(['p0', 'p2']);
+    d.vis.pmiOff = false;
+    for (const id of d.vis.pmiIds) d.vis.setPmi(id, show.has(id));
+    panel.onVisibility();
+    const all = panel.el.querySelector<HTMLInputElement>('.all-check input')!;
+    expect(all.getAttribute('aria-label')).toBe('표현 PMI 모두 보이기');
+    expect([all.checked, all.indeterminate]).toEqual([false, true]);
+    const grid = panel.el.querySelector('.pmi-grid')!;
+    const rows = () => [...grid.querySelectorAll<HTMLElement>('[role=rowgroup] > [role=row]')];
+    const before = rows();
+    expect(before.slice(0, 4).map((r) => r.classList.contains('off'))).toEqual([false, true, false, true]);
+    all.focus();
+    all.click();
+    expect(calls.at(-1)).toBe('pmi null true');
+    expect(d.vis.pmiOff).toBe(false);
+    expect(d.vis.pmiHidden.size).toBe(0);
+    // 본문은 다시 그리지 않고 줄 표시만(초점은 상자에)
+    expect(rows()[0]).toBe(before[0]);
+    expect(rows().slice(0, 4).map((r) => r.classList.contains('off'))).toEqual([false, false, false, false]);
+    expect(rows().slice(0, 4).map((r) => r.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked)).toEqual([true, true, true, true]);
+    expect([all.checked, all.indeterminate]).toEqual([true, false]);
+    expect(document.activeElement).toBe(all);
   });
 
   it('이름 단추: 누르면 고르고(그 줄만 고른 표시), 다시 누르면 풀고, 3D 고르기가 바뀌어도 줄 표시만 고친다', () => {

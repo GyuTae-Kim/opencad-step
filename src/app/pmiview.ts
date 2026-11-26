@@ -68,8 +68,17 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
 
   const pres = d.pmi.presentations;
   if (pres.length) {
+    /*
+     * 134차: 「표현 PMI 모두 보이기」 상자는 줄마다 숨긴 PMI가 있으면 섞임(indeterminate — aria-checked="mixed")이고, 켜면 줄 숨김까지 모두 풀어 모두 보인다.
+     * 133차까지는 모두 끄기(pmiOff)만 바꿔 줄 숨김이 남았다 — 저장된 보기가 그 보기 밖 PMI를 줄마다 숨기면 상자는 켜진 채였고, 끄고 켜도 그 보기의 PMI만 남아
+     * 안내(「PMI 모두 보이기로 되돌립니다」, #13부터)대로 되돌릴 길이 없었다(줄 상자를 하나씩). 앱 setPmiVisible(null)이 모든 PMI 보이기를 다시 따지므로
+     * 줄 숨김은 여기서 Visibility.setPmi로 푼다(첫 화면 app.ts를 늘리지 않게)
+     */
     const all = h('input', { type: 'checkbox', 'aria-label': '표현 PMI 모두 보이기' });
-    all.addEventListener('change', () => host.setPmiVisible(null, all.checked));
+    all.addEventListener('change', () => {
+      if (all.checked) for (const id of [...v.pmiHidden]) v.setPmi(id, true);
+      host.setPmiVisible(null, all.checked);
+    });
     /** 이름 단추 하나만 고른 것(누르면 고르기 풀기) */
     const picked = (id: string) => d.items?.ids.length === 1 && d.items.ids[0] === id;
     const g = grid(
@@ -104,7 +113,10 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
     );
     lists.push(g.list);
     patches.push(() => {
-      all.checked = !v.pmiOff;
+      // 섞임이면 checked를 꺼 두어 누르기(Space)가 켜기 — 모두 보이기가 된다
+      const mixed = !v.pmiOff && v.pmiHidden.size > 0;
+      all.checked = !v.pmiOff && !mixed;
+      all.indeterminate = mixed;
       g.patch();
     });
     el.append(section('pmi-pres-title', `표현 PMI ${fmtCount(pres.length)}개`, h('label', { class: 'check all-check' }, all, h('span', {}, '표현 PMI 보이기')), tapHint('누르면 강조(두 번 누르면 맞춰 보기)'), g.el));
