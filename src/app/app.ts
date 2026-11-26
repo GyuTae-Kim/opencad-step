@@ -671,7 +671,8 @@ export class StepApp {
   private recentRow(r: RecentEntry, now: number, locale: string): HTMLElement {
     // 파일 이름은 번역하지 않는다(방향 가둠·길이 한도 — ftext.ts)
     const open = h('button', { type: 'button', class: 'recent-open' }, fileSpan(r.name, 'recent-name'), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
-    open.addEventListener('click', () => void this.openRecent(r));
+    // 저장한 파일이 없어 이 줄을 지우면(openRecent) ✕와 같은 자리로(148차 — 전에는 다시 그린 목록에서 누른 버튼이 빠져 초점이 문서로 빠졌다)
+    open.addEventListener('click', () => void this.openRecent(r, recentFocus(open, this.recentList, this.startOpen)));
     const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${isolateText(r.name)}` });
     del.append(icon('close', 16));
     del.addEventListener('click', () => {
@@ -686,12 +687,12 @@ export class StepApp {
    * 최근 문서 다시 열기(다시 남기지 않고 순서만 맨 앞으로). 파일이 없으면 목록에서 지우고,
    * 잠깐 못 읽었으면(저장소 오류 — 휴대폰이 뒤에서 연결을 끊는 등) 항목을 남겨 다시 누를 수 있게 한다
    */
-  private async openRecent(r: RecentEntry): Promise<boolean> {
+  private async openRecent(r: RecentEntry, back?: () => void): Promise<boolean> {
     const got = await this.recent.read(r.id);
     if (got.kind === 'missing') {
       this.toast('저장해 둔 파일을 찾지 못해 목록에서 지웠습니다.', 'warn');
       await this.recent.remove(r.id);
-      void this.refreshRecent();
+      void this.refreshRecent().then(back);
       return false;
     }
     if (got.kind === 'error') {
