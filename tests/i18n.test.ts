@@ -179,6 +179,31 @@ describe('language URLs and UI presentation', () => {
     expect(translate('단면 보기: 축(X·Y·Z)에 수직인 평면으로 잘라 봅니다 — 위치 끌기·뒤집기는 3D 보기 위 막대에서', 'zh-CN'))
       .toBe('剖面视图：沿垂直于轴线 (X·Y·Z) 的平面切割 — 拖动位置、翻转请在 3D 视图顶部的栏中操作');
   });
+  it('keeps the CAD sense of location dimensions, sizes and layer words on the panel, PMI and info screens (129th review)', () => {
+    // 129차: 패널(모델 트리·속성·물리 속성·간섭 검사·레이어)·PMI·정보 화면 글을 네 언어로 대조해 고친 것 — 위치 치수(location — 같은 사전의 경로·방향 위치 치수)를
+    // 기하 공차 위치도(Position ⌖)와 같은 말로, 레이어 탭을 없는 레이어 패널로, 파일·그림 크기를 치수(尺寸 — 같은 사전은 文件大小·解压后大小)로,
+    // 레이어 이름 뒤의 层(「显示 0 层」 — 층 수로 읽힘)으로 옮긴 것이 다시 들어오지 않게(고친 글은 같은 사전의 말)
+    const rules: [string, string, RegExp, RegExp][] = [
+      ['위치 치수', 'en', /[Ll]ocation dimension/, /Position/],
+      ['각도 위치', 'en', /Angular location/, /[Pp]osition/],
+      ['레이어 탭', 'ja', /レイヤータブ/, /レイヤーパネル/],
+    ];
+    for (const [term, code, need, ban] of rules)
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        if (!key.includes(term)) continue;
+        expect(value, `${code}: ${key}`).toMatch(need);
+        expect(value, `${code}: ${key}`).not.toMatch(ban);
+      }
+    expect(translate('레이어가 꺼져 있어 보이지 않는 형상이 있습니다 — 레이어 탭에서 켜십시오.', 'ja')).toBe('レイヤーがオフになっているため表示されない図形があります。レイヤータブでオンにしてください。');
+    expect(translate('크기', 'zh-CN')).toBe('大小');
+    expect(translate('\u{2068}0\u{2069} 레이어 보이기', 'zh-CN')).toBe('显示图层 \u{2068}0\u{2069}');
+    // 빠진 번역: 화면 글 이름(「(레이어 없음)」·「(이름 없음)」)이 틀 자리 값으로 잡혀 네 언어 모두 한국어로 남던 레이어 상자 이름·고른 것 이름표·나무 눈 단추 이름
+    for (const {code} of languages.filter(item => item.code !== 'ko'))
+      for (const text of ['(레이어 없음) 레이어 보이기', '레이어 (레이어 없음)', '(이름 없음) 숨기기', '(이름 없음) 보이기'])
+        expect(translate(text, code), `${code}: ${text}`).not.toMatch(/[가-힣]/);
+    expect(translate('(이름 없음) 숨기기', 'en')).toBe('Hide (no name)');
+    expect(translate('레이어 (레이어 없음)', 'de')).toBe('Layer (keine Layer)');
+  });
   it('keeps parameters, code names, numbers and brackets where the Korean source has them', () => {
     // 코드·STEP 낱말(ANNOTATION_TEXT·INVISIBILITY·createImageBitmap 등)은 옮기지 않는다(createImageBitmap을 "创建图像位图"으로, INVISIBILITY를 UNSICHTBAR로 옮긴 것)
     const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
