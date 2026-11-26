@@ -74,8 +74,8 @@ export interface PanelHost {
   selectItems(ids: readonly string[] | null, label: string, fit?: boolean): void;
   /** 파일에 밀도가 없는 부품에 쓸 재질 밀도(kg/m³, null = 안 씀) */
   setDensity(kgm3: number | null): void;
-  /** 알림 칸(155차 — 밀도 칸이 받지 않는 값) */
-  toast?(msg: string, kind: 'warn', ms: number): void;
+  /** 알림 칸(155차 — 밀도 칸이 받지 않는 값, 156차 — 보이지 않는 간섭 검사 오류) */
+  toast?(msg: string | string[], kind: 'warn' | 'error', ms: number): void;
   /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
   openContextMenu(clientX: number, clientY: number): void;
   /** 의미 PMI가 가리키는 면 강조·맞춰 보기 */
@@ -247,9 +247,12 @@ export class Panel {
   /** 간섭 검사 진행·결과가 바뀜: 제품 탭의 그 묶음만 다시 그린다(없으면 탭을 다시 그림) */
   onInterference(): void {
     const d = this.doc;
+    const err = d?.interference?.error;
+    // 오류 줄이 보이지 않으면(패널 닫힘 — 휴대폰은 시트, 다른 탭) 같은 글을 알림 상자 오류로(156차 — NC 144차 꼴, 쌍 수와 같은 알림 길). 숨은 줄은 role 없이(알림은 한 곳)
+    if (err && !(this.open && d?.panelTab === 'tree')) this.host.toast?.(['검사하지 못했습니다:', err], 'error', 9000);
     if (!d || d.panelTab !== 'tree') return;
     if (this.interferenceEl && d.interference) {
-      const el = this.interferenceSection(d, true);
+      const el = this.interferenceSection(d, this.open);
       this.swap(this.interferenceEl, el);
       this.interferenceEl = el;
       // 아래 부품별 보이기 표의 자리가 바뀌었다 — 보이는 줄을 다시 센다
@@ -266,7 +269,8 @@ export class Panel {
 
   /**
    * fresh: 워커 알림으로 묶음을 갈아 끼울 때(onInterference). 그때 새로 붙는 오류 줄은 role=alert로 화면 읽기 프로그램이 읽게 한다(143차 — 전에는 role·aria-live 없는 새 줄이라
-   * 「검사 중…」 뒤 아무것도 듣지 못했다. 쌍 수는 앱 알림 상자가 알린다). 탭을 다시 그릴 때(나무 펼치기·거르기·보이기)는 같은 오류를 다시 읽히지 않게 role 없이
+   * 「검사 중…」 뒤 아무것도 듣지 못했다. 쌍 수는 앱 알림 상자가 알린다). 탭을 다시 그릴 때(나무 펼치기·거르기·보이기)는 같은 오류를 다시 읽히지 않게 role 없이.
+   * 패널이 닫혀 있으면 거짓(156차 — 오류는 알림 상자가 알리고, 다시 열 때 숨었던 줄이 한 번 더 읽히지 않게)
    */
   private interferenceSection(d: StepDoc, fresh = false): HTMLElement {
     const st = d.interference!;
