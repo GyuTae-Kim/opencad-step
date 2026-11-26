@@ -3,10 +3,12 @@
  * 간섭 검사 묶음의 겹친 부피(검사 워커 — src/app/overlap.ts): 쌍을 찾으면 목록부터 보이고 "겹친 부피 계산 중…", 다 구하면 쌍 이름 줄 아래에
  * "겹친 부피 ≈ 부피 ±오차%"(어림 오차가 0이면 ± 없음, 전체 값은 title), 시간 한도로 못 구한 쌍 수·멈춤 안내, 네 언어 사전.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stepToScene } from '../../src/scene';
 import { createDoc, type StepDoc } from '../../src/app/doc';
-import { Panel, type PanelHost } from '../../src/app/panel';
+import { interferenceLabel, Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { findInterference } from '../../src/app/interference';
 import { overlapVolumes } from '../../src/app/overlap';
@@ -216,13 +218,16 @@ describe('간섭 검사: 겹친 부피', () => {
     panel.onInterference();
     expect(sec().querySelectorAll('.prop-row')).toHaveLength(200);
     expect(hints(panel.el).some((t) => t?.startsWith('그 밖'))).toBe(false);
-    // 1,234쌍(겹친 부피 계산 중): 줄은 200, 머리 줄은 온 수, 200째 쌍 줄 바로 밑에 남은 수
+    // 1,234쌍(겹친 부피 계산 중): 줄은 200, 머리 줄은 온 수, 200째 쌍 줄(쌍 목록의 끝 항목 — 151차) 바로 밑에 남은 수
     d.interference = { running: true, done: 3, total: 1234, result: many(1234), phase: 'volume' };
     panel.onInterference();
     const rows = sec().querySelectorAll('.prop-row');
     expect(rows).toHaveLength(200);
     expect(sec().querySelector('.hint')!.textContent).toContain('간섭 1,234');
-    const note = rows[199]!.nextElementSibling!;
+    const list = rows[199]!.closest('[role=list]')!;
+    expect(list.children).toHaveLength(200);
+    expect(list.lastElementChild).toBe(rows[199]);
+    const note = list.nextElementSibling!;
     expect(note.classList.contains('hint')).toBe(true);
     expect(note.textContent).toBe('그 밖 1,034쌍은 목록에 넣지 않았습니다.');
     // 네 언어 사전(수 자리 그대로, 영어·독일어는 1쌍도 단수·복수 없는 꼴)
@@ -234,5 +239,60 @@ describe('간섭 검사: 겹친 부피', () => {
     ]);
     expect([translate('그 밖 1쌍은 목록에 넣지 않았습니다.', 'en'), translate('그 밖 1쌍은 목록에 넣지 않았습니다.', 'de')]).toEqual(['Pairs not listed: 1.', 'Nicht in die Liste aufgenommene Paare: 1.']);
     panel.el.remove();
+  });
+
+  it('쌍 줄은 목록(role=list)으로 — 쌍마다 항목 하나(겹친 부피 줄이 없으면 이름 줄 자신, 있으면 두 줄을 담은 칸), 머리·안내·단추 줄은 목록 밖, 스타일시트는 목록 꼴과 무관(151차)', () => {
+    const d = doc();
+    const meshes = d.scene.meshes;
+    const result = findInterference(meshes);
+    const labels = result.pairs.map((p) => interferenceLabel(d, p));
+    expect(labels).toHaveLength(2);
+    const panel = new Panel(host());
+    document.body.append(panel.el);
+    panel.show(d);
+    const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
+    const lists = () => [...sec().querySelectorAll<HTMLElement>('[role=list]')];
+    const names = (el: Element) => [...el.querySelectorAll('.link-btn')].map((b) => b.textContent);
+    // 겹친 부피 계산 중: 이름 줄 자신이 항목(감싸지 않음)
+    d.interference = { running: true, done: 1, total: 2, result: structuredClone(result), phase: 'volume' };
+    panel.onInterference();
+    expect(lists()).toHaveLength(1);
+    let list = lists()[0]!;
+    expect([...list.children].map((c) => [c.getAttribute('role'), c.className])).toEqual([
+      ['listitem', 'prop-row'],
+      ['listitem', 'prop-row'],
+    ]);
+    expect(names(list)).toEqual(labels);
+    expect(names(sec())).toEqual(labels);
+    expect(list.querySelector('.hint, .btn, [role=list]')).toBeNull();
+    expect(list.previousElementSibling!.textContent).toBe('겹친 부피 계산 중… 1 / 2');
+    expect(list.nextElementSibling!.textContent).toMatch(/^안에 든 부품은/);
+    // 겹친 부피를 다 구함: 쌍마다 이름 줄과 그 부피 줄을 담은 항목 칸(class 없음 — 부피 줄은 이름 줄 바로 뒤 형제 그대로)
+    result.volumes = overlapVolumes(meshes, result.pairs);
+    d.interference = { running: false, done: 0, total: 0, result };
+    panel.onInterference();
+    expect(lists()).toHaveLength(1);
+    list = lists()[0]!;
+    expect([...list.children].map((c) => [c.getAttribute('role'), c.getAttribute('class'), [...c.children].map((x) => x.className)])).toEqual([
+      ['listitem', null, ['prop-row has-vol', 'vol-line']],
+      ['listitem', null, ['prop-row has-vol', 'vol-line']],
+    ]);
+    expect(list.querySelectorAll('[role=listitem]')).toHaveLength(2);
+    expect(names(list)).toEqual(labels);
+    expect(chips(panel.el).map((c) => c.after)).toEqual([true, true]);
+    expect(list.nextElementSibling!.textContent).toMatch(/^안에 든 부품은/);
+    // 쌍이 없으면 목록도 없다
+    d.interference = { running: false, done: 0, total: 0, result: { ...result, pairs: [] } };
+    panel.onInterference();
+    expect(lists()).toHaveLength(0);
+    expect(hints(panel.el).some((t) => t?.startsWith('간섭을 찾지 못했습니다'))).toBe(true);
+    panel.el.remove();
+    // 스타일시트: 쌍 줄을 고르는 선택자는 클래스·자손뿐(자식·형제 결합자·차례 가상 클래스 없음), role로 꾸미는 규칙 없음, 묶음은 블록 — 감싼 칸이 모양을 바꾸지 않는다
+    const css = readFileSync(join(__dirname, '../../src/app/styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const sels = [...css.matchAll(/([^{}]+)\{/g)].map((m) => m[1]!.trim()).filter((s) => /prop-row|vol-line/.test(s));
+    expect(sels.length).toBeGreaterThanOrEqual(7);
+    for (const s of sels) expect(s).not.toMatch(/[>+~]|:(first|last|nth|only)-/);
+    expect(css).not.toMatch(/\[role/);
+    expect(/(?:^|\})\s*\.prop-group \{([^}]*)\}/.exec(css)![1]).not.toMatch(/display/);
   });
 });

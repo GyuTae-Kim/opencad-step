@@ -284,6 +284,9 @@ export class Panel {
       // 쌍을 찾은 뒤 워커가 겹친 부피를 구하는 동안(쌍 목록은 먼저 보인다)
       if (st.running) kids.push(h('p', { class: 'hint' }, h('span', {}, '겹친 부피 계산 중…'), count));
       const LIMIT = 200;
+      // 151차: 쌍 줄을 목록(role=list·listitem)으로 — 화면 읽기 프로그램이 쌍 수·차례를 읽는다(SKP 156차 꼴, ul·li가 아니라 스타일시트가 들지 않음).
+      // 겹친 부피 줄이 없는 쌍은 이름 줄이 곧 항목, 있으면 두 줄을 한 항목 칸에 담는다(묶음은 블록이고 두 줄 선택자는 클래스뿐이라 모양 그대로)
+      const items: HTMLElement[] = [];
       for (const p of r.pairs.slice(0, LIMIT)) {
         const label = interferenceLabel(d, p);
         const sel = d.items?.label === label;
@@ -291,14 +294,15 @@ export class Panel {
         b.addEventListener('click', () => this.host.showInterference(p));
         // 안에 든 쌍: 겉면이 만나지 않아 교차 삼각형 수 대신 "안에 듦"(앞이 안쪽 부품)
         const chip = p.inside ? h('span', { class: 'chip dim-chip', title: '앞 부품이 뒤 부품 안에 통째로 들었습니다(겉면은 만나지 않음)' }, '안에 듦') : h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count));
-        kids.push(h('div', { class: `prop-row${p.volume === undefined ? '' : ' has-vol'}` }, b, chip));
+        const row = h('div', { class: `prop-row${p.volume === undefined ? '' : ' has-vol'}`, role: p.volume === undefined && 'listitem' }, b, chip);
         // 겹친 부피(두 그물이 닫힌 입체일 때 — 광선 표본 어림): 이름 아래 줄에, 어림 오차는 부피에 견준 몫을 유효 숫자 두 자리쯤으로(전체 값은 title)
         if (p.volume !== undefined) {
           const rel = p.volume && p.volumeErr ? (100 * p.volumeErr) / p.volume : 0;
           const text = `≈ ${f.vol(p.volume)}${rel > 0 ? ` ±${f.num(rel, Math.min(6, Math.max(1, 1 - Math.floor(Math.log10(rel)))))}%` : ''}`;
-          kids.push(h('div', { class: 'vol-line', title: `겹친 부피 ≈ ${f.vol(p.volume)} ± ${f.vol(p.volumeErr ?? 0)}` }, h('span', {}, '겹친 부피'), ' ', h('span', { class: 'vol-val' }, text)));
-        }
+          items.push(h('div', { role: 'listitem' }, row, h('div', { class: 'vol-line', title: `겹친 부피 ≈ ${f.vol(p.volume)} ± ${f.vol(p.volumeErr ?? 0)}` }, h('span', {}, '겹친 부피'), ' ', h('span', { class: 'vol-val' }, text))));
+        } else items.push(row);
       }
+      if (items.length) kids.push(h('div', { role: 'list' }, ...items));
       // 140차: 자른 목록 밑에 남은 쌍 수(머리 줄의 「간섭」은 온 수 — 전에는 알리지 않았다)
       if (r.pairs.length > LIMIT) kids.push(h('p', { class: 'hint' }, `그 밖 ${fmtCount(r.pairs.length - LIMIT)}쌍은 목록에 넣지 않았습니다.`));
       if (inside) kids.push(h('p', { class: 'hint' }, '안에 든 부품은 바깥 부품에 가려 보이지 않을 수 있습니다 — X-ray 그리기나 나머지 흐리게로 보십시오.'));
