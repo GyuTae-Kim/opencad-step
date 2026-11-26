@@ -241,8 +241,11 @@ export class StepApp {
   private lockKey = '';
   /** "잠글 방향이 없습니다" 알림 닫기(잠금이 걸리면 거둔다) */
   private lockFailClose: (() => void) | null = null;
-  /** 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만) */
-  private tangents: TangentLock | null = null;
+  /**
+   * 곡선 모서리 끝의 접선 잠금(tangent.ts — 뷰어를 만들 때 나눠 받는다, 받기 전·못 받으면 null이라 코어 판정만).
+   * 125차: 키보드 붙잡기(keysnap.ts — 고르기 호스트로 이 앱을 준다)가 알림 이름에 읽어 private를 뗐다(바꾸는 것은 없다)
+   */
+  tangents: TangentLock | null = null;
   /** 뷰 큐브 면(코어 CUBE_FACES — 뷰어 조각)과 그 한국어 글(61차 — 뷰어 조각을 받은 뒤 화면 언어로 바꾼다, relabelCube) */
   private cube: { faces: readonly { label: string }[]; ko: string[] } | null = null;
   /** 뷰어 조각(viewerkit.ts): 개체 측정 계산(entpick.ts)과 작업 메뉴 항목(ctxmenu.ts — 52차). 뷰어를 만들기 전에 채우므로 뷰어가 있으면 늘 있다 */

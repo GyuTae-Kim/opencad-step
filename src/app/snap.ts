@@ -419,12 +419,13 @@ export function snapPair(m: {
  * 잠근 선이 모서리와 만나는 점·면을 뚫는 점(코어 0.19.0 lockEdges·lockFaces — lockMeet)이면 "잠근 X축 · 모서리 위"·"잠근 방향 · 면 위",
  * 끌어온 점의 축과 만나는 점·끌어온 점과 나란한 자리(0.21.0 lockTracks)면 "잠근 X축 · 끌어온 점 Y축 위"·"잠근 X축 · 끌어온 점과 나란히".
  * 끌어온 점 안내 선이 만나는 점(0.29.0)과 첫 점에서 모서리에 수직인 방향 위 점(0.115.0 perpendicularDir — 여기서는 수직 발과 같은 「수직점」)은
- * 앱이 뷰어 조각의 trackdir.ts guideSnapLabel로 먼저 이름을 고른다(app.ts showHoverSnap — 그 이름 ?? 이것, 첫 화면 JS를 늘리지 않게)
+ * 앱이 뷰어 조각의 trackdir.ts guideSnapLabel로 먼저 이름을 고른다(app.ts showHoverSnap — 그 이름 ?? 이것, 첫 화면 JS를 늘리지 않게).
+ * 125차: 뷰어 조각도 이 함수를 가져온다 — 가상 커서 알림 이름(trackdir.ts snapNameOf)과 끌어온 점 안내 이름(trackDirMeetLabel — 그래서 snap은 선택 칸)
  */
 export function hoverSnapLabel(
   h:
     | {
-        snap: SnapKind | null;
+        snap?: SnapKind | null;
         axis?: SnapAxis;
         locked?: boolean;
         refined?: boolean;

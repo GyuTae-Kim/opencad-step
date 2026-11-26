@@ -11,6 +11,9 @@
 //   (번역층이 마디마다 옮긴다)·알림 글은 화면 언어, 네 언어
 // - 124차: 잠그지 않은 나란함·수직 후보의 알림 이름도 상태 막대 이름(guideSnapLabel ?? hoverSnapLabel)으로 — 첫 점 나란함 「모서리와 나란히」·끌어온 점 나란한·수직인 선
 //   「끌어온 점에서 모서리와 나란히·수직」·만나는 점 「… · X축 위」(코어 틀 「나란한 선」·「수직점」). 잠금·수직 발·축·찍기·끄기·고르기는 그대로
+// - 125차(124차 남은 한계): 나머지 측정 후보(축 「X축 방향」·「끌어온 점에서 X축」 등, 붙잡지 않은 점 「면 위 점」·「곡선 위 점」·「곡면 위 점」, 잠근 후보 「X축 방향 · 잠금」·
+//   「잠근 X축 · 모서리 위」 — 앱 곡선 접선 잠금이면 「접선 방향 · 잠금」)와 찍은 첫 점 글의 이름도 상태 막대 이름(코어 틀 「X축」·「스냅하지 않은 점」·「잠근 선 위 …」),
+//   네 언어. 실제 코어로 앞면 가운데에서 켜고 찍고 첫 점 X축 위로 옮기고 잠근 알림 글도(앱 고르기 호스트의 접선 잠금). 수직 발·끝점·둘째 점·끄기·고르기는 그대로
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   candidateText,
@@ -19,12 +22,17 @@ import {
   keySnapAction,
   keySnapMessages,
   keySnapText,
+  snapKindText,
   type KeyboardSnapAnnouncement,
   type KeySnapMessageKey,
   type MeasureHoverSnap,
+  type MeasurePoint,
+  type MeasureResult,
+  type SnapSegment,
 } from 'opencad-viewer3d';
 import { catalogs, translate } from '../../site/i18n.mjs';
 import { stepToScene } from '../../src/index';
+import { stepEdgeIndex } from '../../src/app/doc';
 import { arrowOwner, routeKey } from '../../src/app/keys';
 import {
   hoverCycleLabel,
@@ -37,7 +45,7 @@ import {
   keySnapCatalogKey,
   keySnapMessagesFor,
 } from '../../src/app/keysnap';
-import { hoverSnapLabel } from '../../src/app/snap';
+import { circleCenters, hoverSnapLabel, measureSnapOptions } from '../../src/app/snap';
 import { guideSnapLabel } from '../../src/app/trackdir';
 import { cube, StepText } from '../stepText';
 import { jsdomViewer, VIEW_H, VIEW_W } from './jsdomview';
@@ -261,17 +269,18 @@ describe('알림 글의 스냅 이름(117차 — 코어 0.117.0 앱이 할 일·
     );
   });
 
-  it('첫 점에서 내린 수직 발·잠근 값·찍기·고르기 알림은 코어 글 그대로(끌어온 점 수직 선은 124차부터 상태 막대 이름 — 아래 124차 시험)', () => {
+  it('첫 점에서 내린 수직 발·찍기(찍은 점 없음)·끄기·고르기 알림은 코어 글 그대로(끌어온 점 수직 선은 124차부터, 잠근 값·축은 125차부터 상태 막대 이름 — 아래 시험)', () => {
     const m = keySnapMessagesFor(ko);
     const same = (a: KeyboardSnapAnnouncement): void => expect(keySnapAnnounceText(a, m, ko)).toBe(a.text);
     same(ann({}, ko));
     expect(ann({}, ko).text).toBe('수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
-    same(ann({ ...dir, locked: true }, ko));
-    expect(ann({ ...dir, locked: true }, ko).text).toBe('잠근 선 위 수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
     same(ann(dir, ko, { reason: 'commit' }));
     same(ann(dir, ko, { reason: 'end' }));
     same(ann(dir, ko, { mode: 'pick' }));
-    same(ann({ ...dir, snap: 'axis', axis: 'x' }, ko));
+    // 125차: 잠근 수직 방향은 상태 막대와 같은 「수직점 · 잠금」, 축은 「X축 방향」(코어 「잠근 선 위 수직점」·「X축」)
+    expect(ann({ ...dir, locked: true }, ko).text).toBe('잠근 선 위 수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    expect(keySnapAnnounceText(ann({ ...dir, locked: true }, ko), m, ko)).toBe('수직점 · 잠금 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    expect(keySnapAnnounceText(ann({ ...dir, snap: 'axis', axis: 'x' }, ko), m, ko)).toBe('X축 방향 1/2: X 1, Y 2, Z 3, 거리 5 mm');
   });
 });
 
@@ -330,23 +339,207 @@ describe('알림 글의 나란함·끌어온 점 선 이름(124차 — 117차 �
     expect(keySnapAnnounceText(ann(cases[0]![0], en), keySnapMessagesFor(en), en)).toBe('Parallel to edge 1/2: X 1, Y 2, Z 3, distance 5 mm');
   });
 
-  it('잠근 나란함·끌어온 점 선(접선 잠금일 수 있어 코어 「잠근 선 위 …」)·첫 점 수직 발·축·끝점·찍기·끄기·고르기 알림은 코어 글 그대로', () => {
+  it('첫 점 수직 발·끝점·찍기(찍은 점 없음)·끄기·고르기 알림은 코어 글 그대로 — 잠근 나란함·끌어온 점 선과 축은 125차부터 상태 막대 이름(앱 접선 잠금이면 「접선 방향 · 잠금」)', () => {
     const m = keySnapMessagesFor(ko);
     const same = (a: KeyboardSnapAnnouncement): void => expect(keySnapAnnounceText(a, m, ko)).toBe(a.text);
-    const locked = ann({ ...cases[0]![0], locked: true }, ko);
-    expect(locked.text).toBe('잠근 선 위 나란한 선 1/2: X 1, Y 2, Z 3, 거리 5 mm');
-    same(locked);
-    same(ann({ ...cases[1]![0], locked: true }, ko));
-    same(ann({ ...cases[2]![0], locked: true }, ko));
     same(ann({ snap: 'perpendicular' }, ko));
-    same(ann({ snap: 'axis', axis: 'x' }, ko));
-    same(ann({ snap: 'axis', axis: 'x', trackFrom: T0 }, ko));
     same(ann({ snap: 'endpoint' }, ko));
     for (const [snap] of cases) {
       same(ann(snap, ko, { reason: 'commit' }));
       same(ann(snap, ko, { reason: 'end' }));
       same(ann(snap, ko, { mode: 'pick' }));
     }
+    // 125차(124차는 그대로 두던 것): 잠근 후보는 상태 막대 이름(접선 잠금인지는 넷째 인자 — installKeySnap이 앱 고르기 호스트의 tangents로 준다)
+    const locked = ann({ ...cases[0]![0], locked: true }, ko);
+    expect(locked.text).toBe('잠근 선 위 나란한 선 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    expect(keySnapAnnounceText(locked, m, ko)).toBe('모서리와 나란히 · 잠금 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    expect(keySnapAnnounceText(locked, m, ko, true)).toBe('접선 방향 · 잠금 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    for (const c of [cases[1]!, cases[2]!]) {
+      const a = ann({ ...c[0], locked: true }, ko);
+      expect(barName(a.snap), c[2]).toBe('잠근 방향 · 끌어온 점과 나란히');
+      expect(keySnapAnnounceText(a, m, ko), c[2]).toBe('잠근 방향 · 끌어온 점과 나란히 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    }
+    expect(keySnapAnnounceText(ann({ snap: 'axis', axis: 'x' }, ko), m, ko)).toBe('X축 방향 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    expect(keySnapAnnounceText(ann({ snap: 'axis', axis: 'x', trackFrom: T0 }, ko), m, ko)).toBe('끌어온 점에서 X축 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+  });
+});
+
+describe('알림 글의 축·붙잡지 않은 점·잠근 후보·찍은 첫 점 이름(125차 — 124차 남은 한계: 상태 막대와 같은 이름)', () => {
+  const ko = (s: string): string => s;
+  /** 124차 시험과 같은 측정 후보 알림(화면 언어 틀로 코어 candidateText — 첫 차례·후보 둘(o.count)·첫 점에서 거리 5 mm), 종류는 주는 값 그대로 */
+  const ann = (snap: Partial<MeasureHoverSnap>, tr: (s: string) => string, o: Partial<KeyboardSnapAnnouncement> = {}): KeyboardSnapAnnouncement => {
+    const s = { point: [1, 2, 3], ...snap } as MeasureHoverSnap;
+    const count = o.count ?? 2;
+    const text = candidateText({ kind: s.snap, axis: s.axis, locked: s.locked, point: s.point }, 0, count, (v) => String(v), 5, 'mm', keySnapMessages(keySnapMessagesFor(tr)));
+    return { reason: 'move', mode: 'measure', x: 0, y: 0, snap: s, index: 0, count, pick: null, text, ...o };
+  };
+  /** 상태 막대·측정 띠 이름(app.ts showHoverSnap — 뷰어 조각 이름 ?? 첫 화면 이름, 앱 곡선 접선 잠금이면 tangent) */
+  const barName = (s: MeasureHoverSnap | MeasurePoint | null, tangent = false): string | null => guideSnapLabel(s) ?? hoverSnapLabel(s, tangent);
+  const T0: [number, number, number] = [0, 0, 0];
+  const SEG: SnapSegment = { kind: 'edge', id: 'm', index: 0, raw: 0, ends: [[0, 0, 0], [10, 0, 0]] };
+  /**
+   * [후보, 코어 종류 글, 상태 막대 이름, 앱 곡선 접선 잠금일 때 상태 막대 이름(나란함 잠금만)]:
+   * 첫 점 X축 · 끌어온 점 Y축 · 첫 점 Z축이 모서리와 만나는 점 · 끌어온 X축과 Y축의 교차 · 붙잡지 않은 점(그대로·곡선 위로·곡면 위로 다듬음) ·
+   * 잠근 X축(그대로·모서리와 만남·끌어온 점 Y축과 만남) · 잠근 수직 방향 · 잠근 나란함(그대로·모서리와 만남·끌어온 점과 나란한 자리)
+   */
+  const cases: [Partial<MeasureHoverSnap>, string, string, string?][] = [
+    [{ snap: 'axis', axis: 'x', direction: [1, 0, 0] }, 'X축', 'X축 방향'],
+    [{ snap: 'axis', axis: 'y', trackFrom: T0 }, 'Y축', '끌어온 점에서 Y축'],
+    [{ snap: 'axis', axis: 'z', direction: [0, 0, 1], segment: SEG }, 'Z축', 'Z축 · 모서리 위'],
+    [{ snap: 'axis', axis: 'x', trackFrom: T0, trackOther: { from: T0, axis: 'y' } }, 'X축', '끌어온 X축과 Y축의 교차'],
+    [{ snap: null }, '스냅하지 않은 점', '면 위 점'],
+    [{ snap: null, refined: true, segment: SEG }, '스냅하지 않은 점', '곡선 위 점'],
+    [{ snap: null, refined: true }, '스냅하지 않은 점', '곡면 위 점'],
+    [{ snap: 'axis', axis: 'x', direction: [1, 0, 0], locked: true }, '잠근 선 위 X축', 'X축 방향 · 잠금'],
+    [{ snap: 'axis', axis: 'x', direction: [1, 0, 0], locked: true, segment: SEG }, '잠근 선 위 X축', '잠근 X축 · 모서리 위'],
+    [{ snap: 'axis', axis: 'x', direction: [1, 0, 0], locked: true, trackFrom: T0, trackOther: { from: T0, axis: 'y' } }, '잠근 선 위 X축', '잠근 X축 · 끌어온 점 Y축 위'],
+    [{ snap: 'perpendicular', perpendicularDir: true, direction: [0, 1, 0], locked: true }, '잠근 선 위 수직점', '수직점 · 잠금'],
+    [{ snap: 'parallel', direction: [1, 0, 0], locked: true }, '잠근 선 위 나란한 선', '모서리와 나란히 · 잠금', '접선 방향 · 잠금'],
+    [{ snap: 'parallel', direction: [1, 0, 0], locked: true, segment: SEG }, '잠근 선 위 나란한 선', '잠근 방향 · 모서리 위', '잠근 접선 · 모서리 위'],
+    [{ snap: 'parallel', direction: [1, 0, 0], locked: true, trackFrom: T0 }, '잠근 선 위 나란한 선', '잠근 방향 · 끌어온 점과 나란히', '잠근 접선 · 끌어온 점과 나란히'],
+  ];
+
+  it('축·붙잡지 않은 점·잠근 후보는 코어 틀 이름(「X축」·「스냅하지 않은 점」·「잠근 선 위 …」)을 상태 막대 이름으로 — 켤 때 글·후보 하나 글·다시 구함도, 앱 접선 잠금이면 접선 이름', () => {
+    const m = keySnapMessagesFor(ko);
+    const M = keySnapMessages(m);
+    const tail = ' 1/2: X 1, Y 2, Z 3, 거리 5 mm';
+    for (const [snap, core, name, tan] of cases) {
+      const a = ann(snap, ko);
+      expect(barName(a.snap), name).toBe(name);
+      expect(a.text, name).toBe(core + tail);
+      expect(keySnapAnnounceText(a, m, ko), name).toBe(name + tail);
+      expect(keySnapAnnounceText({ ...a, reason: 'refresh' }, m, ko), name).toBe(name + tail);
+      expect(keySnapAnnounceText({ ...a, reason: 'cycle' }, m, ko), name).toBe(name + tail);
+      expect(keySnapAnnounceText({ ...a, reason: 'start', text: keySnapText(M, 'start', [a.text, '옮기기 ←→↑↓']) }, m, ko), name).toBe(
+        `가상 커서를 켰습니다. ${name}${tail}. 옮기기 ←→↑↓`,
+      );
+      const one = ann(snap, ko, { reason: 'cycle', count: 1 });
+      expect(keySnapAnnounceText({ ...one, text: keySnapText(M, 'only', [one.text]) }, m, ko), name).toBe(`${name}: X 1, Y 2, Z 3, 거리 5 mm (후보 하나)`);
+      if (!tan) continue;
+      expect(barName(a.snap, true), tan).toBe(tan);
+      expect(keySnapAnnounceText(a, m, ko, true), tan).toBe(tan + tail);
+    }
+  });
+
+  it('네 언어 화면 틀: 글이 상태 막대 이름(화면 언어 — 「 · 」 조각마다)으로 시작하고 한글이 없다 — 영어는 「Along X axis …」·「Point on face …」·「Along tangent · Locked …」', () => {
+    for (const code of CODES) {
+      const tr = (s: string): string => translate(s, code);
+      for (const [snap, , name, tan] of cases) {
+        const a = ann(snap, tr);
+        const t = keySnapAnnounceText(a, keySnapMessagesFor(tr), tr);
+        expect(t.startsWith(tr(name)), `${code} ${name}: ${t}`).toBe(true);
+        expect(t, `${code} ${name}`).not.toMatch(hangul);
+        if (!tan) continue;
+        const u = keySnapAnnounceText(a, keySnapMessagesFor(tr), tr, true);
+        expect(u.startsWith(tr(tan)), `${code} ${tan}: ${u}`).toBe(true);
+        expect(u, `${code} ${tan}`).not.toMatch(hangul);
+      }
+    }
+    const en = (s: string): string => translate(s, 'en');
+    const say = (i: number, tangent = false): string => keySnapAnnounceText(ann(cases[i]![0], en), keySnapMessagesFor(en), en, tangent);
+    expect(say(0)).toBe('Along X axis 1/2: X 1, Y 2, Z 3, distance 5 mm');
+    expect(say(4)).toBe('Point on face 1/2: X 1, Y 2, Z 3, distance 5 mm');
+    expect(say(11)).toBe('Parallel to edge · Locked 1/2: X 1, Y 2, Z 3, distance 5 mm');
+    expect(say(11, true)).toBe('Along tangent · Locked 1/2: X 1, Y 2, Z 3, distance 5 mm');
+  });
+
+  it('찍은 첫 점 글(「첫 점을 찍었습니다. {종류}: {점}」)도 찍은 점의 상태 막대 이름으로 — 틀 앞 글 뒤에서 바꾸고, 둘째 점·찍을 점 없음·끝점은 그대로, 네 언어', () => {
+    /** 코어 keyCommit과 같은 첫 점 글(화면 언어 틀 — 찍은 점의 snapKindText, 점 글), 지금 후보는 찍은 뒤 그 자리의 것(이름에 쓰지 않는다) */
+    const first = (p: Partial<MeasurePoint>, tr: (s: string) => string, msgs: Partial<Record<KeySnapMessageKey, string>> = keySnapMessagesFor(tr)): KeyboardSnapAnnouncement => {
+      const point = { point: [1, 2, 3], snap: null, ...p } as MeasurePoint;
+      const M = keySnapMessages(msgs);
+      const text = keySnapText(M, 'firstPoint', [snapKindText(point.snap, point.axis, point.locked, M), keySnapText(M, 'point', [1, 2, 3])]);
+      return { reason: 'commit', mode: 'measure', x: 0, y: 0, snap: { point: [1, 2, 3], snap: 'axis', axis: 'z' }, index: 0, count: 1, pick: null, point, text };
+    };
+    const m = keySnapMessagesFor(ko);
+    const pts: [Partial<MeasurePoint>, string, string][] = [
+      [{}, '스냅하지 않은 점', '면 위 점'],
+      [{ refined: true }, '스냅하지 않은 점', '곡면 위 점'],
+      [{ snap: 'axis', axis: 'x', trackFrom: T0 }, 'X축', '끌어온 점에서 X축'],
+      [{ snap: 'parallel', trackFrom: T0 }, '나란한 선', '끌어온 점에서 모서리와 나란히'],
+      [{ snap: 'endpoint' }, '끝점', '끝점'],
+    ];
+    for (const [p, core, name] of pts) {
+      const a = first(p, ko);
+      expect(barName(a.point!), name).toBe(name);
+      expect(a.text, name).toBe(`첫 점을 찍었습니다. ${core}: X 1, Y 2, Z 3`);
+      expect(keySnapAnnounceText(a, m, ko), name).toBe(`첫 점을 찍었습니다. ${name}: X 1, Y 2, Z 3`);
+    }
+    // 틀 앞 글에 같은 종류 낱말이 있어도 앞 글 뒤의 종류 글을 바꾼다(앱이 옮긴 틀)
+    const own = { firstPoint: 'X축 기준 첫 점 — {0}: {1}' };
+    expect(keySnapAnnounceText(first(pts[2]![0], ko, own), own, ko)).toBe('X축 기준 첫 점 — 끌어온 점에서 X축: X 1, Y 2, Z 3');
+    // 둘째 점(측정 결과 글 — 이름 없음)·찍을 점 없음은 그대로
+    const second: KeyboardSnapAnnouncement = { ...first({}, ko), measurement: {} as MeasureResult, text: '둘째 점을 찍었습니다. 거리 5 mm, X 차 1, Y 차 2, Z 차 3' };
+    expect(keySnapAnnounceText(second, m, ko)).toBe(second.text);
+    const none: KeyboardSnapAnnouncement = { reason: 'commit', mode: 'measure', x: 0, y: 0, snap: null, index: 0, count: 0, pick: null, text: '찍을 점이 없습니다' };
+    expect(keySnapAnnounceText(none, m, ko)).toBe('찍을 점이 없습니다');
+    for (const code of CODES) {
+      const tr = (s: string): string => translate(s, code);
+      const lead = keySnapMessages(keySnapMessagesFor(tr)).firstPoint.split('{0}')[0]!;
+      for (const [p, core, name] of pts.slice(0, 4)) {
+        const t = keySnapAnnounceText(first(p, tr), keySnapMessagesFor(tr), tr);
+        expect(t.startsWith(lead + tr(name)), `${code} ${name}: ${t}`).toBe(true);
+        expect(t, `${code} ${name}`).not.toMatch(hangul);
+        expect(tr(core), `${code} ${core}`).not.toBe(tr(name));
+      }
+    }
+    expect(keySnapAnnounceText(first({}, (s) => translate(s, 'en')), keySnapMessagesFor((s) => translate(s, 'en')), (s) => translate(s, 'en'))).toBe(
+      'First point placed. Point on face: X 1, Y 2, Z 3',
+    );
+  });
+
+  it('실제 코어: 앞면 가운데(붙잡지 않은 점)에서 켜고 찍은 첫 점 「면 위 점」, 첫 점 X축 위 「X축 방향」, 앱 나란함 잠금 「모서리와 나란히 · 잠금」 — 앱 고르기 호스트가 접선 잠금이라 하면 「접선 방향 · 잠금」', () => {
+    const w = new StepText();
+    w.product('c', [cube(w, 10).solid], w.context());
+    const j = jsdomViewer({ keyboard: true });
+    restore = j.restore;
+    const v = j.viewer;
+    const sc = stepToScene(w.bytes());
+    v.setScene(sc);
+    // 앞에서(+Y 쪽을 본다 — 앞면 y = 0, 화면 가로 = X, 세로 = Z): 캔버스 가운데는 앞면 가운데 (5, 0, 5), 모서리·가운데점에서 붙잡기 거리(10화소)보다 멀다
+    v.setView('front', false);
+    v.fit(false);
+    v.renderNow();
+    const ex = stepEdgeIndex(sc);
+    // 앱처럼(syncMeasureSnap — 곡선 붙잡기를 받기 전), 키보드 붙잡기는 앱처럼 installKeySnap — 고르기 호스트(app.ts는 자기 자신)의 접선 잠금을 시험이 정한다
+    v.setMeasureSnap(measureSnapOptions(sc.meshes, ex, circleCenters(sc.meshes, ex), null, false, null, true));
+    v.setMeasureMode(true);
+    let tangent = false;
+    const ks = installKeySnap(v, {
+      tr: ko,
+      pickThrough: () => false,
+      pick: { faceMode: false, multiPick: false, pickUnit: 'part', doc: null, tangents: { locked: () => tangent } },
+    });
+    const said = (): string => ks.live.textContent!;
+    key(v.canvas, 'ArrowUp');
+    const c0 = { ...v.keyboardCursor! };
+    expect(c0.mode).toBe('measure');
+    expect(v.measureHoverSnap).toMatchObject({ snap: null });
+    expect(barName(v.measureHoverSnap)).toBe('면 위 점');
+    expect(said()).toMatch(/^가상 커서를 켰습니다\. 면 위 점: X /);
+    key(v.canvas, 'Enter');
+    expect(v.measurePointCount).toBe(1);
+    expect(said()).toMatch(/^첫 점을 찍었습니다\. 면 위 점: X /);
+    // 오른쪽으로 30화소(걸음 5 × 6): 첫 점 X축(첫 점 높이의 화면 가로선) 위, Z축에서 30화소
+    expect(v.keyboardSnap!.step).toBe(5);
+    for (let i = 0; i < 6; i++) key(v.canvas, 'ArrowRight');
+    expect(v.keyboardCursor).toMatchObject({ x: c0.x + 30, y: c0.y });
+    expect(v.measureHoverSnap).toMatchObject({ snap: 'axis', axis: 'x' });
+    expect(barName(v.measureHoverSnap)).toBe('X축 방향');
+    expect(said()).toMatch(/^X축 방향( 1\/\d)?: X .*, 거리 /);
+    // 앱이 건 나란함 잠금(곡선 접선 잠금과 같은 꼴 — X 방향) → 다음 그림에서 다시 구한 알림(코어 'refresh')
+    tangent = true;
+    expect(v.setMeasureInferenceLock({ direction: [1, 0, 0], kind: 'parallel' })).toBe(true);
+    v.renderNow();
+    expect(v.measureHoverSnap).toMatchObject({ snap: 'parallel', locked: true });
+    expect(said()).toMatch(/^접선 방향 · 잠금( 1\/\d)?: X /);
+    expect(said()).not.toContain('잠근 선 위');
+    // 접선 잠금이 아니면(앱 화살표·잠금 버튼의 나란함 잠금) 상태 막대처럼 「모서리와 나란히 · 잠금」 — 한 걸음 옮긴 알림
+    tangent = false;
+    key(v.canvas, 'ArrowUp');
+    expect(v.measureHoverSnap).toMatchObject({ snap: 'parallel', locked: true });
+    expect(barName(v.measureHoverSnap)).toBe('모서리와 나란히 · 잠금');
+    expect(said()).toMatch(/^모서리와 나란히 · 잠금( 1\/\d)?: X /);
   });
 });
 
