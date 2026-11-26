@@ -78,4 +78,53 @@ describe('간섭 검사: 겹친 부피', () => {
     expect(translate('겹친 부피 ≈ 125 mm³ ± 0 mm³', 'en')).toBe('Overlap volume ≈ 125 mm³ ± 0 mm³');
     expect(translate('시간 한도로 3쌍은 겹친 부피를 구하지 못했습니다.', 'de')).toBe('Wegen des Zeitlimits wurde für 3 Paare kein Überlappungsvolumen berechnet.');
   });
+
+  it('진행·쌍·겹친 부피·멈춤으로 묶음을 갈아 끼워도 그 안 초점은 새 묶음의 같은 칸으로(멈추기·쌍 단추 — 139차)', () => {
+    const d = doc();
+    const result = findInterference(d.scene.meshes);
+    const panel = new Panel(host());
+    document.body.append(panel.el);
+    panel.show(d);
+    const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
+    // 멈추기·결과 지우기는 묶음의 맨 끝 단추, 쌍 이름 단추는 그 앞
+    const stop = () => [...sec().querySelectorAll<HTMLElement>('button')].at(-1)!;
+    const pairs = () => [...sec().querySelectorAll<HTMLElement>('.link-btn')];
+    // 검사 중(쌍 전): 멈추기에 초점 → 진행(100 ms마다)이 묶음을 갈아 끼워도 새 멈추기에
+    d.interference = { running: true, done: 0, total: 0 };
+    panel.onInterference();
+    const first = stop();
+    first.focus();
+    d.interference = { running: true, done: 3, total: 10 };
+    panel.onInterference();
+    expect(stop()).not.toBe(first);
+    expect(document.activeElement).toBe(stop());
+    expect(stop().textContent).toBe('멈추기');
+    // 쌍이 옴(앞에 쌍 단추 둘이 붙음): 멈추기 그대로
+    const found = structuredClone(result);
+    d.interference = { running: true, done: 0, total: 0, result: found, phase: 'volume' };
+    panel.onInterference();
+    expect(pairs()).toHaveLength(2);
+    expect(document.activeElement).toBe(stop());
+    // 둘째 쌍 단추에 초점 → 겹친 부피 진행에도 그 쌍 단추에
+    const second = pairs()[1]!;
+    second.focus();
+    d.interference = { running: true, done: 1, total: 2, result: found, phase: 'volume' };
+    panel.onInterference();
+    expect(pairs()[1]).not.toBe(second);
+    expect(document.activeElement).toBe(pairs()[1]);
+    expect(pairs()[1]!.textContent).toBe(second.textContent);
+    // 겹친 부피 계산 중 멈추기 → 쌍 목록은 남고 같은 단추(이제 결과 지우기)에
+    stop().focus();
+    d.interference = { running: false, done: 0, total: 0, result: structuredClone(result), stopped: true };
+    panel.onInterference();
+    expect(document.activeElement).toBe(stop());
+    expect(stop().textContent).toBe('결과 지우기');
+    // 초점이 묶음 밖(고른 탭)이면 그대로 둔다
+    const tab = panel.el.querySelector<HTMLElement>('[role=tab][aria-selected=true]')!;
+    tab.focus();
+    d.interference = { running: false, done: 0, total: 0, result };
+    panel.onInterference();
+    expect(document.activeElement).toBe(tab);
+    panel.el.remove();
+  });
 });

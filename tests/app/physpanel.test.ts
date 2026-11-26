@@ -123,4 +123,45 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     expect((def.scene.meta as unknown as StepMeta).faceTables!.every((t) => !t.props)).toBe(true);
     panel.el.remove();
   });
+
+  it('값이 다 오거나 멈춰 묶음을 다시 그려도 재질 고르기·밀도 칸의 초점은 새 묶음의 같은 칸으로(139차)', () => {
+    const def = stepToSceneDeferred(bytes, { name: 'a.stp' });
+    const job = def.props!;
+    const doc = createDoc('a.stp', 1, { scene: def.scene, ms: 1, props: { tables: job.tables(), solids: job.total } });
+    const panel = panelOf(host(doc));
+    document.body.append(panel.el);
+    panel.show(doc);
+    panel.setTab('props');
+    const pick = () => panel.el.querySelector<HTMLElement>('select.dlg-select')!;
+    const sel0 = pick();
+    sel0.focus();
+    // 입체 하나가 끝남(아직 계산 중 — 수 글만 고침): 칸 그대로
+    while (job.done < 1) job.run(0);
+    applyDocProps(doc, { results: job.take(), done: job.done, total: job.total, finished: false, timedOut: 0, ms: 1 });
+    panel.onProps();
+    expect(pick()).toBe(sel0);
+    expect(document.activeElement).toBe(sel0);
+    // 다 끝남(묶음을 다시 그림): 새 재질 고르기 칸에
+    job.run();
+    applyDocProps(doc, { results: job.take(), done: job.done, total: job.total, finished: true, timedOut: 0, ms: 1 });
+    panel.onProps();
+    expect(pick()).not.toBe(sel0);
+    expect(document.activeElement).toBe(pick());
+    panel.el.remove();
+    // 밀도 칸에 초점이 있는 채 멈춤(다른 파일): 새 밀도 칸에
+    const def2 = stepToSceneDeferred(bytes, { name: 'a.stp' });
+    const doc2 = createDoc('a.stp', 1, { scene: def2.scene, ms: 1, props: { tables: def2.props!.tables(), solids: def2.props!.total } });
+    const p2 = panelOf(host(doc2));
+    document.body.append(p2.el);
+    p2.show(doc2);
+    p2.setTab('props');
+    const in0 = p2.el.querySelector<HTMLElement>('input.dlg-input')!;
+    in0.focus();
+    applyDocProps(doc2, 'stopped');
+    p2.onProps();
+    const in1 = p2.el.querySelector<HTMLElement>('input.dlg-input')!;
+    expect(in1).not.toBe(in0);
+    expect(document.activeElement).toBe(in1);
+    p2.el.remove();
+  });
 });
