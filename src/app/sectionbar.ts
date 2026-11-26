@@ -41,8 +41,9 @@ export class SectionBar {
     this.slider = h('input', { type: 'range', class: 'section-slider', min: '0', max: '1000', step: '1', 'aria-label': '단면 위치' });
     this.slider.addEventListener('input', () => host.viewerRef?.setSectionPosition(Number(this.slider.value) / 1000));
     this.label = h('span', { class: 'section-lbl' });
-    // 위치 숫자 칸(표시 단위): 바꾸면 그 위치로(Enter·초점 잃기)
-    this.num = h('input', { type: 'number', class: 'section-num', step: 'any', inputmode: 'decimal', 'aria-label': '단면 위치(숫자)' });
+    // 위치 숫자 칸(표시 단위): 바꾸면 그 위치로(Enter·초점 잃기). 123차: 원점을 걸친 장면은 음수 위치를 쳐 넣어야 해 inputmode="decimal"을 두지 않는다
+    // (소수 자판은 음수 기호를 약속하지 않음 — 휴대폰·태블릿 자판은 type="number"에 맞춰 브라우저가 고른다)
+    this.num = h('input', { type: 'number', class: 'section-num', step: 'any', 'aria-label': '단면 위치(숫자)' });
     this.num.addEventListener('change', () => this.applyNumber());
     this.num.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
