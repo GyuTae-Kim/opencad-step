@@ -6,6 +6,7 @@
  * - menu.ts: Home·End(창 글쇠로 새지 않게), 화면 점 메뉴를 닫으면 연 때 초점이 있던 곳으로
  * 헤드리스 Chrome 점검(.runtime/r53 kbd53)에서 찾은 것을 jsdom으로 다시 본다(jsdom은 숨긴 칸의 초점을 스스로 떼지 않아, 숨기는 명령이 브라우저처럼 blur한다).
  * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴)
+ * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +18,8 @@ import { createDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
+import { SectionBar } from '../../src/app/sectionbar';
+import type { SectionState, Viewer3d } from 'opencad-viewer3d';
 
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => {
   const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
@@ -328,6 +331,96 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
     const off = bar.querySelector('button')!;
     expect(off.textContent).toContain('격리 풀기');
     expect(off.closest(LIVE)).toBeNull();
+  });
+});
+
+describe('146차: 막대(input range)의 화면 읽기 값 — 속 수 대신 옆에 보이는 값 글(NC 140차 꼴)', () => {
+  it('단면 위치 막대(0~1000)는 값 글의 축 글자·위치·단위를 읽고, 끌기·키·축·뒤집기·면 단면·단위가 바뀌면 함께 바뀐다(낱말 「위치」·뒤집음은 넣지 않음)', () => {
+    let at: { axis: SectionState['axis']; flip: boolean; t: number } = { axis: 'x', flip: false, t: 0.625 };
+    // 장면 범위 −40~40: 위치 = −40 + t × 80
+    const st = () => ({ axis: at.axis, flip: at.flip, position: -40 + at.t * 80, min: -40, max: 40, t: at.t }) as SectionState;
+    // 코어처럼: 위치를 옮기면 onSectionChange 알림 → 앱 syncSection → 막대 sync
+    const viewer = {
+      section: null,
+      canvas: document.createElement('canvas'),
+      setSectionPosition: (t: number) => {
+        at = { ...at, t };
+        bar.sync(st());
+      },
+    } as unknown as Viewer3d;
+    const host = { viewerRef: viewer, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {} };
+    const bar = new SectionBar(host);
+    document.body.append(bar.el);
+    const slider = bar.el.querySelector<HTMLInputElement>('.section-slider')!;
+    const read = () => [slider.value, slider.getAttribute('aria-valuetext')];
+    // 막대 옆에 보이는 값 글: 이름표 · 숫자 칸 · 단위
+    const shown = () => [...bar.el.querySelectorAll<HTMLElement>('.section-lbl, .section-num, .section-unit')].map((e) => (e instanceof HTMLInputElement ? e.value : e.textContent));
+    bar.sync(st());
+    expect([...read(), shown()]).toEqual(['625', 'X = 10 mm', ['X =', '10', 'mm']]);
+    // 끌기·키(막대에 초점 — sync는 막대 값을 건드리지 않고, 값 글은 새 상태로)
+    slider.focus();
+    slider.value = '250';
+    slider.dispatchEvent(new Event('input'));
+    expect(read()).toEqual(['250', 'X = -20 mm']);
+    slider.blur();
+    // 다른 축·뒤집기(버튼 → 코어 알림): 뒤집음은 뒤집기 버튼 눌림이 알리고 값 글에는 없음
+    at = { axis: 'y', flip: true, t: 0.53125 };
+    bar.sync(st());
+    expect([...read(), shown()]).toEqual(['531', 'Y = 2.5 mm', ['Y =', '2.5', 'mm']]);
+    // 면 단면: 이름표 「위치」는 번역층이 옮기지 않는 속성이라 빼고 위치·단위만
+    at = { axis: null, flip: false, t: 0.75 };
+    bar.sync(st());
+    expect([...read(), shown()]).toEqual(['750', '20 mm', ['위치', '20', 'mm']]);
+    // 표시 단위·자리 수 바꿈(앱 refreshFmt → syncSection): 인치 장면을 mm·소수 한 자리로, 단위를 모르는 장면은 수만
+    host.fmt = new Fmt('inch', { unit: 'mm', decimals: 1, quality: 'normal' });
+    at = { axis: 'z', flip: false, t: 0.5625 };
+    bar.sync(st());
+    expect([...read(), shown()]).toEqual(['563', 'Z = 127 mm', ['Z =', '127', 'mm']]);
+    host.fmt = new Fmt('' as never);
+    bar.sync(st());
+    expect([...read(), shown()]).toEqual(['563', 'Z = 5', ['Z =', '5', '']]);
+  });
+
+  it('분해 정도 막대(0~100)는 옆 값 글(「50%」)을 읽고, 끌기·키와 다른 길(켜고 끄기·접기·문서 바꿈 — 모두 syncExplode)에서 함께 바뀐다', () => {
+    // app.ts 원문에서 분해 막대·값 글을 만드는 줄과 막대 맞추기(syncExplode) 몸통을 잘라 실제 h로 돌린다(앱 전체는 시험에서 띄우지 않는다)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const make = /this\.explodeSlider = h\([\s\S]*?this\.explodeValue = h\([^\n]*\n/.exec(app)?.[0];
+    const body = /private syncExplode\(\): void \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
+    expect([!!make, !!body]).toEqual([true, true]);
+    const doc = { explode: 0 };
+    const sync = () => new Function(body!).call(self);
+    const self: Record<string, unknown> = {
+      doc,
+      explodeOpen: true,
+      explodeBar: document.createElement('div'),
+      explodeUi: null,
+      tweakTool: null,
+      hostEl: document.createElement('div'),
+      toolbar: { refresh: () => {} },
+      // 앱 setExplode처럼: 문서의 분해 정도를 바꾸고 막대를 맞춘다
+      setExplode: (k: number) => {
+        doc.explode = k;
+        sync();
+      },
+    };
+    new Function('h', make!).call(self, h);
+    const slider = self.explodeSlider as HTMLInputElement;
+    const value = self.explodeValue as HTMLElement;
+    document.body.append(slider, value);
+    const read = () => [slider.value, value.textContent, slider.getAttribute('aria-valuetext')];
+    doc.explode = 0.5;
+    sync();
+    expect(read()).toEqual(['50', '50%', '50%']);
+    // 끌기·키(막대에 초점): input → setExplode → 막대 맞추기
+    slider.focus();
+    slider.value = '30';
+    slider.dispatchEvent(new Event('input'));
+    expect([doc.explode, ...read()]).toEqual([0.3, '30', '30%', '30%']);
+    slider.blur();
+    // 다른 길(측정을 켜 접기·문서 바꿈·손질 다시 그리기 등)도 같은 syncExplode
+    doc.explode = 0.123;
+    sync();
+    expect(read()).toEqual(['12', '12%', '12%']);
   });
 });
 

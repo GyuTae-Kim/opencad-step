@@ -121,9 +121,12 @@ export class SectionBar {
       const f = this.host.fmt;
       this.label.textContent = st.axis ? `${st.axis.toUpperCase()} =` : '위치';
       // 숫자 칸은 언어와 상관없이 점 소수(input type=number)
-      if (document.activeElement !== this.num) this.num.value = String(Number((st.position * f.factor).toFixed(f.decimals)));
+      const n = String(Number((st.position * f.factor).toFixed(f.decimals)));
+      if (document.activeElement !== this.num) this.num.value = n;
       this.num.step = String(10 ** -Math.min(3, f.decimals));
       this.unit.textContent = f.unit;
+      // 146차: 0~1000 막대가 속 수 대신 옆 값 글(「X = 10 mm」)을 읽게(NC 140차 꼴). 번역층이 옮기지 않는 속성이라 낱말(면 단면 「위치」)은 빼고, 끄는 동안에도 지금 상태로
+      this.slider.setAttribute('aria-valuetext', `${st.axis ? `${st.axis.toUpperCase()} = ` : ''}${n}${f.unit ? ` ${f.unit}` : ''}`);
       this.flipBtn.setAttribute('aria-pressed', String(st.flip));
       this.flipBtn.classList.toggle('on', st.flip);
       const ax = (st.axis ?? '').toUpperCase();
