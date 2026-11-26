@@ -159,6 +159,26 @@ describe('language URLs and UI presentation', () => {
     expect(codes.map((code) => translate('(원점)', code))).toEqual(['(origin)', '(原点)', '（原点）', '(Ursprung)']);
     expect(codes.map((code) => translate('X축에 수직인 평면', code))).toEqual(['Plane perpendicular to the X axis', 'X軸に垂直な平面', '垂直于 X 轴的平面', 'Ebene senkrecht zur X-Achse']);
   });
+  it('keeps the CAD sense of section-flip, drag and bar words on the measure, section and explode screens (127th review)', () => {
+    // 127차: 측정·단면·분해 화면 글을 네 언어로 대조해 고친 것 — 뒤집기(잘라 내는 쪽을 반대로)를 거울 대칭(spiegeln — CAD 대칭 명령)으로,
+    // 끌기(drag)를 Zug(인장·기차)로, 단면 막대 안내를 없는 「位置·翻转」 버튼을 끄라는 말로 옮긴 것이 다시 들어오지 않게(고친 글은 같은 사전의 말)
+    const rules: [string, string, RegExp, RegExp][] = [
+      ['뒤집', 'de', /[Uu]mdreh|umgekehrt/, /[Ss]piegel/],
+      ['끌기', 'de', /[Zz]iehen/, /\bZug\b/],
+      ['막대', 'zh-CN', /栏/, /按钮|“位置·翻转”/],
+    ];
+    for (const [term, code, need, ban] of rules)
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        if (!key.includes(term)) continue;
+        expect(value, `${code}: ${key}`).toMatch(need);
+        expect(value, `${code}: ${key}`).not.toMatch(ban);
+      }
+    expect(translate('잘라 내는 쪽 뒤집기', 'de')).toBe('Schnittseite umdrehen');
+    for (const tail of ['(음수는 반대쪽)', '(가로; 세로 두 수도 됩니다)', '(ΔX; ΔY; ΔZ 세 수도 됩니다)'])
+      expect(translate(`옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다${tail}`, 'de')).toContain('um dieses Ziehen auf diese Strecke zu setzen');
+    expect(translate('단면 보기: 축(X·Y·Z)에 수직인 평면으로 잘라 봅니다 — 위치 끌기·뒤집기는 3D 보기 위 막대에서', 'zh-CN'))
+      .toBe('剖面视图：沿垂直于轴线 (X·Y·Z) 的平面切割 — 拖动位置、翻转请在 3D 视图顶部的栏中操作');
+  });
   it('keeps parameters, code names, numbers and brackets where the Korean source has them', () => {
     // 코드·STEP 낱말(ANNOTATION_TEXT·INVISIBILITY·createImageBitmap 등)은 옮기지 않는다(createImageBitmap을 "创建图像位图"으로, INVISIBILITY를 UNSICHTBAR로 옮긴 것)
     const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
