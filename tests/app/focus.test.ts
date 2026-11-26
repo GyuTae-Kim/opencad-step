@@ -114,4 +114,48 @@ describe('초점 돌려주기(키보드 사용)', () => {
     expect(app).toMatch(/const back = recentFocus\(clearRecent, this\.recentList, open\);\s*void this\.recent\.clear\(\)\.then\(\(\) => this\.refreshRecent\(\)\)\.then\(back\);/);
     expect(app).toMatch(/this\.startOpen = open;/);
   });
+
+  it('최근 문서 이름을 눌렀는데 저장한 파일이 없어 그 줄을 지우고 다시 그려도 ✕와 같은 자리 — 그 자리에 온 줄(끝 줄이면 앞 줄)의 이름 버튼, 목록이 비면 「파일 열기」(148차)', () => {
+    const open = document.createElement('button');
+    const list = document.createElement('ul');
+    document.body.append(open, list);
+    // 앱 refreshRecent·recentRow 꼴: 줄(li — 이름 버튼, ✕)을 모두 새로 만든다
+    const draw = (names: string[]) =>
+      list.replaceChildren(
+        ...names.map((n) => {
+          const li = document.createElement('li');
+          const o = document.createElement('button');
+          o.textContent = n;
+          li.append(o, document.createElement('button'));
+          return li;
+        }),
+      );
+    const name = (i: number) => list.children[i]!.firstElementChild as HTMLElement;
+    const now = () => document.activeElement;
+    // 가운데 줄(b) 이름 → 파일 없음 → 그 줄 없이 다시 그리면 초점이 body로 빠지고 → 그 자리에 온 줄(c)의 이름 버튼
+    draw(['a', 'b', 'c']);
+    name(1).focus();
+    let back = recentFocus(name(1), list, open);
+    draw(['a', 'c']);
+    expect(now()).toBe(document.body);
+    back();
+    expect(now()).toBe(name(1));
+    expect(now()?.textContent).toBe('c');
+    // 끝 줄 → 앞 줄(a), 하나 남은 줄 → 목록이 비면 「파일 열기」
+    back = recentFocus(name(1), list, open);
+    draw(['a']);
+    back();
+    expect(now()?.textContent).toBe('a');
+    back = recentFocus(name(0), list, open);
+    draw([]);
+    back();
+    expect(now()).toBe(open);
+    open.remove();
+    list.remove();
+    // 앱(원문): 이름 버튼은 누를 때 recentFocus를 재 openRecent에 넘기고, 파일이 없으면 지운 뒤 목록을 다시 그린 다음 그 함수를 부른다(142차 ✕ 꼴)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toMatch(/open\.addEventListener\('click', \(\) => void this\.openRecent\(r, recentFocus\(open, this\.recentList, this\.startOpen\)\)\);/);
+    expect(app).toMatch(/private async openRecent\(r: RecentEntry, back\?: \(\) => void\): Promise<boolean>/);
+    expect(app).toMatch(/await this\.recent\.remove\(r\.id\);\s*(\/\/[^\n]*\n\s*)*void this\.refreshRecent\(\)\.then\(back\);\s*return false;/);
+  });
 });
