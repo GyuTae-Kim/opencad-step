@@ -2727,9 +2727,17 @@ export class StepApp {
       this.setExplode(link.exp.t);
     } else if (d.explode || this.explodeOpen) this.toggleExplode(false);
     this.toolbar.refresh();
-    if (!link.sel) return;
+    // 링크에 격리가 없으면 고른 것이 없거나 이 문서에서 풀리지 않아도 앞서 한 격리를 푼다(149차 — README 보기 링크. 전에는 아래 격리 줄 앞에서 돌아가 남았다)
+    if (!link.sel) {
+      this.unisolate();
+      return;
+    }
     const r = (await import('./selink')).resolveTokens(d.products, link.sel);
-    if (this.doc !== d || !r.ids.length) return;
+    if (this.doc !== d) return;
+    if (!r.ids.length) {
+      if (!link.iso) this.unisolate();
+      return;
+    }
     // 몸체 낱말이 가리킨 부품을 펼쳐 몸체 줄을 보인다(많으면 앞의 100개만)
     for (const k of r.open.slice(0, 100)) {
       d.expanded = revealKey(d.expanded, k);

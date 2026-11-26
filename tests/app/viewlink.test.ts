@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ProductNode } from '../../src/app/doc';
-import { subtreeItemIds } from '../../src/app/doc';
-import { decodeViewLink, encodeViewLink } from '../../src/app/viewlink';
+import { multiLabel, subtreeItemIds } from '../../src/app/doc';
+import { revealKey } from '../../src/app/tree';
+import { decodeViewLink, encodeViewLink, type ViewLink } from '../../src/app/viewlink';
 import { fitTokens, resolveTokens, SEL_MAX_CHARS, selectionTokens } from '../../src/app/selink';
 
 const N = (name: string, meshIds: string[] = [], children: ProductNode[] = [], lineIds?: string[]): ProductNode => ({ name, productId: name, meshIds, children, ...(lineIds ? { lineIds } : {}) });
@@ -135,5 +138,67 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
     }
     // 카메라와 함께(카메라를 돌린 뒤 복사한 링크도 분해 방향은 담긴 각 그대로)
     expect(decodeViewLink('#view=cam:1,2,3,50,1,0.2,p;exp:70,step,sp,-0.5,0.25')).toMatchObject({ cam: { yaw: 1, pitch: 0.2 }, exp: { t: 0.7, mode: 'step', axis: 'sp', view: { yaw: -0.5, pitch: 0.25 } } });
+  });
+});
+
+describe('149차: 열린 문서에 받은 보기 링크의 격리(README 「보기 링크」 — 링크에 격리가 없으면 앞서 한 격리를 풉니다)', () => {
+  it('고른 것이 없거나 이 문서에서 자리 낱말이 풀리지 않는 링크도 격리가 없으면 앞서 한 이것만 보기·나머지 흐리게를 풀고, 고른 것이 풀린 링크는 그대로(고른 뒤 풀고 iso:1이면 다시 격리)', async () => {
+    // app.ts 원문 applyViewLink 몸통을 잘라 실제 링크 풀기·자리 낱말 풀기로 돌린다(앱 전체는 시험에서 띄우지 않는다 — 낱말 모듈 import()만 받은 모듈로 바꿈)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const body = /\n {2}async applyViewLink\(link: ViewLink\): Promise<void> \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
+    expect(body).toContain("(await import('./selink')).resolveTokens(d.products, link.sel)");
+    type Run = (this: object, link: ViewLink | null, selink: { resolveTokens: typeof resolveTokens }, screenAxis: () => boolean, reveal: typeof revealKey, label: typeof multiLabel) => Promise<void>;
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => Run;
+    const run = new AsyncFunction('link', 'selink', 'screenAxis', 'revealKey', 'multiLabel', body!.replace("import('./selink')", 'selink'));
+    const apply = async (hash: string, start: 'hide' | 'dim' | null): Promise<[string, string]> => {
+      const log: string[] = [];
+      const d = { products: tree, vis: { isolated: start === 'hide' ? new Set(['m0']) : null as Set<string> | null }, dim: start === 'dim' ? new Set(['m0']) : null as Set<string> | null, explode: 0, expanded: new Set<string>() };
+      const self = {
+        doc: d,
+        explodeOpen: false,
+        viewer: { setProjection: () => {}, setCamera: () => {}, getCamera: () => ({}), setSection: () => log.push('단면') },
+        toolbar: { refresh: () => {} },
+        panel: { onSelection: () => {} },
+        selectKey: (k: string) => log.push(`마디 ${k}`),
+        selectBody: (b: string) => log.push(`몸체 ${b}`),
+        selectItems: (ids: string[]) => log.push(`여러 개 ${ids.join(',')}`),
+        // 앱 unisolate처럼 격리가 없으면 아무것도 하지 않는다
+        unisolate: () => {
+          if (!d.vis.isolated && !d.dim) return;
+          d.vis.isolated = null;
+          d.dim = null;
+          log.push('격리 풀기');
+        },
+        isolateSelection: () => {
+          d.vis.isolated = new Set(['고른 것']);
+          log.push('격리');
+          return true;
+        },
+      };
+      await run.call(self, decodeViewLink(hash), { resolveTokens }, () => false, revealKey, multiLabel);
+      return [log.join(' · '), d.vis.isolated ? [...d.vis.isolated].join(',') : d.dim ? '흐리게' : '없음'];
+    };
+    const cam = 'cam:1,2,3,50,0.5,-0.25,p';
+    expect([
+      await apply(`#view=${cam}`, 'hide'),
+      await apply('#view=sec:0,0,1,5', 'hide'),
+      await apply(`#view=${cam}`, 'dim'),
+      // 이 문서에 없는 자리 낱말(다른 파일의 링크 등)
+      await apply('#view=sel:5', 'hide'),
+      // 격리를 담았지만 격리할 것이 풀리지 않으면 앞 격리 그대로(바꾸지 않음)
+      await apply('#view=sel:5;iso:1', 'hide'),
+      await apply('#view=sel:0/7', 'hide'),
+      await apply('#view=sel:0/6.2;iso:1', 'hide'),
+      await apply(`#view=${cam}`, null),
+    ]).toEqual([
+      ['격리 풀기', '없음'],
+      ['단면 · 격리 풀기', '없음'],
+      ['격리 풀기', '없음'],
+      ['격리 풀기', '없음'],
+      ['', 'm0'],
+      ['마디 0/7 · 격리 풀기', '없음'],
+      ['몸체 b2 · 격리 풀기 · 격리', '고른 것'],
+      ['', '없음'],
+    ]);
   });
 });
