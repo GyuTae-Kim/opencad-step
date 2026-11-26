@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { h, icon } from '../../src/app/dom';
 import { installKeyNav, moveIndex } from '../../src/app/keynav';
+import { controlOf, isTextTarget, routeKey } from '../../src/app/keys';
 import { closeMenu, openMenu, openMenuAt } from '../../src/app/menu';
 import { createDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
@@ -281,6 +282,53 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
     expect(body.hasAttribute('tabindex')).toBe(false);
     panel.setTab('info');
     expect(body.tabIndex).toBe(0);
+  });
+
+  it('153차: 속성·정보 탭 본문(Tab 멈춤 스크롤 영역)에 초점이 있으면 굴리는 키(Home·End·Page·↑↓)는 앱 창 글쇠(홈 뷰·뷰어)로 가지 않는다', () => {
+    const panel = new Panel(host());
+    document.body.append(panel.el);
+    panel.show(layeredDoc());
+    panel.setOpen(true);
+    dispose = installKeyNav(document.body);
+    // app.ts onKey와 같은 판정(창 bubble — 기본 동작을 막은 키는 건너뜀, 홈 뷰는 늘 기본 동작을 막음)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toMatch(/window\.addEventListener\('keydown', \(ev\) => this\.onKey\(ev\)\);/);
+    expect(app).toMatch(/if \(ev\.defaultPrevented\) return;\n\s*const action = routeKey\(\{ [^\n]*inText: isTextTarget\(ev\.target\), control: controlOf\(ev\.target\)/);
+    const routed: (string | null)[] = [];
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return;
+      const a = routeKey({ key: e.key, inText: isTextTarget(e.target), control: controlOf(e.target), hasDoc: true });
+      routed.push(a);
+      if (a === 'home') e.preventDefault();
+    };
+    addEventListener('keydown', onKey);
+    try {
+      const scroll = ['Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown'];
+      for (const tab of ['props', 'info'] as const) {
+        panel.setTab(tab);
+        const body = panel.el.querySelector<HTMLElement>('[role=tabpanel]')!;
+        body.focus();
+        expect(document.activeElement, tab).toBe(body);
+        routed.length = 0;
+        // 아무도 기본 동작(본문 굴리기)을 막지 않는다 — 전에는 Home이 3D 보기를 홈 뷰로 돌리고 본문은 맨 위로 가지 않았다
+        for (const k of scroll) expect(key(body, k).defaultPrevented, `${tab} ${k}`).toBe(false);
+        expect(routed, tab).toEqual(scroll.map(() => null));
+        // 본문이 쓰지 않는 키는 그대로 앱 것
+        routed.length = 0;
+        key(body, 'h');
+        key(body, 'Escape');
+        expect(routed, tab).toEqual(['hide', 'escape']);
+      }
+      // 탭 줄의 Home은 그대로 길잡이가 받는다(첫 탭 — 창 글쇠로 새지 않음, 53차 차례)
+      routed.length = 0;
+      const sel = panel.el.querySelector<HTMLElement>('[role=tab][aria-selected=true]')!;
+      sel.focus();
+      expect(key(sel, 'Home').defaultPrevented).toBe(true);
+      expect(routed).toEqual([]);
+      expect(document.activeElement?.id).toBe('tab-tree');
+    } finally {
+      removeEventListener('keydown', onKey);
+    }
   });
 
   it('레이어 보이기 상자를 바꿔 본문을 다시 그려도 같은 차례의 새 상자에 초점이 남는다', () => {
