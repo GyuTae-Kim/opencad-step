@@ -127,4 +127,39 @@ describe('간섭 검사: 겹친 부피', () => {
     expect(document.activeElement).toBe(tab);
     panel.el.remove();
   });
+
+  it('쌍이 200을 넘으면 목록은 200쌍까지, 머리 줄 「간섭」은 온 수, 목록 밑에 「그 밖 N쌍은 목록에 넣지 않았습니다.」(140차)', () => {
+    const d = doc();
+    const found = findInterference(d.scene.meshes);
+    const cubes = found.pairs.find((p) => !p.inside)!;
+    // 겹친 정육면체 쌍을 n개로 불린 결과(겹친 부피 없음 — 쌍마다 이름 줄 하나)
+    const many = (n: number) => ({ ...found, tested: n, pairs: Array.from({ length: n }, (_, i) => ({ ...cubes, count: i + 1 })) });
+    const panel = new Panel(host());
+    document.body.append(panel.el);
+    panel.show(d);
+    const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
+    // 200쌍: 모두 보이고 안내 없음
+    d.interference = { running: false, done: 0, total: 0, result: many(200) };
+    panel.onInterference();
+    expect(sec().querySelectorAll('.prop-row')).toHaveLength(200);
+    expect(hints(panel.el).some((t) => t?.startsWith('그 밖'))).toBe(false);
+    // 1,234쌍(겹친 부피 계산 중): 줄은 200, 머리 줄은 온 수, 200째 쌍 줄 바로 밑에 남은 수
+    d.interference = { running: true, done: 3, total: 1234, result: many(1234), phase: 'volume' };
+    panel.onInterference();
+    const rows = sec().querySelectorAll('.prop-row');
+    expect(rows).toHaveLength(200);
+    expect(sec().querySelector('.hint')!.textContent).toContain('간섭 1,234');
+    const note = rows[199]!.nextElementSibling!;
+    expect(note.classList.contains('hint')).toBe(true);
+    expect(note.textContent).toBe('그 밖 1,034쌍은 목록에 넣지 않았습니다.');
+    // 네 언어 사전(수 자리 그대로, 영어·독일어는 1쌍도 단수·복수 없는 꼴)
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate(note.textContent!, code))).toEqual([
+      'Pairs not listed: 1,034.',
+      'ほかの 1,034 組は一覧に追加していません。',
+      '其余 1,034 对未列入列表。',
+      'Nicht in die Liste aufgenommene Paare: 1,034.',
+    ]);
+    expect([translate('그 밖 1쌍은 목록에 넣지 않았습니다.', 'en'), translate('그 밖 1쌍은 목록에 넣지 않았습니다.', 'de')]).toEqual(['Pairs not listed: 1.', 'Nicht in die Liste aufgenommene Paare: 1.']);
+    panel.el.remove();
+  });
 });
