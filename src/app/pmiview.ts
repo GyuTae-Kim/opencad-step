@@ -26,6 +26,16 @@ export type PmiHost = Pick<PanelHost, 'setPmiVisible' | 'selectItems' | 'showPmi
 const section = (id: string, title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', { id }, title), ...children.filter((c): c is HTMLElement => !!c));
 
+/** 의미 PMI 이름 단추(면에 이어진 줄)의 누르기 풀이 — 말풍선과 손가락 기기 안내 줄이 같은 글(같은 사전 항목) */
+const SEM_TAP = '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다';
+
+/**
+ * 133차: 이름 단추의 누르기 풀이는 말풍선(title)뿐이라 손가락 기기(휴대폰·태블릿)에서는 볼 길이 없었다 — 표현 PMI는 이름을 눌러도 옆 상자(보이기)가 아니라
+ * 고르기·강조(다시 누르면 풀기, 두 번 누르면 맞춰 보기)이고, 의미 PMI는 누르면 카메라가 그 면으로 옮겨진다. 같은 글을 손가락 기기에서만 보이는 안내 줄
+ * (styles.css `.coarse-only` — 마우스 기기에서 감춤, NC 127차와 같은 꼴)로 표마다 한 줄 둔다. 표는 가상 목록이라 표 밑 안내는 끝까지 굴려야 보여 표 위에 둔다
+ */
+const tapHint = (text: string): HTMLElement => h('p', { class: 'hint coarse-only' }, text);
+
 /** 표 한 벌(머리 줄 + 가상 목록 줄): 줄 만들기와 만든 줄 표시 고치기 */
 function grid(labelledBy: string, heads: string[], count: number, scroller: HTMLElement, make: (i: number) => HTMLElement, mark: (row: HTMLElement, i: number) => void): { el: HTMLElement; list: VList; patch(): void } {
   const body = h('div', { role: 'rowgroup' });
@@ -97,7 +107,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
       all.checked = !v.pmiOff;
       g.patch();
     });
-    el.append(section('pmi-pres-title', `표현 PMI ${fmtCount(pres.length)}개`, h('label', { class: 'check all-check' }, all, h('span', {}, '표현 PMI 보이기')), g.el));
+    el.append(section('pmi-pres-title', `표현 PMI ${fmtCount(pres.length)}개`, h('label', { class: 'check all-check' }, all, h('span', {}, '표현 PMI 보이기')), tapHint('누르면 강조(두 번 누르면 맞춰 보기)'), g.el));
   }
 
   const sem = d.pmi.semantic;
@@ -114,7 +124,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         let nameCell: HTMLElement;
         // 면에 이어진 PMI는 이름을 누르면 그 면을 강조하고 맞춰 본다
         if (x.faces?.length) {
-          const b = h('button', { type: 'button', class: 'link-btn', title: '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 봅니다' }, fileSpan(x.name || '—'));
+          const b = h('button', { type: 'button', class: 'link-btn', title: SEM_TAP }, fileSpan(x.name || '—'));
           b.addEventListener('click', () => (d.items?.label === label ? host.selectItems(null, label) : host.showPmiFaces(x.faces!, label)));
           nameCell = h('span', { class: 'sem-name', role: 'cell' }, b, h('span', { class: 'chip dim-chip', title: '이어진 면 수' }, `${x.faces.length}`));
         } else (nameCell = fileSpan(x.name || '—', '', x.name || undefined)).setAttribute('role', 'cell');
@@ -134,6 +144,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
       section(
         'pmi-sem-title',
         `의미 PMI ${fmtCount(sem.length)}개`,
+        sem.some((x) => x.faces?.length) ? tapHint(SEM_TAP) : null,
         g.el,
         h('p', { class: 'hint' }, '치수(값·± 공차), 기하 공차(크기 | 데이텀), 데이텀을 STEP 의미 PMI에서 읽었습니다.'),
       ),
