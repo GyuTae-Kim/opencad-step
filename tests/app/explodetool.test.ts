@@ -854,4 +854,40 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     expect(label.hidden).toBe(false);
     expect(input.value).toBe(plainLength(Math.abs(moved(p0)[0]!), { factor: 1, decimals: 3 }));
   });
+
+  it('136차: 끌기 없이 연 빈 칸의 말풍선·못 읽음 알림은 그 칸이 받는 꼴 — 사방·화면 평면은 성분만(수 하나를 받는다고 하지 않음), 한 번 옮긴 뒤는 끌기 글 그대로', () => {
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      tool,
+    );
+    document.body.append(...c.els);
+    const input = c.els[3]!.querySelector<HTMLInputElement>('.explode-num')!;
+    doc.selKey = '0/1';
+    // 사방: 빈 칸은 세 수만 — 개수가 틀리면 세 수를 치라고, 수 하나는 방향이 없다고(45차 그대로)
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(input.title).toBe('옮길 거리 — ΔX; ΔY; ΔZ 세 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다');
+    expect(tool.typed('1; 2')).toBe(false);
+    expect(toasts.at(-1)).toEqual({ m: '거리를 읽지 못했습니다 — ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.', kind: 'warn' });
+    expect(tool.typed('5')).toBe(false);
+    expect(toasts.at(-1)!.m).toBe('아직 끈 방향이 없어 거리 하나로는 옮기지 못합니다 — 성분으로 쳐 넣으십시오.');
+    // 한 번 옮긴 뒤(같은 단계를 고침 — 수 하나도 그 방향으로)는 막 끈 끌기와 같은 말풍선·알림
+    expect(tool.typed('0; 0; 6')).toBe(true);
+    expect(input.title).toBe('옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(ΔX; ΔY; ΔZ 세 수도 됩니다)');
+    expect(tool.typed('1; 2')).toBe(false);
+    expect(toasts.at(-1)!.m).toBe('거리를 읽지 못했습니다 — 수 하나(끈 방향으로 옮길 거리)나 ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.');
+    expect(tool.undo()).toBe(true);
+    // 화면 평면: 빈 칸은 두 수만
+    axis = 'sp';
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(input.title).toBe('옮길 거리 — 가로; 세로 두 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다');
+    expect(tool.typed('1; 2; 3')).toBe(false);
+    expect(toasts.at(-1)!.m).toBe('거리를 읽지 못했습니다 — 가로; 세로 두 수를 쳐 넣으십시오.');
+    // 축 하나: 빈 칸은 수 하나(음수는 반대쪽) — 못 읽음 알림은 전과 같다
+    axis = 'x';
+    expect(tool.key('Enter', canvas)).toBe(true);
+    expect(input.title).toBe('옮길 거리 — 수를 쳐 넣고 Enter를 누르면 고른 것을 지금 분해 방향으로 그만큼 옮깁니다(음수는 반대쪽)');
+    expect(tool.typed('1; 2')).toBe(false);
+    expect(toasts.at(-1)!.m).toBe('거리를 읽지 못했습니다 — 수 하나를 쳐 넣으십시오(음수는 반대쪽, 25mm처럼 단위를 붙여도 됩니다).');
+  });
 });

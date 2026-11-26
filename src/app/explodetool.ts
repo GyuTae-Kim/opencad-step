@@ -151,6 +151,11 @@ const TYPED_HELP = {
   sp: '거리를 읽지 못했습니다 — 수 하나(끈 방향으로 옮길 거리)나 가로; 세로 두 수를 쳐 넣으십시오.',
   free: '거리를 읽지 못했습니다 — 수 하나(끈 방향으로 옮길 거리)나 ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.',
 } as const;
+/** 136차: 끌기 없이 연 빈 칸(고른 것 옮기기 — 45차)에서 읽지 못했을 때 — 화면 평면·사방은 끈 방향이 없어 성분만 받는다(축 하나는 위 line 그대로) */
+const FRESH_HELP = {
+  sp: '거리를 읽지 못했습니다 — 가로; 세로 두 수를 쳐 넣으십시오.',
+  free: '거리를 읽지 못했습니다 — ΔX; ΔY; ΔZ 세 수를 쳐 넣으십시오.',
+} as const;
 
 /**
  * 끄는 중·막 끈 끌기: 문서·방향·계획 카메라 각, 끄는 단위(낱말·진행·처음 성분), 끄는 길, 이동 한도, 누른 점이 옮긴 세계 이동, 밀대 자리·방식,
@@ -381,7 +386,9 @@ export class ExplodeTweakTool implements TweakHandlers {
             ? '아직 끈 방향이 없어 거리 하나로는 옮기지 못합니다 — 성분으로 쳐 넣으십시오.'
             : d === 'far'
               ? '너무 멀어 옮기지 않았습니다 — 조립 대각선의 20배까지 옮깁니다.'
-              : TYPED_HELP[r.axis === 'sp' || r.axis === 'free' ? r.axis : 'line'],
+              : r.axis === 'sp' || r.axis === 'free'
+                ? (r === n ? FRESH_HELP : TYPED_HELP)[r.axis]
+                : TYPED_HELP.line,
         'warn',
         5000,
       );
