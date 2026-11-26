@@ -4,7 +4,7 @@
  * 좁은 화면(760px 미만, 휴대폰)은 보기·측정 단추(전체 보기·표준 뷰·보기 설정·단면·고르기·측정·패널)만 한 줄에 두고,
  * 나머지(wide-only)는 "보기 설정" 메뉴(narrow-only)로 모은다.
  */
-import type { Projection, RenderMode, SectionAxis, ViewName } from 'opencad-viewer3d';
+import type { Projection, RenderMode, SectionAxis, ViewName, Viewer3d } from 'opencad-viewer3d';
 import { h, iconButton } from './dom';
 import type { PickUnit } from './doc';
 import type { IconName } from './icons';
@@ -48,6 +48,16 @@ export function isLineMode(m: RenderMode): boolean {
 /** 코어 setRenderOptions의 profiles: 선 모드는 1화소(모서리와 같은 굵기), 그 밖은 사용자의 "외곽선 강조"(기본 굵기) */
 export function profilesFor(m: RenderMode, user: boolean): boolean | { width: number } {
   return isLineMode(m) ? { width: 1 } : user;
+}
+
+/**
+ * 좌표축 버튼(141차 — 도구 막대 "좌표축"·보기 설정 → 좌표축, 말풍선 「좌표축 보이기」): 왼쪽 아래 좌표축 표시(코어 setAxesVisible)와 함께 격자의 장면 안
+ * X·Y축선(좌표축 글자와 같은 축 색)도 켜고 끈다 — 코어 0.113.0 setAxesStyle hidden(코어 앱 할 일 「좌표축 단추에서 둘을 함께 부른다」). 끄면 격자를 켠 채로도 축선 대신
+ * 그 자리 격자선이고, 켜면 모양 없음(처음 뷰어와 같은 그림 — 같은 값이면 코어가 아무것도 하지 않음). 격자 버튼·새 장면에도 남는다(왼쪽 아래 표시처럼 뷰어가 든다)
+ */
+export function showAxes(v: Pick<Viewer3d, 'setAxesVisible' | 'setAxesStyle'>, on: boolean): void {
+  v.setAxesVisible(on);
+  v.setAxesStyle({ hidden: !on });
 }
 
 export interface ToolbarHost {
