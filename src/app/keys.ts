@@ -36,11 +36,16 @@ export interface KeyInput {
   control?: Control | null;
   /** 열린 문서가 있는지 */
   hasDoc?: boolean;
+  /** 모달 대화 상자가 열려 있는지(154차 — dialog.ts dialogOpen) */
+  modal?: boolean;
 }
 
 /** 눌린 키 → 할 일(없으면 null) */
 export function routeKey(k: KeyInput): KeyAction | null {
   if (k.inText) return null;
+  // 154차: 모달 대화 상자가 열린 동안 나머지 문서는 쓸 수 없다(HTML 모달의 inert·WAI-ARIA APG Dialog) — 뒤의 3D 보기·문서를 바꾸는 앱 글쇠도 모두 받지 않고,
+  // Esc만 그대로(Esc 차례의 첫 칸이 대화 상자 닫기). 대화 상자 안 칸의 Tab·Enter·Space·화살표는 브라우저 기본 동작 그대로
+  if (k.modal && k.key !== 'Escape') return null;
   if ((k.control === 'range' || k.control === 'scroll') && RANGE_KEYS.has(k.key)) return null;
   if (k.control === 'radio' && ARROW_KEYS.has(k.key)) return null;
   const mod = !!(k.ctrl || k.meta);

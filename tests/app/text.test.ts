@@ -171,6 +171,26 @@ describe('키 규칙', () => {
     }
   });
 
+  it('154차 routeKey: 모달 대화 상자가 열린 동안(modal) 앱 글쇠는 모두 받지 않고 Esc만 대화 상자 닫기(Esc 차례의 첫 칸)로', () => {
+    // 뒤의 3D 보기·고르기·문서를 바꾸던 글쇠(H 숨기기·I 격리·Home 홈 뷰·F7 격자·F·1~7 표준 뷰·Shift 방향 잠금·화살표)와 대화 상자 칸이 쓰는 키(Enter·Tab·Space)
+    for (const key of ['h', 'I', 'Home', 'F7', 'f', '1', '7', 'Shift', 'ArrowLeft', 'ArrowDown', 'Enter', 'Tab', ' ', 'End']) expect(routeKey({ key, hasDoc: true, modal: true }), key).toBeNull();
+    // 파일 열기·분해 손질 되돌리기·다시 하기
+    expect(routeKey({ key: 'o', ctrl: true, modal: true })).toBeNull();
+    expect(routeKey({ key: 'O', meta: true, hasDoc: true, modal: true })).toBeNull();
+    expect(routeKey({ key: 'z', ctrl: true, hasDoc: true, modal: true })).toBeNull();
+    expect(routeKey({ key: 'Z', meta: true, shift: true, hasDoc: true, modal: true })).toBeNull();
+    expect(routeKey({ key: 'y', ctrl: true, hasDoc: true, modal: true })).toBeNull();
+    // Esc는 그대로 앱의 대화 상자 닫기(문서가 없어도) — 글 칸·수식 글쇠와 함께면 전처럼 받지 않는다
+    expect(routeKey({ key: 'Escape', hasDoc: true, modal: true })).toBe('escape');
+    expect(routeKey({ key: 'Escape', modal: true })).toBe('escape');
+    expect(routeKey({ key: 'Escape', hasDoc: true, modal: true, inText: true })).toBeNull();
+    expect(routeKey({ key: 'Escape', hasDoc: true, modal: true, ctrl: true })).toBeNull();
+    // 닫힌 뒤(modal 거짓)는 전과 같다
+    expect(routeKey({ key: 'h', hasDoc: true, modal: false })).toBe('hide');
+    expect(routeKey({ key: 'Home', hasDoc: true, modal: false })).toBe('home');
+    expect(routeKey({ key: 'o', ctrl: true, modal: false })).toBe('open');
+  });
+
   it('isTextTarget', () => {
     const el = (tagName: string, extra: Record<string, unknown> = {}) => ({ tagName, isContentEditable: false, ...extra }) as unknown as EventTarget;
     expect(isTextTarget(el('INPUT', { type: 'text' }))).toBe(true);

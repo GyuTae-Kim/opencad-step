@@ -28,7 +28,7 @@ import type { TouchAim } from './aim';
 import { h, icon, iconButton, nextFrame, pushToast } from './dom';
 import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
-import { closeDialog, openDialog, selectRow } from './dialog';
+import { closeDialog, dialogOpen, openDialog, selectRow } from './dialog';
 import { applyDocProps, bodyTitle, carryDocState, createDoc, docStatus, itemById, multiLabel, productAt, resetSelection, selectionItemIds, subtreeItemIds, toggledItems, translucentView, unitItemIds, type PickUnit, type StepDoc } from './doc';
 import { edgeAt, edgeDetails, snapOnEdge, type EdgePick } from './edges';
 import type { Picked } from './entpick';
@@ -2884,10 +2884,12 @@ export class StepApp {
     window.addEventListener('keydown', (ev) => this.onKey(ev));
     // 곡선 접선 잠금의 Shift는 캡처 단계에서(캔버스의 코어 키 듣기가 먼저 꺾은선 토막 방향으로 잠그기 전에) — 122차: 모든 키를 먼저 넘긴다
     // (그 누름 뒤 첫 Shift+Tab은 접선 잠금을 되돌려 코어 Tab 돌리기에 — 받았으면 아래 키를 보지 않음, 다른 키는 되돌리기를 버림).
-    // 분해 손질 거리(43차)도: 끄는 동안 숫자 글쇠는 막대의 거리 칸으로(코어의 1~7 표준 뷰 키보다 먼저), 막 끈 뒤 Enter는 그 칸으로
+    // 분해 손질 거리(43차)도: 끄는 동안 숫자 글쇠는 막대의 거리 칸으로(코어의 1~7 표준 뷰 키보다 먼저), 막 끈 뒤 Enter는 그 칸으로.
+    // 154차: 모달 대화 상자가 열린 동안은 아무것도 받지 않는다(대화 상자 안 Shift+Tab이 뒤 측정을 접선으로 잠그지 않게 — onKey와 같은 규칙)
     window.addEventListener(
       'keydown',
       (ev) => {
+        if (dialogOpen()) return;
         if (this.tangentShift(ev) || ev.ctrlKey || ev.metaKey || ev.altKey || ev.key === 'Shift') return;
         if (
           this.tweakTool?.key(ev.key, ev.target) ||
@@ -2960,7 +2962,7 @@ export class StepApp {
 
   private onKey(ev: KeyboardEvent): void {
     if (ev.defaultPrevented) return;
-    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, shift: ev.shiftKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc });
+    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, shift: ev.shiftKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc, modal: dialogOpen() });
     if (!action) return;
     const v = this.viewer;
     // 부품을 끄는 중 Esc는 그 끌기만 취소한다(앞 자리로)
