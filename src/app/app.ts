@@ -25,7 +25,7 @@ import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../a
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import type { TouchAim } from './aim';
-import { h, icon, iconButton, nextFrame } from './dom';
+import { h, icon, iconButton, nextFrame, pushToast } from './dom';
 import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, openDialog, selectRow } from './dialog';
@@ -1022,8 +1022,8 @@ export class StepApp {
     v.onSectionChange((st) => this.syncSection(st));
     // 카메라가 바뀌면 단면 손잡이 자리를 다시 잡는다
     v.onCameraChange(() => this.sectionBar.place());
-    // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고, 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
-    core.watchGraphicsContext(v, (msg, kind, ms) => this.toast(msg, kind, ms));
+    // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고(알림 칸 한도에 밀리지 않게 — 144차), 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
+    core.watchGraphicsContext(v, (msg, kind, ms, keep) => this.toast(msg, kind, ms, undefined, keep));
     // 키보드 길잡이(53차 — keynav.ts): 패널 탭·라디오 묶음·도구 막대 화살표, 띠·막대·패널을 닫을 때 초점 돌려주기
     core.installKeyNav(this.root);
     // 측정·면 고르기 중 길게 눌러 정밀 조준(떼면 코어가 십자선 자리를 누른 것으로 처리한다)
@@ -3051,20 +3051,19 @@ export class StepApp {
     this.updateAll();
   }
 
-  /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다) */
-  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }): () => void {
+  /** 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차) */
+  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }, keep = false): () => void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-keep': keep }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
     act?.addEventListener('click', () => {
       t.remove();
       action!.run();
     });
     const remove = () => t.remove();
     close.addEventListener('click', remove);
-    this.toasts.append(t);
-    while (this.toasts.children.length > 3) this.toasts.firstElementChild?.remove();
+    pushToast(this.toasts, t, 3);
     setTimeout(remove, ms);
     return remove;
   }

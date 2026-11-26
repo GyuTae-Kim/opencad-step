@@ -1,5 +1,5 @@
 /**
- * 작은 DOM 도우미: 요소 만들기(h)와 SVG 아이콘 넣기, 다음 프레임에 한 번 부르기(nextFrame).
+ * 작은 DOM 도우미: 요소 만들기(h)와 SVG 아이콘 넣기, 알림 칸 한도(pushToast), 다음 프레임에 한 번 부르기(nextFrame).
  */
 import { ICONS, type IconName } from './icons';
 
@@ -50,6 +50,15 @@ export function iconButton(name: IconName, label: string, opts: { title?: string
   b.append(span);
   if (opts.hideLabel) b.setAttribute('aria-label', label);
   return b;
+}
+
+/**
+ * 알림 칸에 알림 t를 넣고, max개를 넘으면 가장 오래된 알림부터 뺀다 — 닫을 때까지 남기는 안내(data-keep: 그래픽 문맥 잃음 — 되찾을 때까지)는
+ * 건너뛴다(144차 — 잃은 동안 저장 오류 알림이 쌓여 그 안내가 먼저 빠졌다). 모두 남길 것이면 맨 앞을 빼 한도는 늘 지킨다
+ */
+export function pushToast(box: Element, t: Element, max: number): void {
+  box.append(t);
+  while (box.children.length > max) ([...box.children].find((c) => !c.hasAttribute('data-keep')) ?? box.children[0]!).remove();
 }
 
 /**
