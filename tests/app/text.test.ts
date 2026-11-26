@@ -191,6 +191,28 @@ describe('키 규칙', () => {
     expect(routeKey({ key: 'o', ctrl: true, modal: false })).toBe('open');
   });
 
+  it('158차 routeKey·controlOf: 초점이 메뉴 항목(menuitem·menuitemradio·menuitemcheckbox)이면 Ctrl·⌘·Alt 없는 키는 메뉴 것 — 앱 글쇠(H·I·F·1~7·F7 등)로 보내지 않는다', () => {
+    const withRole = (role: string | null, tagName = 'BUTTON') => ({ tagName, getAttribute: (n: string) => (n === 'role' ? role : null) }) as unknown as EventTarget;
+    for (const role of ['menuitem', 'menuitemradio', 'menuitemcheckbox']) {
+      const t = withRole(role);
+      expect(controlOf(t), role).toBe('menu');
+      // 전에는 메뉴를 연 채 숨기기·격리·전체 보기·표준 뷰·격자·홈 뷰·코어 방향 잠금(Shift)으로 갔다
+      for (const key of ['h', 'H', 'i', 'I', 'f', 'F', '1', '7', 'F7', 'Home', 'End', 'ArrowLeft', 'Enter', ' ', 'Tab', 'Shift'])
+        expect(routeKey({ key, shift: key === 'H' || key === 'Shift', hasDoc: true, control: controlOf(t) }), `${role} ${key}`).toBeNull();
+      // Esc는 그대로 Esc 차례(메뉴가 문서 캡처에서 먼저 닫아 창 키에 오지 않음), 수식 글쇠 명령은 메뉴가 쓰지 않는 키라 그대로 앱 것
+      expect(routeKey({ key: 'Escape', hasDoc: true, control: controlOf(t) })).toBe('escape');
+      expect(routeKey({ key: 'o', ctrl: true, control: controlOf(t) })).toBe('open');
+      expect(routeKey({ key: 'z', meta: true, hasDoc: true, control: controlOf(t) })).toBe('undo');
+      expect(routeKey({ key: 'y', ctrl: true, hasDoc: true, control: controlOf(t) })).toBe('redo');
+    }
+    // 글자를 스스로 쓰지 않는 위젯(나무 줄 — 글자로 찾기 없음, 탭·라디오·도구 막대 버튼·그냥 버튼)은 그대로 앱 단축키
+    for (const t of [withRole('treeitem', 'DIV'), withRole('tab'), withRole('radio'), withRole(null)]) {
+      expect(controlOf(t)).toBeNull();
+      expect(routeKey({ key: 'h', hasDoc: true, control: controlOf(t) })).toBe('hide');
+      expect(routeKey({ key: '1', hasDoc: true, control: controlOf(t) })).toBe('viewer');
+    }
+  });
+
   it('isTextTarget', () => {
     const el = (tagName: string, extra: Record<string, unknown> = {}) => ({ tagName, isContentEditable: false, ...extra }) as unknown as EventTarget;
     expect(isTextTarget(el('INPUT', { type: 'text' }))).toBe(true);

@@ -32,7 +32,7 @@ export interface KeyInput {
   shift?: boolean;
   /** 글 입력 칸(input·textarea·select·contentEditable)에서 눌렀는지 */
   inText?: boolean;
-  /** 초점이 있는 조작 칸(controlOf): 밀대·탭 본문(153차)은 Home·End·Page·화살표, 라디오는 화살표를 스스로 쓴다 */
+  /** 초점이 있는 조작 칸(controlOf): 밀대·탭 본문(153차)은 Home·End·Page·화살표, 라디오는 화살표, 메뉴 항목(158차)은 Ctrl·⌘·Alt 없는 키 모두를 스스로 쓴다 */
   control?: Control | null;
   /** 열린 문서가 있는지 */
   hasDoc?: boolean;
@@ -54,6 +54,9 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.ctrl && !k.meta && !k.alt && !k.shift && k.hasDoc && (k.key === 'y' || k.key === 'Y')) return 'redo';
   if (mod || k.alt) return null;
   if (k.key === 'Escape') return 'escape';
+  // 158차: 초점이 열린 메뉴의 항목이면 나머지 키는 메뉴 것(WAI-ARIA APG Menu — 닫기 전까지 그 메뉴의 키, 글자는 그 메뉴 안 항목 찾기 몫).
+  // 전에는 메뉴를 연 채 H·I·F·1~7·F7이 뒤의 고르기·3D 보기·격자를 바꿔 메뉴의 항목 글·켜짐 표시가 어긋났다. 수식 글쇠 명령·Esc는 위 차례 그대로
+  if (k.control === 'menu') return null;
   if (!k.hasDoc) return null;
   if (k.key === 'F7') return 'grid';
   if (k.key === 'h' || k.key === 'H') return 'hide';
@@ -70,19 +73,22 @@ export function arrowOwner(cursorOn: boolean, pointerIn: boolean): 'core' | 'loc
   return !cursorOn && pointerIn ? 'lock' : 'core';
 }
 
-/** 키보드로 값을 바꾸는 조작 칸(scroll: 초점을 받은 탭 본문 — 굴리는 키를 스스로 쓴다, 153차) */
-export type Control = 'range' | 'radio' | 'scroll';
+/** 키보드로 값을 바꾸는 조작 칸(scroll: 초점을 받은 탭 본문 — 굴리는 키를 스스로 쓴다, 153차; menu: 열린 메뉴의 항목, 158차) */
+export type Control = 'range' | 'radio' | 'scroll' | 'menu';
 
 const ARROW_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
 const RANGE_KEYS = new Set([...ARROW_KEYS, 'Home', 'End', 'PageUp', 'PageDown']);
 
 /**
  * 이벤트 대상이 밀대(range)·라디오면 그 종류(그 칸이 쓰는 키는 뷰어·홈 뷰로 보내지 않는다).
- * 153차: 탭 본문(role=tabpanel — 속성·정보 탭은 본문 자체가 Tab 멈춤인 스크롤 영역) 자체면 'scroll' — Home만 홈 뷰로 가고 본문은 맨 위로 가지 않았다
+ * 153차: 탭 본문(role=tabpanel — 속성·정보 탭은 본문 자체가 Tab 멈춤인 스크롤 영역) 자체면 'scroll' — Home만 홈 뷰로 가고 본문은 맨 위로 가지 않았다.
+ * 158차: 메뉴 항목(role=menuitem·menuitemradio·menuitemcheckbox — menu.ts)이면 'menu'
  */
 export function controlOf(t: EventTarget | null): Control | null {
   if (!t) return null;
-  if ((t as HTMLElement).getAttribute?.('role') === 'tabpanel') return 'scroll';
+  const role = (t as HTMLElement).getAttribute?.('role');
+  if (role === 'tabpanel') return 'scroll';
+  if (role?.startsWith('menuitem')) return 'menu';
   if ((t as HTMLElement).tagName !== 'INPUT') return null;
   const type = ((t as HTMLInputElement).type || '').toLowerCase();
   return type === 'range' || type === 'radio' ? type : null;
