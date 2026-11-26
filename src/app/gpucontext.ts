@@ -8,8 +8,8 @@
  */
 import type { Viewer3d } from 'opencad-viewer3d';
 
-/** 알림을 띄우고 닫는 함수를 돌려주는 곳(앱의 toast) */
-export type ContextToast = (msg: string, kind: 'info' | 'warn', ms: number) => () => void;
+/** 알림을 띄우고 닫는 함수를 돌려주는 곳(앱의 toast — keep이면 알림 칸 한도에 밀리지 않음, 144차) */
+export type ContextToast = (msg: string, kind: 'info' | 'warn', ms: number, keep?: boolean) => () => void;
 
 /** 잃은 동안 남겨 두는 안내의 시간(ms) — 되찾으면 거둔다. setTimeout 한도(약 24.8일) 안 */
 const LOST_MS = 24 * 60 * 60 * 1000;
@@ -25,7 +25,8 @@ export function watchGraphicsContext(v: Pick<Viewer3d, 'onContextLost' | 'onCont
   let close: (() => void) | null = null;
   const offLost = v.onContextLost(() => {
     close?.();
-    close = toast(CONTEXT_LOST_MESSAGE, 'warn', LOST_MS);
+    // 되찾을 때까지 남기는 안내라 잃은 동안 다른 알림(저장 오류 등)이 쌓여도 한도로 빼지 않는다(144차)
+    close = toast(CONTEXT_LOST_MESSAGE, 'warn', LOST_MS, true);
   });
   const offRestore = v.onContextRestore(() => {
     const c = close;
