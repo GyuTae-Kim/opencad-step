@@ -482,12 +482,13 @@ export class StepApp {
     this.measureBar = h('div', { class: 'measure-bar', hidden: true }, this.measureKindSeg, this.measureText, this.measureHoverEl, h('div', { class: 'mb-acts' }, this.measureLock, this.measureClear, this.selFit, this.selProps, this.selMulti, this.selMore, this.faceLook, this.faceCut, this.measureClose));
     // 정밀 조준 십자선 층(캔버스 위, 누르기는 받지 않는다)
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
-    // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기
-    this.isoText = h('span', { class: 'iso-text' });
+    // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기.
+    // 알림은 바뀌는 글 칸(이름표·이름)만(145차 — 전에는 띠 전체가 status라 「격리 풀기」 버튼 이름까지 읽혔다, 53차 측정 띠와 같은 꼴)
+    this.isoText = h('span', { class: 'iso-text', role: 'status' });
     const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
     isoOff.addEventListener('click', () => this.unisolate());
-    this.isoLabel = h('span', { class: 'iso-label' }, '이것만 보기');
-    this.isoBar = h('div', { class: 'iso-bar', role: 'status', hidden: true }, this.isoLabel, this.isoText, isoOff);
+    this.isoLabel = h('span', { class: 'iso-label', role: 'status' }, '이것만 보기');
+    this.isoBar = h('div', { class: 'iso-bar', hidden: true }, this.isoLabel, this.isoText, isoOff);
     // 분해 막대(3D 보기 위 가운데): 분해 정도 0~100%와 닫기(제자리로)
     this.explodeSlider = h('input', { type: 'range', class: 'explode-slider', min: '0', max: '100', step: '1', value: '0', 'aria-label': '분해 정도' });
     this.explodeSlider.addEventListener('input', () => this.setExplode(Number(this.explodeSlider.value) / 100));

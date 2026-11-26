@@ -5,8 +5,12 @@
  * - panel.ts: 탭을 고르면 다시 만든 고른 탭으로 초점, 탭 본문 aria-controls·Tab 멈춤, 보이기 상자를 바꿔 다시 그려도 초점 그대로, 아래 띠 알림 끄고 켜기
  * - menu.ts: Home·End(창 글쇠로 새지 않게), 화면 점 메뉴를 닫으면 연 때 초점이 있던 곳으로
  * 헤드리스 Chrome 점검(.runtime/r53 kbd53)에서 찾은 것을 jsdom으로 다시 본다(jsdom은 숨긴 칸의 초점을 스스로 떼지 않아, 숨기는 명령이 브라우저처럼 blur한다).
+ * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴)
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { h, icon } from '../../src/app/dom';
 import { installKeyNav, moveIndex } from '../../src/app/keynav';
 import { closeMenu, openMenu, openMenuAt } from '../../src/app/menu';
 import { createDoc } from '../../src/app/doc';
@@ -299,6 +303,31 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
     expect(foot.getAttribute('aria-live')).toBe('off');
     panel.footLive(true);
     expect(foot.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('145차: 격리 띠는 알림 영역이 아니고 이름표·이름 칸만 알리며, 「격리 풀기」 버튼은 어느 알림 영역에도 들지 않는다(53차 측정 띠 꼴)', () => {
+    // app.ts 원문에서 격리 띠를 만드는 줄을 잘라 실제 h·icon으로 돌린다(앱 전체는 시험에서 띄우지 않는다)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const code = /this\.isoText = h\([\s\S]*?this\.isoBar = h\([^\n]*\n/.exec(app)?.[0];
+    expect(code).toBeTruthy();
+    const self: Record<string, unknown> = { unisolate: () => {} };
+    new Function('h', 'icon', code!).call(self, h, icon);
+    const bar = self.isoBar as HTMLElement;
+    const label = self.isoLabel as HTMLElement;
+    const name = self.isoText as HTMLElement;
+    const LIVE = '[role=status], [role=alert], [role=log], [aria-live]:not([aria-live=off])';
+    expect(bar.matches(LIVE)).toBe(false);
+    expect(label.getAttribute('role')).toBe('status');
+    expect(name.getAttribute('role')).toBe('status');
+    const regions = [...bar.querySelectorAll<HTMLElement>(LIVE)];
+    expect(regions).toEqual([label, name]);
+    for (const r of regions) {
+      expect(r.querySelector('button')).toBeNull();
+      expect(r.parentElement!.closest(LIVE)).toBeNull();
+    }
+    const off = bar.querySelector('button')!;
+    expect(off.textContent).toContain('격리 풀기');
+    expect(off.closest(LIVE)).toBeNull();
   });
 });
 
