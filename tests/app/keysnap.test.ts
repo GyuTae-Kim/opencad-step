@@ -9,6 +9,8 @@
 //   상태 막대와 같은 「모서리에 수직」으로(화면 언어 틀, 코어 candidateText로 만든 글). 수직 발·잠근 값·끌어온 점 선·찍기·고르기 알림은 그대로
 // - 118차: 마우스 Tab 돌리기 차례·수(hoverCycleLabel — 코어 0.118.0 cycle): 가상 커서 알림과 같은 틀 'order'로 「끝점 2/4」, 이름 마디는 한국어 그대로
 //   (번역층이 마디마다 옮긴다)·알림 글은 화면 언어, 네 언어
+// - 124차: 잠그지 않은 나란함·수직 후보의 알림 이름도 상태 막대 이름(guideSnapLabel ?? hoverSnapLabel)으로 — 첫 점 나란함 「모서리와 나란히」·끌어온 점 나란한·수직인 선
+//   「끌어온 점에서 모서리와 나란히·수직」·만나는 점 「… · X축 위」(코어 틀 「나란한 선」·「수직점」). 잠금·수직 발·축·찍기·끄기·고르기는 그대로
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   candidateText,
@@ -35,6 +37,8 @@ import {
   keySnapCatalogKey,
   keySnapMessagesFor,
 } from '../../src/app/keysnap';
+import { hoverSnapLabel } from '../../src/app/snap';
+import { guideSnapLabel } from '../../src/app/trackdir';
 import { cube, StepText } from '../stepText';
 import { jsdomViewer, VIEW_H, VIEW_W } from './jsdomview';
 
@@ -257,18 +261,92 @@ describe('알림 글의 스냅 이름(117차 — 코어 0.117.0 앱이 할 일·
     );
   });
 
-  it('첫 점에서 내린 수직 발·잠근 값·끌어온 점 수직 선·찍기·고르기 알림은 코어 글 그대로', () => {
+  it('첫 점에서 내린 수직 발·잠근 값·찍기·고르기 알림은 코어 글 그대로(끌어온 점 수직 선은 124차부터 상태 막대 이름 — 아래 124차 시험)', () => {
     const m = keySnapMessagesFor(ko);
     const same = (a: KeyboardSnapAnnouncement): void => expect(keySnapAnnounceText(a, m, ko)).toBe(a.text);
     same(ann({}, ko));
     expect(ann({}, ko).text).toBe('수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
     same(ann({ ...dir, locked: true }, ko));
     expect(ann({ ...dir, locked: true }, ko).text).toBe('잠근 선 위 수직점 1/2: X 1, Y 2, Z 3, 거리 5 mm');
-    same(ann({ ...dir, trackFrom: [0, 0, 0] }, ko));
     same(ann(dir, ko, { reason: 'commit' }));
     same(ann(dir, ko, { reason: 'end' }));
     same(ann(dir, ko, { mode: 'pick' }));
     same(ann({ ...dir, snap: 'axis', axis: 'x' }, ko));
+  });
+});
+
+describe('알림 글의 나란함·끌어온 점 선 이름(124차 — 117차 남은 한계: 상태 막대와 같은 이름)', () => {
+  const ko = (s: string): string => s;
+  /** 117차 시험과 같은 측정 후보 알림(화면 언어 틀로 코어 candidateText — 첫 차례·후보 둘(o.count)·첫 점에서 거리 5 mm), 종류는 주는 값 그대로 */
+  const ann = (snap: Partial<MeasureHoverSnap>, tr: (s: string) => string, o: Partial<KeyboardSnapAnnouncement> = {}): KeyboardSnapAnnouncement => {
+    const s = { point: [1, 2, 3], ...snap } as MeasureHoverSnap;
+    const count = o.count ?? 2;
+    const text = candidateText({ kind: s.snap, axis: s.axis, locked: s.locked, point: s.point }, 0, count, (v) => String(v), 5, 'mm', keySnapMessages(keySnapMessagesFor(tr)));
+    return { reason: 'move', mode: 'measure', x: 0, y: 0, snap: s, index: 0, count, pick: null, text, ...o };
+  };
+  /** 상태 막대·측정 띠 이름(app.ts showHoverSnap — 뷰어 조각 이름 ?? 첫 화면 이름) */
+  const barName = (s: MeasureHoverSnap | null): string | null => guideSnapLabel(s) ?? hoverSnapLabel(s);
+  const T0: [number, number, number] = [0, 0, 0];
+  /** 첫 점 나란한 선 · 끌어온 점 나란한 선 · 끌어온 점 수직인 선 · 끌어온 점 나란한 선이 첫 점 X축과 · 끌어온 점 수직인 선이 첫 점 나란한 선과 만나는 점 */
+  const cases: [Partial<MeasureHoverSnap>, string, string][] = [
+    [{ snap: 'parallel', direction: [1, 0, 0] }, '나란한 선', '모서리와 나란히'],
+    [{ snap: 'parallel', trackFrom: T0 }, '나란한 선', '끌어온 점에서 모서리와 나란히'],
+    [{ snap: 'perpendicular', trackFrom: T0 }, '수직점', '끌어온 점에서 모서리에 수직'],
+    [{ snap: 'parallel', trackFrom: T0, axis: 'x' }, '나란한 선', '끌어온 점에서 모서리와 나란히 · X축 위'],
+    [{ snap: 'perpendicular', perpendicularDir: true, direction: [0, 1, 0], trackFrom: T0 }, '수직점', '끌어온 점에서 모서리에 수직 · 시작점에서 나란한 선 위'],
+  ];
+
+  it('잠그지 않은 나란함·끌어온 점 선 후보는 코어 틀 이름(「나란한 선」·「수직점」)을 상태 막대 이름으로 — 켤 때 글·후보 하나 글·다시 구함도', () => {
+    const m = keySnapMessagesFor(ko);
+    const M = keySnapMessages(m);
+    for (const [snap, core, name] of cases) {
+      const a = ann(snap, ko);
+      expect(barName(a.snap), name).toBe(name);
+      expect(a.text, name).toBe(`${core} 1/2: X 1, Y 2, Z 3, 거리 5 mm`);
+      expect(keySnapAnnounceText(a, m, ko), name).toBe(`${name} 1/2: X 1, Y 2, Z 3, 거리 5 mm`);
+      expect(keySnapAnnounceText({ ...a, reason: 'refresh' }, m, ko), name).toBe(`${name} 1/2: X 1, Y 2, Z 3, 거리 5 mm`);
+      expect(keySnapAnnounceText({ ...a, reason: 'cycle' }, m, ko), name).toBe(`${name} 1/2: X 1, Y 2, Z 3, 거리 5 mm`);
+    }
+    const a = ann(cases[1]![0], ko);
+    expect(keySnapAnnounceText({ ...a, reason: 'start', text: keySnapText(M, 'start', [a.text, '옮기기 ←→↑↓']) }, m, ko)).toBe(
+      '가상 커서를 켰습니다. 끌어온 점에서 모서리와 나란히 1/2: X 1, Y 2, Z 3, 거리 5 mm. 옮기기 ←→↑↓',
+    );
+    const one = ann(cases[0]![0], ko, { reason: 'cycle', count: 1 });
+    expect(keySnapAnnounceText({ ...one, text: keySnapText(M, 'only', [one.text]) }, m, ko)).toBe('모서리와 나란히: X 1, Y 2, Z 3, 거리 5 mm (후보 하나)');
+  });
+
+  it('네 언어 화면 틀: 글이 상태 막대 이름(화면 언어)으로 시작하고 한글이 없다 — 영어는 「Parallel to edge …」', () => {
+    for (const code of CODES) {
+      const tr = (s: string): string => translate(s, code);
+      for (const [snap, core, name] of cases) {
+        const a = ann(snap, tr);
+        expect(a.text.startsWith(tr(core)), `${code} ${name}`).toBe(true);
+        const t = keySnapAnnounceText(a, keySnapMessagesFor(tr), tr);
+        expect(t.startsWith(tr(name)), `${code} ${name}: ${t}`).toBe(true);
+        expect(t, `${code} ${name}`).not.toMatch(hangul);
+      }
+    }
+    const en = (s: string): string => translate(s, 'en');
+    expect(keySnapAnnounceText(ann(cases[0]![0], en), keySnapMessagesFor(en), en)).toBe('Parallel to edge 1/2: X 1, Y 2, Z 3, distance 5 mm');
+  });
+
+  it('잠근 나란함·끌어온 점 선(접선 잠금일 수 있어 코어 「잠근 선 위 …」)·첫 점 수직 발·축·끝점·찍기·끄기·고르기 알림은 코어 글 그대로', () => {
+    const m = keySnapMessagesFor(ko);
+    const same = (a: KeyboardSnapAnnouncement): void => expect(keySnapAnnounceText(a, m, ko)).toBe(a.text);
+    const locked = ann({ ...cases[0]![0], locked: true }, ko);
+    expect(locked.text).toBe('잠근 선 위 나란한 선 1/2: X 1, Y 2, Z 3, 거리 5 mm');
+    same(locked);
+    same(ann({ ...cases[1]![0], locked: true }, ko));
+    same(ann({ ...cases[2]![0], locked: true }, ko));
+    same(ann({ snap: 'perpendicular' }, ko));
+    same(ann({ snap: 'axis', axis: 'x' }, ko));
+    same(ann({ snap: 'axis', axis: 'x', trackFrom: T0 }, ko));
+    same(ann({ snap: 'endpoint' }, ko));
+    for (const [snap] of cases) {
+      same(ann(snap, ko, { reason: 'commit' }));
+      same(ann(snap, ko, { reason: 'end' }));
+      same(ann(snap, ko, { mode: 'pick' }));
+    }
   });
 });
 
