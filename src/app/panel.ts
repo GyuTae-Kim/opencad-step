@@ -246,7 +246,7 @@ export class Panel {
     if (!d || d.panelTab !== 'tree') return;
     if (this.interferenceEl && d.interference) {
       const el = this.interferenceSection(d);
-      this.interferenceEl.replaceWith(el);
+      this.swap(this.interferenceEl, el);
       this.interferenceEl = el;
       // 아래 부품별 보이기 표의 자리가 바뀌었다 — 보이는 줄을 다시 센다
       this.groupList?.update();
@@ -662,8 +662,20 @@ export class Panel {
       return;
     }
     if (!still && !this.physWaiting) return;
-    const next = this.physRebuild();
-    el.replaceWith(next);
+    this.swap(el, this.physRebuild());
+  }
+
+  /**
+   * 묶음을 제자리에서 갈아 끼운다(간섭 검사 진행·질량 적분 끝 — 워커 알림이라 keynav.ts rescue가 받지 않는다). 그 안 칸에 초점이 있었으면 새 묶음의 같은 칸으로 돌려준다
+   * (139차 — 전에는 문서로 빠져 검사 중 100 ms마다 오는 진행이 Tab으로 간 「멈추기」 초점을 떼었다). 같은 칸은 뒤에서 센 차례(쌍이 오면 「멈추기」 앞에 쌍 단추가 붙는다)
+   */
+  private swap(old: HTMLElement, next: HTMLElement): void {
+    const all = [...old.querySelectorAll<HTMLElement>(FOCUSABLE)];
+    const k = all.length - all.indexOf(document.activeElement as HTMLElement);
+    old.replaceWith(next);
+    if (k > all.length) return;
+    const now = next.querySelectorAll<HTMLElement>(FOCUSABLE);
+    now[now.length - k]?.focus({ preventScroll: true });
   }
 
   // ───────────────────────── 레이어 탭 ─────────────────────────
