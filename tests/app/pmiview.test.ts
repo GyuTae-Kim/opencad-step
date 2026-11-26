@@ -185,6 +185,34 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(rows[0]!.classList.contains('sel')).toBe(false);
   });
 
+  it('137차: 의미 PMI 이름 두 번 누르기는 강조하고 맞춘 채(둘째 누름이 풀지 않음 — 표현 PMI 줄처럼), 강조된 이름을 두 번 누르면 다시 강조, 한 번씩 누르면 지금처럼 풀기', () => {
+    const { panel, calls } = setup();
+    const grid = panel.el.querySelectorAll('.pmi-grid')[1]!;
+    const row = grid.querySelector<HTMLElement>('[role=rowgroup] > [role=row]')!;
+    const b = row.querySelector<HTMLButtonElement>('.link-btn')!;
+    const press = (detail: number) => b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+    const label = 'PMI \u{2068}형체 1\u{2069}';
+    const n0 = calls.length;
+    const since = () => calls.slice(n0);
+    // 두 번 누르기(첫 누름 detail 1 → 둘째 detail 2): 강조·맞춤 한 번, 둘째는 아무것도 하지 않는다
+    press(1);
+    press(2);
+    expect(since()).toEqual([`faces 7 ${label}`]);
+    expect([row.classList.contains('sel'), b.classList.contains('sel')]).toEqual([true, true]);
+    // 강조된 이름을 두 번 누르면 첫 누름이 풀고 둘째가 다시 강조·맞춤 — 두 번 누르기는 늘 강조된 채 끝난다
+    press(1);
+    press(2);
+    expect(since().slice(1)).toEqual([`select null ${label}`, `faces 7 ${label}`]);
+    expect(row.classList.contains('sel')).toBe(true);
+    // 셋째 누름(detail 3)은 받지 않는다(표현 PMI 줄과 같음)
+    press(3);
+    expect(since().length).toBe(3);
+    // 한 번 누르기(Enter·Space는 detail 0)는 지금처럼 다시 누르면 푼다
+    press(0);
+    expect(calls.at(-1)).toBe(`select null ${label}`);
+    expect(row.classList.contains('sel')).toBe(false);
+  });
+
   it('133차: 이름 단추의 누르기 풀이(말풍선)를 손가락 기기 안내 줄(coarse-only — 같은 글)로 표마다 한 줄 표 위에, 이름 단추가 없는 의미 표에는 없다', () => {
     const { panel } = setup();
     const [pres, sem] = [...panel.el.querySelectorAll<HTMLElement>('.pmi-grid')].map((g) => g.closest('section')!);
