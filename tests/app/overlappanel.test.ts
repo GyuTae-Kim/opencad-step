@@ -172,6 +172,35 @@ describe('간섭 검사: 겹친 부피', () => {
     panel.el.remove();
   });
 
+  it('검사하지 못한 오류 줄은 워커 알림으로 묶음을 갈아 끼울 때만 role=alert(화면 읽기 프로그램이 읽음), 탭을 다시 그리면 같은 오류를 다시 읽히지 않음(143차)', () => {
+    const d = doc();
+    const panel = new Panel(host());
+    document.body.append(panel.el);
+    panel.show(d);
+    const err = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group .hint')].find((p) => p.textContent?.startsWith('검사하지 못했습니다'));
+    const alerts = () => panel.el.querySelectorAll('.prop-group [role=alert]').length;
+    // 앱 runInterference 꼴: 검사 중(처음은 탭째 그림) → 워커 오류(갈아 끼움 — 전에는 role·aria-live 없는 새 줄이라 읽히지 않았다)
+    d.interference = { running: true, done: 0, total: 0 };
+    panel.onInterference();
+    expect(err()).toBeUndefined();
+    expect(alerts()).toBe(0);
+    d.interference = { running: false, done: 0, total: 0, error: '검사 워커가 멈췄습니다' };
+    panel.onInterference();
+    expect(err()!.textContent).toBe('검사하지 못했습니다: 검사 워커가 멈췄습니다');
+    expect(err()!.getAttribute('role')).toBe('alert');
+    expect(alerts()).toBe(1);
+    // 탭을 다시 그리면(표시 단위·나무 펼치기·보이기 등) 같은 글, 다시 읽히지 않게 role 없음
+    panel.redraw();
+    expect(err()!.textContent).toBe('검사하지 못했습니다: 검사 워커가 멈췄습니다');
+    expect(err()!.getAttribute('role')).toBeNull();
+    // 다시 검사: 진행 줄은 알림이 아님(쌍 수는 앱 알림 상자가 알림)
+    d.interference = { running: true, done: 3, total: 10 };
+    panel.onInterference();
+    expect(err()).toBeUndefined();
+    expect(alerts()).toBe(0);
+    panel.el.remove();
+  });
+
   it('쌍이 200을 넘으면 목록은 200쌍까지, 머리 줄 「간섭」은 온 수, 목록 밑에 「그 밖 N쌍은 목록에 넣지 않았습니다.」(140차)', () => {
     const d = doc();
     const found = findInterference(d.scene.meshes);
