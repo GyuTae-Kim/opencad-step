@@ -32,7 +32,8 @@ STEP(ISO 10303-21, AP203·AP214·AP242) 파일을 브라우저 안에서 읽고 
 - 표현 PMI(ANNOTATION_CURVE_OCCURRENCE·TESSELLATED_ANNOTATION_OCCURRENCE 등, ANNOTATION_PLANE·DRAUGHTING_CALLOUT 안까지)를
   그 부품 자리에 선으로, 의미 PMI(치수 값·± 공차, 기하 공차 크기·데이텀, 데이텀) 목록 → `meta.pmi`
 - PMI 글자(TEXT_LITERAL과 아형, COMPOSITE_TEXT 안까지)를 내장 한 획 글꼴(`src/strokefont.ts` — 숫자·영문·기호 ± ° Ø ×·GD&T 기호)로 선분으로 그립니다.
-  글자 높이는 TEXT_LITERAL_WITH_EXTENT 크기, 주석 양식의 BOX_HEIGHT, 없으면 2.5. 맞춤(centre·right·top)을 따릅니다(`src/pmitext.ts`)
+  글자 높이는 TEXT_LITERAL_WITH_EXTENT 크기, 주석 양식의 BOX_HEIGHT, 없으면 2.5. 맞춤은 세로(top·centre)와 가로(centre·right) 두 낱말을 따릅니다
+  (`'centre left'`·`'top right'` 꼴, 기본 `'baseline left'` — `src/pmitext.ts`. 135차 — 134차까지는 `'centre left'`·`'centre right'`를 가로 가운데·기준선에 놓았습니다)
 - 내장 글꼴에 없는 PMI 글자(한글·일본어·중국어·그 밖의 기호)는 앱의 해석 워커가 기기 글꼴로 화면 밖 캔버스에 그려 윤곽선을 따라간 선분으로 그립니다
   (`src/app/glyphs.ts`·`src/glyphtrace.ts` — 글꼴 파일을 내려받지 않고, 글자마다 한 번만 그립니다). 다른 PMI 선과 같은 선 묶음이라 확대·단면·숨김·강조·그림 저장을
   그대로 따릅니다. 해석기만 쓸 때는 `glyphs` 선택으로 글자 모양을 주고, 주지 않거나 기기에 그 글자 글꼴이 없으면 빈 상자로 그립니다
@@ -2929,6 +2930,28 @@ SwiftShader 헤드리스(렌더러 이름 확인)로 main(0.67.0) 빌드와 올�
   - 크기(수정일 빌드의 vite 출력): 코어를 묶은 뷰어 조각 534,308 → 534,429 B(+121 B — 133차 값과 견줌, 이번 `gzip -9` 183,983 B·vite gzip 184.66 kB), 첫 화면 조각 209,068 B
     (vite gzip 74.05 kB)·스타일시트 37,353 B·측정 접선 조각 85,347 B·분해 조각 50,342 B·영어 사전 조각 81,023 B 그대로.
   - 남은 일: 위에서 넘긴 보기 링크의 격리(고른 것이 없는 링크가 앞서 한 격리를 풀지 않음 — 첫 화면 조각 `applyViewLink`)는 남은 일 「고르기」에 적었습니다.
+- 135차(코어 0.121.0 그대로 — PMI 글자 맞춤 `'centre left'`·`'centre right'`를 세로 가운데에 왼쪽·오른쪽으로 놓기): 해석기 코드를 고쳤습니다(앱·판·사전은 그대로).
+  - 고른 까닭: 이 README 「할 수 있는 것」·「해석기 쓰는 법」의 해석기 약속을 해석기 코드(`src/*.ts`, 앱 밖)와 대조했습니다. 압축 STEP(gzip 머리 바이트, ZIP 안 .stp·.step·.p21과 그 gzip,
+    저장·deflate, ZIP64, 2 GiB, 앞 64 KiB 판정, STEP-XML 거절), 질량 속성 칸 15개와 `run(ms)`·`take()` 예제, 레이어·INVISIBILITY, 저장된 보기(카메라 세 종류·보기 창·그 제도 모형의 표현 PMI),
+    밀도 단위와 짐작, 획 글꼴 칸(대문자 높이 6·기준선 0), B-스플라인 기록 512개, 큰 좌표 묶음 원점(1e4·2000배), 퍼징 한도(1e30·차수 64·자리 25만), 글자 높이 차례, 선 묶음 `group`,
+    끊긴 파일 경고, Part 21 문자열 부호는 맞았습니다. 어긋난 것은 PMI 글자 맞춤이었습니다 — ISO 10303-46의 맞춤 글은 세로·가로 두 낱말(`'centre left'`·`'top right'` 등 — STEP 응용 모듈
+    「Text appearance」의 사상 표)인데, 해석기는 #13부터 `cent`가 들면 늘 가로 가운데로 읽고 세로 가운데는 `'centre centre'`·`'middle'`만 보아 `'centre left'`·`'centre right'` 글을
+    가로 가운데·기준선에 놓았습니다(글줄 너비 반·글자 높이 반만큼 비낌).
+    함께 본 후보 — `pmi: false`가 저장된 보기(`meta.pmi.views`)도 끄는 것과 `faceTable: false`·`edges: false`(위 선택 목록에 없음)가 모서리 표도 끄는 것(「해석기 쓰는 법」이 빠뜨림 —
+    코드가 틀리지 않음), 의미 PMI 이름을 다시 누르면 풀기가 「앱 쓰는 법」에 없는 것(134차에 본 빠뜨림), 피트 단위 파일의 장면 단위가 m인 것(좌표는 배율로 맞고 `sceneUnitOf`의 피트 → inch
+    가지는 닿지 않음 — 약속과 어긋남이 아님), 여러 줄 PMI 글의 아래·가운데 맞춤이 첫 줄 기준인 것(약속 밖·표본 없음 — 남은 일) — 은 넘겼습니다. 어느 쪽이 맞는지는 이 README와 해석기 주석이
+    맞춤을 따른다고 약속하고 표준 맞춤 글이 두 낱말이라 코드로 정했습니다(시험은 `'baseline centre'`만 보았음).
+  - 고친 길: `src/pmitext.ts`(해석 워커 조각)가 맞춤 글을 `alignShift`로 [가로 배, 세로 배]로 바꿉니다. left·right·top·bottom·baseline·middle은 전처럼 들어 있는지로 보고, centre는 다른
+    낱말로 어느 쪽인지 정합니다(left·right와 함께면 세로 가운데, 세로 낱말과 함께면 가로 가운데, 둘 다 centre면 둘 다, 혼자면 가로 가운데 — 전과 같음). 앱 `src/app`·사전·스타일시트는 고치지 않았습니다.
+  - 바뀐 기본 동작: `cent`와 left·right가 함께 든 맞춤(`'centre left'`·`'centre right'` 등)의 PMI 글자만 가로가 왼쪽·오른쪽, 세로가 가운데가 됩니다(앱 화면·그림 저장·해석기 결과 모두).
+    `'baseline …'`·`'top …'`·`'bottom …'`·`'centre centre'`·`'middle'`·`'centre'` 혼자는 옮김이 같고 예제 모형(`'baseline left'`)도 그대로입니다. 로컬 STEP 표본에는 표현 PMI가 든 파일이 없어
+    실제 파일 결과 차이는 재지 않았습니다.
+  - 시험: `tests/pmi-text.test.ts`에 하나를 더했습니다(손으로 만든 STEP 글 — `'HI'` 글 여섯을 맞춤만 달리해 `'baseline left'`와 견준 옮김이 모든 점에서 같은지: centre left (0, −1.25)·
+    centre right (−3.75, −1.25)·centre centre (−1.875, −1.25)·top right (−3.75, −2.5)·bottom centre (−1.875, 0), 글줄 너비 1.5 × 기본 높이 2.5). 고치기 전 2파일(`pmi-text`·`pmi-glyphs`)
+    12개 중 그 하나만 실패(centre left가 (−1.875, 0))·11개 통과, 고친 뒤 12개 통과, tsc 통과(사전 그대로라 `check:i18n`은 돌리지 않음). `tools/`·`tests/`·`scripts/`에서 `textSegments`·
+    `layoutText`·`pmitext`·`TEXT_LITERAL`·맞춤 글을 찾아 닿는 기대가 `pmi-text`(`'baseline centre'`)·`pmi-glyphs`(`'baseline left'`)뿐임을 보았습니다. 전체 시험·빌드 검사·휴대폰 검사는 PR CI가 합니다.
+  - 크기(수정일 빌드의 vite 출력): 해석 워커 조각 231,613 → 231,699 B(+86 B — 134차 빌드와 견줌, 이번 `gzip -9` 87,660 B), 첫 화면 조각 209,068 B(이름의 해시만 바뀜 — 워커 파일 이름,
+    vite gzip 74.04 kB)·코어를 묶은 뷰어 조각 534,429 B·스타일시트 37,353 B·측정 접선 조각 85,347 B·분해 조각 50,342 B·영어 사전 조각 81,023 B 그대로.
 
 **법선 놓기를 재 본 것(코어 0.25.0 `release: { normals: true }`)**: 로컬 표본에서 가장 큰 조립 다섯 개(그물 94~161개, 그리는 삼각형 12만~61만 개 —
 같은 부품의 자리는 배열을 함께 씀)를 헤드리스 Chrome에서 열고 GPU 올리기·질량 속성이 끝난 뒤 GC를 두 번 하고 `Runtime.getHeapUsage`로 쟀습니다(두 번씩 번갈아, load average 16~22).
@@ -3342,6 +3365,7 @@ FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 �
 - STEP-XML(.stpx, ISO 10303-28) 읽기
 - PMI: 정의된 기호(DEFINED_SYMBOL — 로컬 STEP 표본 1,864개(내용 기준)에 이 엔터티를 쓴 파일이 없어 실제 표본으로 확인할 수 있을 때로 미뤘습니다),
   파일이 정한 글꼴(TEXT_STYLE의 글꼴 이름)대로 그리기(지금은 내장 한 획 글꼴과 기기 기본 글꼴 윤곽선),
+  여러 줄 PMI 글의 아래·가운데 맞춤을 글 덩어리 기준으로(지금은 첫 줄 기준 — 135차에 본 것, 표본 없음),
   저장된 보기의 보이기 묶음·자르기 평면, 모서리·점에 이어진 PMI 강조, 큰 조립에서 같은 부품의 둘째 자리부터는 PMI를 다시 그리지 않음
   (표현 PMI는 그 제품 정의의 첫 자리에만 놓입니다. 로컬 STEP 6,286개에 표현·의미 PMI가 든 파일이 하나도 없어 재현하지 못했고, CAx-IF PMI 권장 실무 4.1(2024)은
   PMI를 낱부품 기준으로 정하고 한 자리에만 붙는 조립 PMI를 조립 맥락의 `component_path_shape_aspect`·`multi_level_reference_designator`로 적는다고만 해
