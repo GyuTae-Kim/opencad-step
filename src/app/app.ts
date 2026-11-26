@@ -59,7 +59,7 @@ import { triRanges, type CheckRequest, type CheckResponse, type InterferencePair
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { PanelResizer } from './resize';
 import { readStoredTheme, resolveTheme, safeLocalStorage, writeStoredTheme, type Theme } from './theme';
-import { isLineMode, profilesFor, Toolbar } from './toolbar';
+import { isLineMode, profilesFor, showAxes, Toolbar } from './toolbar';
 import type { LookSync } from './looks';
 import { filterRows, nodeLabel, revealKey, selectFromPick } from './tree';
 import { warningNodes } from './warnparts';
@@ -2111,7 +2111,8 @@ export class StepApp {
   toggleAxes(): void {
     const v = this.viewer;
     if (!v) return;
-    v.setAxesVisible(!v.axesVisible);
+    // 141차: 왼쪽 아래 좌표축 표시와 함께 격자의 장면 안 X·Y축선도(전에는 격자를 켠 채 끄면 축선이 남았다)
+    showAxes(v, !v.axesVisible);
     this.toolbar.refresh();
   }
 

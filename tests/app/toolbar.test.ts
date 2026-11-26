@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Viewer3d } from 'opencad-viewer3d';
+import type { Scene3d } from 'opencad-viewer3d/types';
 import { closeMenu } from '../../src/app/menu';
-import { isLineMode, profilesFor, RENDER_MODES, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
+import { isLineMode, profilesFor, RENDER_MODES, showAxes, Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import { translate } from '../../site/i18n.mjs';
+import { drawLog } from './fakeview';
+import { jsdomViewer } from './jsdomview';
 
 function host(): ToolbarHost & { calls: string[] } {
   const calls: string[] = [];
@@ -305,5 +311,68 @@ describe('도구 막대 말풍선 번역', () => {
     expect(title).toMatch(/^표준 뷰 \(1 앞 · 2 뒤 · .* · 7 남동 등각\)$/);
     for (const lang of ['en', 'ja', 'zh-CN', 'de']) expect(translate(title, lang), lang).not.toMatch(/[가-힣]/);
     expect(translate(title, 'en')).toBe('Standard Views (1 Front · 2 Back · 3 Left · 4 Right · 5 Top · 6 Bottom · 7 SE isometric)');
+  });
+});
+
+// 141차: 좌표축 버튼(말풍선 「좌표축 보이기」)이 왼쪽 아래 좌표축 표시만 끄고 격자의 장면 안 X·Y축선(좌표축 글자와 같은 축 색)은 남기던 것 —
+// 코어 0.113.0 setAxesStyle hidden으로 둘을 함께(코어 앱 할 일 「좌표축 단추에서 둘을 함께 부른다」, SKP 좌표축 버튼과 같은 꼴)
+describe('좌표축 버튼(141차 — 왼쪽 아래 좌표축 표시와 격자의 장면 안 X·Y축선을 함께)', () => {
+  /** 세모 하나(x·y 0~10, z 0) — 격자 사각형이 세계 원점을 담아 X·Y축선이 둘 다 있다 */
+  const scene = (): Scene3d => ({
+    name: 'tri',
+    units: 'mm',
+    meshes: [{ id: 'a', positions: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]), indices: new Uint32Array([0, 1, 2]), color: [0.6, 0.6, 0.6, 1] }],
+    lines: [],
+  });
+  /** 그리기 한 번의 GL 그리기 호출 수(가짜 WebGL2 기록 — 그리기 상태 줄은 뺌). 왼쪽 아래 좌표축 표시는 2D 덧그림이라 들지 않는다 */
+  const draws = (v: Viewer3d): number => {
+    const log = drawLog(v.canvas.getContext('webgl2'))!;
+    log.draws = [];
+    log.on = true;
+    v.renderNow();
+    log.on = false;
+    return log.draws.filter((d) => d.startsWith('["draw')).length;
+  };
+
+  it('실제 코어: 끄면 격자를 켠 채로 장면 안 X·Y축선 그리기 둘만 빠지고, 격자 버튼을 껐다 켜도·새 장면에도 꺼진 채, 켜면 처음과 같은 그리기 수', () => {
+    const { viewer: v, restore } = jsdomViewer();
+    try {
+      v.setScene(scene());
+      v.fit(false);
+      v.renderNow();
+      expect([v.gridVisible, v.axesVisible, v.axesStyle]).toEqual([true, true, null]);
+      const on = draws(v);
+      expect(on).toBeGreaterThan(2);
+
+      showAxes(v, false);
+      expect([v.gridVisible, v.axesVisible, v.axesStyle?.hidden]).toEqual([true, false, true]);
+      expect(draws(v)).toBe(on - 2);
+      // 격자 버튼(F7)으로 껐다 켜도 축선은 좌표축 버튼을 따른다
+      v.setGridVisible(false);
+      v.setGridVisible(true);
+      expect(draws(v)).toBe(on - 2);
+      // 다른 문서를 열어도(새 장면) 꺼진 채 — 왼쪽 아래 표시(axesVisible)처럼 뷰어에 남는다
+      v.setScene(scene());
+      v.fit(false);
+      v.renderNow();
+      expect([v.axesVisible, v.axesStyle?.hidden]).toEqual([false, true]);
+      expect(draws(v)).toBe(on - 2);
+
+      showAxes(v, true);
+      expect([v.gridVisible, v.axesVisible, v.axesStyle]).toEqual([true, true, null]);
+      expect(draws(v)).toBe(on);
+    } finally {
+      restore();
+    }
+  });
+
+  it('app.ts: 도구 막대 좌표축 버튼·보기 설정 → 좌표축(toggleAxes)은 showAxes 하나로 둘을 함께 — 코어 좌표축 함수를 따로 부르는 곳 없음', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const i = app.indexOf('\n  toggleAxes(): void {');
+    expect(i).toBeGreaterThan(0);
+    const body = app.slice(i, app.indexOf('\n  }\n', i));
+    expect(body).toContain('showAxes(v, !v.axesVisible);');
+    expect(body).toContain('this.toolbar.refresh();');
+    expect(app).not.toMatch(/\.setAxesVisible\(|\.setAxesStyle\(/);
   });
 });
