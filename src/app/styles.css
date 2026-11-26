@@ -1701,6 +1701,11 @@ table.grid td.mono {
     border-radius: 2px;
     background: var(--border-input);
   }
+  /* 초점(164차 — WCAG 1.4.11): 막대 색만 바뀌면(입력 칸 경계 색 → 강조색) 전후 1.3:1이라 띠 안쪽 바깥선(탭·나무 줄·강제 색 규칙 꼴) */
+  .panel-resizer:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   /*
    * 손잡이 띠(14px)의 아래 7px가 탭 위쪽을 덮어 탭 윗부분을 누르면 탭 대신 손잡이가 잡혔다(마우스 좁은 창 — 53차가 남김).
    * 손가락 기기처럼 탭 위에 띠를 따로 둔다(7px — 손가락 기기는 아래 규칙의 14px). 손잡이 막대는 그 띠 안에 보인다

@@ -3,6 +3,7 @@
  * 색 대비(54차 — WCAG 1.4.3 글 4.5:1·큰 글 3:1, 1.4.11 비글 요소 3:1): styles.css의 밝은·어두운 테마 색 토큰을 읽어
  * 글 색 × 바탕(앱 바탕·막대·도구·패널·카드·입력 칸·3D 보기, 반투명 누름·강조 바탕은 섞은 색) 대비를 셈하고,
  * 강조색 글·채움·입력 칸 경계·눌린 단추·숨긴 줄 규칙이 그 토큰을 쓰는지 본다.
+ * 164차: 바깥선을 끈 초점(메뉴 항목·거르기 칸·패널 손잡이)의 대신 표시가 강조색으로 바탕과 3:1 넘는지 — 좁은 창 시트 손잡이는 막대 색 바꿈만으로는 모자라 바깥선.
  * 실제 화면의 모든 글·아이콘 대비는 헤드리스 Chrome으로 쟀다(README 개발 절 — 계산된 색, 조상 겹침).
  * CONTRAST_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -238,5 +239,33 @@ describe('53차가 남긴 것', () => {
     expect(top).toBeGreaterThanOrEqual(0);
     expect(top + parseFloat(bar.height!)).toBeLessThanOrEqual(inside);
     expect(bar.background).toBe('var(--border-input)');
+  });
+});
+
+describe('초점 표시(164차 — WCAG 2.4.7·1.4.11)', () => {
+  it.each(THEMES)('%s: 바깥선을 끈 초점은 강조색 표시가 바탕과 3:1 넘고, 좁은 창 시트 손잡이는 막대 색 바꿈(전후 3:1 아래) 대신 띠 안쪽 바깥선', (_n, T) => {
+    const P = plainRules();
+    const N = mediaRules('(max-width: 759.98px)');
+    const S = surfaces(T);
+    const acc = rgba(T['--accent']!);
+    const decl = (o: Record<string, string> | undefined, ...ps: string[]) => ps.map((p) => o?.[p] ?? '').join(' ');
+    // 메뉴 항목: 누름 바탕(카드 위) 안쪽 강조색 2px 그림자
+    const menu = decl(P.get('.menu-item:focus-visible'), 'box-shadow');
+    for (const w of ['inset', '2px', 'var(--accent)']) expect(menu).toContain(w);
+    expect(contrast(acc, S.hoverCard!)).toBeGreaterThanOrEqual(3);
+    // 거르기 칸(글 칸은 바깥선 없음): 감싼 칸 경계가 강조색 + 바깥 1px 그림자(패널 위)
+    expect(decl(P.get('.tree-search:focus-within'), 'border-color', 'box-shadow')).toMatch(/var\(--accent\).*var\(--accent\)/);
+    expect(contrast(acc, S.panel!)).toBeGreaterThanOrEqual(3);
+    // 넓은 화면 패널 손잡이: 투명하던 2px 막대가 강조색(패널 경계선·패널 바탕 위)
+    expect(decl(P.get('.panel-resizer:focus-visible::after'), 'background', 'background-color')).toContain('var(--accent)');
+    for (const c of [rgba(T['--border']!), S.panel!]) expect(contrast(acc, c)).toBeGreaterThanOrEqual(3);
+    // 좁은 창 시트 손잡이: 막대가 입력 칸 경계 색 → 강조색으로만 바뀌면 바뀌기 전과 후가 3:1 아래(밝게 1.34·어둡게 1.29)라
+    // 띠 안쪽에 강조색 2px 바깥선(탭·나무 줄·강제 색 손잡이 규칙과 같은 꼴) — 위 변은 3D 보기 바탕, 아래 변은 탭 위 띠의 패널 바탕 위
+    expect(decl(N.get('.panel-resizer::after'), 'background')).toBe('var(--border-input)');
+    expect(contrast(rgba(T['--border-input']!), acc)).toBeLessThan(3);
+    const fv = N.get('.panel-resizer:focus-visible');
+    expect(decl(fv, 'outline', 'outline-width', 'outline-style', 'outline-color')).toMatch(/2px.*solid.*var\(--accent\)/);
+    expect(parseFloat(fv?.['outline-offset'] ?? '0')).toBeLessThanOrEqual(-2);
+    for (const c of [S.view!, S.panel!]) expect(contrast(acc, c)).toBeGreaterThanOrEqual(3);
   });
 });
