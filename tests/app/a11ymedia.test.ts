@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * 55차 WCAG 크기·간격·움직임 규칙(styles.css): 강제 색(forced-colors: active — Windows 고대비 등), 움직임 줄이기(prefers-reduced-motion: reduce — 2.3.3),
- * 다시 흐르기(1.4.10 — 1280px 창 400% = 320×256), 글만 키우기(1.4.4 — 갈래 단추·상태 막대가 글을 따라 커짐), 갈래 단추 초점.
+ * 다시 흐르기(1.4.10 — 1280px 창 400% = 320×256), 글만 키우기(1.4.4 — 갈래 단추·상태 막대가 글을 따라 커짐), 갈래 단추 초점,
+ * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -165,5 +166,42 @@ describe('다시 흐르기(1280px 창 400% — 320×256)와 글만 키우기', (
     expect(PLAIN.get('.seg')?.overflow).toBe('hidden');
     expect(parseFloat(PLAIN.get('.seg-btn:focus-visible')?.['outline-offset'] ?? '0')).toBeLessThanOrEqual(-2);
     expect(PLAIN.get('.seg-btn.on:focus-visible')?.['outline-color']).toBe('var(--accent-text)');
+  });
+});
+
+describe('마우스 화면 누르는 칸(163차 — WCAG 2.5.8 최소 24×24 CSS px 또는 간격, 손가락 기기 44px는 touch.test.ts)', () => {
+  it('보통 규칙의 단추·칸은 24px 이상, 확인 칸 옆 이름 단추는 최소 폭 24px라 이름이 한두 글자여도 두 칸의 24px 원이 겹치지 않는다', () => {
+    const n = (sel: string, p: string) => parseFloat(PLAIN.get(sel)?.[p] ?? '');
+    const want: [string, string][] = [
+      ['.btn', 'height'],
+      ['.btn.small', 'height'],
+      ['.icon-btn', 'width'],
+      ['.icon-btn', 'height'],
+      ['.seg-btn', 'min-width'],
+      ['.seg-btn', 'min-height'],
+      ['.tab', 'height'],
+      ['.menu-item', 'height'],
+      ['.tree-row', 'min-height'],
+      ['.twisty', 'width'],
+      ['.twisty', 'height'],
+      ['.eye', 'width'],
+      ['.eye', 'height'],
+      ['.mb-btn', 'height'],
+      ['.recent-clear', 'min-height'],
+      ['.recent-open', 'min-height'],
+      ['.tree-search', 'height'],
+      ['.section-num', 'height'],
+      ['.explode-num', 'height'],
+      ['.dlg-select', 'min-height'],
+      ['.language-trigger', 'height'],
+    ];
+    expect(want.filter(([s, p]) => !(n(s, p) >= 24)).map(([s, p]) => `${s} ${p}=${PLAIN.get(s)?.[p]}`)).toEqual([]);
+    // 레이어·PMI 표 줄은 [보이기 확인 칸(브라우저 기본 13×13)][이름 단추] — 이름 단추는 높이 20.85px(13px × 1.45 + 위아래 1px)라 간격 예외로 맞춘다:
+    // 두 가운데 사이(13/2 + 틈 + 이름 폭/2)가 24px 이상이어야 두 24px 원이 겹치지 않는다. 최소 폭이 0이면 이름 「0」(폭 16px)은 20.5px, 「L1」(23px)도 24px 미만이었다
+    const gap = n('span.check', 'gap');
+    expect(gap).toBe(6);
+    for (const sel of ['.link-btn', '.pmi-grid .link-btn']) expect(13 / 2 + gap + n(sel, 'min-width') / 2, sel).toBeGreaterThanOrEqual(24);
+    // 높이는 그대로(레이어·PMI·간섭 표 줄이 줄마다 3px 높아지지 않게) — 위아래 줄 가운데 사이는 표 줄 여백으로 27.85px
+    expect(PLAIN.get('.link-btn')?.['min-height']).toBeUndefined();
   });
 });

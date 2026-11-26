@@ -1286,7 +1286,7 @@ table.grid tr.off td .dim,
 }
 .pmi-grid .link-btn {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 24px;
 }
 .pmi-grid .small {
   font-size: 11px;
@@ -1331,8 +1331,11 @@ span.check input {
   margin: 2px 0 6px;
   font-weight: 600;
 }
+/*
+ * 최소 폭 24px(163차 — WCAG 2.5.8 간격): 높이 20.85px라 6px 앞 확인 칸(13px)과 두 가운데가 24px 이상 떨어져야 한다 — 이름이 「0」·「L1」이면 원이 겹쳤다
+ */
 .link-btn {
-  min-width: 0;
+  min-width: 24px;
   padding: 1px 4px;
   border: 0;
   border-radius: 4px;
