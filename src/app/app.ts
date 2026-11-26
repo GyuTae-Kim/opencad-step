@@ -1973,7 +1973,10 @@ export class StepApp {
     const t = d?.explode ?? 0;
     this.explodeBar.hidden = !this.explodeOpen || !d;
     if (document.activeElement !== this.explodeSlider) this.explodeSlider.value = String(Math.round(t * 100));
-    this.explodeValue.textContent = `${Math.round(t * 100)}%`;
+    const pct = `${Math.round(t * 100)}%`;
+    this.explodeValue.textContent = pct;
+    // 146차: 브라우저는 0~100 막대 값에 %를 붙이지 않는다 — 옆 값 글을 화면 읽기 값으로(단면 막대·NC 140차 꼴)
+    this.explodeSlider.setAttribute('aria-valuetext', pct);
     // 방식·방향 단추와 지금 벌리는 단계, 손질 칸(조각을 받은 뒤)
     this.explodeUi?.sync(d, this.explodeMode, this.explodeOpen, this.explodeAxis, this.explodeView, this.tweakTool?.state(d, this.explodeAxis));
     this.hostEl.classList.toggle('explode-moving', !!this.tweakTool?.on && this.explodeOpen && t > 0);
