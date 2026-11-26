@@ -3040,6 +3040,10 @@ export class StepApp {
   // ───────────────────────── 상태 ─────────────────────────
 
   private setLoading(l: Loading | null): void {
+    // 157차: 숨어 있던 카드를 보이는 차례면 단계 칸(알림 칸)은 비운 채 한 번 그린 뒤(nextPaint) 첫 글을 넣는다 — 숨긴 칸은 접근성 트리에 없어
+    // 숨김을 푸는 같은 차례에 넣은 글은 프로그램에 따라 읽지 않았다(nextFrame은 그 프레임의 스타일·그리기 전에 돌아 숨김 풀기와 한 번에 간다).
+    // 빈 한 장은 다른 것을 움직이지 않는다(.busy-row 양 끝 맞춤 — 백분율은 오른쪽 그대로, 줄 높이 같음)
+    const late = !!l && this.busyEl.hidden;
     this.loading = l;
     this.busyEl.hidden = !l;
     if (l) {
@@ -3048,8 +3052,14 @@ export class StepApp {
       // uses its catalog entry, including worker-provided stage names.
       // 알림 칸이므로 단계가 바뀔 때만 바꾼다(진행할 때마다 같은 글을 다시 넣으면 다시 읽는다)
       if (this.busyStage.dataset.stage !== l.stage) {
-        this.busyStage.dataset.stage = l.stage;
-        this.busyStage.replaceChildren(document.createTextNode(l.stage), document.createTextNode('…'));
+        const st = l.stage;
+        this.busyStage.dataset.stage = st;
+        // 늦게 넣을 때 그사이 다음 단계가 왔거나 카드를 닫았으면 넣지 않는다
+        const put = () => this.busyStage.dataset.stage === st && this.busyStage.replaceChildren(document.createTextNode(st), document.createTextNode('…'));
+        if (late) {
+          this.busyStage.replaceChildren();
+          void nextPaint().then(put);
+        } else put();
       }
       this.busyPct.textContent = fmtPercent(l.fraction);
       this.busyBar.style.width = `${Math.round(Math.max(0.02, l.fraction) * 1000) / 10}%`;

@@ -8,6 +8,7 @@
  * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴)
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
+ * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -507,6 +508,73 @@ describe('147차: 측정 띠 글 칸이 CSS로 숨는 화면에서는 패널 아
     expect(app).toContain("\nconst NARROW = '(max-width: 759.98px)';");
     expect(app).toContain("\nconst COARSE = '(pointer: coarse)';");
     expect(app).toContain('get touch(): boolean {\n    return !!this.coarse?.matches;');
+  });
+});
+
+/**
+ * 157차(WAI-ARIA 알림 영역 — 영역은 글이 바뀌기 전부터 접근성 트리에 있어야 그 바뀜을 알린다): 진행 카드(.busy)는 hidden(display:none)이라 그 안 단계 칸(role=status)은
+ * 카드가 숨은 동안 접근성 트리에 없다. 전에는 숨김을 푸는 같은 차례에 첫 단계 글(「파일 읽는 중…」)을 넣어 프로그램에 따라 읽지 않았다(뒤 단계는 보이는 칸이라 읽힘).
+ * 이제 숨어 있던 카드를 보일 때는 단계 칸을 비운 채 한 번 그린 뒤(앱 nextPaint — rAF 뒤 타이머, 그 프레임 그리기가 끝난 뒤) 글을 넣는다
+ */
+describe('157차: 진행 카드 단계 칸의 첫 글은 카드가 빈 칸으로 한 번 그려진 뒤에', () => {
+  it('숨은 카드를 보이는 차례에는 단계 칸이 비고 다음 그림 뒤에 첫 단계 글, 보이는 동안 바뀐 단계는 곧바로, 그사이 단계가 바뀌거나 카드를 닫으면 늦은 글은 넣지 않는다', async () => {
+    // app.ts 원문에서 진행 카드를 만드는 줄과 setLoading 몸통을 잘라 실제 h로 돌린다(앱 전체는 시험에서 띄우지 않는다)
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const make = /this\.busyName = h\([\s\S]*?\n {4}\);\n/.exec(app)?.[0];
+    const body = /private setLoading\(l: Loading \| null\): void \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
+    expect([!!make, !!body]).toEqual([true, true]);
+    const self: Record<string, unknown> = { loading: null, cancel: () => {}, updateStatus: () => {} };
+    new Function('h', make!).call(self, h);
+    const busy = self.busyEl as HTMLElement;
+    const stage = self.busyStage as HTMLElement;
+    document.body.append(busy);
+    expect([stage.getAttribute('role'), busy.contains(stage)]).toEqual(['status', true]);
+    // 앱 nextPaint 대신 시험이 그림 차례를 쥔다(풀 때 그린 뒤로 본다)
+    const paints: (() => void)[] = [];
+    const nextPaint = () => new Promise<void>((r) => paints.push(r));
+    const paint = async () => {
+      paints.splice(0).forEach((r) => r());
+      await settle();
+    };
+    const set = (st: string | null, fraction = 0) =>
+      new Function('l', 'clipText', 'fmtPercent', 'nextPaint', body!).call(
+        self,
+        st === null ? null : { name: 'a.step', fraction, stage: st },
+        (s: string) => s,
+        (f: number) => `${Math.round(f * 100)}%`,
+        nextPaint,
+      );
+    const read = () => [busy.hidden, stage.textContent, paints.length];
+    expect(read()).toEqual([true, '', 0]);
+    // 숨은 카드를 보이는 차례: 칸은 빈 채로 보이고 글은 그림 뒤
+    set('파일 읽는 중');
+    expect(read()).toEqual([false, '', 1]);
+    set('파일 읽는 중', 0.3);
+    expect(read()).toEqual([false, '', 1]);
+    await paint();
+    expect(read()).toEqual([false, '파일 읽는 중…', 0]);
+    // 번역층이 단계 글을 따로 옮기게 조각 둘(전과 같음)
+    expect([...stage.childNodes].map((n) => n.textContent)).toEqual(['파일 읽는 중', '…']);
+    // 보이는 동안 바뀐 단계는 곧바로(이미 있는 알림 칸의 바뀜)
+    set('해석 중', 0.5);
+    expect(read()).toEqual([false, '해석 중…', 0]);
+    set(null);
+    expect(read()).toEqual([true, '해석 중…', 0]);
+    // 다시 열면 앞 열기의 끝 단계 글을 보이지 않고 비운다
+    set('파일 읽는 중');
+    expect(read()).toEqual([false, '', 1]);
+    // 그림 전에 다음 단계가 오면 그 단계를 곧바로, 늦은 첫 단계 글은 넣지 않는다
+    set('해석 중', 0.4);
+    expect(read()).toEqual([false, '해석 중…', 1]);
+    await paint();
+    expect(read()).toEqual([false, '해석 중…', 0]);
+    // 그림 전에 닫으면(취소) 늦은 글은 넣지 않는다
+    set(null);
+    set('파일 읽는 중');
+    set(null);
+    expect(read()).toEqual([true, '', 1]);
+    await paint();
+    expect(read()).toEqual([true, '', 0]);
   });
 });
 
