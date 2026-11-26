@@ -5,7 +5,7 @@
  * jsdom에는 배치가 없어 메뉴 폭은 가장 긴 항목 글 길이로 흉내 낸다(글자당 9px, 최소 180px).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closeMenu, openMenu, openMenuAt } from '../../src/app/menu';
+import { closeMenu, menuOpen, openMenu, openMenuAt } from '../../src/app/menu';
 
 const LONG = 'Anzeigeeinstellungen…';
 let observer: MutationObserver | null = null;
@@ -156,5 +156,86 @@ describe('메뉴 자리: 위아래 고르기', () => {
     expect([menuEl().style.top, menuEl().style.maxHeight]).toEqual([`${470 - 4 - 300}px`, '']);
     closeMenu();
     a.remove();
+  });
+});
+
+/**
+ * 159차: 초점이 Tab·누르기 없이 메뉴 밖으로 가면(앱이 옮김 — Ctrl·⌘+F 거르기 칸, 화면 읽기 프로그램이 옮김) 닫는다(초점은 옮겨 간 칸 그대로).
+ * 전에는 열린 채 남아 메뉴의 문서 캡처 키 듣기가 그 칸의 Esc(닫고 연 곳으로)·↑↓·Home·End(메뉴 항목으로)를 먼저 가져갔다(NC 152차·SKP 162차 꼴)
+ */
+describe('메뉴: 밖 초점에 닫기(159차)', () => {
+  it('단추 아래 메뉴: 항목·연 단추로 가는 초점은 열린 채(같은 단추를 다시 누르면 닫는 차례 그대로), 밖 칸으로 가면 닫고 초점은 그 칸 — 그 칸의 Esc·↑↓·Home·End는 칸 것', () => {
+    const a = anchorAt(20);
+    let ran = 0;
+    const items = [
+      { label: '홈 뷰', run: () => ran++ },
+      { label: '정면', run: () => ran++ },
+    ];
+    a.addEventListener('click', () => openMenu(a, items, '표준 뷰'));
+    const field = document.createElement('input');
+    field.type = 'search';
+    document.body.append(field);
+    try {
+      a.click();
+      const bs = [...menuEl().querySelectorAll<HTMLButtonElement>('.menu-item')];
+      expect(document.activeElement).toBe(bs[0]);
+      bs[1]!.focus();
+      // 연 단추를 누르면 mousedown이 click보다 먼저 초점을 준다 — 그 초점에 닫으면 뒤 click이 메뉴를 다시 연다
+      a.focus();
+      expect([menuOpen(), a.getAttribute('aria-expanded')]).toEqual([true, 'true']);
+      a.click();
+      expect(menuOpen()).toBe(false);
+      a.click();
+      expect(menuOpen()).toBe(true);
+      // 앱·화면 읽기 프로그램이 Tab·누르기 없이 초점을 밖 칸으로
+      field.focus();
+      expect(document.querySelector('.menu')).toBeNull();
+      expect(a.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(field);
+      for (const k of ['Escape', 'ArrowDown', 'ArrowUp', 'Home', 'End']) {
+        const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+        field.dispatchEvent(e);
+        expect([k, e.defaultPrevented, document.activeElement === field]).toEqual([k, false, true]);
+      }
+      expect(ran).toBe(0);
+    } finally {
+      closeMenu();
+      field.remove();
+      a.remove();
+    }
+  });
+
+  it('화면 점 메뉴(작업 메뉴·겹친 것 목록): 연 자리에서 누르면 초점을 받는 칸(나무 줄·3D 보기 — 길게 누르기를 뗀 손가락의 초점)은 메뉴 쪽, 그 칸을 누르면 전처럼 닫고, 다른 칸으로 가면 닫고 onClose', () => {
+    const row = document.createElement('div');
+    row.tabIndex = -1;
+    const name = document.createElement('span');
+    name.textContent = '부품';
+    row.append(name);
+    const other = document.createElement('button');
+    document.body.append(row, other);
+    // jsdom에는 배치가 없어 그 자리 요소를 흉내 낸다(기준점은 pointer-events:none, 메뉴는 그 자리 4px 아래·위라 덮지 않는다)
+    const doc = document as unknown as { elementFromPoint?: (x: number, y: number) => Element | null };
+    const saved = doc.elementFromPoint;
+    doc.elementFromPoint = (x, y) => (x === 50 && y === 60 ? name : null);
+    let closed = 0;
+    try {
+      openMenuAt(50, 60, [{ label: '숨기기', run: () => {} }], '작업 메뉴', () => closed++);
+      expect(document.activeElement?.classList.contains('menu-item')).toBe(true);
+      row.focus();
+      expect([menuOpen(), closed]).toEqual([true, 0]);
+      row.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      expect([menuOpen(), closed, document.querySelector('.menu-point')]).toEqual([false, 1, null]);
+      // 겹친 것 목록 꼴: 고르지 않고 닫히면 onClose(미리 강조 되돌리기 — ctxmenu.ts openPickList)
+      openMenuAt(50, 60, [{ label: '앞 부품', run: () => {} }], '겹친 것 고르기', () => closed++);
+      other.focus();
+      expect([menuOpen(), closed, document.querySelector('.menu-point')]).toEqual([false, 2, null]);
+      expect(document.activeElement).toBe(other);
+    } finally {
+      closeMenu();
+      if (saved) doc.elementFromPoint = saved;
+      else delete doc.elementFromPoint;
+      row.remove();
+      other.remove();
+    }
   });
 });

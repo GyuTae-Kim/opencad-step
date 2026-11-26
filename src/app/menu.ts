@@ -1,6 +1,6 @@
 /**
  * 단추 아래에 펼치는 작은 메뉴. 도구 막대가 가로로 스크롤될 수 있어(overflow) body에 붙이고 fixed로 놓는다.
- * 바깥 누르기·Esc·항목 고르기·창 폭 바뀜에 닫히고, 위아래 화살표로 (쓸 수 있는) 항목을 옮긴다.
+ * 바깥 누르기·바깥 초점(159차)·Esc·Tab·항목 고르기·창 폭 바뀜에 닫히고, 위아래 화살표로 (쓸 수 있는) 항목을 옮긴다.
  * 항목: 명령(menuitem) · 하나 고르기(checked, menuitemradio) · 켜고 끄기(toggle, menuitemcheckbox), 앞 구분선(sep)·흐리게(disabled), 이름 뒤 파일 글(file).
  */
 import { h } from './dom';
@@ -25,7 +25,8 @@ export interface MenuItem {
   run: () => void;
 }
 
-let current: { el: HTMLElement; anchor: HTMLElement; close: () => void } | null = null;
+/** spot: 화면 점 메뉴를 연 자리에서 누르면 초점을 받는 칸(3D 보기·나무 줄 — 159차, openMenuAt) */
+let current: { el: HTMLElement; anchor: HTMLElement; close: () => void; spot?: Element | null } | null = null;
 
 /** 열린 메뉴가 있는지 */
 export function menuOpen(): boolean {
@@ -41,16 +42,19 @@ export function closeMenu(): boolean {
 
 /**
  * 화면 점(client 좌표)에 메뉴를 연다(오른쪽 누르기·길게 누르기 작업 메뉴). 보이지 않는 1화소 기준점을 그 자리에 두고 연다.
- * 65차: 연 메뉴 요소를 돌려주고, 닫힐 때(고르기 — 그 명령보다 먼저·Esc·바깥 누르기·다른 메뉴) onClose를 부른다(겹친 것 목록 미리 강조 되돌리기 — ctxmenu.ts)
+ * 65차: 연 메뉴 요소를 돌려주고, 닫힐 때(고르기 — 그 명령보다 먼저·Esc·바깥 누르기·바깥 초점·다른 메뉴) onClose를 부른다(겹친 것 목록 미리 강조 되돌리기 — ctxmenu.ts)
  */
 export function openMenuAt(x: number, y: number, items: MenuItem[], label: string, onClose?: () => void): HTMLElement | null {
   closeMenu();
+  // 159차: 그 자리에서 누르면 초점을 받는 칸(배치가 없는 환경은 없음). 기준점은 누르기를 받지 않고 메뉴는 그 자리 4px 아래·위에 놓여 덮지 않는다
+  const spot = document.elementFromPoint?.(x, y)?.closest('[tabindex],button');
   const anchor = h('div', { class: 'menu-point', 'aria-hidden': 'true' });
   anchor.style.cssText = `position:fixed;left:${Math.round(x)}px;top:${Math.round(y)}px;width:1px;height:1px;pointer-events:none`;
   document.body.append(anchor);
   openMenu(anchor, items, label);
-  const c = current as { el: HTMLElement; close: () => void } | null;
+  const c = current as { el: HTMLElement; close: () => void; spot?: Element | null } | null;
   if (c) {
+    c.spot = spot;
     const close = c.close;
     c.close = () => {
       close();
@@ -124,9 +128,13 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
   sized?.observe(el);
   anchor.setAttribute('aria-expanded', 'true');
 
-  const onDown = (e: PointerEvent) => {
+  // 바깥 누르기와 159차 바깥 초점: Tab·누르기 밖의 길(앱이 옮김 — 메뉴 항목에서 Ctrl·⌘+F의 나무 거르기 칸·분해 끄는 중 숫자의 거리 칸, 화면 읽기 프로그램이 옮김)로
+  // 초점이 메뉴·연 단추 밖으로 가면 닫는다(초점은 옮겨 간 칸 그대로). 전에는 열린 채 남아 아래 문서 캡처 키 듣기가 그 칸의 Esc(닫고 연 곳으로)·↑↓·Home·End(메뉴 항목으로)를 가져갔고,
+  // 그 칸의 H·I 등은 158차 메뉴 판정 밖이라 메뉴를 연 채 뒤를 바꿨다(NC 152차·SKP 162차 꼴). 여는 길은 모두 메뉴 항목에 초점을 주고 끝나 연 차례를 건너뛰지 않는다.
+  // 화면 점 메뉴는 연 자리의 칸(spot)으로 가는 초점만 메뉴 쪽 — 그 칸을 누르면 pointerdown이 먼저 닫고, 길게 누르기를 뗀 손가락의 초점(132차가 뗀 click을 거름)에 방금 연 메뉴가 닫히지 않게
+  const onDown = (e: Event) => {
     const t = e.target as Node;
-    if (!el.contains(t) && !anchor.contains(t)) closeMenu();
+    if (!el.contains(t) && !anchor.contains(t) && !(e.type === 'focusin' && t === current?.spot)) closeMenu();
   };
   const onKey = (e: KeyboardEvent) => {
     const i = usable.indexOf(document.activeElement as HTMLButtonElement);
@@ -154,6 +162,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
   const close = () => {
     sized?.disconnect();
     document.removeEventListener('pointerdown', onDown, true);
+    document.removeEventListener('focusin', onDown, true);
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('resize', onResize);
     anchor.setAttribute('aria-expanded', 'false');
@@ -161,6 +170,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     current = null;
   };
   document.addEventListener('pointerdown', onDown, true);
+  document.addEventListener('focusin', onDown, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', onResize);
   current = { el, anchor, close };
