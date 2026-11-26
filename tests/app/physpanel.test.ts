@@ -165,3 +165,59 @@ describe('물리 속성: 질량 속성을 기다리는 동안 "계산 중"', () 
     p2.el.remove();
   });
 });
+
+/**
+ * 155차(WCAG 3.3.1 오류 알아보기·4.1.3 상태 알림): 밀도 직접 입력 칸에 0·음수·읽지 못한 글을 넣으면 전에는 골라 둔 재질·밀도를 말없이 지웠다
+ * (질량·관성 줄이 사라지고 칸은 빈 칸 — 무엇이 틀렸는지 알리는 글·aria-invalid 없음). 이제 걸지 않고 칸을 보이던 값으로 되돌린 뒤 알림 칸에 경고로 까닭을 알린다
+ * (분해 거리 칸 43차 꼴 — 알림 종류 warn·5초). 빈 칸은 전처럼 밀도를 지운다(「고르지 않음」과 같은 뜻). 브라우저는 type=number의 읽지 못한 글을 빈 글로 돌리고
+ * validity.badInput을 세운다(jsdom은 늘 거짓이라 칸의 validity를 덮어 흉내) — 0은 min=0(포함)이라 브라우저 검증도 맞다고 본다
+ */
+describe('155차: 밀도 칸에 받지 않는 값', () => {
+  const MSG = '밀도를 바꾸지 않았습니다 — 0보다 큰 수를 쳐 넣으십시오(g/cm³).';
+
+  it('0·음수·읽지 못한 글은 밀도를 지우지 않고 칸을 되돌려 경고로 알리고, 바른 값은 걸고 빈 칸은 전처럼 지운다', () => {
+    const doc = createDoc('a.stp', 1, { scene: stepToScene(twoParts(), { name: 'a.stp' }), ms: 1 });
+    doc.density = 7850;
+    const set: (number | null)[] = [];
+    const told: unknown[][] = [];
+    const base = { measuring: false, measureKind: 'points', touch: false, fmt: new Fmt('mm'), isVisible: () => true, groups: () => [] };
+    const target: Record<string, unknown> = {
+      ...base,
+      setDensity: (v: number | null) => {
+        set.push(v);
+        doc.density = v;
+      },
+      toast: (...a: unknown[]) => told.push(a),
+    };
+    const ph = new Proxy(target, { get: (t, k) => (k in t ? t[k as string] : () => {}) }) as unknown as PanelHost;
+    const panel = panelOf(ph);
+    document.body.append(panel.el);
+    panel.show(doc);
+    panel.setTab('props');
+    const inp = panel.el.querySelector<HTMLInputElement>('input.dlg-input')!;
+    expect(inp.value).toBe('7.85');
+    const put = (v: string, bad = false) => {
+      inp.value = v;
+      if (bad) Object.defineProperty(inp, 'validity', { value: { badInput: true }, configurable: true });
+      inp.dispatchEvent(new Event('change'));
+      if (bad) delete (inp as { validity?: unknown }).validity;
+    };
+    put('0');
+    expect([set, doc.density, inp.value, told]).toEqual([[], 7850, '7.85', [[MSG, 'warn', 5000]]]);
+    put('-2');
+    expect([set, doc.density, inp.value, told.length]).toEqual([[], 7850, '7.85', 2]);
+    // 「abc」·「-」·「1e」처럼 읽지 못한 글: 브라우저가 값을 빈 글로 돌리고 badInput — 빈 칸(지우기)과 가른다
+    put('', true);
+    expect([set, doc.density, inp.value, told.length]).toEqual([[], 7850, '7.85', 3]);
+    put('2.5');
+    expect([set, doc.density, told.length]).toEqual([[2500], 2500, 3]);
+    put('');
+    expect([set, doc.density, told.length]).toEqual([[2500, null], null, 3]);
+    panel.el.remove();
+  });
+
+  it('알림 글은 네 언어로 옮긴다(같은 사전의 「밀도」·「…지 않았습니다 — …쳐 넣으십시오」 꼴)', () => {
+    expect(translate(MSG, 'en')).toBe('The density was not changed — type a number greater than 0 (g/cm³).');
+    for (const l of ['ja', 'zh-CN', 'de']) expect(translate(MSG, l)).not.toMatch(/[가-힣]/);
+  });
+});
