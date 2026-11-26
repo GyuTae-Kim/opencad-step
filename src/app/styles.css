@@ -1919,6 +1919,10 @@ table.grid td.mono {
   }
   .tree-row {
     min-height: 44px;
+    /* 132차: 길게 누르기는 작업 메뉴(treeview.ts) — iOS 글 고르기·확대경·말풍선이 먼저 잡지 않게(3D 보기 .viewer-host와 같다) */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .twisty,
   .eye {
