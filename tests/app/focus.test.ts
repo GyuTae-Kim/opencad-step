@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { closeDialog, dialogOpen, openDialog, selectRow } from '../../src/app/dialog';
 import { controlOf, isTextTarget, routeKey } from '../../src/app/keys';
-import { openMenu } from '../../src/app/menu';
+import { closeMenu, menuOpen, openMenu } from '../../src/app/menu';
 import { recentFocus } from '../../src/app/recent';
 
 describe('초점 돌려주기(키보드 사용)', () => {
@@ -208,6 +208,60 @@ describe('초점 돌려주기(키보드 사용)', () => {
     } finally {
       removeEventListener('keydown', onKey);
       opener.remove();
+    }
+  });
+
+  it('158차: 메뉴가 열려 그 항목에 초점이 있으면 앱 창 글쇠(H·I·F·1~7·F7 — 수식 글쇠 없는 키)는 메뉴 것이라 메뉴를 연 채 뒤가 바뀌지 않는다 — 닫으면 다시 앱 것', () => {
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    // app.ts onKey와 같은 판정(창 bubble — 메뉴 문서 캡처가 막은 키는 건너뜀)
+    const routed: (string | null)[] = [];
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return;
+      routed.push(routeKey({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, inText: isTextTarget(e.target), control: controlOf(e.target), hasDoc: true, modal: dialogOpen() }));
+    };
+    const press = (el: Element, key: string, init: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+    addEventListener('keydown', onKey);
+    try {
+      // 작업 메뉴·보기 설정 꼴: 명령(단축키 글 H)·켜고 끄기(격자)·하나 고르기
+      openMenu(
+        anchor,
+        [
+          { label: '숨기기', hint: 'H', run: () => {} },
+          { label: '격자', checked: true, toggle: true, run: () => {} },
+          { label: '원근 투영', checked: false, run: () => {} },
+        ],
+        '작업 메뉴',
+      );
+      const items = [...document.querySelectorAll<HTMLButtonElement>('.menu .menu-item')];
+      expect(items.map((b) => b.getAttribute('role'))).toEqual(['menuitem', 'menuitemcheckbox', 'menuitemradio']);
+      // 전에는 메뉴를 연 채 숨기기·격리·전체 보기·표준 뷰·격자가 들어 메뉴의 항목 글·켜짐 표시가 문서와 어긋났다
+      for (const item of items) {
+        item.focus();
+        for (const k of ['h', 'I', 'f', '1', '7', 'F7']) press(item, k);
+        press(item, 'H', { shiftKey: true });
+      }
+      expect(routed).toEqual(Array(21).fill(null));
+      expect(menuOpen()).toBe(true);
+      // 수식 글쇠 명령(파일 열기·분해 손질 되돌리기)은 메뉴가 쓰지 않는 키라 그대로 앱 것
+      routed.length = 0;
+      press(items[0]!, 'o', { ctrlKey: true });
+      press(items[0]!, 'z', { metaKey: true });
+      expect(routed).toEqual(['open', 'undo']);
+      // Esc는 메뉴가 문서 캡처에서 먼저 받아 닫고 연 단추로(창 판정에 오지 않음), 닫은 뒤 글쇠는 다시 앱 것
+      routed.length = 0;
+      items[0]!.focus();
+      press(items[0]!, 'Escape');
+      expect(menuOpen()).toBe(false);
+      expect(document.activeElement).toBe(anchor);
+      expect(routed).toEqual([]);
+      press(anchor, 'h');
+      press(anchor, '1');
+      expect(routed).toEqual(['hide', 'viewer']);
+    } finally {
+      closeMenu();
+      removeEventListener('keydown', onKey);
+      anchor.remove();
     }
   });
 });
