@@ -113,11 +113,12 @@ export function installKeyNav(root: HTMLElement): () => void {
   };
   // 띠·막대·패널 안에서 누른 단추나 글쇠(끝내기·끄기·패널 닫기·Esc·거리 칸 Enter·다시 재기)가 그 띠를 숨기거나 칸을 떠나거나 그 단추를 흐려 초점이 body로 떨어지면 돌려준다
   // (WCAG 2.4.3 — 전에는 다음 Tab이 문서 처음부터 다시 돌았다). 패널이 닫혔으면 도구 막대의 패널 단추, 패널이 그대로면 고른 탭, 그 밖에는 띠가 떠 있던 3D 보기로.
+  // 도구 막대 단추가 흐려지면(「고른 부품 보기」에 초점을 둔 채 Esc·H로 고르기를 풂 — 199차) 막대의 Tab 멈춤(흐려진 멈춤은 첫 쓸 수 있는 단추)으로.
   // 명령이 스스로 초점을 옮겼으면(대화 상자·메뉴·다시 그린 나무 줄) 그대로 둔다
   const rescue = (): void => {
     const a = document.activeElement;
     if (!(a instanceof HTMLElement)) return;
-    const bar = a.closest<HTMLElement>(BARS);
+    const bar = a.closest<HTMLElement>(BARS) ?? (groupOf(a)?.kind === 'tool' ? a.parentElement : null);
     if (!bar) return;
     setTimeout(() => {
       // 숨긴 단추에서 초점을 떼는 일(focus fixup)은 브라우저가 다음 그리기 때 하므로, 아직 그 단추에 초점이 있어도 보이지 않으면 잃은 것으로 본다.
@@ -125,8 +126,10 @@ export function installKeyNav(root: HTMLElement): () => void {
       const now = document.activeElement;
       if (now && now !== document.body && (now !== a || usable(a))) return;
       const panel = bar.classList.contains('panel');
-      const to = panel ? (shown(bar) ? bar.querySelector<HTMLElement>('[role=tab][aria-selected=true]') : root.querySelector<HTMLElement>('.toolbar [data-tool=panel]')) : root.querySelector<HTMLElement>('.viewer-host canvas');
-      if (to && shown(to)) to.focus({ preventScroll: true });
+      const tools = bar.getAttribute('role') === 'toolbar';
+      if (tools) syncToolbar(bar);
+      const to = tools ? toolsOf(bar).find((b) => b.tabIndex === 0) : panel ? (shown(bar) ? bar.querySelector<HTMLElement>('[role=tab][aria-selected=true]') : root.querySelector<HTMLElement>('.toolbar [data-tool=panel]')) : root.querySelector<HTMLElement>('.viewer-host canvas');
+      if (to && usable(to)) to.focus({ preventScroll: true });
     });
   };
   const all = (): void => {
