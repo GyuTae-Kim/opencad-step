@@ -492,7 +492,7 @@
   "부품 색과 단위 확인": "Teilefarbe und Einheit prüfen",
   "부품 속성": "Teileigenschaften",
   "부품별 보이기": "Nach Teil anzeigen",
-  "부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르면 여러 개를 고릅니다.": "Wählen Sie ein Teil (in 3D oder im Produktbaum anklicken), um seine Eigenschaften zu sehen. Mit gedrückter Strg-, ⌘- oder Umschalttaste klicken, um mehrere auszuwählen.",
+  "부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 \"여러 개 고르기\"를 켜면 여러 개를 고릅니다.": "Wählen Sie ein Teil (in 3D oder im Produktbaum anklicken), um seine Eigenschaften zu sehen. Mit gedrückter Strg-, ⌘- oder Umschalttaste klicken oder „Mehrfachauswahl“ einschalten, um mehrere auszuwählen.",
   "부피": "Volumen",
   "북동 등각": "NO-Isometrie",
   "북서 등각": "NW-Isometrie",

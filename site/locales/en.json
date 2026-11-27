@@ -492,7 +492,7 @@
   "부품 색과 단위 확인": "Check part color and unit",
   "부품 속성": "Part properties",
   "부품별 보이기": "Show by part",
-  "부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르면 여러 개를 고릅니다.": "Select a part (click it in 3D or in the product tree) to see its properties. Hold Ctrl, ⌘ or Shift while clicking to select several.",
+  "부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 \"여러 개 고르기\"를 켜면 여러 개를 고릅니다.": "Select a part (click it in 3D or in the product tree) to see its properties. Hold Ctrl, ⌘ or Shift while clicking, or turn on \"Multi-select\", to select several.",
   "부피": "Volume",
   "북동 등각": "NE isometric",
   "북서 등각": "NW isometric",

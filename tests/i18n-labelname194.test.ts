@@ -82,7 +82,8 @@ describe('번역 뒤에도 화면 읽기 이름이 보이는 글을 품는다(19
     for (const lang of ['en', 'de'] as const) {
       const term = catalogs[lang]!['여러 개 고르기']!;
       const uses = Object.entries(catalogs[lang]!).filter(([key]) => key.includes('여러 개 고르기'));
-      expect(uses.length, lang).toBe(6);
+      // 202차: 속성 탭 안내(「… "여러 개 고르기"를 켜면 …」)의 지금 원문 열쇠가 더해져 일곱
+      expect(uses.length, lang).toBe(7);
       for (const [key, value] of uses) expect(value.toLowerCase(), `${lang}: ${key}`).toContain(term.toLowerCase());
     }
     expect(catalogs.ja!['여러 개 고르기']!.startsWith(catalogs.ja!['여러 개']!)).toBe(true);
