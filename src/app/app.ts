@@ -3062,8 +3062,12 @@ export class StepApp {
     // 숨김을 푸는 같은 차례에 넣은 글은 프로그램에 따라 읽지 않았다(nextFrame은 그 프레임의 스타일·그리기 전에 돌아 숨김 풀기와 한 번에 간다).
     // 빈 한 장은 다른 것을 움직이지 않는다(.busy-row 양 끝 맞춤 — 백분율은 오른쪽 그대로, 줄 높이 같음)
     const late = !!l && this.busyEl.hidden;
+    // 189차: 카드를 숨기는 차례(「취소」 누름·Esc·다 열림·실패 — 모두 여기)에 초점이 카드 안(「취소」)이었으면 숨긴 뒤 알림 칸과 같은 곳(166차)으로 — 3D 보기, 문서 전이면 「파일 열기」
+    // (WCAG 2.4.3 — 전에는 숨은 버튼과 함께 문서로 빠졌다). 카드 밖이면 그대로(시작 화면에서 연 문서는 앞서 updateAll이 3D 보기로)
+    const had = !l && this.busyEl.contains(document.activeElement);
     this.loading = l;
     this.busyEl.hidden = !l;
+    if (had) (this.doc ? this.viewer?.canvas : this.startOpen)?.focus({ preventScroll: true });
     if (l) {
       this.busyName.textContent = clipText(l.name);
       // Keep stage messages separate from punctuation so every progress stage
