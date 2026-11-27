@@ -8,6 +8,7 @@
  * 209차에 고친 것: 격리 띠 이름 칸의 translate="no"(묶음 이름표 「부품 2개」·「레이어 …」·몸체 「… · 바디 2」가 남음), 해석기의 이름 없는 제품 「제품 #n」·레이어 배정 「레이어 #n」
  * → STEP 번호 「#n」(앱 낱말 없음), 물리 속성 주 관성 모멘트 값 칸의 앱 말풍선(translate="no" 칸이라 사전에 있어도 옮겨지지 않음).
  * 아직 둔 것은 STILL(언어 → 남는 글) — 목록에 있는데 이제 한글이 없으면 실패한다(고쳤으면 목록에서 뺀다).
+ * 210차: 이름 없는 표현 PMI의 묶음 이름표·3D에서 누른 PMI의 상태 막대(맨 아래 describe — 따로 만든 PMI 합성 STEP).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,9 +17,10 @@ import type { GroupInfo } from 'opencad-viewer3d';
 import { stepToScene, type StepMeta } from '../../src/scene';
 import { bodyTitle, createDoc, multiLabel, productAt, type PanelTab, type StepDoc } from '../../src/app/doc';
 import { nodeLabel } from '../../src/app/tree';
-import { Panel, type PanelHost } from '../../src/app/panel';
+import { Panel, pmiTypeLabel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import { infoView } from '../../src/app/infoview';
+import { pmiView } from '../../src/app/pmiview';
 import * as PHYS from '../../src/app/physics';
 import { Fmt } from '../../src/app/display';
 import { h, icon } from '../../src/app/dom';
@@ -194,6 +196,120 @@ describe('209차: 앱 한국어는 번역하지 않는 칸 밖에(다섯 언어 
       // 파일 글(한국어 이름)은 어느 언어에서나 번역하지 않는 칸에 그대로
       expect([...views.querySelectorAll('[translate="no"]')].some((el) => el.textContent === KO_FILE)).toBe(true);
       expect(leaks(views, code)).toEqual(STILL[code] ?? []);
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
+  });
+});
+
+// ───────────────────────── 210차 ─────────────────────────
+
+/**
+ * 210차: 이름 없는 표현 PMI를 누르면 넘기는 묶음 이름표 「PMI {종류}」(pmiview.ts)는 한 글로 상태 막대·고른 부품 카드·아래 띠·격리 띠에 들어간다. 번역층은 틀이
+ * 잡은 값을 그대로 끼워(문서 자료로 본다 — site-kit translate, uiParameters 없음) 「PMI {0}」 틀로는 종류가 옮겨지지 않아 「PMI 주석」 밖 여덟 종류가 네 언어에서
+ * 한국어로 남았다 → 통째 원문 열쇠 여덟. 3D에서 이름 없는 PMI를 누른 상태 막대 「고른 PMI: {종류}」도 틀이 종류를 그대로 끼워 남았다 → 조각(아래 띠 꼴).
+ */
+const PMI_KINDS: [type: string, kind: string][] = [
+  ['ANNOTATION_CURVE_OCCURRENCE', '곡선 주석'],
+  ['ANNOTATION_OCCURRENCE', '주석'],
+  ['ANNOTATION_FILL_AREA_OCCURRENCE', '채운 영역 주석'],
+  ['DRAUGHTING_ANNOTATION_OCCURRENCE', '제도 주석'],
+  ['TESSELLATED_ANNOTATION_OCCURRENCE', '삼각형 주석'],
+  ['ANNOTATION_PLACEHOLDER_OCCURRENCE', '자리 주석'],
+  ['ANNOTATION_SYMBOL_OCCURRENCE', '기호 주석'],
+  ['ANNOTATION_TEXT_OCCURRENCE', '글 주석'],
+  ['ANNOTATION_POINT_OCCURRENCE', '점 주석'],
+];
+
+/** 부품 하나와 이름 없는 제도 모형 — 그 안에 이름 없는 표현 PMI 아홉 종류(PMI_TYPE 차례, 꺾은선 하나씩 — 그려야 PMI 표에 든다) */
+function pmiBytes(): Uint8Array {
+  const w = new StepText();
+  const mm = w.context('mm');
+  const part = w.product('part', [cube(w, 10, [0, 0, 0], '').solid], mm);
+  const occ = PMI_KINDS.map(([type], i) => w.add(type, `'',(),#${w.add('POLYLINE', `'',(#${w.pt([0, i - 2, 0])},#${w.pt([10, i - 2, 0])})`)}`));
+  const dm = w.add('DRAUGHTING_MODEL', `'',(${occ.map((id) => `#${id}`).join(',')}),#${mm}`);
+  w.add('SHAPE_REPRESENTATION_RELATIONSHIP', `'','',#${dm},#${part.rep}`);
+  return w.bytes();
+}
+
+const pscene = stepToScene(pmiBytes(), { name: 'p.stp' });
+const pmeta = pscene.meta as unknown as StepMeta;
+/** 네 사전(남는 글 셈 — 틀 값) */
+const CAT: Record<string, Record<string, string>> = Object.fromEntries(
+  ['en', 'ja', 'zh-CN', 'de'].map((c) => [c, JSON.parse(readFileSync(join(__dirname, `../../site/locales/${c}.json`), 'utf8')) as Record<string, string>]),
+);
+const fill = (t: string, ...v: string[]): string => t.replace(/\{(\d+)\}/g, (_, i: string) => v[Number(i)] ?? '');
+
+// 상태 막대 고른 것 칸(updateStatus — selectionText 조각과 막대 말풍선)
+const SEL_TEXT = cut(/\n {2}private selectionText\(d: StepDoc\): \(Node \| string\)\[\] \{\n([\s\S]*?)\n {2}\}\n/).replace(/(\w)!\./g, '$1.');
+const STATUS_TITLE = cut(/\n\s*(this\.statusSel\.title = this\.statusSel\.textContent \?\? '';)\n/);
+function status(d: object): HTMLElement {
+  const self = { fmt: new Fmt('mm'), entMeasuring: false, measuring: false, selectionName: (x: object) => selectionName(x, productAt, nodeLabel, isolateText, bodyTitle) };
+  const sel = new Function('d', 'h', 'productAt', 'isolateText', 'pmiTypeLabel', SEL_TEXT).call(self, d, h, productAt, isolateText, pmiTypeLabel) as (Node | string)[];
+  const statusSel = h('div', { class: 'status-sel' }, ...sel);
+  new Function(STATUS_TITLE).call({ statusSel });
+  return statusSel;
+}
+
+/**
+ * 210차에 둔 것(언어 → 남는 글, 정렬): 말풍선은 한 글이라 틀이 잡은 앱 낱말을 그대로 끼운다 — PMI 표 이름 버튼 「{종류} · #{번호} · 누르면 강조(…)」(#8 틀),
+ * 상태 막대 말풍선(번역 전 textContent) 「고른 것: {이름표}」·「고른 PMI: {종류}」(README 남은 일 210차 줄). 고치면 여기서 뺀다
+ */
+function still210(code: string): string[] {
+  const c = CAT[code];
+  if (!c) return [];
+  return [
+    ...pmeta.pmi!.presentations.map((x, i) => `title: ${fill(c['{0} · #{1}{2} · 누르면 강조(두 번 누르면 맞춰 보기)']!, PMI_KINDS[i]![1], '', String(x.stepId))}`),
+    ...PMI_KINDS.map(([, kind]) => `title: ${fill(c['고른 것: {0}']!, `PMI ${kind}`)}`),
+    ...PMI_KINDS.map(([, kind]) => `title: ${fill(c['고른 PMI: {0}']!, kind)}`),
+  ].sort();
+}
+
+describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — 상태 막대·고른 부품 카드·아래 띠·격리 띠)와 3D에서 누른 PMI의 상태 막대', () => {
+  it('해석기: 이름·모형 이름 없는 표현 PMI 아홉 종류(PMI_TYPE 차례)', () => {
+    expect(pmeta.pmi!.presentations.map((x) => [x.type, x.name, x.model ?? ''])).toEqual(PMI_KINDS.map(([type]) => [type, '', '']));
+  });
+
+  it.each(['ko', 'en', 'ja', 'zh-CN', 'de'])('%s: PMI 표·누른 이름표의 네 자리·3D에서 누른 상태 막대', async (code) => {
+    const views = h('div');
+    const root = h('div', {}, views);
+    document.body.append(root);
+    const picked: string[] = [];
+    const d = createDoc('p.stp', 1, { scene: pscene, ms: 1 });
+    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, infoView, pmiView } });
+    p.show(d);
+    p.setTab('pmi');
+    views.append(p.el);
+    // 표 줄 이름 버튼이 넘기는 묶음 이름표(이름 없는 PMI — 「PMI {종류}」)
+    const btns = [...views.querySelectorAll<HTMLElement>('.pmi-grid .link-btn')];
+    expect(btns).toHaveLength(9);
+    for (const b of btns) b.click();
+    expect(picked).toEqual(PMI_KINDS.map(([, kind]) => `PMI ${kind}`));
+    const pres = d.pmi.presentations;
+    const foot = p.el.querySelector<HTMLElement>('.panel-foot')!;
+    picked.forEach((label, i) => {
+      const sel = { ...d, items: { ids: [pres[i]!.id], label } };
+      const nm = selectionName(sel, productAt, nodeLabel, isolateText, bodyTitle);
+      d.items = sel.items;
+      p.onSelection();
+      views.append(card(nm), iso(nm), status(sel), foot.cloneNode(true) as HTMLElement);
+      // 3D에서 그 PMI를 누름(상태 막대 「고른 PMI: …」)
+      views.append(status({ ...d, items: null, pick: { id: pres[i]!.id, kind: 'line', point: [0, 0, 0] } }));
+    });
+    d.items = null;
+    p.onSelection();
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      expect(views.querySelectorAll('.mb-name').length).toBe(9);
+      expect(views.querySelectorAll('.iso-bar:not([hidden])').length).toBe(9);
+      expect(views.querySelectorAll('.status-sel').length).toBe(18);
+      expect(views.querySelectorAll('.panel-foot .foot-sel').length).toBe(9);
+      // 한국어 화면의 상태 막대 글은 원문 그대로(조각으로 나눠도 바이트 같음)
+      if (code === 'ko') expect([...views.querySelectorAll('.status-sel')].map((s) => s.textContent)).toEqual(picked.flatMap((label, i) => [`고른 것: ${label}`, `고른 PMI: ${PMI_KINDS[i]![1]}`]));
+      expect(leaks(views, code).sort()).toEqual(still210(code));
     } finally {
       dispose();
       root.remove();

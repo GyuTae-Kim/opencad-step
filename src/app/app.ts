@@ -3287,7 +3287,8 @@ export class StepApp {
     if (d.selKey && productAt(d.products, d.selKey)) return [`고른 것: ${this.selectionName(d)}`];
     if (d.pick) {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
-      if (pm) return [`고른 PMI: ${pm.name ? isolateText(pm.name) : pmiTypeLabel(pm.type)}`];
+      // 210차: 이름 없는 PMI의 종류(화면 글)는 따로 옮기는 조각으로 — 한 글이면 틀 「고른 PMI: {0}」이 종류를 그대로 끼워 다른 언어에서 한국어로 남았다(아래 띠 꼴)
+      if (pm) return pm.name ? [`고른 PMI: ${isolateText(pm.name)}`] : [h('span', {}, '고른 PMI'), ': ', h('span', {}, pmiTypeLabel(pm.type))];
     }
     if (d.items) return [h('span', {}, '고른 것'), ': ', h('span', {}, d.items.label)];
     return d.pick || d.body ? [`고른 것: ${this.selectionName(d)}`] : [];
