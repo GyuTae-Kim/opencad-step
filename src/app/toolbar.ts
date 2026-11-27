@@ -227,7 +227,8 @@ export class Toolbar {
     exp.el.setAttribute('aria-expanded', 'false');
     exp.el.classList.add('has-menu');
     this.sep();
-    this.toggle('panel', '패널', '제품·정보 패널 열기/닫기', () => H.panelOpen, () => H.togglePanel());
+    // 200차(WCAG 4.1.2): 열고 닫는 패널(panel.ts aside — id는 187차)을 조절 대상으로 가리킨다. 상태는 183차 결정대로 눌림만(펼침은 두지 않음)
+    this.toggle('panel', '패널', '제품·정보 패널 열기/닫기', () => H.panelOpen, () => H.togglePanel()).el.setAttribute('aria-controls', 'panel');
     this.refresh();
   }
 
