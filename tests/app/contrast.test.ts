@@ -4,6 +4,7 @@
  * 글 색 × 바탕(앱 바탕·막대·도구·패널·카드·입력 칸·3D 보기, 반투명 누름·강조 바탕은 섞은 색) 대비를 셈하고,
  * 강조색 글·채움·입력 칸 경계·눌린 단추·숨긴 줄 규칙이 그 토큰을 쓰는지 본다.
  * 164차: 바깥선을 끈 초점(메뉴 항목·거르기 칸·패널 손잡이)의 대신 표시가 강조색으로 바탕과 3:1 넘는지 — 좁은 창 시트 손잡이는 막대 색 바꿈만으로는 모자라 바깥선.
+ * 197차: 고른 줄(옅은 강조 바탕) 위 칩 — PMI 의미 표 고른 줄의 면 수 칩(누름 바탕 위 흐린 글)이 바탕 두 겹 위라 4.5:1 아래였다(나무 줄처럼 패널 바탕).
  * 실제 화면의 모든 글·아이콘 대비는 헤드리스 Chrome으로 쟀다(README 개발 절 — 계산된 색, 조상 겹침).
  * CONTRAST_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -267,5 +268,19 @@ describe('초점 표시(164차 — WCAG 2.4.7·1.4.11)', () => {
     expect(decl(fv, 'outline', 'outline-width', 'outline-style', 'outline-color')).toMatch(/2px.*solid.*var\(--accent\)/);
     expect(parseFloat(fv?.['outline-offset'] ?? '0')).toBeLessThanOrEqual(-2);
     for (const c of [S.view!, S.panel!]) expect(contrast(acc, c)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('고른 줄 위 칩(197차 — WCAG 1.4.3)', () => {
+  it.each(THEMES)('%s: 나무·PMI 의미 표 고른 줄 위 칩은 패널 바탕 — 면 수 칩(누름 바탕)을 옅은 강조 바탕에 겹치면 흐린 글이 4.5:1 아래', (_n, T) => {
+    const R = plainRules();
+    const S = surfaces(T);
+    const dim = rgba(T['--text-dim']!);
+    // 면 수 칩(.chip.dim-chip — pmiview.ts 의미 줄 이름 옆)은 누름 바탕: 고른 줄(.vgrid-row.sel — 옅은 강조 바탕) 위에 겹치면 밝게 4.27·어둡게 3.98
+    expect(R.get('.chip.dim-chip')?.background).toBe('var(--bg-hover)');
+    expect(contrast(dim, over(rgba(T['--bg-hover']!), S.softPanel!))).toBeLessThan(4.5);
+    for (const sel of ['.tree-row.sel .chip', '.vgrid-row.sel .chip']) expect(R.get(sel)?.background, sel).toBe('var(--bg-panel)');
+    // 패널 바탕 위 칩 글(흐린 글·강조색 글)과 고른 줄 바탕 위 흐린 글(나무 줄 .dim)은 4.5:1 넘음
+    expect([...below(T, '--text-dim', ['panel', 'softPanel'], 4.5), ...below(T, '--accent-fg', ['panel'], 4.5)]).toEqual([]);
   });
 });

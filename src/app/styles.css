@@ -1214,8 +1214,10 @@ body.resizing .viewer-host {
   font-weight: 700;
   line-height: 18px;
 }
-/* 고른 줄(옅은 강조 바탕) 위 칩은 옅은 강조 바탕을 두 겹 쌓지 않고 패널 바탕으로(겹치면 어두운 테마 3.9:1) */
-.tree-row.sel .chip {
+/* 고른 줄(옅은 강조 바탕) 위 칩은 옅은 강조 바탕을 두 겹 쌓지 않고 패널 바탕으로(겹치면 어두운 테마 3.9:1).
+   197차: PMI 의미 표 고른 줄의 면 수 칩도(누름 바탕을 겹치면 흐린 글이 밝게 4.27·어둡게 3.98:1) */
+.tree-row.sel .chip,
+.vgrid-row.sel .chip {
   background: var(--bg-panel);
 }
 
