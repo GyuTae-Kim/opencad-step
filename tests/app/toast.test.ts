@@ -262,6 +262,41 @@ describe('알림이 닫힐 때 초점 — 알림 칸에 들어오기 전 자리�
     expect([c.t.isConnected, document.activeElement]).toEqual([false, out]);
   });
 
+  it('포인터로 누른 알림은 들어오기 전 자리가 글 칸이면 그 칸 대신 home으로(손가락 화면 자판이 다시 뜨지 않게) — 글쇠로 누르면 글 칸, 글 칸이 아니면 그 자리', () => {
+    const { out, home, make } = setup();
+    const field = h('input', { type: 'text', class: 'tree-filter' });
+    document.body.append(field);
+    // 누름이 버튼에 초점을 주는 브라우저(Chrome·Firefox — 안드로이드 손가락 포함): pointerdown → 초점 → click
+    const a = make('먼저 부품을 고르십시오', 3500);
+    field.focus();
+    a.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    a.close.focus();
+    a.close.click();
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 동작 버튼도 같다
+    const b = make('보기 링크를 복사했습니다.', 9000);
+    field.focus();
+    b.act.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    b.act.focus();
+    b.act.click();
+    expect([b.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 글쇠(Enter·Space — 누름 없음)로 닫으면 글 칸으로(누른 뒤라도 그 알림 안에서 글쇠를 누르면 글쇠 쪽)
+    const c = make('부품 단위로 고릅니다.', 3500);
+    field.focus();
+    c.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    c.close.focus();
+    c.close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    c.close.click();
+    expect([c.t.isConnected, document.activeElement]).toEqual([false, field]);
+    // 포인터로 눌러도 들어오기 전 자리가 글 칸이 아니면 그 자리
+    const d = make('지금 보기를 홈 뷰로 정했습니다.', 3500);
+    out.focus();
+    d.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    d.close.focus();
+    d.close.click();
+    expect([d.t.isConnected, document.activeElement]).toEqual([false, out]);
+  });
+
   it('앱(원문): 알림 함수가 닫는 함수를 pushToast에서 받아 닫기·동작 버튼(닫고 실행)·돌려주는 값에 쓰고, 갈 곳이 없으면 3D 보기(문서 전이면 「파일 열기」)', () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
     expect(app).toContain('const remove = pushToast(this.toasts, t, 3, ms, () => (this.doc ? this.viewer?.canvas : this.startOpen));');
