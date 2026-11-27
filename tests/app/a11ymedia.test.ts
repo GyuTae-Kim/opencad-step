@@ -4,7 +4,8 @@
  * 다시 흐르기(1.4.10 — 1280px 창 400% = 320×256), 글만 키우기(1.4.4 — 갈래 단추·상태 막대가 글을 따라 커짐), 갈래 단추 초점,
  * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭),
  * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이),
- * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만).
+ * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만),
+ * 초점 가려지지 않음(190차 — 2.4.11: 휴대폰 3D 보기 위 띠가 쌓이는 자리 손셈, 키보드 초점이 든 단면 막대·측정 띠는 위 띠 묶음 위로).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -326,5 +327,81 @@ describe('다시 흐르기 폭(179차 — WCAG 1.4.10: 폭 320 CSS px = 1280px �
     expect(box(PLAIN, '.mb-btn')[1]).toBe(12);
     expect(PLAIN.has('.iso-bar .mb-btn > span')).toBe(false);
     expect(PLAIN.get('.iso-text')?.['text-overflow']).toBe('ellipsis');
+  });
+});
+
+/**
+ * 190차(WCAG 2.4.11 초점 가려지지 않음(최소)): 3D 보기 위 띠는 굴리지 않는 3D 보기 안에 겹쳐 놓여(같은 z면 뒤 칸이 위) 굴림 상자의 scroll-padding으로는 비키지 않는다.
+ * 휴대폰(손가락·760px 미만)은 단면 막대가 두 줄 이상(축·숫자 칸·버튼 44px 줄 + 밀대 44px 줄)인데 위 띠 묶음(분해·격리 띠)은 넓은 화면 한 줄 막대에 맞춘 56px에 놓여
+ * 밀대 줄을 통째로 덮을 수 있고, 덮은 띠는 Esc로 닫히지 않는다. 키보드 초점이 든 단면 막대·측정 띠(고른 부품 카드)를 위 띠 묶음 위로 올린다(알림 칸은 그 위 그대로, 자리·크기는 그대로)
+ */
+describe('초점 가려지지 않음(190차 — WCAG 2.4.11: 키보드 초점을 받은 칸이 앱이 띄운 다른 칸에 통째로 가려지지 않음)', () => {
+  const narrow = rules('(max-width: 759.98px)');
+  const coarse = rules('(pointer: coarse)');
+  const coarseNarrow = rules('(pointer: coarse) and (max-width: 759.98px)');
+  const phone = rules('(max-width: 759.98px), (pointer: coarse) and (max-height: 499.98px)');
+  const px = (R: Rules, sel: string, ...p: string[]) => parseFloat(val(R, sel, ...p));
+  const pad = (R: Rules, sel: string): [number, number, number, number] => {
+    const v = (R.get(sel)?.padding ?? '').trim().split(/\s+/).map((x) => parseFloat(x) || 0);
+    return [v[0] ?? 0, v[1] ?? v[0] ?? 0, v[2] ?? v[0] ?? 0, v[3] ?? v[1] ?? v[0] ?? 0];
+  };
+  /** 테두리 굵기(줄임 꼴 border에 var()가 있으면 jsdom이 낱 속성으로 펼치지 않을 수 있다) */
+  const line = (R: Rules, sel: string) => px(R, sel, 'border', 'border-width', 'border-top-width');
+  const z = (sel: string) => parseFloat(PLAIN.get(sel)?.['z-index'] ?? '');
+  const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+  /** 3D 보기 자식 차례(app.ts viewEl) — 같은 z면 뒤 칸이 위에 그려진다 */
+  const kids = /\n {4}this\.viewEl = h\('section', \{[^}]*\}, ([^;]*)\);/.exec(app)?.[1]?.split(',').map((s) => s.trim()) ?? [];
+  const STACK = '.view:has(.section-bar:not([hidden])) .top-bars';
+
+  it('지금 자리 손셈: 휴대폰 단면 막대의 밀대 줄은 56px 아래 위 띠 묶음 안에 통째로 든다(같은 z 6 — 위 띠 묶음이 뒤라 위), 측정 띠는 z 4로 그 밑', () => {
+    // 단면 막대: 760px 미만은 줄을 바꾸고(밀대는 차례 9·폭 100% — 따로 한 줄), 손가락 기기는 축 갈래·숫자 칸·버튼·밀대가 44px
+    expect(narrow.get('.section-bar')?.['flex-wrap']).toBe('wrap');
+    expect(narrow.get('.section-slider')?.['order']).toBe('9');
+    expect(val(narrow, '.section-slider', 'flex', 'flex-basis')).toContain('100%');
+    const top = px(narrow, '.section-bar', 'top');
+    const [padT, padR, , padL] = pad(PLAIN, '.section-bar');
+    const b = line(PLAIN, '.section-bar');
+    const row1 = Math.max(px(coarse, '.seg-btn', 'min-height') + 2 * line(PLAIN, '.seg'), px(coarse, '.section-num', 'height'), px(coarse, '.icon-btn', 'height'));
+    const slider = px(coarse, '.section-slider', 'height');
+    expect([top, padT, b, row1, slider, px(narrow, '.section-bar', 'row-gap')]).toEqual([8, 4, 1, 46, 44, 2]);
+    // 밀대 줄 바깥 상자(브라우저 기본 밀대 바깥 여백 2px — 없으면 2px씩 안쪽)
+    const sTop = top + b + padT + row1 + 2;
+    const sBottom = sTop + 2 + slider + 2;
+    expect([sTop, sBottom]).toEqual([61, 109]);
+    // 위 띠 묶음: 단면 막대가 보이면 56px(넓은 화면 한 줄 막대 10 + 38 + 틈 8) — 좁은 화면·손가락 규칙에 다른 자리 없음
+    const stackTop = px(PLAIN, STACK, 'top');
+    expect(stackTop).toBe(56);
+    for (const R of [narrow, coarse, coarseNarrow, phone]) expect(R.has(STACK)).toBe(false);
+    // 가장 낮은 위 띠(격리 띠 — 손가락 띠 단추 44px)도 밀대 줄 아래 끝을 넘는다
+    const [iT, , iB] = pad(PLAIN, '.iso-bar');
+    const iso = 2 * line(PLAIN, '.iso-bar') + iT + iB + px(coarse, '.mb-btn', 'height');
+    expect(iso).toBe(54);
+    expect(stackTop).toBeLessThanOrEqual(sTop);
+    expect(stackTop + iso).toBeGreaterThanOrEqual(sBottom);
+    // 옆: 위 띠 묶음은 단면 막대와 같은 왼쪽 8px, 폭은 3D 보기 − 104px까지(분해 띠는 그 폭을 채움) — 밀대 오른쪽 끝(왼쪽 + 3D 보기 − 100 − 테두리 − 오른쪽 여백)을 넘는다
+    const left = px(narrow, '.section-bar', 'left');
+    expect(px(phone, '.top-bars', 'left')).toBe(left);
+    const keep = (R: Rules, sel: string) => Number(/^calc\(100% - (\d+)px\)$/.exec(R.get(sel)?.['max-width'] ?? '')?.[1]);
+    const W = 375;
+    expect(left + W - keep(phone, '.top-bars')).toBeGreaterThanOrEqual(left + W - keep(narrow, '.section-bar') - b - padR);
+    expect(left + b + padL).toBeGreaterThan(left);
+    // 쌓는 차례: 단면 막대와 위 띠 묶음은 z 6으로 같고 위 띠 묶음이 뒤, 측정 띠(고른 부품 카드)는 z 4, 알림 칸 z 7이 맨 뒤, 조준 십자선 z 8
+    expect([z('.section-bar'), z('.top-bars'), z('.measure-bar'), z('.toasts'), z('.aim-layer')]).toEqual([6, 6, 4, 7, 8]);
+    const at = (x: string) => kids.indexOf(x);
+    expect(at('this.sectionBar.el')).toBeGreaterThan(-1);
+    expect(at('this.sectionBar.el') < at('topBars') && at('topBars') < at('this.measureBar') && at('this.measureBar') < at('this.toasts')).toBe(true);
+  });
+
+  it('키보드 초점이 든 단면 막대·측정 띠는 위 띠 묶음 위로(알림 칸은 뒤에 놓여 그 위, 조준 십자선 그대로) — 초점이 없거나 포인터로 누른 버튼(초점 표시 없음)은 지금 차례', () => {
+    for (const sel of ['.section-bar:has(:focus-visible)', '.measure-bar:has(:focus-visible)']) {
+      expect(z(sel), sel).toBeGreaterThan(z('.top-bars'));
+      expect(z(sel), sel).toBeLessThanOrEqual(z('.toasts'));
+      expect(z(sel), sel).toBeLessThan(z('.aim-layer'));
+      // 자리·크기는 그대로(z만), 미디어 조건 없이 모든 폭
+      expect(Object.keys(PLAIN.get(sel) ?? {}), sel).toEqual(['z-index']);
+    }
+    // 초점이 든 때만(:focus-within은 쓰지 않음 — 손가락·마우스로 누른 버튼에는 초점 표시가 없어 지금처럼)
+    expect([...PLAIN.keys()].some((s) => /^\.(section|measure)-bar:focus-within$/.test(s))).toBe(false);
+    expect([z('.section-bar'), z('.top-bars'), z('.measure-bar')]).toEqual([6, 6, 4]);
   });
 });
