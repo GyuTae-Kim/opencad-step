@@ -184,9 +184,10 @@ describe('language URLs and UI presentation', () => {
     // 129차: 패널(모델 트리·속성·물리 속성·간섭 검사·레이어)·PMI·정보 화면 글을 네 언어로 대조해 고친 것 — 위치 치수(location — 같은 사전의 경로·방향 위치 치수)를
     // 기하 공차 위치도(Position ⌖)와 같은 말로, 레이어 탭을 없는 레이어 패널로, 파일·그림 크기를 치수(尺寸 — 같은 사전은 文件大小·解压后大小)로,
     // 레이어 이름 뒤의 层(「显示 0 层」 — 층 수로 읽힘)으로 옮긴 것이 다시 들어오지 않게(고친 글은 같은 사전의 말)
+    // 212차: 이름 없는 의미 PMI 이름표 통째 열쇠(「PMI 각도 위치」 — 앞머리 뒤 소문자, 210차 「PMI curve annotation」 꼴)도 같은 낱말이라 첫 글자 대소문자는 둘 다
     const rules: [string, string, RegExp, RegExp][] = [
       ['위치 치수', 'en', /[Ll]ocation dimension/, /Position/],
-      ['각도 위치', 'en', /Angular location/, /[Pp]osition/],
+      ['각도 위치', 'en', /[Aa]ngular location/, /[Pp]osition/],
       ['레이어 탭', 'ja', /レイヤータブ/, /レイヤーパネル/],
     ];
     for (const [term, code, need, ban] of rules)
