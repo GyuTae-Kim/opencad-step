@@ -452,10 +452,11 @@ export class StepApp {
     this.selMulti = h('button', { type: 'button', class: 'mb-btn', title: '여러 개 고르기: 누르면 더하고, 다시 누르면 뺍니다', 'aria-label': '여러 개 고르기' }, icon('multi', 16), h('span', {}, '여러 개'));
     this.selMulti.addEventListener('click', () => this.toggleMultiPick(true));
     // 여러 개 고르기 띠: 고른 것 전체에 대한 작업 메뉴(맞춰 보기·숨기기·이것만 보기·흐리게·불투명도·고르기 풀기)
-    this.selMore = h('button', { type: 'button', class: 'mb-btn', title: '고른 것으로 할 일(숨기기·이것만 보기 등)', 'aria-label': '작업 메뉴', 'aria-haspopup': 'menu' }, icon('more', 16), h('span', {}, '작업'));
+    // 183차(WCAG 4.1.2): 메뉴는 이 버튼 자리 화면 점에 열고, 이 버튼을 연 버튼으로 넘겨 펼침(aria-expanded)이 열고 닫을 때 함께 바뀐다(menu.ts openMenuAt owner)
+    this.selMore = h('button', { type: 'button', class: 'mb-btn', title: '고른 것으로 할 일(숨기기·이것만 보기 등)', 'aria-label': '작업 메뉴', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('more', 16), h('span', {}, '작업'));
     this.selMore.addEventListener('click', () => {
       const r = this.selMore.getBoundingClientRect();
-      this.openContextMenu(r.left, r.top);
+      this.openContextMenu(r.left, r.top, this.selMore);
     });
     // 면 고르기 띠: 고른 면을 정면으로 보기·그 면으로 자르기
     this.faceLook = h('button', { type: 'button', class: 'mb-btn', title: '고른 면을 정면으로 보기', 'aria-label': '정면' }, icon('focus', 16), h('span', {}, '정면'));
@@ -2016,11 +2017,11 @@ export class StepApp {
 
   /**
    * 작업 메뉴 열기(화면 점, 나무 줄에서도 쓴다). 항목은 뷰어 조각의 ctxmenu.ts가 만든다(52차 — 뷰어가 있어야 열리므로 첫 화면 JS 밖,
-   * 손가락 기기에서 고른 것이 있으면 덜 쓰는 항목을 "그 밖의 작업…"으로 접는다)
+   * 손가락 기기에서 고른 것이 있으면 덜 쓰는 항목을 "그 밖의 작업…"으로 접는다). owner는 메뉴를 연 메뉴 버튼(183차 — 그 펼침을 함께, menu.ts openMenuAt)
    */
-  openContextMenu(clientX: number, clientY: number): void {
+  openContextMenu(clientX: number, clientY: number, owner?: HTMLElement): void {
     const items = this.ent?.contextItems(this, this.ctxFace, { x: clientX, y: clientY }) ?? [];
-    if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴');
+    if (items.length) openMenuAt(clientX, clientY, items, '작업 메뉴', undefined, owner);
   }
 
   isVisible(id: string): boolean {
