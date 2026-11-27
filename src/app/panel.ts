@@ -615,8 +615,9 @@ export class Panel {
     });
     const u = f.unit ? ` ${f.unit}` : '';
     const rows: HTMLElement[] = [];
-    // 이름 dt·값 dd(167차 — 줄들은 묶음의 dl 하나에, propRow와 같은 꼴)
-    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v', title: title ?? v, translate: 'no' }, v)));
+    // 이름 dt·값 dd(167차 — 줄들은 묶음의 dl 하나에, propRow와 같은 꼴). 209차: 앱 말풍선(title)이 있는 값 칸은 번역하는 칸(값은 숫자·단위라 번역층이 바꾸지 않는다 —
+    // translate=no면 사전에 있는 말풍선도 한국어로 남았다)
+    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v', title: title ?? v, translate: title ? null : 'no' }, v)));
     // 계산 중인 값(번역되는 글이라 값 칸을 번역층에 맡긴다)
     const busy = (k: string) => rows.push(h('div', { class: 'prop-row pending' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v' }, '계산 중…')));
     // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)

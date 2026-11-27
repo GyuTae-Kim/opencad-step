@@ -29,7 +29,8 @@ export function readLayers(f: StepFile): LayerIndex {
   for (const id of ids) {
     const e = f.get(id);
     if (!e || e.parts) continue;
-    const name = text(e.args[0]) || `레이어 #${id}`;
+    // 이름 없는 배정은 STEP 번호(#n — 화면 언어와 상관없는 파일 글, 저장된 보기 꼴). 209차: 전에는 앱 낱말 「레이어 #n」이 파일 글 칸에 들어가 다른 언어에서 한국어로 남았다
+    const name = text(e.args[0]) || `#${id}`;
     let li = byName.get(name);
     if (li === undefined) {
       li = layers.length;

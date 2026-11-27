@@ -444,7 +444,8 @@ export function stepToSceneDeferred(bytes: Uint8Array, opts: StepOptions = {}): 
     // 이름이 비면 표현 이름, 그다음 파일 머리 이름
     if (!name) for (const r of pdReps.get(pd) ?? []) if (!name) name = text(f.get(r)?.args[0]);
     if (!name) name = baseName(f.header.name);
-    return { name: name || `제품 #${pd}`, id };
+    // 그래도 없으면 제품 정의의 STEP 번호(#n — 앱 낱말 없이, 묶음 열쇠라 비우지 않는다). 209차: 전에는 「제품 #n」이 파일 글 칸에 들어가 다른 언어에서 한국어로 남았다
+    return { name: name || `#${pd}`, id };
   };
 
   // ── 단위 ──
