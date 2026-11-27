@@ -90,6 +90,8 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.mb-kind .seg-btn', 'min-height', null],
       ['.mb-btn.icon', 'height', 'width'],
       ['.measure-bar .mb-btn', 'height', 'min-width'],
+      // 격리 띠 「격리 풀기」(179차 — 480px 미만은 아이콘만이라 폭도 손가락 크기로)
+      ['.iso-bar .mb-btn', 'height', 'min-width'],
       ['.section-slider', 'height', null],
       ['.section-num', 'height', null],
       ['.explode-slider', 'height', null],
@@ -213,7 +215,8 @@ describe('손가락 기기 규칙(styles.css)', () => {
     for (const r of [...el.sheet!.cssRules])
       if (r instanceof CSSMediaRule) for (const s of [...r.cssRules]) if (s instanceof CSSStyleRule) rules.push({ media: r.media.mediaText, sel: s.selectorText, style: s.style });
     el.remove();
-    const find = (sel: string, media: RegExp) => rules.find((x) => x.sel === sel && media.test(x.media))?.style;
+    // 쉼표로 묶은 규칙도(179차 — 격리 띠 단추와 함께 둔다)
+    const find = (sel: string, media: RegExp) => rules.find((x) => x.sel.split(',').map((s) => s.trim()).includes(sel) && media.test(x.media))?.style;
     // 479.98px 이하: 측정 중이든 아니든 띠 단추 이름 글은 숨긴다(이름은 aria-label·title)
     expect(find('.measure-bar .mb-btn > span', /^\(max-width:\s*479\.98px\)$/)?.getPropertyValue('display')).toBe('none');
     expect(px(last.get('.measure-bar .mb-btn')?.['min-width'])).toBe(44);

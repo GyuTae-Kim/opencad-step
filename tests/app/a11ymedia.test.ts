@@ -3,7 +3,8 @@
  * 55차 WCAG 크기·간격·움직임 규칙(styles.css): 강제 색(forced-colors: active — Windows 고대비 등), 움직임 줄이기(prefers-reduced-motion: reduce — 2.3.3),
  * 다시 흐르기(1.4.10 — 1280px 창 400% = 320×256), 글만 키우기(1.4.4 — 갈래 단추·상태 막대가 글을 따라 커짐), 갈래 단추 초점,
  * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭),
- * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이).
+ * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이),
+ * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -264,5 +265,66 @@ describe('글 간격(171차 — WCAG 1.4.12: 줄 높이를 글자 크기의 1.5�
     }
     // 보통 글 간격의 한 줄(13px × 1.45 = 18.85px)은 최소 높이 안이라 항목 높이는 그대로(30px·손가락 44px — 두 줄 13px × 1.5 × 2 = 39px는 마우스 30px를 넘었다)
     expect(13 * 1.45 + padY(PLAIN, '.menu-item')).toBeLessThan(30);
+  });
+});
+
+describe('다시 흐르기 폭(179차 — WCAG 1.4.10: 폭 320 CSS px = 1280px 창 400%, 마우스 — 쪽은 가로로 굴러가지 않고 넘치면 잘린다)', () => {
+  const narrow = rules('(max-width: 759.98px)');
+  const phone = rules('(max-width: 759.98px), (pointer: coarse) and (max-height: 499.98px)');
+  const tiny = rules('(max-width: 479.98px)');
+  const small = rules('(max-width: 420px)');
+  const title = rules('(max-width: 767px)');
+  /** 선언의 px 값(없으면 NaN) */
+  const num = (R: Rules, sel: string, p: string) => parseFloat(R.get(sel)?.[p] ?? '');
+  /** padding 줄임 꼴 → [위, 오른쪽, 아래, 왼쪽] px(스타일시트 글 그대로 — jsdom은 낱 속성으로 펼치지 않는다) */
+  const box = (R: Rules, sel: string): [number, number, number, number] => {
+    const v = (R.get(sel)?.padding ?? '').trim().split(/\s+/).map((x) => parseFloat(x) || 0);
+    return [v[0] ?? 0, v[1] ?? v[0] ?? 0, v[2] ?? v[0] ?? 0, v[3] ?? v[1] ?? v[0] ?? 0];
+  };
+
+  it('창 폭을 따르는 칸은 320px 창 안에 놓이고, 제목 막대는 아이콘만으로 한 줄에 든다', () => {
+    // 대화 상자 288px(본문 254px — 키 도움말 키 칸 nowrap 「Tab · Shift+Tab」 고정 폭 12px 132px + 할 일 칸 가장 긴 낱말 독일어 「Standardansichten」 ≈ 110px), 알림 칸 296px
+    expect(css).toMatch(/\n\.dlg \{\n {2}width: min\(420px, calc\(100vw - 32px\)\);/);
+    expect(css).toMatch(/\n\.toasts \{[^}]*\n {2}width: min\(560px, calc\(100% - 24px\)\);/);
+    expect(PLAIN.get('.key-help th')?.['white-space']).toBe('nowrap');
+    expect(320 - 32 - 2 - 2 * 16).toBeGreaterThanOrEqual(132 + 110);
+    // 대화 상자 줄은 이름 칸 96px부터 이름 폭까지, 값 칸은 남은 폭으로 줄어든다(긴 값은 고르기 칸 안 말줄임 — 목록을 열면 전체)
+    expect(PLAIN.get('.dlg-row')?.['grid-template-columns']).toBe('minmax(96px, auto) minmax(0, 1fr)');
+    expect(num(PLAIN, '.dlg-select', 'min-width')).toBe(0);
+    expect(PLAIN.get('.dlg-select')?.['max-width']).toBe('100%');
+    // 메뉴·언어 목록은 창 폭 − 16px까지(메뉴는 menu.ts가 왼쪽 8px 안으로), 측정 띠는 3D 보기 폭 − 16px, 위 띠 묶음(분해·격리)은 − 104px(뷰 큐브 76px 자리), 단면 띠는 − 100px
+    expect(num(PLAIN, '.menu', 'min-width')).toBe(180);
+    for (const sel of ['.menu', '.language-list']) expect(PLAIN.get(sel)?.['max-width'], sel).toBe('calc(100vw - 16px)');
+    expect(PLAIN.get('.measure-bar')?.['max-width']).toBe('calc(100% - 16px)');
+    expect(phone.get('.top-bars')?.['max-width']).toBe('calc(100% - 104px)');
+    expect(narrow.get('.section-bar')?.['max-width']).toBe('calc(100% - 100px)');
+    // 제목 막대: 좌우 여백 + 앱 아이콘(20 + 2) + 버튼 다섯(아이콘 18 + 좌우 여백 + 테두리 2, 사이 틈) + 언어 단추 + 칸 사이 틈 둘 — 세로 막대 15px가 있어도 들어간다
+    const [, padR, , padL] = box(narrow, '.titlebar');
+    const [, btnR, , btnL] = box(small, '.title-actions .btn');
+    const row = padL + padR + 22 + 5 * (18 + btnL + btnR + 2) + 4 * num(small, '.title-actions', 'gap') + num(title, '.language-control', 'width') + 2 * num(narrow, '.titlebar', 'gap');
+    expect(row).toBe(254);
+    expect(row).toBeLessThanOrEqual(320 - 15);
+  });
+
+  it('격리 띠: 480px 미만 화면에서는 「격리 풀기」도 아이콘만(52차 측정 띠·고른 부품 카드 꼴) — 320px 창의 띠 안 200px에 이름표·이름·버튼이 들어가 버튼이 띠 밖 뷰 큐브 위로 나가지 않는다', () => {
+    // 이름 글은 숨기고(화면 읽기 이름은 말풍선 글 「격리 풀기 (I)」 — 네 언어 사전에 있음), 폭은 측정 띠 단추와 같은 38px·좌우 여백 0(손가락 기기 44px는 touch.test.ts)
+    expect(tiny.get('.iso-bar .mb-btn > span')?.display).toBe('none');
+    expect(num(tiny, '.iso-bar .mb-btn', 'min-width')).toBe(38);
+    expect(box(tiny, '.iso-bar .mb-btn')).toEqual([0, 0, 0, 0]);
+    expect(num(tiny, '.measure-bar .mb-btn', 'min-width')).toBe(38);
+    // 띠 안 폭 = 3D 보기 320 − 위 띠 묶음 자리 104 − 좌우 여백 − 테두리 1 × 2
+    const keep = Number(/^calc\(100% - (\d+)px\)$/.exec(phone.get('.top-bars')?.['max-width'] ?? '')?.[1]);
+    const [, padR, , padL] = box(PLAIN, '.iso-bar');
+    const inner = 320 - keep - padL - padR - 2;
+    expect(inner).toBe(200);
+    // 이름표(줄지 않음)는 가장 긴 독일어 「Rest abblenden」(600 12px ≈ 83px). 버튼 이름 글을 보이면 「Isolierung aufheben」 버튼 ≈ 156px라
+    // 83 + 틈 8 × 2 + 156 = 255px — 띠 밖으로 55px 나가 뷰 큐브(x 236~312)를 38px 덮고 이름 칸은 0px였다. 아이콘만이면 이름 칸 63px
+    const gap = num(PLAIN, '.iso-bar', 'gap');
+    expect(inner - 83 - 2 * gap - 156).toBeLessThan(0);
+    expect(inner - 83 - 2 * gap - num(tiny, '.iso-bar .mb-btn', 'min-width')).toBeGreaterThanOrEqual(60);
+    // 넓은 화면은 그대로: 보통 규칙의 띠 단추는 이름 글과 좌우 여백 12px, 격리 띠 이름은 한 줄 말줄임
+    expect(box(PLAIN, '.mb-btn')[1]).toBe(12);
+    expect(PLAIN.has('.iso-bar .mb-btn > span')).toBe(false);
+    expect(PLAIN.get('.iso-text')?.['text-overflow']).toBe('ellipsis');
   });
 });

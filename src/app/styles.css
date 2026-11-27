@@ -902,11 +902,14 @@ input::placeholder {
    * 좁은 휴대폰의 고른 부품·면 카드: 단추는 아이콘만(이름은 title·aria-label) — 영어처럼 긴 단추 이름에 부품 이름·크기 글이 눌리지 않게.
    * 52차: 측정 띠의 "다시 재기"도 — 첫 점 뒤 방향 잠금 단추가 나오면 첫 줄 단추(잠금·다시 재기·끝내기)가 측정 종류 옆에 들어가지 않아
    * 따로 한 줄을 더 써 320×568 띠가 134px(3D 보기의 30%)였다
+   * 179차(WCAG 1.4.10): 격리 띠 "격리 풀기"도 — 320px 창에서 띠 안 200px를 넘어 버튼이 띠 밖 뷰 큐브 위로 나가고 이름 칸이 0px였다(이름은 title)
    */
-  .measure-bar .mb-btn > span {
+  .measure-bar .mb-btn > span,
+  .iso-bar .mb-btn > span {
     display: none;
   }
-  .measure-bar .mb-btn {
+  .measure-bar .mb-btn,
+  .iso-bar .mb-btn {
     min-width: 38px;
     padding: 0;
   }
@@ -2051,7 +2054,8 @@ table.grid td.mono {
   .mb-btn.icon {
     width: 44px;
   }
-  .measure-bar .mb-btn {
+  .measure-bar .mb-btn,
+  .iso-bar .mb-btn {
     min-width: 44px;
   }
   /* 최근 문서: 줄과 ✕·모두 지우기를 손가락 크기(44px)로 */
