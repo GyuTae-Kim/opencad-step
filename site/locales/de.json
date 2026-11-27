@@ -1002,6 +1002,7 @@
   "화면 가로": "Bildschirm waagerecht",
   "화면 세로": "Bildschirm senkrecht",
   "화면 평면": "Bildschirmebene",
+  "가로세로(화면 평면)": "Beide (Bildschirmebene)",
   "화면 가로로만: 부품을 지금 화면의 가로 방향으로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Nur Bildschirm waagerecht: rückt die Teile nur in der waagerechten Richtung der aktuellen Ansicht auseinander – festgelegt durch die Kamera beim Einschalten der Explosionsansicht oder beim Drücken dieser Schaltfläche; erneutes Drücken richtet sie an der aktuellen Kamera neu aus",
   "화면 세로로만: 부품을 지금 화면의 세로 방향으로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Nur Bildschirm senkrecht: rückt die Teile nur in der senkrechten Richtung der aktuellen Ansicht auseinander – festgelegt durch die Kamera beim Einschalten der Explosionsansicht oder beim Drücken dieser Schaltfläche; erneutes Drücken richtet sie an der aktuellen Kamera neu aus",
   "화면 평면: 부품을 보는 방향에 수직인 화면 가로·세로로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Bildschirmebene: rückt die Teile nur waagerecht und senkrecht über den Bildschirm auseinander, senkrecht zur Blickrichtung – festgelegt durch die Kamera beim Einschalten der Explosionsansicht oder beim Drücken dieser Schaltfläche; erneutes Drücken richtet sie an der aktuellen Kamera neu aus",

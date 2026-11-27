@@ -6,7 +6,7 @@ import type { ProductNode, StepDoc } from '../../src/app/doc';
 import { EXPLODE_SCALE, explodeMoves, explodePlan, explodeStage, type ExplodeAxis, type ExplodeMode, type ExplodePlan } from '../../src/app/explode';
 import { ExplodeControls, type TweakState } from '../../src/app/explodebar';
 import { ExplodeTweaks } from '../../src/app/explodetweak';
-import { translate } from '../../site/i18n.mjs';
+import { sourceMessage, translate } from '../../site/i18n.mjs';
 
 /** 한 변 2인 상자 그물(가운데 c) */
 const box = (id: string, c: [number, number, number]): Mesh3d => ({
@@ -190,9 +190,10 @@ describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () =
     expect(group.getAttribute('role')).toBe('radiogroup');
     expect(btns.every((b) => b.getAttribute('role') === 'radio' && b.type === 'button')).toBe(true);
     // 장면 축과 화면 방향은 두 칸(휴대폰 폭에서는 화면 칸이 다음 줄로), 화면 단추는 읽는 이름이 "화면 가로"처럼 온전하다
+    // (193차: 「가로세로」는 보이는 글로 시작하는 「가로세로(화면 평면)」 — 아래 시험)
     const segs = [...group.querySelectorAll('.seg')];
     expect(segs.map((s) => s.querySelectorAll('button').length)).toEqual([4, 3]);
-    expect(btns.slice(4).map((b) => b.getAttribute('aria-label'))).toEqual(['화면 가로', '화면 세로', '화면 평면']);
+    expect(btns.slice(4).map((b) => b.getAttribute('aria-label'))).toEqual(['화면 가로', '화면 세로', '가로세로(화면 평면)']);
     expect(group.querySelector('.explode-screen-label')!.getAttribute('aria-hidden')).toBe('true');
     btns[3]!.click();
     btns[1]!.click();
@@ -227,6 +228,22 @@ describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () =
     for (const lang of ['en', 'ja', 'zh-CN', 'de'])
       for (const text of [...btns.flatMap((b) => [b.textContent!, b.title, b.getAttribute('aria-label') ?? '']), group.getAttribute('aria-label')!, label]) expect(translate(text, lang), `${lang} ${text}`).not.toMatch(/[가-힣]/);
     expect(seg.getAttribute('aria-label')).not.toBe(group.getAttribute('aria-label'));
+  });
+
+  it('193차(WCAG 2.5.3 이름 안의 보이는 글): 방향 버튼의 화면 읽기 이름은 보이는 글을 품고, 「가로세로」는 다섯 언어 모두 보이는 글로 시작한다', () => {
+    const c = new ExplodeControls(() => {});
+    const btns = [...(c.els[1] as HTMLElement).querySelectorAll<HTMLButtonElement>('button')];
+    // 한국어 원문: 이름(aria-label, 없으면 보이는 글)이 보이는 글을 품는다 — 「가로세로」의 이름이 「화면 평면」이라 음성 「가로세로 누르기」가 눌리지 않았다
+    for (const b of btns) expect(b.getAttribute('aria-label') ?? b.textContent!, b.textContent!).toContain(b.textContent!);
+    // 「가로세로」: 옮긴 뒤에도 이름이 보이는 글로 시작하고(앞의 「화면」 글은 aria-hidden이라) 「화면 평면」 뜻은 남으며, 옮긴 이름을 거꾸로 찾으면 제 원문
+    const sp = btns[6]!;
+    for (const lang of ['ko', 'en', 'ja', 'zh-CN', 'de']) {
+      const visible = translate(sp.textContent!, lang);
+      const name = translate(sp.getAttribute('aria-label')!, lang);
+      expect(name.startsWith(visible), `${lang}: ${name} ← ${visible}`).toBe(true);
+      expect(name.toLowerCase(), lang).toContain(translate('화면 평면', lang).toLowerCase());
+      expect(sourceMessage(name), lang).toBe(sp.getAttribute('aria-label'));
+    }
   });
 
   it('화면 방향 계획은 카메라 각마다(같은 각이면 한 번), 각을 바꾸면 앞 각의 계획은 버린다', () => {
