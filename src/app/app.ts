@@ -782,6 +782,8 @@ export class StepApp {
     carry: StepDoc | null = null,
   ): Promise<boolean> {
     let reading = true;
+    // 178차: 다 열었는지(finally에서 곡면 품질을 견줄 때)
+    let done = false;
     closeMenu();
     const seq = ++this.loadSeq;
     this.abort?.abort();
@@ -799,7 +801,7 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       reading = false;
       const size = buf.byteLength;
-      // 177차: 해석에 쓰는 곡면 품질 — 다 열면 source에 남겨, 다시 삼각화가 끝났을 때 그새 바뀐 설정과 견준다(retessellate)
+      // 177차: 해석에 쓰는 곡면 품질 — 다 열면 source에 남겨, 끝(finally — 178차)에서 그새 바뀐 설정과 견준다(retessellate)
       const quality = this.display.quality;
       const res = await this.client.parse(
         name,
@@ -833,6 +835,7 @@ export class StepApp {
       const note = this.ent!.openNotice(res.scene.warnings ?? []);
       if (note) this.toast(note.text, 'warn', note.ms);
       attempt.success();
+      done = true;
       return true;
     } catch (e) {
       if (seq !== this.loadSeq) return false;
@@ -846,6 +849,9 @@ export class StepApp {
       if (seq === this.loadSeq) {
         this.abort = null;
         this.setLoading(null);
+        // 178차: 다 열었으면(여는 길 다섯·다시 삼각화가 모두 여기를 지난다) 여는 동안 바꾼 곡면 품질을 retessellate가 견줘 다르면 지금 값으로 한 번 더 —
+        // 끝날 때마다 지금 값 하나와 견주므로 여러 번 바꿔도 한 번. 취소·다른 파일 열기는 차례가 바뀌어, 실패는 done이 아니라 하지 않는다
+        if (done) void this.retessellate();
       }
     }
   }
@@ -2814,15 +2820,13 @@ export class StepApp {
     if (this.display.quality !== quality) void this.retessellate();
   }
 
-  /** 연 문서를 지금 곡면 품질로 다시 삼각화(같은 파일을 다시 읽는다 — 보기·고르기·보이기는 이어 간다) */
+  /** 연 문서를 지금 곡면 품질로 다시 삼각화(같은 파일을 다시 읽는다 — 보기·고르기·보이기는 이어 간다). 연 문서가 이미 그 품질이면 하지 않는다 */
   async retessellate(): Promise<boolean> {
     const src = this.source;
     const d = this.doc;
-    if (!src || !d || this.loading) return false;
-    const ok = await this.load(src.name, src.read, src.input, { success() {}, error() {} }, d);
-    // 177차: 도는 동안 품질을 또 바꿨으면(그때 부른 이 함수는 loading이라 위에서 돌려보냄) 해석에 쓴 품질과 지금 설정이 다를 때 끝난 뒤 한 번 더 —
-    // 끝날 때마다 지금 값 하나와 견주므로 여러 번 바꿔도 한 번, 취소·다른 파일 열기·실패면 ok가 아니라 하지 않는다
-    return ok && this.source?.quality !== this.display.quality ? this.retessellate() : ok;
+    // 177·178차: 품질을 견주는 곳은 여기 하나 — setDisplay와 load 끝(다 연 뒤·다시 삼각화를 마친 뒤)이 부른다. 여는 중(loading)에 부르면 돌려보내고 그 load의 끝이 다시 부른다
+    if (!src || !d || this.loading || src.quality === this.display.quality) return false;
+    return this.load(src.name, src.read, src.input, { success() {}, error() {} }, d);
   }
 
   get displaySettings(): DisplaySettings {
