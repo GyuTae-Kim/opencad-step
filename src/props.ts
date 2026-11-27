@@ -21,7 +21,7 @@ export interface StepProductProps {
   density?: number;
   /** 파일에 적힌 밀도 글(값과 단위) */
   densityText?: string;
-  /** 그 밖의 속성(이름, 값 글) */
+  /** 그 밖의 속성(이름, 값 글). 파일에 이름·설명이 없으면 이름은 빈 글(208차 — 화면이 자리 이름을 넣는다) */
   items?: [string, string][];
 }
 
@@ -229,7 +229,7 @@ export function readProductProps(f: StepFile): Map<number, StepProductProps> {
         p.density = d;
         p.densityText = values[0];
       }
-    } else (p.items ??= []).push([label || '속성', values.join(', ')]);
+    } else (p.items ??= []).push([label, values.join(', ')]);
   }
   // AP214 재질 지정
   for (const id of f.idsOfType('MATERIAL_DESIGNATION')) {
