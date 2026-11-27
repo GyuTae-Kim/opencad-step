@@ -2285,6 +2285,12 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
 .view:has(.section-bar:not([hidden])) .top-bars {
   top: 56px;
 }
+/* 190차(WCAG 2.4.11): 휴대폰은 단면 막대가 두세 줄이라 아래 줄이 위 띠 묶음(56px)에, 고른 부품 카드·측정 띠는 키 큰 분해 띠에 덮인다(같은·낮은 z — 뒤 칸이 위) —
+   키보드 초점이 든 띠만 위 띠 묶음 위로(자리 그대로, 알림 칸은 뒤에 놓여 그 위, 포인터로 누른 버튼은 초점 표시가 없어 그대로) */
+.section-bar:has(:focus-visible),
+.measure-bar:has(:focus-visible) {
+  z-index: 7;
+}
 .explode-bar {
   display: flex;
   flex-wrap: wrap;
