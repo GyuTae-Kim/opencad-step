@@ -13,6 +13,7 @@
   "+{0} 쪽을 잘라 냅니다 — 눌러서 뒤집기": "Cuts away the +{0} side — press to flip",
   "100% (불투명)": "100% (opaque)",
   "3D 보기": "3D view",
+  "3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)": "Single-character shortcuts outside the 3D view (H·I·F·1~7)",
   "3D 셰이더 연결 실패: {0}": "3D shader connection failure: {0}",
   "3D 셰이더 컴파일 실패: {0}": "3D shader compilation failed: {0}",
   "3D 형상을 다룹니다": "Works with 3D geometry",

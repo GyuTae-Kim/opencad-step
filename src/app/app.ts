@@ -40,7 +40,7 @@ import { EMBED_ACCEPT, SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_A
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { acceptEmbeddedFiles, isFramed } from 'opencad-site-kit/embed/app';
 import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './format';
-import { arrowOwner, controlOf, isTextTarget, routeKey } from './keys';
+import { arrowOwner, controlOf, isTextTarget, readLetterKeys, routeKey, writeLetterKeys } from './keys';
 import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
@@ -166,6 +166,8 @@ export class StepApp {
   private aim: TouchAim | null = null;
   /** 표시 설정(길이 단위·소수 자리) — 이 브라우저에 기억한다 */
   private display: DisplaySettings = { ...DEFAULT_DISPLAY };
+  /** 172차: 한 글자 단축키(H·I·F·1~7)를 3D 보기 밖 초점에서도 받는지(앱 설정 메뉴 — 기본 켬, 끄면 3D 보기 안에서만: WCAG 2.1.4) — 이 브라우저에 기억한다 */
+  private letterKeys = readLetterKeys(safeLocalStorage());
   /** 수 꼴(표시 설정·장면 단위·화면 언어) */
   fmt: Fmt = new Fmt();
 
@@ -367,6 +369,8 @@ export class StepApp {
     this.themeBtn.addEventListener('click', () => openMenu(this.themeBtn, [
       { label: this.theme === 'dark' ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기', run: () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark') },
       { label: '표시 설정…', run: () => this.showDisplaySettings() },
+      // 172차(WCAG 2.1.4 문자 키 단축키): 끄면 수식 글쇠 없는 한 글자 키는 3D 보기에 초점이 있을 때만 듣는다(onKey — 음성 입력이 친 글자가 명령으로 돌지 않게)
+      { label: '3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)', toggle: true, checked: this.letterKeys, run: () => (this.letterKeys = writeLetterKeys(safeLocalStorage(), !this.letterKeys)) },
       // 다른 웹페이지에 넣은 화면(iframe)에서는 방문 통계를 켜지 않으므로 설정 항목도 뺀다
       ...(isFramed() ? [] : [{ label: '방문 통계 설정', run: showAnalyticsSettings }]),
     ], '앱 설정'));
@@ -2962,7 +2966,7 @@ export class StepApp {
 
   private onKey(ev: KeyboardEvent): void {
     if (ev.defaultPrevented) return;
-    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, shift: ev.shiftKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc, modal: dialogOpen() });
+    const action = routeKey({ key: ev.key, ctrl: ev.ctrlKey, meta: ev.metaKey, alt: ev.altKey, shift: ev.shiftKey, inText: isTextTarget(ev.target), control: controlOf(ev.target), hasDoc: this.hasDoc, viewOnly: !this.letterKeys && !this.hostEl.contains(ev.target as Node), modal: dialogOpen() });
     if (!action) return;
     const v = this.viewer;
     // 부품을 끄는 중 Esc는 그 끌기만 취소한다(앞 자리로)

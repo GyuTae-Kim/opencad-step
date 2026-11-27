@@ -38,6 +38,8 @@ export interface KeyInput {
   hasDoc?: boolean;
   /** 모달 대화 상자가 열려 있는지(154차 — dialog.ts dialogOpen) */
   modal?: boolean;
+  /** 172차: 앱 설정에서 「3D 보기 밖에서도 한 글자 단축키」를 끄고 초점이 3D 보기 밖인지(그러면 한 글자 키는 받지 않는다) */
+  viewOnly?: boolean;
 }
 
 /** 눌린 키 → 할 일(없으면 null) */
@@ -53,6 +55,9 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (mod && !k.alt && k.hasDoc && (k.key === 'z' || k.key === 'Z')) return k.shift ? 'redo' : 'undo';
   if (k.ctrl && !k.meta && !k.alt && !k.shift && k.hasDoc && (k.key === 'y' || k.key === 'Y')) return 'redo';
   if (mod || k.alt) return null;
+  // 172차(WCAG 2.1.4 문자 키 단축키): 끈 사용자에게 수식 글쇠 없는 한 글자 키(H·I·F·1~7 — Shift만 붙은 것도)는 3D 보기에 초점이 있을 때만(음성 입력이 친 글자가
+  // 숨기기·격리·보기 바꿈으로 돌지 않게). Esc·F7·Home·화살표·Shift는 글자 키가 아니라 그대로
+  if (k.viewOnly && k.key.length === 1) return null;
   if (k.key === 'Escape') return 'escape';
   // 158차: 초점이 열린 메뉴의 항목이면 나머지 키는 메뉴 것(WAI-ARIA APG Menu — 닫기 전까지 그 메뉴의 키, 글자는 그 메뉴 안 항목 찾기 몫).
   // 전에는 메뉴를 연 채 H·I·F·1~7·F7이 뒤의 고르기·3D 보기·격자를 바꿔 메뉴의 항목 글·켜짐 표시가 어긋났다. 수식 글쇠 명령·Esc는 위 차례 그대로
@@ -63,6 +68,28 @@ export function routeKey(k: KeyInput): KeyAction | null {
   if (k.key === 'i' || k.key === 'I') return 'isolate';
   if (k.key === 'Home') return 'home';
   return 'viewer';
+}
+
+type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
+const LETTER_KEYS = 'opencad-step-letter-keys';
+
+/** 172차: 한 글자 단축키를 3D 보기 밖에서도 받는지(앱 설정 메뉴 — 기본 켬, 끄면 이 브라우저에 'view'를 기억). 없거나 못 읽으면 켬 */
+export function readLetterKeys(s: Store): boolean {
+  try {
+    return s?.getItem(LETTER_KEYS) !== 'view';
+  } catch {
+    return true;
+  }
+}
+
+/** 그 설정을 기억하고(못 쓰면 이 창 동안만) 그 값을 돌려준다 */
+export function writeLetterKeys(s: Store, on: boolean): boolean {
+  try {
+    s?.setItem(LETTER_KEYS, on ? 'any' : 'view');
+  } catch {
+    /* 저장소를 못 쓰는 환경 */
+  }
+  return on;
 }
 
 /**
