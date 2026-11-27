@@ -5,6 +5,7 @@
  * 강조색 글·채움·입력 칸 경계·눌린 단추·숨긴 줄 규칙이 그 토큰을 쓰는지 본다.
  * 164차: 바깥선을 끈 초점(메뉴 항목·거르기 칸·패널 손잡이)의 대신 표시가 강조색으로 바탕과 3:1 넘는지 — 좁은 창 시트 손잡이는 막대 색 바꿈만으로는 모자라 바깥선.
  * 197차: 고른 줄(옅은 강조 바탕) 위 칩 — PMI 의미 표 고른 줄의 면 수 칩(누름 바탕 위 흐린 글)이 바탕 두 겹 위라 4.5:1 아래였다(나무 줄처럼 패널 바탕).
+ * 198차: 끈 줄(숨긴 레이어·끈 표현 PMI — 옅은 글)의 이름 버튼은 마우스 올림·고름 바탕 위에서 옅은 글이 4.5:1 아래였다(그 상태일 때만 흐린 글 — 54차 나무 숨긴 마디 꼴).
  * 실제 화면의 모든 글·아이콘 대비는 헤드리스 Chrome으로 쟀다(README 개발 절 — 계산된 색, 조상 겹침).
  * CONTRAST_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -282,5 +283,24 @@ describe('고른 줄 위 칩(197차 — WCAG 1.4.3)', () => {
     for (const sel of ['.tree-row.sel .chip', '.vgrid-row.sel .chip']) expect(R.get(sel)?.background, sel).toBe('var(--bg-panel)');
     // 패널 바탕 위 칩 글(흐린 글·강조색 글)과 고른 줄 바탕 위 흐린 글(나무 줄 .dim)은 4.5:1 넘음
     expect([...below(T, '--text-dim', ['panel', 'softPanel'], 4.5), ...below(T, '--accent-fg', ['panel'], 4.5)]).toEqual([]);
+  });
+});
+
+describe('끈 줄 이름 버튼(198차 — WCAG 1.4.3)', () => {
+  it.each(THEMES)('%s: 끈 줄 이름 버튼은 마우스 올림·고름 바탕 위에서만 흐린 글 — 옅은 글은 그 바탕 위 4.5:1 아래, 보통은 옅은 글 그대로', (_n, T) => {
+    const R = plainRules();
+    // 이름 버튼(레이어 표 td 안·표현 PMI 표 칸 span.check 안 — 끈 줄 규칙의 대상이 아니라 그 안)은 글 색을 물려받고 상태가 바탕을 바꾼다
+    expect(R.get('.link-btn')?.color).toBe('inherit');
+    expect(R.get('.link-btn:hover')?.background).toBe('var(--bg-hover)');
+    expect(R.get('.link-btn.sel')?.background).toBe('var(--accent-soft)');
+    for (const sel of ['table.grid tr.off td', '.vgrid-row.off > *']) expect(R.get(sel)?.color, sel).toBe('var(--text-faint)');
+    // 옅은 글: 누름 바탕(마우스) 위 밝게 4.43·어둡게 4.33, 옅은 강조 바탕(고름 — 마우스를 함께 올려도 .sel 바탕) 위 4.31·4.00
+    expect(below(T, '--text-faint', ['hoverPanel', 'softPanel'], 4.5)).toHaveLength(2);
+    for (const sel of ['table.grid tr.off .link-btn:hover', 'table.grid tr.off .link-btn.sel', '.vgrid-row.off .link-btn:hover', '.vgrid-row.off .link-btn.sel']) {
+      expect(R.get(sel)?.color, sel).toBe('var(--text-dim)');
+    }
+    expect(below(T, '--text-dim', ['hoverPanel', 'softPanel'], 4.5)).toEqual([]);
+    // 보통 끈 줄 이름 버튼(가만한 패널 바탕)은 옅은 글 그대로(5.06·5.37 — 위 토큰 묶음)
+    for (const sel of ['table.grid tr.off .link-btn', '.vgrid-row.off .link-btn']) expect(R.get(sel)?.color, sel).toBeUndefined();
   });
 });
