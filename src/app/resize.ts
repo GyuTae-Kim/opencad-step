@@ -1,6 +1,8 @@
 /**
  * 패널 크기 바꾸기: 넓은 화면은 패널 왼쪽 가장자리를 끌어 폭(--panel-w)을, 좁은 화면(아래 시트)은 위 가장자리를 끌어
  * 높이(--sheet-h)를 바꾼다. 화살표 키로도(16px씩), 두 번 누르면 기본값. 고른 크기는 이 브라우저에 기억한다.
+ * 173차(WCAG 2.5.7 끄는 동작): 끌지 않고 한 번 누르면 기본 크기 ↔ 가장 큰 크기 — 크기가 바뀌면 손잡이가 옮겨 가 두 번 누르기의 둘째가
+ * 다른 곳에 떨어지므로 두 번 누르기 시간(TAP_WAIT_MS)을 기다리고, 그 안 둘째 누르기는 기본(손가락 두 번 두드리기도).
  */
 
 export const PANEL_MIN = 240;
@@ -8,6 +10,8 @@ export const PANEL_MAX = 720;
 export const SHEET_MIN = 120;
 const KEY_W = 'opencad-step.panelWidth';
 const KEY_H = 'opencad-step.sheetHeight';
+/** 끌지 않은 누르기 뒤 둘째 누르기를 기다리는 시간(ms — 코어 DOUBLE_CLICK_MS와 같다) */
+const TAP_WAIT_MS = 450;
 
 /** 패널 폭 자르기: 240~720px, 창 폭의 70%를 넘지 않게 */
 export function clampPanelWidth(w: number, viewportW: number): number {
@@ -29,7 +33,10 @@ interface Store {
 
 export class PanelResizer {
   readonly el: HTMLElement;
-  private drag: { id: number; start: number; size: number } | null = null;
+  /** set: 누를 때 사용자가 고른 크기였는지, again: 한 번 누른 뒤 기다리던 중 다시 눌렀는지(173차) */
+  private drag: { id: number; start: number; size: number; set: boolean; again: boolean } | null = null;
+  /** 끌지 않고 한 번 누른 뒤 기다리는 크기 바꾸기(173차) */
+  private tap: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -101,8 +108,17 @@ export class PanelResizer {
     }
   }
 
+  /** 기다리던 한 번 누르기를 거둔다(있었으면 true) */
+  private stopTap(): boolean {
+    const t = this.tap;
+    if (t !== null) clearTimeout(t);
+    this.tap = null;
+    return t !== null;
+  }
+
   /** 기본 크기로 */
   reset(): void {
+    this.stopTap();
     const n = this.isNarrow;
     this.root.style.removeProperty(n ? '--sheet-h' : '--panel-w');
     try {
@@ -115,7 +131,8 @@ export class PanelResizer {
   private down(e: PointerEvent): void {
     if (e.button !== 0) return;
     e.preventDefault();
-    this.drag = { id: e.pointerId, start: this.isNarrow ? e.clientY : e.clientX, size: this.size() };
+    const n = this.isNarrow;
+    this.drag = { id: e.pointerId, start: n ? e.clientY : e.clientX, size: this.size(), set: !!this.root.style.getPropertyValue(n ? '--sheet-h' : '--panel-w'), again: this.stopTap() };
     try {
       this.el.setPointerCapture(e.pointerId);
     } catch {
@@ -139,6 +156,16 @@ export class PanelResizer {
     this.drag = null;
     this.el.classList.remove('active');
     document.body.classList.remove('resizing');
+    // 173차: 끌지 않은 누르기(코어 끌기 시작 거리 — 마우스·펜 4px, 손가락 10px 안). 둘째 누르기면 기본, 아니면 기다린 뒤 기본 크기 ↔ 가장 크게
+    if (e.type === 'pointerup' && Math.abs((this.isNarrow ? e.clientY : e.clientX) - d.start) < (e.pointerType === 'touch' ? 10 : 4)) {
+      if (d.again) return this.reset();
+      this.tap = setTimeout(() => {
+        this.tap = null;
+        if (d.set) this.reset();
+        else this.apply(Infinity, true);
+      }, TAP_WAIT_MS);
+      return;
+    }
     this.apply(this.size(), true);
   }
 
@@ -149,6 +176,7 @@ export class PanelResizer {
     if (e.key !== grow && e.key !== shrink && e.key !== 'Home') return;
     e.preventDefault();
     e.stopPropagation();
+    this.stopTap();
     if (e.key === 'Home') return this.reset();
     this.apply(this.size() + (e.key === grow ? 16 : -16), true);
   }
