@@ -144,9 +144,12 @@ export function pmiTypeLabel(type: string): string {
   return PMI_TYPE[type] ?? type;
 }
 
-/** 속성 줄(파일 글은 번역하지 않는다 — 59차: 방향 가둠·길이 한도도) */
+/**
+ * 속성 줄(파일 글은 번역하지 않는다 — 59차: 방향 가둠·길이 한도도). 167차: 이름 dt·값 dd — 묶음마다 줄들을 dl 하나에 넣어 화면 읽기가 이름과 값을
+ * 짝으로 읽는다(WCAG 1.3.1, H40 — 전에는 span 둘이라 짝 없는 두 글). 줄 칸 div.prop-row·클래스는 그대로(dl 안 div 묶음은 HTML이 허용)
+ */
 const propRow = (r: PropRow): HTMLElement =>
-  h('div', { class: 'prop-row' }, r.kData ? fileSpan(r.k, 'k') : h('span', { class: 'k' }, r.k), r.vData ? fileSpan(r.v, 'v', r.v) : h('span', { class: 'v', title: r.v }, r.v));
+  h('div', { class: 'prop-row' }, r.kData ? fileSpan(r.k, 'k', undefined, 'dt') : h('dt', { class: 'k' }, r.k), r.vData ? fileSpan(r.v, 'v', r.v, 'dd') : h('dd', { class: 'v', title: r.v }, r.v));
 
 /** 본문을 다시 그린 뒤 초점을 돌려줄 칸 */
 const FOCUSABLE = 'button, input, select, a[href]';
@@ -564,7 +567,7 @@ export class Panel {
     else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
     else {
       const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
-      this.body.append(section('부품 속성', ...partRows(path, this.host.fmt, count, isolateText).map(propRow)));
+      this.body.append(section('부품 속성', h('dl', {}, ...partRows(path, this.host.fmt, count, isolateText).map(propRow))));
     }
     // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만. 선 형상 몸체는 물리 속성이 없다
     const pid = selectedBody(d);
@@ -596,9 +599,10 @@ export class Panel {
     });
     const u = f.unit ? ` ${f.unit}` : '';
     const rows: HTMLElement[] = [];
-    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v, translate: 'no' }, v)));
+    // 이름 dt·값 dd(167차 — 줄들은 묶음의 dl 하나에, propRow와 같은 꼴)
+    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v', title: title ?? v, translate: 'no' }, v)));
     // 계산 중인 값(번역되는 글이라 값 칸을 번역층에 맡긴다)
-    const busy = (k: string) => rows.push(h('div', { class: 'prop-row pending' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, '계산 중…')));
+    const busy = (k: string) => rows.push(h('div', { class: 'prop-row pending' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v' }, '계산 중…')));
     // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)
     const ax = pp.exact ? '' : '≈ ';
     if (pp.closed) {
@@ -627,7 +631,7 @@ export class Panel {
       const acc = waiting
         ? { text: `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`, title: '문서를 연 뒤 닫힌 입체의 부피·모멘트를 B-rep 곡면과 모서리 곡선에서 따로 적분하고 있습니다.' }
         : accuracyText(pp, (v, dg) => f.num(v, dg));
-      rows.push(h('div', { class: `prop-row${waiting ? ' pending acc' : ''}` }, h('span', { class: 'k' }, '정확도'), h('span', { class: 'v', title: acc.title }, acc.text)));
+      rows.push(h('div', { class: `prop-row${waiting ? ' pending acc' : ''}` }, h('dt', { class: 'k' }, '정확도'), h('dd', { class: 'v', title: acc.title }, acc.text)));
     }
     const b = pp.bounds;
     if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
@@ -663,7 +667,7 @@ export class Panel {
     const el = section(
       // 몸체 이름·묶음 이름표 안의 파일 글은 FSI…PDI로 갇혀(ftext.ts) 번역층이 그대로 둔다 — 화면 글("몸체 2"·"부품 3개")만 옮긴다
       multi ? [h('span', {}, '물리 속성'), ' · ', h('span', {}, multi)] : ids ? '물리 속성' : '모형 전체 물리 속성',
-      ...rows,
+      h('dl', {}, ...rows),
       ...notes,
       pick,
       custom,

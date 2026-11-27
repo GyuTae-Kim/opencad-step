@@ -36,7 +36,7 @@ export function isolateText(s: string): string {
   return s ? `\u{2068}${clipText(s)}\u{2069}` : s;
 }
 
-/** 파일 글 요소(span.ftext, 번역하지 않음, 방향 가둠). title을 주면 말풍선(같은 한도) */
-export function fileSpan(s: string, cls = '', title?: string): HTMLSpanElement {
-  return h('span', { class: `ftext${cls ? ` ${cls}` : ''}`, translate: 'no', title: title === undefined ? null : clipText(title) }, clipText(s));
+/** 파일 글 요소(span.ftext, 번역하지 않음, 방향 가둠). title을 주면 말풍선(같은 한도). tag는 이름·값 줄의 이름 dt·값 dd(167차) */
+export function fileSpan(s: string, cls = '', title?: string, tag: 'span' | 'dt' | 'dd' = 'span'): HTMLElement {
+  return h(tag, { class: `ftext${cls ? ` ${cls}` : ''}`, translate: 'no', title: title === undefined ? null : clipText(title) }, clipText(s));
 }
