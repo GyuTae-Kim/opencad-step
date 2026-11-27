@@ -10,6 +10,7 @@
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
  * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다 — 189차: 카드가 숨을 때 「취소」에 있던 초점은 3D 보기·「파일 열기」로
  * - 손잡이(187차): 패널 크기 손잡이는 크기를 바꾸는 패널을 aria-controls로(APG 창 가르개), 3D 보기 위 단면 손잡이는 끌기만 받는 꾸밈(aria-hidden — 값은 단면 막대 밀대)
+ * - 도구 막대(199차): 「고른 부품 보기」에 초점을 둔 채 Esc로 고르기를 풀어 그 단추가 흐려지면 초점은 막대의 Tab 멈춤(첫 쓸 수 있는 단추)으로
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,6 +25,7 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { SectionBar } from '../../src/app/sectionbar';
 import { PanelResizer } from '../../src/app/resize';
+import { Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import type { SectionState, Viewer3d } from 'opencad-viewer3d';
 import { translate } from '../../site/i18n.mjs';
 
@@ -251,6 +253,56 @@ describe('installKeyNav: 띠·패널을 닫으면 초점 돌려주기(WCAG 2.4.3
     keep.click();
     await settle();
     expect(document.activeElement).toBe(keep);
+  });
+
+  it('199차: 도구 막대 「고른 부품 보기」에 초점을 둔 채 Esc로 고르기를 풀어 그 단추가 흐려지면 초점은 막대의 Tab 멈춤(첫 쓸 수 있는 단추 — 전체 보기)으로, 막대 밖이거나 흐려지지 않은 단추면 그대로', async () => {
+    let sel = true;
+    const state = { hasDoc: true, get hasSelection() { return sel; }, projection: 'perspective', renderMode: 'shaded', gridOn: false, cubeOn: false, axesOn: false,
+      measuring: false, panelOpen: false, pickUnit: 'part', multiPick: false, sectionAxis: null, sectionOn: false } as Record<string, unknown>;
+    const tb = new Toolbar(new Proxy(state, { get: (t, k) => (k in t ? t[k as string] : () => {}) }) as unknown as ToolbarHost);
+    const root = document.createElement('div');
+    root.innerHTML = '<section class="view"><div class="viewer-host"><canvas tabindex="0"></canvas></div></section>';
+    root.prepend(tb.el);
+    document.body.append(root);
+    dispose = installKeyNav(root);
+    // app.ts onKey(창 bubble): Esc → clearSelection → selectionChanged → toolbar.refresh()(고른 것이 없으면 「고른 부품 보기」가 흐려진다 — H 숨기기도 같은 길)
+    const esc = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      sel = false;
+      tb.refresh();
+    };
+    window.addEventListener('keydown', esc);
+    try {
+      const tool = (k: string) => tb.el.querySelector<HTMLButtonElement>(`[data-tool=${k}]`)!;
+      const stops = () => [...tb.el.querySelectorAll<HTMLButtonElement>(':scope > button')].filter((b) => b.tabIndex === 0);
+      tool('focus').focus();
+      key(tool('focus'), 'Escape');
+      expect(tool('focus').disabled).toBe(true);
+      // jsdom은 흐려진 단추의 초점을 떼지 않는다(브라우저는 focus fixup으로 문서로 — 전에는 다음 Tab이 처음부터)
+      expect(document.activeElement).toBe(tool('focus'));
+      await settle();
+      expect(document.activeElement).toBe(tool('fit'));
+      expect(stops()).toEqual([tool('fit')]);
+      // 초점이 막대 밖(3D 보기)이면 그 단추가 흐려져도 그대로
+      sel = true;
+      tb.refresh();
+      const canvas = root.querySelector<HTMLElement>('canvas')!;
+      canvas.focus();
+      key(canvas, 'Escape');
+      await settle();
+      expect(tool('focus').disabled).toBe(true);
+      expect(document.activeElement).toBe(canvas);
+      // 막대 안이어도 흐려지지 않은 단추(측정)는 그대로
+      sel = true;
+      tb.refresh();
+      tool('measure').focus();
+      key(tool('measure'), 'Escape');
+      await settle();
+      expect(tool('focus').disabled).toBe(true);
+      expect(document.activeElement).toBe(tool('measure'));
+    } finally {
+      window.removeEventListener('keydown', esc);
+    }
   });
 });
 
