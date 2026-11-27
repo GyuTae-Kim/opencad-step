@@ -913,6 +913,15 @@ input::placeholder {
     min-width: 38px;
     padding: 0;
   }
+  /* 195차(WCAG 1.4.10): 동작 버튼이 있는 알림은 글이 길면 첫 줄을 글에 주고 버튼·✕를 다음 줄로 — 320px 창에서 줄지 않는 버튼과 ✕가 글 칸을
+     독일어 62·한국어 103px로 좁혀 알림이 3D 보기보다 높아지면 위가 잘렸다(짧은 글은 한 줄 그대로) */
+  .toast:has(.toast-act) {
+    flex-wrap: wrap;
+  }
+  .toast:has(.toast-act) > span {
+    flex-basis: auto;
+    max-width: calc(100% - 24px);
+  }
 }
 /*
  * 52차: 좁은 손가락 휴대폰에서 정밀 조준하는 동안(십자선이 보일 때)은 측정 종류(두 점·개체 — 한 손가락으로 조준하는 동안 누를 수 없다) 자리에
