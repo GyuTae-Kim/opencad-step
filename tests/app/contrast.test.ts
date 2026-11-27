@@ -6,6 +6,7 @@
  * 164차: 바깥선을 끈 초점(메뉴 항목·거르기 칸·패널 손잡이)의 대신 표시가 강조색으로 바탕과 3:1 넘는지 — 좁은 창 시트 손잡이는 막대 색 바꿈만으로는 모자라 바깥선.
  * 197차: 고른 줄(옅은 강조 바탕) 위 칩 — PMI 의미 표 고른 줄의 면 수 칩(누름 바탕 위 흐린 글)이 바탕 두 겹 위라 4.5:1 아래였다(나무 줄처럼 패널 바탕).
  * 198차: 끈 줄(숨긴 레이어·끈 표현 PMI — 옅은 글)의 이름 버튼은 마우스 올림·고름 바탕 위에서 옅은 글이 4.5:1 아래였다(그 상태일 때만 흐린 글 — 54차 나무 숨긴 마디 꼴).
+ * 203차: 빠듯한 짝 셋(처음 화면 읽기 오류·진행 막대 채움·정밀 조준 십자선)을 짝으로 — 어두운 테마의 십자선은 노란 선이 흰 테두리와 1.1:1이었다(테두리를 카드 색으로).
  * 실제 화면의 모든 글·아이콘 대비는 헤드리스 Chrome으로 쟀다(README 개발 절 — 계산된 색, 조상 겹침).
  * CONTRAST_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -302,5 +303,30 @@ describe('끈 줄 이름 버튼(198차 — WCAG 1.4.3)', () => {
     expect(below(T, '--text-dim', ['hoverPanel', 'softPanel'], 4.5)).toEqual([]);
     // 보통 끈 줄 이름 버튼(가만한 패널 바탕)은 옅은 글 그대로(5.06·5.37 — 위 토큰 묶음)
     for (const sel of ['table.grid tr.off .link-btn', '.vgrid-row.off .link-btn']) expect(R.get(sel)?.color, sel).toBeUndefined();
+  });
+});
+
+describe('빠듯한 대비 짝(203차 — WCAG 1.4.3·1.4.11)', () => {
+  it.each(THEMES)('%s: 처음 화면 읽기 오류 글 4.5:1, 진행 막대 채움 3:1(홈·카드 위), 정밀 조준 십자선 3:1(보기 바탕, 카드 색 테두리 위 어느 바탕에서도)', (n, T) => {
+    const R = plainRules();
+    const S = surfaces(T);
+    const c = (k: string): Rgba => rgba(T[k]!);
+    // 처음 화면 읽기 오류(.start-error — 바탕 없이 .start 앱 바탕 위, role=alert 글): 밝게 4.53·어둡게 6.30
+    expect([R.get('.start-error')?.color, R.get('.start')?.background]).toEqual(['var(--danger)', 'var(--bg-app)']);
+    expect(R.get('.start-error')?.border).toContain('var(--danger)');
+    expect(contrast(c('--danger'), S.app!)).toBeGreaterThanOrEqual(4.5);
+    // 진행 막대(홈 6px에 안쪽 여백이 없어 채움의 위·아래 가장자리는 카드에 닿는다): 홈 위 3.95·3.22, 카드 위 4.94·4.16(홈 × 카드는 백분율 글이 같은 값을 나름)
+    expect([R.get('.busy-bar')?.background, R.get('.busy-fill')?.background, R.get('.busy-card')?.background]).toEqual(['var(--border-soft)', 'var(--accent)', 'var(--card)']);
+    for (const b of [over(c('--border-soft'), S.card!), S.card!]) expect(contrast(c('--accent'), b)).toBeGreaterThanOrEqual(3);
+    // 정밀 조준 십자선(aim.ts — 색 선 1.5px를 3.5px 테두리가 감쌈): 색 선은 보기 바탕과 3.93·10.33
+    expect(R.get('.aim-reticle')?.color).toBe('var(--aim)');
+    expect(contrast(c('--aim'), S.view!)).toBeGreaterThanOrEqual(3);
+    // 202차까지 흰 테두리(#ffffff 0.85): 어두운 테마의 노란 선과 1.08(밝게 4.24) — 밝은 부품 위에서는 테두리도 선도 3:1 아래
+    expect(contrast(c('--aim'), over([255, 255, 255, 0.85], S.view!)) < 3).toBe(n === 'dark');
+    // 테두리는 카드 색(단면 손잡이 점 .sh-dot 꼴): 그 위 색 선이 보기·검은·흰 모형 어디서나 3:1 넘음(밝게 4.24·3.03·4.29, 어둡게 9.17·9.96·5.58)
+    const halo = R.get('.aim-reticle .aim-halo');
+    expect([halo?.stroke, halo?.['stroke-opacity']]).toEqual(['var(--card)', '0.85']);
+    const ring = [...c('--card').slice(0, 3), Number(halo!['stroke-opacity'])] as Rgba;
+    for (const bg of [S.view!, [0, 0, 0, 1], [255, 255, 255, 1]] as Rgba[]) expect(contrast(c('--aim'), over(ring, bg)), bg.join()).toBeGreaterThanOrEqual(3);
   });
 });

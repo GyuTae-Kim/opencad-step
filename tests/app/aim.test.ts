@@ -339,4 +339,14 @@ describe('정밀 조준(터치 길게 누르기)', () => {
     vi.advanceTimersByTime(AIM_HOLD_MS * 2);
     expect(aim.aiming).toBe(false);
   });
+
+  it('203차: 십자선 테두리 둘(원·십자)은 색·투명도를 스타일시트(.aim-halo — 테마 카드 색)에서 받고, 색 선 둘은 currentColor(--aim)', () => {
+    // 흰색 고정이면 어두운 테마의 노란 선과 1.1:1(contrast.test 203차 묶음)
+    const halo = Array.from(reticle().querySelectorAll('svg > .aim-halo'));
+    expect(halo.map((el) => [el.tagName, el.getAttribute('stroke'), el.getAttribute('stroke-opacity'), el.getAttribute('stroke-width')])).toEqual([
+      ['circle', null, null, '3.5'],
+      ['path', null, null, '3.5'],
+    ]);
+    expect(reticle().querySelectorAll('svg > [stroke="currentColor"]')).toHaveLength(2);
+  });
 });

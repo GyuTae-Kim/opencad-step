@@ -311,7 +311,10 @@ export class TouchAim {
   }
 }
 
-/** 십자선(가운데는 비워 코어의 붙잡을 점이 보이게, 흰 테두리로 어느 바탕에서도 보이게) */
+/**
+ * 십자선(가운데는 비워 코어의 붙잡을 점이 보이게, 테두리로 어느 바탕에서도 보이게). 테두리 색은 styles.css .aim-halo(카드 색 — 203차:
+ * 흰색 고정이면 어두운 테마의 노란 선과 1.1:1이라 밝은 부품 위에서 선도 테두리도 3:1 아래)
+ */
 function reticle(): HTMLElement {
   const el = document.createElement('div');
   el.className = 'aim-reticle';
@@ -323,8 +326,8 @@ function reticle(): HTMLElement {
   const d = `M${c - r - 6} ${c}H${c - gap}M${c + gap} ${c}H${c + r + 6}M${c} ${c - r - 6}V${c - gap}M${c} ${c + gap}V${c + r + 6}`;
   el.innerHTML =
     `<svg width="48" height="48" viewBox="0 0 48 48" fill="none">` +
-    `<circle cx="${c}" cy="${c}" r="${r}" stroke="#ffffff" stroke-width="3.5" stroke-opacity="0.85"/>` +
-    `<path d="${d}" stroke="#ffffff" stroke-width="3.5" stroke-opacity="0.85"/>` +
+    `<circle class="aim-halo" cx="${c}" cy="${c}" r="${r}" stroke-width="3.5"/>` +
+    `<path class="aim-halo" d="${d}" stroke-width="3.5"/>` +
     `<circle cx="${c}" cy="${c}" r="${r}" stroke="currentColor" stroke-width="1.5"/>` +
     `<path d="${d}" stroke="currentColor" stroke-width="1.5"/>` +
     `</svg>`;
