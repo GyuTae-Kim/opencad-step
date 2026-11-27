@@ -352,7 +352,9 @@ export function treeView(o: TreeOpts): TreeView {
   const index = new Map(rows.map((r, i) => [r.key, i]));
   // 고른 항목(여러 개 고르기 묶음 등 — 줄을 만들 때마다 집합을 다시 만들지 않게, 고르기가 바뀌면 patch가 고친다)
   let picked = treePicked(d);
-  const el = h('div', { class: 'tree', role: 'tree', 'aria-label': '모델 트리' });
+  // 185차: 여러 개 고르기(Ctrl·⌘·Shift + 누르기·3D 보기·레이어·PMI·간섭 묶음)는 늘 할 수 있고 바디 하나도 그 바디만 품은 줄을 함께 고르므로 여러 개 고르는 나무(늘).
+  // 줄은 이미 그 꼴(고르지 않은 줄도 aria-selected="false" — APG 여러 개 고르는 나무)
+  const el = h('div', { class: 'tree', role: 'tree', 'aria-label': '모델 트리', 'aria-multiselectable': 'true' });
   // Ctrl·⌘+F: 이 나무의 거르기 칸으로(창 글쇠는 처음 한 번만 듣는다). 칸에 단축키를 알린다(화면 읽기 프로그램·말풍선)
   findFilter = o.filter;
   o.filter.setAttribute('aria-keyshortcuts', 'Control+F Meta+F');
