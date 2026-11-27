@@ -8,7 +8,7 @@
  * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴) — 180차: 이름 칸 글은 말풍선에도(말줄임된 이름을 다시 봄)
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
- * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다
+ * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다 — 189차: 카드가 숨을 때 「취소」에 있던 초점은 3D 보기·「파일 열기」로
  * - 손잡이(187차): 패널 크기 손잡이는 크기를 바꾸는 패널을 aria-controls로(APG 창 가르개), 3D 보기 위 단면 손잡이는 끌기만 받는 꾸밈(aria-hidden — 값은 단면 막대 밀대)
  */
 import { readFileSync } from 'node:fs';
@@ -654,6 +654,124 @@ describe('157차: 진행 카드 단계 칸의 첫 글은 카드가 빈 칸으로
     expect(read()).toEqual([true, '', 1]);
     await paint();
     expect(read()).toEqual([true, '', 0]);
+  });
+});
+
+/**
+ * 189차(WCAG 2.4.3 초점 차례): 파일을 여는 동안 진행 카드의 「취소」에 초점이 있을 때 카드가 숨으면(「취소」 누름·Esc — 앱 cancel, 다 열림·실패 — load 끝,
+ * 모두 setLoading(null) 한 자리) 전에는 숨은 버튼과 함께 초점이 문서로 빠졌다(jsdom은 숨긴 칸의 초점을 떼지 않아 「취소」에 남는 것으로 본다).
+ * 이제 숨긴 뒤 알림 칸이 쓰는 곳(166차)으로 — 앞 문서(다 연 새 문서)가 보이면 3D 보기, 문서 전이면 시작 화면 「파일 열기」. 초점이 카드 밖이면 옮기지 않는다
+ */
+describe('189차: 진행 카드가 숨을 때 「취소」에 있던 초점', () => {
+  // 157차 꼴: app.ts 원문에서 진행 카드를 만드는 줄과 setLoading 몸통을 잘라 실제 h로 돌린다
+  const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+  const make = /this\.busyName = h\([\s\S]*?\n {4}\);\n/.exec(app)?.[0];
+  const body = /private setLoading\(l: Loading \| null\): void \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
+  /** doc: 그때 연 문서가 있는지(앞 문서 — 다 열림이면 시험이 새 문서를 둔다) */
+  const setup = (doc: boolean) => {
+    expect([!!make, !!body]).toEqual([true, true]);
+    const canvas = h('canvas', { tabindex: '0' });
+    const startOpen = h('button', { type: 'button' }, '파일 열기');
+    // 카드 밖의 다른 칸(머리 막대 「열기」 꼴)
+    const other = h('button', { type: 'button' }, '열기');
+    const self: Record<string, unknown> = { loading: null, updateStatus: () => {}, doc: doc ? {} : null, viewer: { canvas }, startOpen };
+    const set = (st: string | null, fraction = 0): void =>
+      new Function('l', 'clipText', 'fmtPercent', 'nextPaint', body!).call(
+        self,
+        st === null ? null : { name: 'a.step', fraction, stage: st },
+        (s: string) => s,
+        (f: number) => `${Math.round(f * 100)}%`,
+        () => new Promise<void>(() => {}),
+      );
+    // 「취소」 버튼은 앱 cancel(여는 것을 멈추고 setLoading(null)) — Esc도 같은 cancel
+    self.cancel = () => set(null);
+    new Function('h', make!).call(self, h);
+    const busy = self.busyEl as HTMLElement;
+    document.body.append(other, canvas, startOpen, busy);
+    const cancel = busy.querySelector<HTMLButtonElement>('.busy-actions button')!;
+    const names = new Map<Element, string>([
+      [canvas, '3D 보기'],
+      [startOpen, '파일 열기'],
+      [other, '열기'],
+      [cancel, '취소'],
+      [document.body, 'body'],
+    ]);
+    // [카드가 숨었는지, 초점 자리]
+    const read = () => [busy.hidden, names.get(document.activeElement!) ?? '?'];
+    return { self, set, cancel, canvas, startOpen, other, read };
+  };
+
+  it('「취소」에 초점이 있으면 취소 누름·다 열림·실패 뒤 앞 문서(다 연 새 문서)가 보이면 3D 보기, 문서 전이면 「파일 열기」로', () => {
+    // 취소 누름 — 앞 문서가 남음
+    let s = setup(true);
+    s.set('파일 읽는 중');
+    s.cancel.focus();
+    expect(s.read()).toEqual([false, '취소']);
+    s.cancel.click();
+    expect(s.read()).toEqual([true, '3D 보기']);
+    document.body.replaceChildren();
+    // 취소 누름 — 처음 여는 파일(시작 화면)
+    s = setup(false);
+    s.set('해석 중', 0.4);
+    s.cancel.focus();
+    s.cancel.click();
+    expect(s.read()).toEqual([true, '파일 열기']);
+    document.body.replaceChildren();
+    // 다 열림 — load가 새 문서를 보인 뒤 끝에서 카드를 숨긴다
+    s = setup(false);
+    s.set('화면에 올리는 중', 1);
+    s.cancel.focus();
+    s.self.doc = {};
+    s.set(null);
+    expect(s.read()).toEqual([true, '3D 보기']);
+    document.body.replaceChildren();
+    // 실패 — 앞 문서가 남으면 3D 보기, 처음 여는 파일이면 시작 화면 「파일 열기」(다시 열 자리)
+    s = setup(true);
+    s.set('해석 중', 0.7);
+    s.cancel.focus();
+    s.set(null);
+    expect(s.read()).toEqual([true, '3D 보기']);
+    document.body.replaceChildren();
+    s = setup(false);
+    s.set('파일 받는 중', 0.2);
+    s.cancel.focus();
+    s.set(null);
+    expect(s.read()).toEqual([true, '파일 열기']);
+  });
+
+  it('초점이 카드 밖이면 숨겨도 옮기지 않고, 카드가 보인 채 단계·진행만 바뀌면 「취소」 그대로', () => {
+    // 머리 막대 「열기」에 둔 채 취소·실패(앞 문서 있음·없음)와 다 열림
+    let s = setup(true);
+    s.other.focus();
+    s.set('파일 읽는 중');
+    s.set(null);
+    expect(s.read()).toEqual([true, '열기']);
+    document.body.replaceChildren();
+    s = setup(false);
+    s.other.focus();
+    s.set('파일 읽는 중');
+    s.set(null);
+    expect(s.read()).toEqual([true, '열기']);
+    s.set('해석 중', 0.6);
+    s.self.doc = {};
+    s.set(null);
+    expect(s.read()).toEqual([true, '열기']);
+    document.body.replaceChildren();
+    // 시작 화면 「파일 열기」에 둔 채 다 열림 — 3D 보기로 옮기는 것은 updateAll 몫(53차), 카드를 숨기는 자리는 다시 옮기지 않는다
+    s = setup(false);
+    s.startOpen.focus();
+    s.set('파일 읽는 중');
+    s.self.doc = {};
+    s.set(null);
+    expect(s.read()).toEqual([true, '파일 열기']);
+    document.body.replaceChildren();
+    // 보인 채 단계·진행이 바뀜(다른 파일을 또 열어도 카드는 숨지 않고 0부터)
+    s = setup(true);
+    s.set('파일 읽는 중');
+    s.cancel.focus();
+    s.set('해석 중', 0.5);
+    s.set('파일 읽는 중', 0);
+    expect(s.read()).toEqual([false, '취소']);
   });
 });
 
