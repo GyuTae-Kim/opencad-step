@@ -279,7 +279,8 @@ describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () =
     const [move, snap, file, undo, redo, reset] = [...tw.querySelectorAll<HTMLButtonElement>('button')];
     expect(tw.getAttribute('aria-label')).toBe('분해 손질');
     expect([move!.textContent, snap!.textContent, undo!.textContent, redo!.textContent, reset!.textContent]).toEqual(['옮기기', '스냅', '되돌리기', '다시 하기', '모두 되돌리기']);
-    expect([file!.getAttribute('aria-label'), file!.getAttribute('aria-haspopup')]).toEqual(['손질 파일', 'menu']);
+    // 200차(WCAG 4.1.2): 손질 파일 ⋯은 다른 메뉴 버튼(도구 막대·앱 설정·나무 도구·「작업」)처럼 처음부터 접힘 — 전에는 한 번 연 뒤에야 false
+    expect([file!.getAttribute('aria-label'), file!.getAttribute('aria-haspopup'), file!.getAttribute('aria-expanded')]).toEqual(['손질 파일', 'menu', 'false']);
     const d = doc(1);
     c.sync(d, 'step', true);
     // 옮기기·붙잡기(48차)·손질 파일 | 되돌리기·다시 하기 | 모두 되돌리기는 따로 묶은 칸(좁으면 차례로 다음 줄로) — 할 것이 없으면 칸째 숨긴다
@@ -315,12 +316,13 @@ describe('분해 막대 조각: 방식 버튼·단계 글·계획 한 번', () =
     // 손질 파일 메뉴: 내보내기는 어느 방향에든 손질이 있을 때만, 불러오기는 늘
     const menuItems = () => [...document.querySelectorAll<HTMLButtonElement>('.menu .menu-item')];
     file!.click();
+    expect(file!.getAttribute('aria-expanded')).toBe('true');
     expect(menuItems().map((b) => [b.textContent, b.disabled])).toEqual([
       ['손질 내보내기(JSON 파일)', true],
       ['손질 불러오기…', false],
     ]);
     menuItems()[1]!.click();
-    expect(calls.at(-1)).toBe('pick');
+    expect([calls.at(-1), file!.getAttribute('aria-expanded')]).toEqual(['pick', 'false']);
     c.sync(d, 'step', true, 'z', null, { on: false, count: 0, undo: false, any: true });
     file!.click();
     expect(menuItems()[0]!.disabled).toBe(false);

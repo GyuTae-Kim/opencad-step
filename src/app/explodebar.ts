@@ -210,10 +210,10 @@ export class ExplodeControls {
       if (touched >= 0 && e.timeStamp - touched < 800) touched = -1;
       else toggle();
     });
-    // 손질 파일(…): 내보내기(JSON — 손질이 있을 때)·불러오기 메뉴
+    // 손질 파일(…): 내보내기(JSON — 손질이 있을 때)·불러오기 메뉴. 200차(WCAG 4.1.2): 다른 메뉴 버튼처럼 처음부터 접힘(여닫을 때는 menu.ts — 전에는 한 번 연 뒤에야 false)
     const fileBtn = h(
       'button',
-      { type: 'button', class: 'seg-btn explode-file-btn', 'aria-label': '손질 파일', 'aria-haspopup': 'menu', title: '손질 파일: 분해 손질을 JSON 파일로 내보내거나 불러옵니다' },
+      { type: 'button', class: 'seg-btn explode-file-btn', 'aria-label': '손질 파일', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: '손질 파일: 분해 손질을 JSON 파일로 내보내거나 불러옵니다' },
       icon('more', 16),
     );
     fileBtn.addEventListener('click', () =>

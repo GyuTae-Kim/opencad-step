@@ -10,6 +10,7 @@
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
  * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다 — 189차: 카드가 숨을 때 「취소」에 있던 초점은 3D 보기·「파일 열기」로
  * - 손잡이(187차): 패널 크기 손잡이는 크기를 바꾸는 패널을 aria-controls로(APG 창 가르개), 3D 보기 위 단면 손잡이는 끌기만 받는 꾸밈(aria-hidden — 값은 단면 막대 밀대)
+ *   — 200차: 도구 막대 「패널」 버튼도 열고 닫는 그 패널을 aria-controls로(상태는 183차 결정대로 눌림만)
  * - 도구 막대(199차): 「고른 부품 보기」에 초점을 둔 채 Esc로 고르기를 풀어 그 단추가 흐려지면 초점은 막대의 Tab 멈춤(첫 쓸 수 있는 단추)으로
  */
 import { readFileSync } from 'node:fs';
@@ -586,6 +587,29 @@ describe('187차: 패널 크기 손잡이의 주 패널 관계·단면 손잡이
     const id = r.el.getAttribute('aria-controls') ?? '';
     expect([r.el.getAttribute('role'), id !== '', document.getElementById(id) === panel.el, document.querySelectorAll(`[id="${id}"]`).length]).toEqual(['separator', true, true, 1]);
     expect(id).not.toBe(panel.el.querySelector('[role=tabpanel]')!.id);
+  });
+
+  it('200차: 도구 막대 「패널」 버튼도 열고 닫는 그 패널(aside)을 aria-controls로 가리키고, 상태는 눌림(aria-pressed)만 — 펼침은 두지 않는다(183차 결정)', () => {
+    // app.ts 393~394·527~530과 같은 차례: 도구 막대를 만든 뒤 패널, 뿌리에 도구 막대와 작업 영역(그 안 패널 — 닫혀도 DOM에 늘 있음)
+    let open = false;
+    const state = { hasDoc: true, hasSelection: false, projection: 'perspective', renderMode: 'shaded', gridOn: false, cubeOn: false, axesOn: false,
+      measuring: false, get panelOpen() { return open; }, pickUnit: 'part', multiPick: false, sectionAxis: null, sectionOn: false } as Record<string, unknown>;
+    const tb = new Toolbar(new Proxy(state, { get: (t, k) => (k in t ? t[k as string] : () => {}) }) as unknown as ToolbarHost);
+    const panel = new Panel(host());
+    const workspace = document.createElement('main');
+    workspace.append(panel.el);
+    const root = document.createElement('div');
+    root.append(tb.el, workspace);
+    document.body.append(root);
+    const btn = tb.el.querySelector<HTMLButtonElement>('[data-tool=panel]')!;
+    const id = btn.getAttribute('aria-controls') ?? '';
+    expect([id !== '', document.getElementById(id) === panel.el, document.querySelectorAll(`[id="${id}"]`).length]).toEqual([true, true, 1]);
+    expect(id).not.toBe(panel.el.querySelector('[role=tabpanel]')!.id);
+    // 넓은 화면 옆 패널·좁은 화면 시트는 같은 요소(styles.css 미디어 조건만)라 관계는 하나 — 열어 다시 맞춰도 관계 그대로, 상태는 눌림
+    expect([panel.el.hidden, btn.getAttribute('aria-pressed'), btn.getAttribute('aria-expanded'), btn.getAttribute('aria-haspopup')]).toEqual([true, 'false', null, null]);
+    open = true;
+    tb.refresh();
+    expect([btn.getAttribute('aria-pressed'), btn.getAttribute('aria-expanded'), btn.getAttribute('aria-controls')]).toEqual(['true', null, id]);
   });
 
   it('3D 보기 위 단면 손잡이는 화면 읽기에서 숨는 꾸밈이고 초점을 받지 않으며, 같은 값은 단면 막대 밀대가 이름·값 글로 나른다', () => {
