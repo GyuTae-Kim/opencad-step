@@ -2559,6 +2559,16 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     order: 2;
     flex-basis: 100%;
   }
+  /* 196차(WCAG 1.4.10): 띠 안보다 넓은 갈래 묶음·화면 방향 칸(긴 번역 — 독일어 손질 등)은 버튼을 다음 줄로(위 띠 묶음 안 가로 굴림 없이), 줄 바꾼 버튼은 줄을 채운다 */
+  .explode-bar .seg,
+  .explode-screen {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .explode-bar .seg-btn {
+    flex-grow: 1;
+    justify-content: center;
+  }
 }
 
 /* ── 단면 위치 숫자·면 표시·끌기 손잡이 ── */
