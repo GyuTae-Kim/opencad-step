@@ -157,7 +157,7 @@ export function plainLength(v: number, f: Pick<LenFormat, 'factor' | 'decimals'>
 }
 
 /**
- * 끄는 동안 옮긴 거리 글(38차 — 측정 글상자 measureLabelLines와 같은 꼴): 줄마다 [이름, 값] 조각. 이름은 번역층이 옮기는 낱말(거리·가로·세로)이나 ΔX 꼴.
+ * 끄는 동안 옮긴 거리 글(38차 — 측정 글상자 measureLabelLines와 같은 꼴): 줄마다 [이름, 값] 조각. 이름은 번역층이 옮기는 낱말(옮긴 거리·가로·세로)이나 ΔX 꼴.
  * 장면 축은 그 축 성분 하나(ΔX −12.5 mm), 화면 가로·세로는 그 성분, 화면 평면은 거리와 가로·세로 두 성분, 사방은 거리와 ΔX·ΔY·ΔZ.
  * d는 이번 끌기로 누른 점이 옮긴 세계 이동(끄는 길 위 — 지금 밀대에서 보이는 거리), 화면 방향 성분은 계획 카메라 각 view 기준
  */
@@ -166,7 +166,8 @@ export function dragDistanceLines(axis: ExplodeAxis, view: ExplodeView | null | 
   const c = worldComps(axis, view, d);
   if (axis === 'sx') return [[['가로', f.len(c[0]!)]]];
   if (axis === 'sy') return [[['세로', f.len(c[0]!)]]];
-  const far: [string, string][] = [['거리', f.len(Math.hypot(...c))]];
+  // 206차: 측정 글상자의 「거리」가 아니라 거리 칸 이름표(끌기 칸)와 같은 「옮긴 거리」 — 독일어 분해 쪽 낱말 Entfernung(측정은 Abstand)
+  const far: [string, string][] = [['옮긴 거리', f.len(Math.hypot(...c))]];
   if (axis === 'sp')
     return [
       far,

@@ -471,7 +471,8 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     const el = canvas.parentElement!.querySelector<HTMLElement>('.explode-dist')!;
     expect(el.getAttribute('aria-hidden')).toBe('true');
     expect(rows()).toEqual(want('free', add(shownB(), p0.map((v) => -v))));
-    expect(rows()[0]![0]).toMatch(/^거리 [\d.]+ mm$/);
+    // 206차: 끄는 동안 글 첫 줄은 거리 칸 이름표(끌기 칸)와 같은 「옮긴 거리」(측정 글상자 「거리」와 가름 — 독일어 Entfernung·Abstand)
+    expect(rows()[0]![0]).toMatch(/^옮긴 거리 [\d.]+ mm$/);
     fire('pointermove', s[0] + 83.7, s[1] - 29.1);
     // 같은 글상자에서 값만 바뀐다
     expect(canvas.parentElement!.querySelector('.explode-dist')).toBe(el);

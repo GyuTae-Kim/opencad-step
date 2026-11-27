@@ -70,6 +70,8 @@ const DIST_TIPS = [
   '옮길 거리 — ΔX; ΔY; ΔZ 세 수를 쳐 넣고 Enter를 누르면 고른 것을 그만큼 옮깁니다',
 ] as const;
 const DIST_NAMES = ['옮긴 거리(숫자)', '옮길 거리(숫자)', '옮길 거리(가로; 세로)', '옮길 거리(ΔX; ΔY; ΔZ)'];
+/** 분해 거리 칸의 거리 낱말(206차 — 독일어는 측정 쪽 Abstand와 다른 Entfernung, 작은 글자로) */
+const DIST_WORD: Record<(typeof LANGS)[number], string> = { en: 'distance', ja: '距離', 'zh-CN': '距离', de: 'entfernung' };
 const TYPED_SP = '거리를 읽지 못했습니다 — 수 하나(끈 방향으로 옮길 거리)나 가로; 세로 두 수를 쳐 넣으십시오.';
 const FRESH_SP = '거리를 읽지 못했습니다 — 가로; 세로 두 수를 쳐 넣으십시오.';
 const STAGE_TIP = '조립 단계별: 바깥 조립부터 벌립니다 — 하위 조립을 통째로 먼저 떼고, 더 밀면 그 안의 부품을 벌립니다';
@@ -119,8 +121,11 @@ describe('분해·격리·단면 묶음 화면 글의 네 언어 번역(204차)'
       // 작업 버튼 말풍선은 작업 메뉴 항목 이름(숨기기·이것만 보기)으로
       has(ACTIONS, '숨기기');
       has(ACTIONS, '이것만 보기');
-      // 분해 거리 칸: 이름표 「거리」가 말풍선 여섯·이름 넷·그 칸을 여는 메뉴 항목에
-      for (const key of [...DIST_TIPS, ...DIST_NAMES, '거리로 옮기기…']) has(key, '거리');
+      // 분해 거리 칸(206차 — 측정이 쓰는 「거리」와 열쇠를 가름): 이름표 「옮긴 거리」(끈 뒤)가 끌기 말풍선 셋·이름에, 「옮길 거리」(끌기 없이 연 빈 칸)가
+      // 빈 칸 말풍선 셋·이름 셋에, 두 이름표가 함께 품는 분해 거리 낱말이 그 칸을 여는 메뉴 항목에
+      for (const key of [...DIST_TIPS.slice(0, 3), DIST_NAMES[0]!]) has(key, '옮긴 거리');
+      for (const key of [...DIST_TIPS.slice(3), ...DIST_NAMES.slice(1)]) has(key, '옮길 거리');
+      for (const text of [c['거리로 옮기기…']!, translate('옮긴 거리', lang), translate('옮길 거리', lang)]) expect(text.toLowerCase(), `${lang}: ${text}`).toContain(DIST_WORD[lang]);
       // 단면 막대 이름(도구 막대 단면 메뉴 이름)이 도구 막대 말풍선의 머리, 단면 위치 밀대 이름이 숫자 칸 이름의 머리·못 읽음 알림에
       expect(c[SECTION_TIP]!.startsWith(c['단면 보기']!), `${lang}: ${c[SECTION_TIP]}`).toBe(true);
       expect(c['단면 위치(숫자)']!.startsWith(c['단면 위치']!), `${lang}: ${c['단면 위치(숫자)']}`).toBe(true);

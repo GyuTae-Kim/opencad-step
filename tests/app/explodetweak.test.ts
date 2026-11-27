@@ -471,8 +471,9 @@ describe('끄는 동안 옮긴 거리 글(38차)', () => {
   it('측정 글상자와 같은 수 꼴: 사방은 거리와 ΔX·ΔY·ΔZ(measureLabelLines 그대로), 장면 축은 그 성분 하나(부호 있음), 표시 단위·소수 자리·화면 언어를 따른다', () => {
     const f = new Fmt('mm');
     const d = [3, -4, 12];
-    expect(text(dragDistanceLines('free', null, d, f))).toEqual(measureLabelLines({ distance: 13, dx: 3, dy: -4, dz: 12 }, f));
-    expect(text(dragDistanceLines('free', null, d, f))).toEqual(['거리 13 mm', 'ΔX 3  ΔY -4  ΔZ 12']);
+    // 206차: 첫 줄 이름은 측정 글상자의 「거리」가 아니라 거리 칸 이름표와 같은 「옮긴 거리」(독일어 분해 쪽 Entfernung ↔ 측정 Abstand) — 꼴은 그대로
+    expect(text(dragDistanceLines('free', null, d, f))).toEqual(measureLabelLines({ distance: 13, dx: 3, dy: -4, dz: 12 }, f, (k) => (k === '거리' ? '옮긴 거리' : k)));
+    expect(text(dragDistanceLines('free', null, d, f))).toEqual(['옮긴 거리 13 mm', 'ΔX 3  ΔY -4  ΔZ 12']);
     expect(text(dragDistanceLines('x', null, [-2.25, 0, 0], f))).toEqual(['ΔX -2.25 mm']);
     expect(text(dragDistanceLines('z', null, [0, 0, 1 / 3], f))).toEqual(['ΔZ 0.333 mm']);
     // 인치로 보이기·소수 1자리·독일어(소수 쉼표) — 장면은 mm
@@ -489,7 +490,7 @@ describe('끄는 동안 옮긴 거리 글(38차)', () => {
     const d = add(b.right.map((x) => x * 6), b.up.map((x) => x * -8));
     expect(text(dragDistanceLines('sx', v, b.right.map((x) => x * 6), f))).toEqual(['가로 6 mm']);
     expect(text(dragDistanceLines('sy', v, b.up.map((x) => x * -8), f))).toEqual(['세로 -8 mm']);
-    expect(text(dragDistanceLines('sp', v, d, f))).toEqual(['거리 10 mm', '가로 6  세로 -8']);
+    expect(text(dragDistanceLines('sp', v, d, f))).toEqual(['옮긴 거리 10 mm', '가로 6  세로 -8']);
   });
 
   it('글 자리: 마우스는 커서 오른쪽 아래(넘치면 반대쪽), 손가락은 손가락 위 — 위에 자리가 없으면 옆, 늘 캔버스 안(375px 폭)', () => {
