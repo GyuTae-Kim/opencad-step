@@ -68,6 +68,9 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
     const trigger = control.element.querySelector('button');
     const menu = document.getElementById(trigger?.getAttribute('aria-controls') ?? '');
     for (const el of [trigger, menu]) if (el && el.getAttribute('aria-label') !== label) el.setAttribute('aria-label', label);
+    // 181차(WCAG 1.1.1): 고른 언어의 ✓는 styles.css ::after 생성 글이라 내용에서 센 항목 이름에 섞였다(고름은 aria-checked가 이미 알림 — 앱 메뉴 ✓는 aria-hidden 칸, menu.ts).
+    // 이름은 보이는 언어 이름 그대로
+    for (const item of menu?.querySelectorAll('button') ?? []) if (item.getAttribute('aria-label') !== item.textContent) item.setAttribute('aria-label', item.textContent ?? '');
     if (trigger && trigger.title !== label) trigger.title = label;
     const host = root.querySelector('.titlebar, .topbar, header');
     if (host) { control.element.classList.remove('language-control-floating'); if (control.element.parentNode !== host) host.append(control.element); }
