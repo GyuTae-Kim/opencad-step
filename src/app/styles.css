@@ -2522,14 +2522,22 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
     align-items: flex-start;
     max-width: calc(100% - 104px);
     transform: none;
+    overflow-y: auto;
+    margin-bottom: 20px;
   }
   /* 191차(WCAG 1.4.10·2.4.11): 두세 줄 단면 막대와 위 띠 묶음을 3D 보기 흐름에 차례로(다른 자식은 absolute) — 띠 묶음이 막대 실제 높이 아래 8px(가로 6), top·left는 흐름 자리에서 옮김 */
+  /* 192차: 3D 보기를 세로 flex로 — 띠 묶음(굴림 상자)이 막대 아래 남은 높이로 줄고(아래 여백 = top + 10) 넘친 띠는 묶음 안에서 굴린다 */
+  .view {
+    display: flex;
+    flex-direction: column;
+  }
   .section-bar {
     position: relative;
     width: fit-content;
   }
   .view:has(.section-bar:not([hidden])) .top-bars {
     top: 16px;
+    margin-bottom: 26px;
   }
   .explode-label {
     display: none;

@@ -5,7 +5,8 @@
  * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭),
  * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이),
  * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만),
- * 초점 가려지지 않음(190차 — 2.4.11: 키보드 초점이 든 측정 띠는 위 띠 묶음 위로), 위 띠 쌓기(191차 — 휴대폰 단면 막대와 위 띠 묶음을 3D 보기 흐름에 쌓는 자리 손셈).
+ * 초점 가려지지 않음(190차 — 2.4.11: 키보드 초점이 든 측정 띠는 위 띠 묶음 위로), 위 띠 쌓기(191차 — 휴대폰 단면 막대와 위 띠 묶음을 3D 보기 흐름에 쌓는 자리 손셈),
+ * 위 띠 굴림(192차 — 휴대폰 위 띠 묶음이 단면 막대 아래 남은 높이로 줄고 넘친 띠는 묶음 안에서 굴림: 작은 3D 보기 높이 손셈).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -335,9 +336,11 @@ describe('다시 흐르기 폭(179차 — WCAG 1.4.10: 폭 320 CSS px = 1280px �
  * 휴대폰(손가락·760px 미만)은 단면 막대가 두 줄 이상(축·숫자 칸·버튼 44px 줄 + 밀대 44px 줄)인데 위 띠 묶음(분해·격리 띠)은 넓은 화면 한 줄 막대에 맞춘 56px에 놓여
  * 밀대 줄을 통째로 덮을 수 있고, 덮은 띠는 Esc로 닫히지 않는다. 190차는 키보드 초점이 든 단면 막대·측정 띠(고른 부품 카드)만 위 띠 묶음 위로 올렸다(손가락으로는 덮인 채).
  * 191차(1.4.10·2.4.11·손가락 누름): 휴대폰은 단면 막대와 위 띠 묶음을 3D 보기 흐름에 차례로 놓아(다른 자식은 모두 absolute) 위 띠 묶음이 단면 막대 실제 높이 아래에 온다.
- * 단면 막대를 덮는 칸이 없어 초점 z는 측정 띠(더 아래까지 내려온 분해 띠가 덮는 고른 부품 카드)만 남는다
+ * 단면 막대를 덮는 칸이 없어 초점 z는 측정 띠(더 아래까지 내려온 분해 띠가 덮는 고른 부품 카드)만 남는다.
+ * 192차(1.4.10·2.4.11): 그렇게 내려온 분해 띠(어림 264px)가 작은 3D 보기 밖으로 잘려 손가락으로 누를 수 없고 Tab 초점이 3D 보기를 굴렸다 — 휴대폰은 3D 보기를 세로 flex로 두어
+ * 위 띠 묶음(굴림 상자)이 단면 막대 아래 남은 높이로 줄고 넘친 띠는 묶음 안에서 굴린다
  */
-describe('초점 가려지지 않음·위 띠 쌓기(190·191차 — WCAG 2.4.11·1.4.10: 3D 보기 위 띠가 서로와 키보드 초점 칸을 통째로 덮지 않음)', () => {
+describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG 2.4.11·1.4.10: 3D 보기 위 띠가 서로와 키보드 초점 칸을 통째로 덮지 않고 보기 밖으로 잘리지 않음)', () => {
   const narrow = rules('(max-width: 759.98px)');
   const coarse = rules('(pointer: coarse)');
   const coarseNarrow = rules('(pointer: coarse) and (max-width: 759.98px)');
@@ -414,5 +417,61 @@ describe('초점 가려지지 않음·위 띠 쌓기(190·191차 — WCAG 2.4.11
     // 초점이 든 때만(:focus-within은 쓰지 않음 — 손가락·마우스로 누른 버튼에는 초점 표시가 없어 지금처럼)
     expect([...PLAIN.keys()].some((s) => /^\.(section|measure)-bar:focus-within$/.test(s))).toBe(false);
     expect([z('.section-bar'), z('.top-bars'), z('.measure-bar')]).toEqual([6, 6, 4]);
+  });
+
+  it('192차: 휴대폰은 3D 보기를 세로 flex로 두어 위 띠 묶음이 단면 막대 아래 남은 높이(아래 10px 띄움)로 줄고 넘친 띠는 묶음 안에서 굴린다 — 작은 3D 보기 밖으로 잘리지 않음', () => {
+    // 3D 보기: 휴대폰 조건에서만 세로 flex — 흐름 자식은 단면 막대·위 띠 묶음 둘(191차 시험 — 나머지는 absolute에 위·아래 자리를 적어 자리 그대로), 넓은 화면·태블릿·760px 미만·손가락 블록은 block 그대로
+    expect([phone.get('.view')?.display, phone.get('.view')?.['flex-direction']]).toEqual(['flex', 'column']);
+    for (const R of [PLAIN, narrow, coarse, coarseNarrow]) expect(R.get('.view')?.display).toBeUndefined();
+    // 위 띠 묶음은 세로 굴림 상자: flex 자동 최소 높이가 0이라 남은 높이까지 준다(% 최대 높이는 3D 보기 전체 높이 기준이라 단면 막대가 보이면 그 높이만큼 넘쳐 쓰지 않음).
+    // 그 안 분해·격리 띠는 넘침 규칙이 없어(자동 최소 높이 = 내용) 줄지 않고 넘친 만큼 묶음 안에서 굴린다. 넓은 화면은 넘침 그대로
+    expect(phone.get('.top-bars')?.['overflow-y']).toBe('auto');
+    expect(phone.get('.top-bars')?.['max-height']).toBeUndefined();
+    for (const sel of ['.top-bars', '.explode-bar', '.iso-bar']) expect([PLAIN.get(sel)?.overflow, PLAIN.get(sel)?.['overflow-y']], sel).toEqual([undefined, undefined]);
+    // 아래 바깥 여백 = 흐름 자리에서 옮긴 top + 10(단면 막대가 숨으면 top 10, 보이면 16): 흐름은 막대 높이 + 묶음 높이 + 여백 ≤ 3D 보기 높이 → 그려진 아래 끝 ≤ 3D 보기 − 10(측정 띠 bottom과 같음)
+    const top0 = px(PLAIN, '.top-bars', 'top');
+    const top1 = px(phone, STACK, 'top');
+    const mb0 = px(phone, '.top-bars', 'margin-bottom');
+    const mb1 = px(phone, STACK, 'margin-bottom');
+    expect([mb0 - top0, mb1 - top1]).toEqual([10, 10]);
+    for (const sel of ['.top-bars', STACK]) expect(PLAIN.get(sel)?.['margin-bottom'], sel).toBeUndefined();
+    // 띠 높이(손가락 44px): 분해 띠 = 테두리 + 위아래 여백 + 첫 줄(밀대 44 + 브라우저 기본 바깥 여백 2 × 2) + 줄 틈 + 아래 칸 줄(방식·방향·화면 방향·손질 —
+    // 띠 안쪽이 방향 줄보다 좁은 세로 휴대폰은 네 줄, 가로 524px 보기는 세 줄: 갈래 44 + 테두리 2, 틈 6), 격리 띠 = 테두리 + 여백 + 버튼 44, 둘 다면 묶음 틈 6
+    const [eT, , eB] = pad(PLAIN, '.explode-bar');
+    const seg = px(coarse, '.explode-bar .seg-btn', 'min-height') + 2 * line(PLAIN, '.seg');
+    const explode = (rows: number) =>
+      2 * line(PLAIN, '.explode-bar') + eT + eB + (2 + px(coarse, '.explode-slider', 'height') + 2) + px(PLAIN, '.explode-bar', 'gap') + rows * seg + (rows - 1) * px(PLAIN, '.explode-opts', 'gap');
+    const [iT, , iB] = pad(PLAIN, '.iso-bar');
+    const iso = 2 * line(PLAIN, '.iso-bar') + iT + iB + px(coarse, '.mb-btn', 'height');
+    const both = explode(4) + px(PLAIN, '.top-bars', 'gap') + iso;
+    expect([explode(4), explode(3), iso, both]).toEqual([264, 212, 54, 324]);
+    // 3D 보기 높이 V 어림(191차 손셈 — 화면 높이 − 제목·도구·상태 막대 122px에서 시트 위 50%, 높이 640px 이하 40%, 가로 844×390은 옆 패널이라 268)과
+    // 단면 막대 높이 H(위 시험 손셈 — 세로 세 줄 152, 가로 한 줄 58, 0은 막대 숨김)
+    const cases: [string, number, number, number][] = [
+      ['320×568', 178, 152, explode(4)],
+      ['360×640', 207, 152, explode(4)],
+      ['375×812', 345, 152, explode(4)],
+      ['414×896', 387, 152, explode(4)],
+      ['844×390', 268, 58, explode(3)],
+      ['360×640 막대 숨김·분해+격리', 207, 0, both],
+    ];
+    const got = cases.map(([name, V, H, C]) => {
+      const [top, mb] = H ? [top1, mb1] : [top0, mb0];
+      // 고치기 전(191차): 묶음은 내용 높이 그대로 H + top부터 — 3D 보기(넘침 숨김) 밖은 잘려 누를 수 없고 굴릴 수도 없다
+      const cut = Math.max(0, H + top + C - V);
+      // 고친 뒤: flex가 묶음을 남은 높이로 줄이고(0 아래로는 줄지 않음) 숨은 만큼은 묶음 안 굴림으로 닿는다
+      const h = Math.max(0, Math.min(C, V - H - mb));
+      // 묶음 상자가 3D 보기 안 → 잘린 칸에 Tab 초점이 가면 브라우저가 가장 가까운 굴림 상자(묶음)를 굴리고 3D 보기는 굴리지 않는다
+      expect(H + top + h, name).toBeLessThanOrEqual(V - 10);
+      return [name, cut, h, C - h];
+    });
+    expect(got).toEqual([
+      ['320×568', 254, 0, 264],
+      ['360×640', 225, 29, 235],
+      ['375×812', 87, 167, 97],
+      ['414×896', 45, 209, 55],
+      ['844×390', 18, 184, 28],
+      ['360×640 막대 숨김·분해+격리', 127, 187, 137],
+    ]);
   });
 });
