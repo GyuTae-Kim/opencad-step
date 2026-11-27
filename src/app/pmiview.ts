@@ -36,6 +36,15 @@ const SEM_TAP = '누르면 이 PMI가 가리키는 면을 강조하고 맞춰 �
  */
 const tapHint = (text: string): HTMLElement => h('p', { class: 'hint coarse-only' }, text);
 
+/**
+ * 182차(WCAG 4.1.2): 이름 단추는 누르면 강조·다시 누르면 푸는 토글이라 강조(.sel)를 aria-pressed로도 둔다 — 전에는 클래스뿐이라 화면 읽기에 강조가 드러나지 않았다.
+ * 의미 PMI 줄의 .sel은 role=table 안 줄이라 aria-selected가 뜻이 없어(grid·treegrid만) 그 줄 이름 단추가 나른다. 줄을 만들 때·patch 때 같은 자리에서 함께 바뀐다
+ */
+const markName = (b: Element | null, on: boolean): void => {
+  b?.classList.toggle('sel', on);
+  b?.setAttribute('aria-pressed', String(on));
+};
+
 /** 표 한 벌(머리 줄 + 가상 목록 줄): 줄 만들기와 만든 줄 표시 고치기 */
 function grid(labelledBy: string, heads: string[], count: number, scroller: HTMLElement, make: (i: number) => HTMLElement, mark: (row: HTMLElement, i: number) => void): { el: HTMLElement; list: VList; patch(): void } {
   const body = h('div', { role: 'rowgroup' });
@@ -109,7 +118,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         const cb = row.querySelector<HTMLInputElement>('input[type=checkbox]')!;
         cb.checked = on;
         cb.disabled = v.pmiOff;
-        row.querySelector('.link-btn')!.classList.toggle('sel', picked(p.id));
+        markName(row.querySelector('.link-btn'), picked(p.id));
       },
     );
     lists.push(g.list);
@@ -158,7 +167,7 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
       (row, i) => {
         const on = d.items?.label === labelOf(i);
         row.classList.toggle('sel', on);
-        row.querySelector('.link-btn')?.classList.toggle('sel', on);
+        markName(row.querySelector('.link-btn'), on);
       },
     );
     lists.push(g.list);

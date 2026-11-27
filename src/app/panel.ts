@@ -745,7 +745,8 @@ export class Panel {
       const label = `레이어 ${nm}`;
       const selected = d.items?.label === label;
       const tip = data ? isolateText(title) : title;
-      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, title: `${tip}${tip ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, data ? fileSpan(name) : h('span', {}, name));
+      // 182차(WCAG 4.1.2): 누르면 강조·다시 누르면 푸는 토글이라 강조(.sel)를 aria-pressed로도(전에는 화면 읽기에 강조가 드러나지 않았다 — PMI 이름 단추와 같은 꼴)
+      const nameBtn = h('button', { type: 'button', class: `link-btn${selected ? ' sel' : ''}`, 'aria-pressed': String(selected), title: `${tip}${tip ? ' · ' : ''}누르면 이 레이어의 형상을 강조합니다(두 번 누르면 맞춰 보기)` }, data ? fileSpan(name) : h('span', {}, name));
       nameBtn.addEventListener('click', (ev) => {
         if (ev.detail === 2) this.host.selectItems(ids, label, true);
         else if (ev.detail <= 1) this.host.selectItems(selected ? null : ids, label);

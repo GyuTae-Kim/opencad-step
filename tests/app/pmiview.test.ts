@@ -263,4 +263,74 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(rows.length).toBe(3);
     for (const row of rows) expect(row.querySelector('input[type=checkbox]')!.getAttribute('aria-label')).toContain(row.querySelector('.link-btn')!.textContent!);
   });
+
+  it('182차: 이름 단추(누르면 강조·다시 누르면 풀기)의 강조는 aria-pressed로도 — 표현·의미 PMI 표와 레이어 표, 3D 쪽에서 고르기가 바뀌어도 함께(WCAG 4.1.2)', () => {
+    const { panel, d } = setup();
+    const [pres, sem] = [...panel.el.querySelectorAll('.pmi-grid')];
+    const btns = (g: Element) => [...g.querySelectorAll<HTMLButtonElement>('[role=rowgroup] .link-btn')];
+    // 눌린 단추 차례와 강조(.sel) 단추 차례 — 둘이 늘 같아야 한다(의미 PMI 줄의 .sel은 role=table 안 줄이라 aria-selected가 뜻이 없어 이름 단추가 나른다)
+    const on = (g: Element) => {
+      const bs = btns(g);
+      const pick = (f: (b: HTMLButtonElement) => boolean) => bs.flatMap((b, i) => (f(b) ? [i] : []));
+      return { pressed: pick((b) => b.getAttribute('aria-pressed') === 'true'), sel: pick((b) => b.classList.contains('sel')), unset: pick((b) => b.getAttribute('aria-pressed') === null).length };
+    };
+    expect(on(pres!)).toEqual({ pressed: [], sel: [], unset: 0 });
+    expect(on(sem!)).toEqual({ pressed: [], sel: [], unset: 0 });
+    // 표현 PMI 셋째 이름을 누르면 그 단추만 눌림, 다시 누르면 풀림
+    const p2 = btns(pres!)[2]!;
+    p2.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(on(pres!)).toEqual({ pressed: [2], sel: [2], unset: 0 });
+    p2.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(on(pres!)).toEqual({ pressed: [], sel: [], unset: 0 });
+    // 의미 PMI(면에 이어진 짝수 줄만 단추): 첫 단추를 Enter·Space(detail 0)로 누르면 눌림 — 표현 PMI 단추는 풀린 그대로
+    btns(sem!)[0]!.click();
+    expect(on(sem!)).toEqual({ pressed: [0], sel: [0], unset: 0 });
+    expect(on(pres!).pressed).toEqual([]);
+    // 3D 쪽에서 고르기가 바뀜(고르기 풀기 → 다른 PMI 하나): 만든 줄 표시를 고칠 때 눌림도 함께
+    d.items = null;
+    panel.onSelection();
+    expect([on(pres!).pressed, on(sem!).pressed]).toEqual([[], []]);
+    d.items = { ids: ['p5'], label: 'PMI 다른 이름' };
+    panel.onSelection();
+    expect([on(pres!), on(sem!).pressed]).toEqual([{ pressed: [5], sel: [5], unset: 0 }, []]);
+
+    // 레이어 표(첫 화면 패널): 이름 단추도 같은 토글 — 누르면 다시 그린 표의 그 단추가 눌림
+    document.body.innerHTML = '';
+    let ld!: StepDoc;
+    let lp!: Panel;
+    const lhost = new Proxy(
+      {
+        measuring: false,
+        measureKind: 'points',
+        touch: false,
+        multiPick: false,
+        fmt: new Fmt('mm'),
+        isVisible: () => true,
+        groups: () => [],
+        selectItems: (ids: readonly string[] | null, label: string) => {
+          ld.items = ids ? { ids: [...ids], label } : null;
+          lp.onSelection();
+        },
+      } as Record<string, unknown>,
+      { get: (t, k) => (k in t ? t[k as string] : () => {}) },
+    ) as unknown as PanelHost;
+    const meta = { products: [], layers: [{ name: 'L1', meshIds: ['m1'] }, { name: 'L2', meshIds: ['m2'] }] };
+    ld = createDoc('l.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
+    lp = new Panel(lhost);
+    lp.kit = { treeView, groupGrid, pmiView };
+    document.body.append(lp.el);
+    lp.show(ld);
+    lp.setOpen(true);
+    lp.setTab('layers');
+    const layer = () => [...lp.el.querySelectorAll<HTMLButtonElement>('tbody .link-btn')].map((b) => [b.getAttribute('aria-pressed'), b.classList.contains('sel')]);
+    expect(layer()).toEqual([['false', false], ['false', false]]);
+    lp.el.querySelector<HTMLButtonElement>('tbody .link-btn')!.click();
+    expect(layer()).toEqual([['true', true], ['false', false]]);
+    lp.el.querySelector<HTMLButtonElement>('tbody .link-btn')!.click();
+    expect(layer()).toEqual([['false', false], ['false', false]]);
+    // 다른 길(3D·나무에서 같은 묶음을 고름)로 바뀌어도
+    ld.items = { ids: ['m2'], label: '레이어 \u{2068}L2\u{2069}' };
+    lp.onSelection();
+    expect(layer()).toEqual([['false', false], ['true', true]]);
+  });
 });
