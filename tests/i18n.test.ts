@@ -426,5 +426,29 @@ describe('language URLs and UI presentation', () => {
     expect(keep.textContent).toBe('보이기');
     dispose();dispose=undefined;dom.window.close();
   });
+  it('names each language menu item by its visible language name only, so the stylesheet ✓ of the chosen one stays out of the name (181st, WCAG 1.1.1)', async () => {
+    const dom = new JSDOM('<!doctype html><html><head><title>OpenCAD</title></head><body><div id="app"><header class="titlebar"></header></div></body></html>', {url:languageUrl(metadataForLanguage('ko').url,'en')});
+    for (const name of ['window','document','Node','Element','HTMLAnchorElement','MutationObserver','location','history','localStorage','CustomEvent']) vi.stubGlobal(name,(dom.window as unknown as Record<string,unknown>)[name]);
+    // The chosen item draws ✓ as ::after generated text — a name computed from content would read "English✓" (accname 2F); aria-checked already says it is chosen
+    expect(readFileSync(join(process.cwd(), 'src/app/styles.css'), 'utf8')).toContain(`.language-list button[aria-checked="true"]::after { content: '✓'; }`);
+    const root = document.getElementById('app')!;
+    dispose = await installLocalization(root);
+    const menu = document.querySelector<HTMLElement>('.language-list')!;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role=menuitemradio]')];
+    expect(items).toHaveLength(languages.length);
+    const names = () => items.map((b) => [b.getAttribute('aria-label'), b.textContent]);
+    for (const [label, text] of names()) { expect(text).toBeTruthy(); expect(label).toBe(text); }
+    expect(menu.querySelector('[aria-checked=true]')!.getAttribute('aria-label')).toBe(menu.querySelector('[aria-checked=true]')!.textContent);
+    // Switching the UI language keeps the native names (translate="no") and the checked state on aria-checked
+    const before = names();
+    (menu.querySelector('[data-language=de]') as HTMLButtonElement).click();
+    for (let i=0;i<4;i++) await new Promise(resolve=>setTimeout(resolve,0));
+    expect(document.documentElement.lang).toBe('de');
+    expect(names()).toEqual(before);
+    expect(menu.querySelector('[data-language=de]')!.getAttribute('aria-checked')).toBe('true');
+    expect(menu.querySelector('[data-language=de]')!.getAttribute('aria-label')).toBe('Deutsch');
+    expect(root.querySelector('.language-trigger')!.getAttribute('aria-label')).toBe('Sprache wählen');
+    dispose();dispose=undefined;dom.window.close();
+  });
 
 });
