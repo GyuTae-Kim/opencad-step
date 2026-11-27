@@ -309,6 +309,24 @@ describe('제품 나무 가상 목록', () => {
     expect((document.activeElement as HTMLElement).dataset.key).toBe('0');
   });
 
+  it('168차: 이름 거르기 칸의 화면 읽기 이름은 보이는 자리 글과 같은 글(감싼 label에는 아이콘뿐 — WCAG 2.5.3), 거르며 다시 그려도 같고 네 언어 사전에 그 글이 있다', async () => {
+    const d = bigDoc(2, 3);
+    const { panel } = mount(d);
+    const input = () => panel.el.querySelector<HTMLInputElement>('.tree-filter')!;
+    const tip = '이름·자리 이름·제품 번호로 거르기';
+    // 전에는 「모델 트리 이름 거르기」라 보이는 글(자리 글)을 품지 않아 그 글로 부를 수 없었다(다섯 언어 모두)
+    expect([input().placeholder, input().getAttribute('aria-label')]).toEqual([tip, tip]);
+    expect(input().closest('label')!.textContent).toBe('');
+    input().focus();
+    input().value = 'p2';
+    input().dispatchEvent(new Event('input'));
+    await new Promise((r) => setTimeout(r, 220));
+    expect(panel.el.querySelector('.filter-info')).not.toBeNull();
+    expect([input().placeholder, input().getAttribute('aria-label')]).toEqual([tip, tip]);
+    // 번역층은 두 속성을 같은 사전 열쇠로 옮긴다 — 다른 언어에서도 이름 = 자리 글
+    for (const lang of ['en', 'ja', 'zh-CN', 'de']) expect(translate(tip, lang), lang).not.toMatch(/[가-힣]/);
+  });
+
   it('Ctrl·⌘+F(50차): 나무가 보이면 거르기 칸으로(글 고름), 칸에서 한 번 더 누르면 브라우저 찾기, 패널이 닫혔거나 다른 탭·Shift·Alt면 가로채지 않음', () => {
     const d = bigDoc();
     const { panel, row } = mount(d);

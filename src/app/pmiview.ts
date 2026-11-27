@@ -74,7 +74,8 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
      * 안내(「PMI 모두 보이기로 되돌립니다」, #13부터)대로 되돌릴 길이 없었다(줄 상자를 하나씩). 앱 setPmiVisible(null)이 모든 PMI 보이기를 다시 따지므로
      * 줄 숨김은 여기서 Visibility.setPmi로 푼다(첫 화면 app.ts를 늘리지 않게)
      */
-    const all = h('input', { type: 'checkbox', 'aria-label': '표현 PMI 모두 보이기' });
+    // 168차: 이름은 감싼 이름표의 보이는 글 「표현 PMI 보이기」(aria-label 「표현 PMI 모두 보이기」가 그 글을 앞서 이름이 보이는 글을 품지 않았다 — WCAG 2.5.3)
+    const all = h('input', { type: 'checkbox' });
     all.addEventListener('change', () => {
       if (all.checked) for (const id of [...v.pmiHidden]) v.setPmi(id, true);
       host.setPmiVisible(null, all.checked);
