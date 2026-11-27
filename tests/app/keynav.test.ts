@@ -458,8 +458,9 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
     expect(bar.hidden).toBe(false);
     expect(name.textContent).toBe(long);
     expect(name.title).toBe(long);
-    // 번역층은 translate="no" 칸의 글·말풍선을 옮기지 않는다(i18n.ts SKIP — ftext 시험 「모름」 말풍선 꼴)
-    expect(name.getAttribute('translate')).toBe('no');
+    // 209차(WCAG 3.1.2): 이름 칸은 번역하는 칸 — 묶음 이름표(「부품 3개」)·몸체(「… · 바디 2」)는 화면 글이라 translate="no"면 다른 언어에서 한국어로 남았다.
+    // 파일 글 조각은 selectionName이 FSI…PDI로 가둬 번역층이 그대로 끼운다(고른 부품 카드 이름과 같은 꼴 — tests/app/filecells209.test.ts)
+    expect(name.getAttribute('translate')).toBeNull();
     // 흐리게로 다른 이름을 고르면 말풍선도 그 이름
     self.doc = { vis: { isolated: null }, dim: new Set([2]), isoLabel: '부품 3개' };
     sync();
