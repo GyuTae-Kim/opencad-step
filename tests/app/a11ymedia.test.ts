@@ -72,7 +72,7 @@ describe('강제 색(forced-colors: active)', () => {
   it('보통 색에서 바탕·안쪽 그림자로 보이던 켬·고름 규칙은 모두 강제 색 규칙이 있다', () => {
     // 고른 줄 위 칩의 바탕(겹침 피하기)과 끄는 동안의 손잡이 막대(:hover와 함께)는 표시가 아니거나 같은 규칙 안
     const covered: Record<string, string> = { 'tr.sel td': 'tr.sel td:first-child' };
-    const skip = new Set(['.tree-row.sel .chip']);
+    const skip = new Set(['.tree-row.sel .chip', '.vgrid-row.sel .chip']);
     const missing: string[] = [];
     for (const [sel, o] of PLAIN) {
       if (!/\.(on|sel|part-sel|active)\b/.test(sel) || skip.has(sel)) continue;
