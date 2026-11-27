@@ -225,8 +225,8 @@ export class StepApp {
   private readonly snapCenters = new WeakMap<StepDoc, SnapPoint[]>();
   /** 주소 해시의 보기 링크(다음에 연 문서에 한 번 적용) */
   private pendingView: ViewLink | null = null;
-  /** 연 문서를 다시 읽을 방법(곡면 품질을 바꿔 다시 삼각화) */
-  private source: { name: string; read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>; input: InputKind } | null = null;
+  /** 연 문서를 다시 읽을 방법(곡면 품질을 바꿔 다시 삼각화)과 그 문서를 해석한 곡면 품질(177차) */
+  private source: { name: string; read: (signal: AbortSignal, progress: (fraction: number, stage: string) => void) => Promise<ArrayBuffer>; input: InputKind; quality: DisplaySettings['quality'] } | null = null;
   /** 큰 장면을 GPU에 나눠 올리는 중이면 0~1 */
   private upload: number | null = null;
   private readonly measureText: HTMLElement;
@@ -799,13 +799,15 @@ export class StepApp {
       if (seq !== this.loadSeq) return false;
       reading = false;
       const size = buf.byteLength;
+      // 177차: 해석에 쓰는 곡면 품질 — 다 열면 source에 남겨, 다시 삼각화가 끝났을 때 그새 바뀐 설정과 견준다(retessellate)
+      const quality = this.display.quality;
       const res = await this.client.parse(
         name,
         buf,
         (f, stage) => {
           if (seq === this.loadSeq) this.setLoading({ name, fraction: f, stage: stageLabel(stage) });
         },
-        QUALITY_OPTIONS[this.display.quality],
+        QUALITY_OPTIONS[quality],
       );
       if (seq !== this.loadSeq) return false;
       if (!sceneHasGeometry(res.scene)) {
@@ -820,7 +822,7 @@ export class StepApp {
       const doc = createDoc(name, size, res);
       if (res.surfaces) this.surfDocs.add(doc);
       this.showDoc(doc, carry);
-      this.source = { name, read, input };
+      this.source = { name, read, input, quality };
       doc.openMs = performance.now() - t0;
       this.lastError = null;
       this.updateAll();
@@ -2817,7 +2819,10 @@ export class StepApp {
     const src = this.source;
     const d = this.doc;
     if (!src || !d || this.loading) return false;
-    return this.load(src.name, src.read, src.input, { success() {}, error() {} }, d);
+    const ok = await this.load(src.name, src.read, src.input, { success() {}, error() {} }, d);
+    // 177차: 도는 동안 품질을 또 바꿨으면(그때 부른 이 함수는 loading이라 위에서 돌려보냄) 해석에 쓴 품질과 지금 설정이 다를 때 끝난 뒤 한 번 더 —
+    // 끝날 때마다 지금 값 하나와 견주므로 여러 번 바꿔도 한 번, 취소·다른 파일 열기·실패면 ok가 아니라 하지 않는다
+    return ok && this.source?.quality !== this.display.quality ? this.retessellate() : ok;
   }
 
   get displaySettings(): DisplaySettings {
