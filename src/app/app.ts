@@ -379,9 +379,11 @@ export class StepApp {
     const gh = h('a', { class: 'btn link', href: REPO_URL, target: '_blank', rel: 'noopener', title: 'GitHub 소스 코드', 'aria-label': 'GitHub 소스 코드' }, icon('code'), h('span', { class: 'btn-label' }, 'GitHub'));
     this.docNameEl = h('span', { class: 'doc-name' });
     const favicon = h('img', { class: 'brand-icon', src: './favicon.svg', alt: '', width: '20', height: '20' });
+    // 바로 다음 칸인 도구 막대(role=toolbar — 랜드마크 아님)도 banner가 품는다(175차 — WCAG 1.3.1·2.4.1: 랜드마크로 옮겨 다니면 도구 막대를 건너뛰어 듣지 못했다.
+    // DOM·Tab·읽는 차례와 모양은 그대로, 품은 칸은 header 안 칸들 뒤에 읽힌다)
     const title = h(
       'header',
-      { class: 'titlebar' },
+      { class: 'titlebar', 'aria-owns': 'view-tools' },
       h('h1', { class: 'brand' }, favicon, h('b', {}, 'OpenCAD'), h('span', {}, '\u00a0STEP 뷰어')),
       this.docNameEl,
       h('div', { class: 'title-actions' }, openBtn, sampleBtn, this.themeBtn, tools, gh),

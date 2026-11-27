@@ -129,7 +129,8 @@ export class Toolbar {
   private tools: Tool[] = [];
 
   constructor(private readonly host: ToolbarHost) {
-    this.el = h('nav', { class: 'toolbar', role: 'toolbar', 'aria-label': '보기 도구' });
+    // role=toolbar가 nav의 navigation을 덮어 랜드마크가 아니다 — 제목 막대 header(banner)가 이 id를 aria-owns로 품는다(175차, app.ts)
+    this.el = h('nav', { class: 'toolbar', role: 'toolbar', 'aria-label': '보기 도구', id: 'view-tools' });
     const H = host;
 
     this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit());
