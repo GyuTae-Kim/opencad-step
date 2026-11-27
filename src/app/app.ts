@@ -1784,6 +1784,8 @@ export class StepApp {
     this.isoBar.hidden = !on;
     this.isoLabel.textContent = d?.dim ? '나머지 흐리게' : '이것만 보기';
     this.isoText.textContent = on ? (d!.isoLabel ?? '') : '';
+    // 좁은 띠에서 말줄임된 이름을 말풍선으로(180차 — README 55차 「말풍선에 전체」, 59차 상태 막대 꼴; translate=no라 번역층이 옮기지 않음)
+    this.isoText.title = this.isoText.textContent ?? '';
     this.isoText.setAttribute('translate', 'no');
     this.toolbar.refresh();
   }

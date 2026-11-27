@@ -5,7 +5,7 @@
  * - panel.ts: 탭을 고르면 다시 만든 고른 탭으로 초점, 탭 본문 aria-controls·Tab 멈춤, 보이기 상자를 바꿔 다시 그려도 초점 그대로, 아래 띠 알림 끄고 켜기
  * - menu.ts: Home·End(창 글쇠로 새지 않게), 화면 점 메뉴를 닫으면 연 때 초점이 있던 곳으로
  * 헤드리스 Chrome 점검(.runtime/r53 kbd53)에서 찾은 것을 jsdom으로 다시 본다(jsdom은 숨긴 칸의 초점을 스스로 떼지 않아, 숨기는 명령이 브라우저처럼 blur한다).
- * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴)
+ * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴) — 180차: 이름 칸 글은 말풍선에도(말줄임된 이름을 다시 봄)
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
  * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다
@@ -382,6 +382,41 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
     const off = bar.querySelector('button')!;
     expect(off.textContent).toContain('격리 풀기');
     expect(off.closest(LIVE)).toBeNull();
+  });
+
+  it('180차: 격리 띠 이름 칸은 넣은 글을 말풍선(title)에도 두어 말줄임된 이름을 다시 볼 수 있다(README 55차 「말풍선에 전체」, 59차 상태 막대 꼴)', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const make = /this\.isoText = h\([\s\S]*?this\.isoBar = h\([^\n]*\n/.exec(app)?.[0];
+    // 원문 syncIsolate 몸통을 가짜 this로 돌린다(TS 단언 `d!.`만 지움)
+    const body = /\n {2}private syncIsolate\(\): void \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1]?.replace(/\bd!\./g, 'd.');
+    expect(make).toBeTruthy();
+    expect(body).toBeTruthy();
+    let refreshed = 0;
+    const self: Record<string, unknown> = { unisolate: () => {}, toolbar: { refresh: () => refreshed++ }, doc: null };
+    new Function('h', 'icon', make!).call(self, h, icon);
+    const sync = () => new Function(body!).call(self);
+    const bar = self.isoBar as HTMLElement;
+    const name = self.isoText as HTMLElement;
+    const long = '\u{2068}Gehäuseunterteil mit Befestigungslaschen\u{2069} · \u{2068}Exemplar 12\u{2069}';
+    self.doc = { vis: { isolated: new Set([1]) }, dim: null, isoLabel: long };
+    sync();
+    expect(bar.hidden).toBe(false);
+    expect(name.textContent).toBe(long);
+    expect(name.title).toBe(long);
+    // 번역층은 translate="no" 칸의 글·말풍선을 옮기지 않는다(i18n.ts SKIP — ftext 시험 「모름」 말풍선 꼴)
+    expect(name.getAttribute('translate')).toBe('no');
+    // 흐리게로 다른 이름을 고르면 말풍선도 그 이름
+    self.doc = { vis: { isolated: null }, dim: new Set([2]), isoLabel: '부품 3개' };
+    sync();
+    expect(name.textContent).toBe('부품 3개');
+    expect(name.title).toBe('부품 3개');
+    // 풀면 띠가 숨고 글·말풍선이 함께 빈다
+    self.doc = { vis: { isolated: null }, dim: null, isoLabel: '부품 3개' };
+    sync();
+    expect(bar.hidden).toBe(true);
+    expect(name.textContent).toBe('');
+    expect(name.title).toBe('');
+    expect(refreshed).toBe(3);
   });
 });
 
