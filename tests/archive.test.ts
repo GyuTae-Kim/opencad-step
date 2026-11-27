@@ -4,6 +4,7 @@ import { crc32, gzipSizeHint, inflate, isStepXml, maxInflatedSize, sniffContaine
 import { parseStepFile } from '../src/app/job';
 import { isPackedStepName, isOpenableName, OPEN_ACCEPT } from '../src/app/files';
 import { stageLabel } from '../src/app/format';
+import { isolateText } from '../src/app/ftext';
 import { cube, StepText } from './stepText';
 import { makeZip } from './zipText';
 
@@ -75,6 +76,9 @@ describe('inflate·unpackStep', () => {
     const want = step.length >= small.length ? 'dir/big.stp' : 'dir/small.STEP';
     expect(u.entry).toBe(want);
     expect(u.notes[0]).toMatch(/STEP 파일 2개 가운데 가장 큰/);
+    // 212차: 항목 이름(파일 글)은 FSI…PDI로 갇힌다(앱 글 칸 — 오류 칸 detail·경고 목록에서 이름이 사전 열쇠와 같아도 그대로, isolateText와 같은 꼴)
+    const other = want === 'dir/big.stp' ? 'dir/small.STEP' : 'dir/big.stp';
+    expect(u.notes[0]).toContain(`가장 큰 ${isolateText(want)}을(를) 열었습니다(나머지: ${isolateText(other)}).`);
   });
 
   it('ZIP64 끝 목록과 ZIP 안의 .stp.gz', async () => {
@@ -86,11 +90,14 @@ describe('inflate·unpackStep', () => {
   });
 
   it('ZIP 오류: STEP 없음(목록 보임)·STEP-XML·암호·지원하지 않는 방식·CRC·잘린 파일', async () => {
-    await expect(unpackStep(makeZip([{ name: 'a.txt', data: enc('a') }, { name: 'b.dxf', data: enc('b') }]))).rejects.toThrow(/STEP 파일\(\.stp·\.step·\.p21\)이 없습니다.*a\.txt, b\.dxf/);
+    // 212차: 오류 글의 항목 이름(파일 글)은 이름마다 FSI…PDI로 갇힌다(isolateText와 같은 꼴 — 앱 글 칸인 오류 칸에서 사전 열쇠와 같은 이름도 그대로)
+    await expect(unpackStep(makeZip([{ name: 'a.txt', data: enc('a') }, { name: 'b.dxf', data: enc('b') }]))).rejects.toThrow(
+      `ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: ${isolateText('a.txt')}, ${isolateText('b.dxf')}`,
+    );
     await expect(unpackStep(makeZip([{ name: 'model.stpx', data: enc('<?xml?>') }]))).rejects.toThrow(STEP_XML_MESSAGE);
-    await expect(unpackStep(makeZip([{ name: 'a.stp', data: step, flags: 1 }]))).rejects.toThrow(/암호/);
+    await expect(unpackStep(makeZip([{ name: 'a.stp', data: step, flags: 1 }]))).rejects.toThrow(`암호가 걸린 ZIP 항목(${isolateText('a.stp')})은 열 수 없습니다.`);
     await expect(unpackStep(makeZip([{ name: 'a.stp', data: step, method: 0, fakeMethod: 14 }]))).rejects.toThrow(/LZMA/);
-    await expect(unpackStep(makeZip([{ name: 'a.stp', data: step, badCrc: true }]))).rejects.toThrow(/CRC/);
+    await expect(unpackStep(makeZip([{ name: 'a.stp', data: step, badCrc: true }]))).rejects.toThrow(`ZIP 항목 ${isolateText('a.stp')}이(가) 손상되었습니다(CRC 불일치).`);
     const z = makeZip([{ name: 'a.stp', data: step }]);
     await expect(unpackStep(z.subarray(0, z.length - 30))).rejects.toThrow(/중앙 디렉터리|손상/);
     await expect(unpackStep(enc('<?xml version="1.0"?><iso_10303_28 xmlns="urn:oid:1.0.10303.28.2.1.1"/>'))).rejects.toThrow(STEP_XML_MESSAGE);

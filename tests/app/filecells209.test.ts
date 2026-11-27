@@ -9,7 +9,8 @@
  * → STEP 번호 「#n」(앱 낱말 없음), 물리 속성 주 관성 모멘트 값 칸의 앱 말풍선(translate="no" 칸이라 사전에 있어도 옮겨지지 않음).
  * 아직 둔 것은 STILL(언어 → 남는 글) — 목록에 있는데 이제 한글이 없으면 실패한다(고쳤으면 목록에서 뺀다).
  * 210차: 이름 없는 표현 PMI의 묶음 이름표·3D에서 누른 PMI의 상태 막대(아래 describe — 따로 만든 PMI 합성 STEP).
- * 211차: 상태 막대(글·말풍선 — 말풍선은 번역 전 글 통째라 「고른 것: {0}」 틀이 묶음 이름표를 그대로 끼웠다)도 그린다, 이름 없는 의미 PMI 25종, 앱 글 칸(data-i18n-ui)의 파일 글(맨 아래 describe).
+ * 211차: 상태 막대(글·말풍선 — 말풍선은 번역 전 글 통째라 「고른 것: {0}」 틀이 묶음 이름표를 그대로 끼웠다)도 그린다, 이름 없는 의미 PMI 25종, 앱 글 칸(data-i18n-ui)의 파일 글(211차 describe).
+ * 212차: 표지 없는 칸에서 틀이 앱 글 값을 잡는 자리를 앱 전체에서 센 뒤 남은 열기 오류 글 칸(오류 알림·처음 화면 읽기 오류)과 그 칸의 ZIP 항목 이름, 의미 PMI 이름표 통째 열쇠(맨 아래 describe).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,7 +29,12 @@ import { Fmt } from '../../src/app/display';
 import { h, icon } from '../../src/app/dom';
 import { isolateText } from '../../src/app/ftext';
 import { installLocalization } from '../../src/app/i18n';
+import { parseStepFile } from '../../src/app/job';
+import { friendlyError } from '../../src/app/protocol';
+import { warningNodes } from '../../src/app/warnparts';
+import { unpackStep } from '../../src/archive';
 import { cube, stepString, StepText } from '../stepText';
+import { makeZip } from '../zipText';
 
 /** 파일 글 이름(한국어) — 번역하지 않는 칸에 그대로 남아도 되는 한글은 이것뿐 */
 const KO_FILE = '블록';
@@ -405,5 +411,115 @@ describe('211차: 앱 글 칸은 틀이 잡은 앱 글도 옮긴다 — 이름 �
       root.remove();
       history.replaceState(null, '', '/');
     }
+  });
+});
+
+// ───────────────────────── 212차 ─────────────────────────
+
+/**
+ * 212차: 표지 없는 칸에서 틀이 앱 글 값을 잡는 자리를 앱 전체에서 셌다(사전 틀 열쇠 220 — 나머지는 수·측정값·갇힌 이름·조각·끼우기 전에 옮긴 값).
+ * 남은 것은 열기 오류 글: 압축을 푼 글이 STEP이 아니면 해석 일(job.ts)이 「압축을 풀었지만 STEP 글이 아닙니다. {까닭}」으로 까닭(앱 글)을 틀 자리에 넣어
+ * 오류 알림(app.ts toast 오류)·처음 화면 읽기 오류(app.ts startError)에서 다른 언어에도 까닭이 한국어로 남았다 → 두 칸을 앱 글 칸(data-i18n-ui)으로.
+ * 같은 칸에 들어가는 파일 글(ZIP 항목 이름 — archive.ts 오류·알림 글)은 해석기가 먼저 FSI…PDI로 가둔다(이름이 사전 열쇠와 같아도 그대로 — 211차 꼴).
+ * 이름 없는 의미 PMI 이름표 25종은 통째 열쇠(210차 표현 PMI 꼴 — 영어는 앞머리 뒤 소문자, 독일어 형용사 꼴은 형용사를 PMI 앞에).
+ */
+const TOAST = cut(/\n\s*(const t = h\('div', \{ class: `toast \$\{kind\}`[^\n]*)\n/);
+const START_MAKE = cut(/\n\s*(this\.startError = h\('div', \{ class: 'start-error'[^\n]*)\n/);
+const START_FILL = cut(/\n\s*(this\.startError\.replaceChildren\([^\n]*)\n/);
+
+/** 오류 알림 하나(app.ts toast의 만드는 줄 — 동작·닫기 버튼 없이) */
+function errorToast(parts: string[]): HTMLElement {
+  return new Function('h', 'icon', 'warningNodes', 'msg', 'kind', 'keep', 'act', 'close', `${TOAST}\nreturn t;`)(h, icon, warningNodes, parts, 'error', false, null, null) as HTMLElement;
+}
+
+/** 처음 화면 읽기 오류(app.ts startError 만들기·채우기 줄 — showError가 남긴 글 조각) */
+function startError(parts: string[]): HTMLElement {
+  const self: { startError?: HTMLElement; lastError: string; lastErrorParts: string[] } = { lastError: parts.join(' '), lastErrorParts: parts };
+  new Function('h', 'warningNodes', `${START_MAKE}\n${START_FILL}`).call(self, h, warningNodes);
+  return self.startError!;
+}
+
+const enc = (s: string) => new TextEncoder().encode(s);
+/** 저장(방식 0) ZIP — 압축 풀기 없이 항목을 읽는다 */
+const stored = (files: { name: string; data: Uint8Array }[]) => makeZip(files.map((f) => ({ ...f, method: 0 as const })));
+const failText = (p: Promise<unknown>): Promise<string> =>
+  p.then(
+    () => 'ok',
+    (e: Error) => e.message,
+  );
+/** app.ts showError 첫 조각(문서를 열다 실패 — 파일 이름은 갇힘) */
+const OPEN_FAIL = `${isolateText(`${KO_FILE}.zip`)}: 파일을 열지 못했습니다.`;
+const FSI = String.fromCharCode(0x2068);
+const PDI = String.fromCharCode(0x2069);
+const ISOLATED = new RegExp(`${FSI}[^${PDI}]*${PDI}`, 'g');
+
+describe('212차: 열기 오류 글 칸(오류 알림·처음 화면 읽기 오류)은 앱 글 칸 — 틀이 잡은 까닭도 옮기고 갇힌 ZIP 항목 이름은 그대로·의미 PMI 이름표 통째 열쇠', () => {
+  it.each(['ko', 'en', 'ja', 'zh-CN', 'de'])('%s: 압축을 푼 글이 STEP이 아님(까닭 — 앱 글)', async (code) => {
+    const msgs = [
+      await failText(parseStepFile('a.zip', stored([{ name: 'a.stp', data: enc('hello') }]))),
+      await failText(parseStepFile('b.zip', stored([{ name: 'b.stp', data: new Uint8Array(0) }]))),
+    ];
+    // 해석 일의 글(까닭이 틀 자리에 — job.ts)
+    expect(msgs).toEqual(['압축을 풀었지만 STEP 글이 아닙니다. STEP 파일이 아닙니다(ISO-10303-21 머리가 없습니다).', '압축을 풀었지만 STEP 글이 아닙니다. 빈 파일입니다.']);
+    const views = h('div');
+    const root = h('div', {}, views);
+    document.body.append(root);
+    for (const m of msgs) {
+      const parts = [OPEN_FAIL, friendlyError(m)];
+      views.append(errorToast(parts), startError(parts));
+    }
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      expect(views.querySelectorAll('.toast.error[role="alert"]').length).toBe(2);
+      expect(views.querySelectorAll('.start-error[role="alert"]').length).toBe(2);
+      // 한국어 화면의 글은 원문 그대로
+      if (code === 'ko') expect([...views.querySelectorAll('.start-error')].map((e) => e.textContent)).toEqual(msgs.map((m) => `${OPEN_FAIL} ${m}`));
+      expect(leaks(views, code)).toEqual([]);
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
+  });
+
+  it.each(['en', 'ja', 'zh-CN', 'de'])('%s: 같은 칸의 ZIP 항목 이름(파일 글)은 사전 열쇠와 같아도 갇힌 채 그대로', async (code) => {
+    // STEP 없는 ZIP — 항목 이름이 사전 열쇠(「열기」)·틀(「부품 {0}개」)과 같다
+    const names = ['열기', '부품 2개'];
+    const m = await failText(unpackStep(stored(names.map((name) => ({ name, data: enc('x') })))));
+    expect(m).toMatch(/^ZIP 안에 STEP 파일/);
+    const parts = [OPEN_FAIL, friendlyError(m)];
+    const cells = [errorToast(parts), startError(parts)];
+    const root = h('div', {}, ...cells);
+    document.body.append(root);
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      for (const el of cells) {
+        const text = el.textContent ?? '';
+        for (const n of names) expect(text.split(isolateText(n)), `${code}: ${n} — ${text}`).toHaveLength(2);
+        // 갇힌 이름 밖은 모두 옮겨졌다
+        expect(text.replace(ISOLATED, ''), text).not.toMatch(HANGUL);
+      }
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
+  });
+
+  it('이름 없는 의미 PMI 이름표 25종은 네 사전에 통째 열쇠 — 영어 앞머리 뒤 소문자(210차 「PMI curve annotation」 꼴), 일본어·중국어 틀 꼴, 독일어 형용사 꼴은 형용사를 PMI 앞에', () => {
+    const kinds = SEM_TYPES.map(semanticLabel);
+    // 독일어: 형용사는 PMI 앞(같은 사전 「Ausgewählte PMI」·「{0} semantische PMI」), PMI-는 이름씨에 붙인다(「PMI-Anmerkung」·「PMI-Tabelle …」)
+    const adjective = /^\S+ [A-ZÄÖÜ]/;
+    expect(kinds.filter((k) => adjective.test(CAT.de![k]!))).toEqual(['기하 공차', '공통 데이텀']);
+    const head: Record<string, (v: string) => string> = {
+      en: (v) => `PMI ${v[0]!.toLowerCase()}${v.slice(1)}`,
+      ja: (v) => `PMI${v}`,
+      'zh-CN': (v) => `PMI${v}`,
+      de: (v) => (adjective.test(v) ? v.replace(' ', ' PMI-') : `PMI-${v}`),
+    };
+    for (const [code, f] of Object.entries(head)) for (const kind of kinds) expect(CAT[code]![`PMI ${kind}`], `${code}: ${kind}`).toBe(f(CAT[code]![kind]!));
+    expect(CAT.de!['PMI 기하 공차']).toBe('Geometrische PMI-Toleranz');
   });
 });

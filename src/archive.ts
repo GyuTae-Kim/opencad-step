@@ -287,6 +287,12 @@ export interface ZipEntry {
 
 const ZIP_METHODS: Record<number, string> = { 9: 'Deflate64', 12: 'BZIP2', 14: 'LZMA', 93: 'Zstandard', 95: 'XZ', 98: 'PPMd', 99: 'AES 암호' };
 
+/**
+ * 212차: 오류·알림 글에 넣는 ZIP 항목 이름(파일 글)을 FSI…PDI로 가둔다(앱 ftext.ts isolateText와 같은 꼴 — 해석기는 DOM 도우미를 가져오지 않아 같은 두 글자를 직접).
+ * 앱의 오류 글 칸은 틀이 잡은 앱 글도 옮기는 칸(data-i18n-ui)이라, 갇히지 않은 이름이 사전 열쇠와 같으면(「열기」 등) 옮겨졌다
+ */
+const isolated = (s: string): string => (s ? String.fromCharCode(0x2068) + s + String.fromCharCode(0x2069) : s);
+
 function u16(b: Uint8Array, o: number): number {
   return b[o]! | (b[o + 1]! << 8);
 }
@@ -392,11 +398,11 @@ export function zipEntries(b: Uint8Array): ZipEntry[] {
 /** ZIP 항목 하나의 내용(풀어서) */
 export async function zipEntryData(b: Uint8Array, e: ZipEntry, opts: InflateOptions = {}): Promise<Uint8Array> {
   const lo = e.localOffset;
-  if (lo + 30 > b.length || u32(b, lo) !== 0x04034b50) throw new Error(`ZIP 항목 ${e.name}의 머리가 손상되었습니다.`);
-  if (e.flags & 1) throw new Error(`암호가 걸린 ZIP 항목(${e.name})은 열 수 없습니다. 압축을 푼 .stp 파일을 여십시오.`);
+  if (lo + 30 > b.length || u32(b, lo) !== 0x04034b50) throw new Error(`ZIP 항목 ${isolated(e.name)}의 머리가 손상되었습니다.`);
+  if (e.flags & 1) throw new Error(`암호가 걸린 ZIP 항목(${isolated(e.name)})은 열 수 없습니다. 압축을 푼 .stp 파일을 여십시오.`);
   const start = lo + 30 + u16(b, lo + 26) + u16(b, lo + 28);
   const end = start + e.compressedSize;
-  if (end > b.length) throw new Error(`ZIP 항목 ${e.name}이(가) 잘렸습니다.`);
+  if (end > b.length) throw new Error(`ZIP 항목 ${isolated(e.name)}이(가) 잘렸습니다.`);
   const raw = b.subarray(start, end);
   let out: Uint8Array;
   if (e.method === 0) out = raw;
@@ -407,7 +413,7 @@ export async function zipEntryData(b: Uint8Array, e: ZipEntry, opts: InflateOpti
     if (plausible && e.size > limit) throw overLimitError(limit);
     out = await inflate(raw, 'deflate-raw', plausible ? { ...opts, sizeHint: e.size } : opts);
   } else throw new Error(`ZIP 압축 방식 ${e.method}${ZIP_METHODS[e.method] ? `(${ZIP_METHODS[e.method]})` : ''}은 지원하지 않습니다(저장·deflate만). 압축을 푼 .stp 파일을 여십시오.`);
-  if (crc32(out) !== e.crc) throw new Error(`ZIP 항목 ${e.name}이(가) 손상되었습니다(CRC 불일치).`);
+  if (crc32(out) !== e.crc) throw new Error(`ZIP 항목 ${isolated(e.name)}이(가) 손상되었습니다(CRC 불일치).`);
   return out;
 }
 
@@ -467,14 +473,14 @@ export async function unpackStep(bytes: Uint8Array, onProgress?: (fraction: numb
     if (!cands.length) {
       if (entries.some((e) => isStepXmlName(e.name))) throw new Error(STEP_XML_MESSAGE);
       const names = entries.map((e) => e.name);
-      const list = names.slice(0, 6).join(', ') + (names.length > 6 ? ` 외 ${names.length - 6}개` : '');
+      const list = names.slice(0, 6).map(isolated).join(', ') + (names.length > 6 ? ` 외 ${names.length - 6}개` : '');
       throw new Error(`ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다.${names.length ? ` 들어 있는 파일: ${list}` : ' 빈 ZIP입니다.'}`);
     }
     const pick = cands[0]!;
     if (cands.length > 1) {
-      const rest = cands.slice(1).map((e) => e.name);
+      const rest = cands.slice(1).map((e) => isolated(e.name));
       // 다섯 개 넘는 나머지는 "… +N"(언어와 무관한 꼴 — 다른 언어 화면에서 문장 틀만 옮기고 자리 값은 그대로 두므로)
-      out.notes.push(`ZIP 안 STEP 파일 ${cands.length}개 가운데 가장 큰 ${pick.name}을(를) 열었습니다(나머지: ${rest.slice(0, 5).join(', ')}${rest.length > 5 ? `, … +${rest.length - 5}` : ''}).`);
+      out.notes.push(`ZIP 안 STEP 파일 ${cands.length}개 가운데 가장 큰 ${isolated(pick.name)}을(를) 열었습니다(나머지: ${rest.slice(0, 5).join(', ')}${rest.length > 5 ? `, … +${rest.length - 5}` : ''}).`);
     }
     out.entry = pick.name;
     try {
