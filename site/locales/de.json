@@ -13,6 +13,7 @@
   "+{0} 쪽을 잘라 냅니다 — 눌러서 뒤집기": "+{0}-Seite wird abgeschnitten – zum Umdrehen drücken",
   "100% (불투명)": "100 % (deckend)",
   "3D 보기": "3D-Ansicht",
+  "3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)": "Einzelzeichen-Tastenkürzel auch außerhalb der 3D-Ansicht (H·I·F·1~7)",
   "3D 셰이더 연결 실패: {0}": "3D-Shader-Verbindungsfehler: {0}",
   "3D 셰이더 컴파일 실패: {0}": "3D-Shader-Kompilierung fehlgeschlagen: {0}",
   "3D 형상을 다룹니다": "Arbeitet mit 3D-Geometrie",
