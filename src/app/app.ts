@@ -3077,21 +3077,21 @@ export class StepApp {
   }
 
   /**
-   * 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 실행하고 닫는다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차).
-   * ms 뒤 닫는 시계는 pushToast가 맡아 마우스가 올라 있거나 초점이 그 안이면 멈춘다(160차)
+   * 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 닫고 실행한다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차).
+   * ms 뒤 닫는 시계는 pushToast가 맡아 마우스가 올라 있거나 초점이 그 안이면 멈춘다(160차). 닫는 함수도 pushToast가 돌려준다 — 닫히는 알림 안에
+   * 초점이 있었으면 알림 칸에 들어오기 전 자리로, 없으면 3D 보기(문서 전이면 시작 화면 「파일 열기」)로 돌려준다(166차). 동작은 닫은 뒤라 명령이 옮긴 초점이 남는다
    */
   toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }, keep = false): () => void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
     const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-keep': keep }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', {}, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
+    const remove = pushToast(this.toasts, t, 3, ms, () => (this.doc ? this.viewer?.canvas : this.startOpen));
     act?.addEventListener('click', () => {
-      t.remove();
+      remove();
       action!.run();
     });
-    const remove = () => t.remove();
     close.addEventListener('click', remove);
-    pushToast(this.toasts, t, 3, ms);
     return remove;
   }
 

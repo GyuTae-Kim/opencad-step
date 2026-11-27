@@ -7,6 +7,8 @@
  * 알림은 app.ts `toast`와 같은 꼴(class `toast <종류>`, 오류 role=alert·그 밖 status, keep이면 data-keep)로 실제 `h`가 만든다.
  * 160차: 저절로 닫는 시간(ms)도 `pushToast`가 맡는다 — 마우스를 올려 두었거나 초점이 그 안(닫기·동작 버튼)이면 멈추고, 둘 다 떠나면 처음 시간을 다시 센다
  * (WCAG 2.2.1 시간 조절의 연장 — 전에는 읽거나 버튼에 가 있는 동안에도 3.2~9초(새 버전 60초) 뒤 사라졌고, 초점이 있던 버튼과 함께 사라지면 초점이 문서로 빠졌다).
+ * 166차: `pushToast`가 그 알림을 닫는 함수를 돌려주고, 닫기(✕)·동작 버튼·한도로 빼기·앱이 부르는 닫기(문맥 되찾음·잠금 실패 거두기)로 빠지는 알림 안에 초점이 있었으면
+ * 알림 칸에 들어오기 전 자리로(없거나 빠졌으면 home — 앱은 3D 보기, 문서 전이면 「파일 열기」) 돌려준다(WCAG 2.4.3 — 전에는 초점이 문서로 빠져 다음 Tab이 처음부터 돌았다).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -158,7 +160,148 @@ describe('알림이 저절로 닫히는 시간 — 마우스·초점이 그 안�
 
   it('앱(원문): 알림 시간을 pushToast에 넘기고 따로 setTimeout으로 닫지 않는다', () => {
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-    expect(app).toContain('pushToast(this.toasts, t, 3, ms);');
+    expect(app).toContain('pushToast(this.toasts, t, 3, ms');
     expect(app).not.toContain('setTimeout(remove, ms)');
+  });
+});
+
+describe('알림이 닫힐 때 초점 — 알림 칸에 들어오기 전 자리로(166차)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  /**
+   * 문서에 붙은 알림 칸, 알림 칸 밖 버튼(out), 갈 곳이 없을 때의 자리(home — 앱은 3D 보기, 문서 전이면 「파일 열기」), app.ts toast 꼴 알림 —
+   * 닫기는 닫는 함수, 동작 버튼은 닫고 실행. 닫는 함수는 pushToast가 돌려준다(165차 pushToast는 돌려주지 않았다 — 그때처럼 알림만 떼어 고치기 전과 견줌)
+   */
+  function setup() {
+    vi.useFakeTimers();
+    const el = h('div', { class: 'toasts', 'aria-live': 'polite' });
+    const out = h('button', { type: 'button' }, '밖');
+    const home = h('button', { type: 'button' }, '3D 보기');
+    document.body.append(out, home, el);
+    const make = (msg: string, ms?: number, run?: () => void) => {
+      const act = h('button', { type: 'button', class: 'btn small toast-act' }, '파일로 내보내기');
+      const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
+      const t = h('div', { class: 'toast info', role: 'status' }, h('span', {}, msg), act, close);
+      const r: unknown = pushToast(el, t, 3, ms, () => home);
+      const shut = typeof r === 'function' ? (r as () => void) : () => t.remove();
+      act.addEventListener('click', () => {
+        shut();
+        run?.();
+      });
+      close.addEventListener('click', shut);
+      return { t, act, close, shut };
+    };
+    return { out, home, make };
+  }
+
+  it('닫기(✕)에 초점을 두고 누르면 알림 칸에 들어오기 전 자리로 — 알림끼리 옮겨 다녀도 처음 들어온 자리, 초점이 밖이면 그대로', () => {
+    const { out, home, make } = setup();
+    const a = make('PNG를 저장했습니다.', 3500);
+    const b = make('보기 링크를 복사했습니다.', 3500);
+    out.focus();
+    a.close.focus();
+    b.close.focus();
+    b.close.click();
+    expect([b.t.isConnected, document.activeElement]).toEqual([false, out]);
+    // 초점이 알림 밖일 때 누름(누름이 초점을 주지 않는 브라우저)은 초점을 옮기지 않는다
+    home.focus();
+    a.close.click();
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, home]);
+  });
+
+  it('동작 버튼은 닫아 초점을 돌려준 뒤 실행해, 명령이 스스로 옮긴 초점(대화 상자 등)은 그대로', () => {
+    const { out, make } = setup();
+    let ran = 0;
+    const a = make('보기 링크를 복사했습니다.', 9000, () => ran++);
+    out.focus();
+    a.act.focus();
+    a.act.click();
+    expect([ran, a.t.isConnected, document.activeElement]).toEqual([1, false, out]);
+    const dlg = h('button', { type: 'button' }, '대화 상자 안 버튼');
+    document.body.append(dlg);
+    const b = make('새 버전이 있습니다.', 60_000, () => dlg.focus());
+    out.focus();
+    b.act.focus();
+    b.act.click();
+    expect([b.t.isConnected, document.activeElement]).toEqual([false, dlg]);
+  });
+
+  it('한도(셋)로 빠지는 알림 안에 초점이 있었으면 알림 칸에 들어오기 전 자리로', () => {
+    const { out, make } = setup();
+    const a = make('부품 단위로 고릅니다.', 3500);
+    out.focus();
+    a.close.focus();
+    for (const m of ['가', '나', '다']) make(m, 3500);
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, out]);
+  });
+
+  it('앱이 부르는 닫기(문맥 되찾음·잠금 실패 거두기)도 같고, 들어오기 전 자리가 빠졌거나 문서에서 곧장 왔으면 home으로', () => {
+    const { out, home, make } = setup();
+    const gone = h('button', { type: 'button' }, '사라질 칸');
+    document.body.append(gone);
+    const a = make('그래픽 장치가 다시 시작되어 3D 화면을 잠시 그리지 못합니다', 24 * 60 * 60 * 1000);
+    gone.focus();
+    a.close.focus();
+    gone.remove();
+    a.shut();
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 아무 칸에도 초점이 없다가(문서) 곧장 알림으로 왔으면(relatedTarget 없음)
+    const b = make('잠글 방향이 없습니다', 3200);
+    out.focus();
+    out.blur();
+    b.close.focus();
+    b.shut();
+    expect([b.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 초점이 그 알림 밖이면 건드리지 않는다
+    const c = make('지금 보기를 홈 뷰로 정했습니다.', 3500);
+    out.focus();
+    c.shut();
+    expect([c.t.isConnected, document.activeElement]).toEqual([false, out]);
+  });
+
+  it('포인터로 누른 알림은 들어오기 전 자리가 글 칸이면 그 칸 대신 home으로(손가락 화면 자판이 다시 뜨지 않게) — 글쇠로 누르면 글 칸, 글 칸이 아니면 그 자리', () => {
+    const { out, home, make } = setup();
+    const field = h('input', { type: 'text', class: 'tree-filter' });
+    document.body.append(field);
+    // 누름이 버튼에 초점을 주는 브라우저(Chrome·Firefox — 안드로이드 손가락 포함): pointerdown → 초점 → click
+    const a = make('먼저 부품을 고르십시오', 3500);
+    field.focus();
+    a.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    a.close.focus();
+    a.close.click();
+    expect([a.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 동작 버튼도 같다
+    const b = make('보기 링크를 복사했습니다.', 9000);
+    field.focus();
+    b.act.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    b.act.focus();
+    b.act.click();
+    expect([b.t.isConnected, document.activeElement]).toEqual([false, home]);
+    // 글쇠(Enter·Space — 누름 없음)로 닫으면 글 칸으로(누른 뒤라도 그 알림 안에서 글쇠를 누르면 글쇠 쪽)
+    const c = make('부품 단위로 고릅니다.', 3500);
+    field.focus();
+    c.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    c.close.focus();
+    c.close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    c.close.click();
+    expect([c.t.isConnected, document.activeElement]).toEqual([false, field]);
+    // 포인터로 눌러도 들어오기 전 자리가 글 칸이 아니면 그 자리
+    const d = make('지금 보기를 홈 뷰로 정했습니다.', 3500);
+    out.focus();
+    d.close.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    d.close.focus();
+    d.close.click();
+    expect([d.t.isConnected, document.activeElement]).toEqual([false, out]);
+  });
+
+  it('앱(원문): 알림 함수가 닫는 함수를 pushToast에서 받아 닫기·동작 버튼(닫고 실행)·돌려주는 값에 쓰고, 갈 곳이 없으면 3D 보기(문서 전이면 「파일 열기」)', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    expect(app).toContain('const remove = pushToast(this.toasts, t, 3, ms, () => (this.doc ? this.viewer?.canvas : this.startOpen));');
+    expect(app).toMatch(/act\?\.addEventListener\('click', \(\) => \{\s*remove\(\);\s*action!\.run\(\);\s*\}\);/);
+    expect(app).toContain("close.addEventListener('click', remove);");
+    expect(app).not.toContain('const remove = () => t.remove();');
   });
 });
