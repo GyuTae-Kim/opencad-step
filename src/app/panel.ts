@@ -683,7 +683,7 @@ export class Panel {
     const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
     const el = section(
       // 몸체 이름·묶음 이름표 안의 파일 글은 FSI…PDI로 갇혀(ftext.ts) 번역층이 그대로 둔다 — 화면 글("몸체 2"·"부품 3개")만 옮긴다
-      multi ? [h('span', {}, '물리 속성'), ' · ', h('span', {}, multi)] : ids ? '물리 속성' : '모형 전체 물리 속성',
+      multi ? [h('span', {}, '물리 속성'), ' · ', h('span', { 'data-i18n-ui': '' }, multi)] : ids ? '물리 속성' : '모형 전체 물리 속성',
       h('dl', {}, ...rows),
       ...notes,
       pick,
@@ -844,7 +844,8 @@ export class Panel {
       if (node) lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 제품 '), ...nodeNames(node)), fitBtn()));
     } else if (d.items) {
       // 묶음 이름표의 파일 글(레이어·PMI·간섭 쌍 이름)은 FSI…PDI로 갇혀 번역층이 틀 그대로 끼운다(ftext.ts) — 길이 한도는 이름표를 만들 때
-      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), h('span', {}, d.items.label), h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
+      // 211차: 이름표는 앱 글 칸(i18n.ts uiTranslate — 「PMI {0}」 틀이 의미 PMI 종류도 옮김)
+      lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 것 '), h('span', { 'data-i18n-ui': '' }, d.items.label), h('span', { class: 'dim' }, ` · ${fmtCount(d.items.ids.length)}개`)), fitBtn()));
     } else if (d.body) {
       lines.push(h('div', { class: 'foot-sel' }, h('span', {}, h('b', {}, '고른 바디 '), h('span', {}, bodyTitle(d.products, d.scene, d.body, isolateText))), fitBtn()));
     }

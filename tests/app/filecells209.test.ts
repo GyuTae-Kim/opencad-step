@@ -8,7 +8,8 @@
  * 209차에 고친 것: 격리 띠 이름 칸의 translate="no"(묶음 이름표 「부품 2개」·「레이어 …」·몸체 「… · 바디 2」가 남음), 해석기의 이름 없는 제품 「제품 #n」·레이어 배정 「레이어 #n」
  * → STEP 번호 「#n」(앱 낱말 없음), 물리 속성 주 관성 모멘트 값 칸의 앱 말풍선(translate="no" 칸이라 사전에 있어도 옮겨지지 않음).
  * 아직 둔 것은 STILL(언어 → 남는 글) — 목록에 있는데 이제 한글이 없으면 실패한다(고쳤으면 목록에서 뺀다).
- * 210차: 이름 없는 표현 PMI의 묶음 이름표·3D에서 누른 PMI의 상태 막대(맨 아래 describe — 따로 만든 PMI 합성 STEP).
+ * 210차: 이름 없는 표현 PMI의 묶음 이름표·3D에서 누른 PMI의 상태 막대(아래 describe — 따로 만든 PMI 합성 STEP).
+ * 211차: 상태 막대(글·말풍선 — 말풍선은 번역 전 글 통째라 「고른 것: {0}」 틀이 묶음 이름표를 그대로 끼웠다)도 그린다, 이름 없는 의미 PMI 25종, 앱 글 칸(data-i18n-ui)의 파일 글(맨 아래 describe).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,8 +17,9 @@ import { describe, expect, it } from 'vitest';
 import type { GroupInfo } from 'opencad-viewer3d';
 import { stepToScene, type StepMeta } from '../../src/scene';
 import { bodyTitle, createDoc, multiLabel, productAt, type PanelTab, type StepDoc } from '../../src/app/doc';
+import type { ParseResult } from '../../src/app/protocol';
 import { nodeLabel } from '../../src/app/tree';
-import { Panel, pmiTypeLabel, type PanelHost } from '../../src/app/panel';
+import { Panel, pmiTypeLabel, semanticLabel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import { infoView } from '../../src/app/infoview';
 import { pmiView } from '../../src/app/pmiview';
@@ -87,6 +89,8 @@ function host(d: StepDoc, picked: string[]): PanelHost {
     groups: () => groups,
     setDensity: (v: number | null) => (d.density = v),
     selectItems: (_ids: unknown, label: string) => picked.push(label),
+    // 의미 PMI 이름 버튼(면에 이어진 줄 — 211차)
+    showPmiFaces: (_faces: unknown, label: string) => (picked.push(label), true),
   };
   return new Proxy(t, { get: (o, k) => (k in o ? o[k as string] : () => {}) }) as unknown as PanelHost;
 }
@@ -182,16 +186,18 @@ describe('209차: 앱 한국어는 번역하지 않는 칸 밖에(다섯 언어 
     ];
     for (const s of sels) {
       const nm = selectionName(s, productAt, nodeLabel, isolateText, bodyTitle);
-      views.append(card(nm), iso(nm));
+      // 211차: 상태 막대도(말풍선 「고른 것: 부품 2개」·「고른 것: 레이어 …」 — 틀이 묶음 이름표를 그대로 끼워 남았다)
+      views.append(card(nm), iso(nm), status(s));
     }
     history.replaceState(null, '', `/?lang=${code}`);
     const dispose = await installLocalization(root);
     try {
-      // 그린 것이 비지 않았다(나무 줄 다섯 — 뿌리·이름 없는 부품·바디 둘·블록, 레이어 줄 셋, 카드·격리 띠 여섯, 이름 없는 속성 값)
+      // 그린 것이 비지 않았다(나무 줄 다섯 — 뿌리·이름 없는 부품·바디 둘·블록, 레이어 줄 셋, 카드·격리 띠·상태 막대 여섯, 이름 없는 속성 값)
       expect(views.querySelectorAll('.tree-row').length).toBe(5);
       expect(views.querySelectorAll('table.grid tbody tr').length).toBe(3);
       expect(views.querySelectorAll('.mb-name').length).toBe(6);
       expect(views.querySelectorAll('.iso-bar:not([hidden])').length).toBe(6);
+      expect(views.querySelectorAll('.status-sel').length).toBe(6);
       expect([...views.querySelectorAll('.prop-row dd')].some((dd) => dd.textContent === 'ACME')).toBe(true);
       // 파일 글(한국어 이름)은 어느 언어에서나 번역하지 않는 칸에 그대로
       expect([...views.querySelectorAll('[translate="no"]')].some((el) => el.textContent === KO_FILE)).toBe(true);
@@ -236,35 +242,25 @@ function pmiBytes(): Uint8Array {
 
 const pscene = stepToScene(pmiBytes(), { name: 'p.stp' });
 const pmeta = pscene.meta as unknown as StepMeta;
-/** 네 사전(남는 글 셈 — 틀 값) */
+/** 네 사전(종류 이름 꼴·틀 값) */
 const CAT: Record<string, Record<string, string>> = Object.fromEntries(
   ['en', 'ja', 'zh-CN', 'de'].map((c) => [c, JSON.parse(readFileSync(join(__dirname, `../../site/locales/${c}.json`), 'utf8')) as Record<string, string>]),
 );
 const fill = (t: string, ...v: string[]): string => t.replace(/\{(\d+)\}/g, (_, i: string) => v[Number(i)] ?? '');
 
-// 상태 막대 고른 것 칸(updateStatus — selectionText 조각과 막대 말풍선)
+// 상태 막대 고른 것 칸(앱이 만드는 칸 — 211차 표지도 — 과 updateStatus의 selectionText 조각·막대 말풍선)
+const STATUS_MAKE = cut(/\n\s*(this\.statusSel = h\('div', [^\n]*\);)\n/);
 const SEL_TEXT = cut(/\n {2}private selectionText\(d: StepDoc\): \(Node \| string\)\[\] \{\n([\s\S]*?)\n {2}\}\n/).replace(/(\w)!\./g, '$1.');
 const STATUS_TITLE = cut(/\n\s*(this\.statusSel\.title = this\.statusSel\.textContent \?\? '';)\n/);
 function status(d: object): HTMLElement {
   const self = { fmt: new Fmt('mm'), entMeasuring: false, measuring: false, selectionName: (x: object) => selectionName(x, productAt, nodeLabel, isolateText, bodyTitle) };
   const sel = new Function('d', 'h', 'productAt', 'isolateText', 'pmiTypeLabel', SEL_TEXT).call(self, d, h, productAt, isolateText, pmiTypeLabel) as (Node | string)[];
-  const statusSel = h('div', { class: 'status-sel' }, ...sel);
+  const bar: { statusSel?: HTMLElement } = {};
+  new Function('h', STATUS_MAKE).call(bar, h);
+  const statusSel = bar.statusSel!;
+  statusSel.replaceChildren(...sel);
   new Function(STATUS_TITLE).call({ statusSel });
   return statusSel;
-}
-
-/**
- * 210차에 둔 것(언어 → 남는 글, 정렬): 말풍선은 한 글이라 틀이 잡은 앱 낱말을 그대로 끼운다 — PMI 표 이름 버튼 「{종류} · #{번호} · 누르면 강조(…)」(#8 틀),
- * 상태 막대 말풍선(번역 전 textContent) 「고른 것: {이름표}」·「고른 PMI: {종류}」(README 남은 일 210차 줄). 고치면 여기서 뺀다
- */
-function still210(code: string): string[] {
-  const c = CAT[code];
-  if (!c) return [];
-  return [
-    ...pmeta.pmi!.presentations.map((x, i) => `title: ${fill(c['{0} · #{1}{2} · 누르면 강조(두 번 누르면 맞춰 보기)']!, PMI_KINDS[i]![1], '', String(x.stepId))}`),
-    ...PMI_KINDS.map(([, kind]) => `title: ${fill(c['고른 것: {0}']!, `PMI ${kind}`)}`),
-    ...PMI_KINDS.map(([, kind]) => `title: ${fill(c['고른 PMI: {0}']!, kind)}`),
-  ].sort();
 }
 
 describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — 상태 막대·고른 부품 카드·아래 띠·격리 띠)와 3D에서 누른 PMI의 상태 막대', () => {
@@ -309,7 +305,101 @@ describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — �
       expect(views.querySelectorAll('.panel-foot .foot-sel').length).toBe(9);
       // 한국어 화면의 상태 막대 글은 원문 그대로(조각으로 나눠도 바이트 같음)
       if (code === 'ko') expect([...views.querySelectorAll('.status-sel')].map((s) => s.textContent)).toEqual(picked.flatMap((label, i) => [`고른 것: ${label}`, `고른 PMI: ${PMI_KINDS[i]![1]}`]));
-      expect(leaks(views, code).sort()).toEqual(still210(code));
+      // 211차: 210차에 둔 말풍선 27(언어마다 — PMI 표 이름 버튼 「{종류} · #{번호} · 누르면 강조(…)」 9, 상태 막대 「고른 것: PMI {종류}」 9·「고른 PMI: {종류}」 9)은
+      // 앱 글 칸(data-i18n-ui)이라 틀이 잡은 종류도 옮겨져 남지 않는다
+      expect(leaks(views, code).sort()).toEqual([]);
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
+  });
+});
+
+// ───────────────────────── 211차 ─────────────────────────
+
+/** 의미 PMI 개체 25종(panel.ts SEMANTIC_TYPE 차례) — 이름 없는 줄을 누르면 넘기는 묶음 이름표는 「PMI {종류}」(pmiview.ts labelOf) */
+const SEM_TYPES = [
+  'DIMENSIONAL_SIZE', 'DIMENSIONAL_LOCATION', 'ANGULAR_SIZE', 'ANGULAR_LOCATION', 'DIMENSIONAL_SIZE_WITH_PATH', 'DIMENSIONAL_LOCATION_WITH_PATH', 'DIRECTED_DIMENSIONAL_LOCATION',
+  'FLATNESS_TOLERANCE', 'STRAIGHTNESS_TOLERANCE', 'ROUNDNESS_TOLERANCE', 'CYLINDRICITY_TOLERANCE', 'LINE_PROFILE_TOLERANCE', 'SURFACE_PROFILE_TOLERANCE', 'ANGULARITY_TOLERANCE',
+  'PARALLELISM_TOLERANCE', 'PERPENDICULARITY_TOLERANCE', 'POSITION_TOLERANCE', 'CONCENTRICITY_TOLERANCE', 'COAXIALITY_TOLERANCE', 'SYMMETRY_TOLERANCE',
+  'CIRCULAR_RUNOUT_TOLERANCE', 'TOTAL_RUNOUT_TOLERANCE', 'GEOMETRIC_TOLERANCE', 'DATUM', 'COMMON_DATUM',
+];
+/** 이름·값 없이 면 하나에 이어진 의미 PMI(이름 버튼이 생긴다 — pmiview.test 꼴로 meta를 바로 넣는다) */
+const SEM = SEM_TYPES.map((type, i) => ({ kind: /TOLERANCE$/.test(type) ? 'tolerance' : /DATUM$/.test(type) ? 'datum' : 'dimension', type, name: '', value: '', stepId: 7000 + i, faces: [7] }));
+
+describe('211차: 앱 글 칸은 틀이 잡은 앱 글도 옮긴다 — 이름 없는 의미 PMI 묶음 이름표(다섯 언어)·파일 글은 그대로·PMI 종류 이름표 꼴', () => {
+  it('종류 이름이 모두 사전 원문(25종)이고, PMI 종류 이름표 값은 네 언어 모두 같은 사전의 종류 이름 + 「PMI 주석」 꼴 앞머리(일본어 「PMI 주석」도 注釈 — 전에는 アノテーション)', () => {
+    expect(SEM_TYPES.map(semanticLabel).filter((kind) => !CAT.en![kind])).toEqual([]);
+    const head: Record<string, (v: string) => string> = { en: (v) => `PMI ${v[0]!.toLowerCase()}${v.slice(1)}`, ja: (v) => `PMI${v}`, 'zh-CN': (v) => `PMI${v}`, de: (v) => `PMI-${v}` };
+    for (const [code, f] of Object.entries(head)) for (const [, kind] of PMI_KINDS) expect(CAT[code]![`PMI ${kind}`], `${code}: ${kind}`).toBe(f(CAT[code]![kind]!));
+    // 이름 없는 의미 PMI는 틀 하나 — 앞머리 같은 꼴(영어는 종류 이름의 대문자 그대로)
+    expect(['en', 'ja', 'zh-CN', 'de'].map((c) => CAT[c]!['PMI {0}'])).toEqual(['PMI {0}', 'PMI{0}', 'PMI{0}', 'PMI-{0}']);
+  });
+
+  it.each(['ko', 'en', 'ja', 'zh-CN', 'de'])('%s: 의미 PMI 표·누른 이름표의 네 자리(카드·격리 띠·상태 막대·아래 띠)', async (code) => {
+    const views = h('div');
+    const root = h('div', {}, views);
+    document.body.append(root);
+    const picked: string[] = [];
+    const d = createDoc('s.stp', 1, { scene: { meshes: [], lines: [], meta: { products: [], pmi: { presentations: [], semantic: SEM } } }, ms: 1 } as unknown as ParseResult);
+    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, infoView, pmiView } });
+    p.show(d);
+    p.setTab('pmi');
+    views.append(p.el);
+    const btns = [...views.querySelectorAll<HTMLElement>('.pmi-grid .link-btn')];
+    expect(btns).toHaveLength(25);
+    for (const b of btns) b.click();
+    expect(picked).toEqual(SEM_TYPES.map((type) => `PMI ${semanticLabel(type)}`));
+    const foot = p.el.querySelector<HTMLElement>('.panel-foot')!;
+    for (const label of picked) {
+      const sel = { ...d, items: { ids: ['f'], label } };
+      const nm = selectionName(sel, productAt, nodeLabel, isolateText, bodyTitle);
+      d.items = sel.items;
+      p.onSelection();
+      views.append(card(nm), iso(nm), status(sel), foot.cloneNode(true) as HTMLElement);
+    }
+    d.items = null;
+    p.onSelection();
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      expect(views.querySelectorAll('.mb-name').length).toBe(25);
+      expect(views.querySelectorAll('.iso-bar:not([hidden])').length).toBe(25);
+      expect(views.querySelectorAll('.status-sel').length).toBe(25);
+      expect(views.querySelectorAll('.panel-foot .foot-sel').length).toBe(25);
+      if (code === 'ko') expect([...views.querySelectorAll('.status-sel')].map((s) => s.textContent)).toEqual(picked.map((label) => `고른 것: ${label}`));
+      expect(leaks(views, code).sort()).toEqual([]);
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
+  });
+
+  it.each(['en', 'ja', 'zh-CN', 'de'])('%s: 앱 글 칸(data-i18n-ui)의 갇힌 파일 글은 앱 글·사전 열쇠와 같아도 그대로, 표지 없는 칸은 틀 값을 그대로(지금처럼)', async (code) => {
+    const c = CAT[code]!;
+    // 파일 글이 앱 글(사전 열쇠)과 같은 이름 — 「부품 2개」·「열기」
+    const part = isolateText('부품 2개');
+    const open = isolateText('열기');
+    const cell = h('span', { 'data-i18n-ui': '', title: `고른 것: 부품 2개 · ${part}`, 'aria-label': `${open} 숨기기` }, `레이어 ${part}`);
+    const inner = h('b', {}, `고른 것: ${open}`);
+    const plain = h('span', { title: '고른 것: 부품 2개' });
+    const root = h('div', {}, h('div', { 'data-i18n-ui': '' }, inner), cell, plain);
+    document.body.append(root);
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      // 틀이 잡은 앱 글(「부품 2개」)은 옮기고 갇힌 파일 글은 한 번 그대로
+      expect(cell.title.split(part)).toHaveLength(2);
+      expect(cell.title.split(part).join(''), cell.title).not.toMatch(HANGUL);
+      expect(cell.title).toContain(fill(c['부품 {0}개']!, '2'));
+      expect(cell.getAttribute('aria-label')).toBe(fill(c['{0} 숨기기']!, open));
+      expect(cell.textContent).toBe(fill(c['레이어 {0}']!, part));
+      // 표지는 안쪽 글 마디에도(조상 칸)
+      expect(inner.textContent).toBe(fill(c['고른 것: {0}']!, open));
+      // 표지 없는 칸: 틀이 잡은 값은 문서 자료로 보고 그대로(i18n.test 「열기 숨기기」 꼴)
+      expect(plain.title).toBe(fill(c['고른 것: {0}']!, '부품 2개'));
     } finally {
       dispose();
       root.remove();
