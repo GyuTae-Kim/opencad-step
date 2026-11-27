@@ -627,7 +627,7 @@
   "알림 닫기": "Benachrichtigung schließen",
   "암호가 걸린 ZIP 항목({0})은 열 수 없습니다. 압축을 푼 .stp 파일을 여십시오.": "Passwortgeschützter ZIP-Eintrag ({0}) kann nicht geöffnet werden. Bitte öffnen Sie die entpackte .stp-Datei.",
   "압축": "Komprimierung",
-  "압축 푸는 중": "Entpacken",
+  "압축 푸는 중": "Wird entpackt",
   "압축 풀기": "Entpacken",
   "압축을 푼 크기가 {0} MB를 넘어 열 수 없습니다.": "Datei kann nicht geöffnet werden, da die unkomprimierte Größe {0} MB überschreitet.",
   "압축을 풀었지만 STEP 글이 아닙니다. {0}": "Entpackt, aber keine STEP-Datei. {0}",
