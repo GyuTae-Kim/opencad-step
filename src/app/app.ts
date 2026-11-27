@@ -3162,7 +3162,8 @@ export class StepApp {
     if (mode !== this.barMode) {
       this.barMode = mode;
       this.barSrc = '';
-      const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '선택 해제' : mode === 'multi' ? '여러 개 고르기 끝내기' : '측정 끝내기';
+      // ✕ 이름은 같은 일을 하는 다른 자리 이름과 같게(169차 — WCAG 3.2.4: 고른 부품 카드는 작업 메뉴와 같은 「고르기 풀기」, 전에는 「선택 해제」)
+      const close = mode === 'face' ? '면 고르기 끝내기' : mode === 'select' ? '고르기 풀기' : mode === 'multi' ? '여러 개 고르기 끝내기' : '측정 끝내기';
       this.measureClose.title = close;
       this.measureClose.setAttribute('aria-label', close);
       this.measureClear.hidden = mode !== 'measure';

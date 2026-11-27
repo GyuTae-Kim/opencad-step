@@ -4,7 +4,10 @@
  * 면을 고른 채 연 메뉴가 열한 항목·네 묶음이라 44px 줄로는 320×568에서 여섯만 보였다(Apple HIG 작업 메뉴: 항목은 적게, 묶음은 셋쯤, 하위 메뉴는 한 단계).
  * 마우스 메뉴는 그대로 열한 항목·같은 차례.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { catalogs } from '../../site/i18n.mjs';
 import { contextItems, foldMenu, type CtxHost } from '../../src/app/ctxmenu';
 import { createDoc } from '../../src/app/doc';
 import type { FacePick } from '../../src/app/faces';
@@ -106,5 +109,31 @@ describe('작업 메뉴 접기(foldMenu)', () => {
       ['여러 개 고르기', true, true, undefined],
       ['모두 보이기', undefined, undefined, true],
     ]);
+  });
+});
+
+describe('169차: 같은 일은 자리마다 같은 이름(WCAG 3.2.4)', () => {
+  it('고른 부품·면 띠 버튼의 화면 읽기 이름은 같은 명령을 부르는 작업 메뉴 항목 이름이거나 그 줄임 — 고른 부품 카드 ✕도 「선택 해제」가 아니라 메뉴의 「고르기 풀기」(네 언어 사전에 있는 글)', () => {
+    // 작업 메뉴(마우스 — 접지 않음, 면을 고른 채): 항목마다 부르는 앱 명령 → 항목 이름
+    const { host, calls } = setup(false);
+    const menu = new Map<string, string>();
+    for (const item of contextItems(host, FACE, { x: 0, y: 0 })) {
+      calls.length = 0;
+      item.run();
+      if (calls[0]) menu.set(calls[0].split(' ')[0]!, item.label);
+    }
+    // app.ts 원문(앱 전체는 시험에서 띄우지 않는다 — keynav 147차 꼴): 측정 띠 카드 버튼의 aria-label과 누르면 부르는 명령, ✕의 고른 부품 카드 이름과 그때 명령
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const bar = ['selFit', 'selProps', 'selMulti', 'faceLook', 'faceCut'].map((b) => [
+      new RegExp(`this\\.${b} = h\\('button', \\{[^}]*'aria-label': '([^']+)'`).exec(app)?.[1],
+      new RegExp(`this\\.${b}\\.addEventListener\\('click', \\(\\) => this\\.(\\w+)\\(`).exec(app)?.[1],
+    ]);
+    const close = /this\.measureClose\.addEventListener\('click', \(\) => \{([\s\S]*?)\n {4}\}\);/.exec(app)?.[1] ?? '';
+    bar.push([/mode === 'select' \? '([^']+)'/.exec(app)?.[1], /\n {6}else if \(this\.(\w+)\(\)\) this\.selectionChanged\(\);$/.exec(close)?.[1]]);
+    expect(bar.map(([name, cmd]) => `${cmd} ${name}`)).toEqual([
+      'fitSelection 맞춰 보기', 'showProps 속성', 'toggleMultiPick 여러 개 고르기', 'lookAtFace 정면', 'sectionByFace 자르기', 'clearSelection 고르기 풀기',
+    ]);
+    for (const [name, cmd] of bar) expect(menu.get(cmd!), cmd).toContain(name);
+    for (const code of ['en', 'ja', 'zh-CN', 'de']) expect(catalogs[code]?.['고르기 풀기'], code).toBeTruthy();
   });
 });
