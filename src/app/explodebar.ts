@@ -99,6 +99,11 @@ const FRESH_TITLES = {
 /** 거리 칸 이름(화면 읽기 — 끌기 칸은 방향과 상관없이 끈 거리 수 하나) */
 const DIST_NAME = '옮긴 거리(숫자)';
 /**
+ * 206차: 거리 칸 이름표(보이는 글)는 칸 이름의 앞머리 — 끌기 칸 「옮긴 거리」, 끌기 없이 연 빈 칸 「옮길 거리」(WCAG 2.5.3).
+ * 전에는 측정(3D 보기 위 글자·아래 띠·상태 막대·CSV)이 함께 쓰는 「거리」라 독일어에서 측정 낱말(Abstand)과 분해 낱말(Entfernung)을 가를 수 없었다
+ */
+const DIST_LABELS = { drag: '옮긴 거리', fresh: '옮길 거리' } as const;
+/**
  * 137차: 끌기 없이 연 빈 칸의 이름 — 위 설명과 같은 낱말로 받는 꼴(축 하나는 수, 화면 평면·사방은 글 자판에 쌍반점 성분).
  * 전에는 늘 「옮긴 거리(숫자)」라 글 자판 칸도 「숫자」로 읽혔다
  */
@@ -143,6 +148,9 @@ export class ExplodeControls {
   private readonly distSeg: HTMLElement;
   private readonly distInput: HTMLInputElement;
   private readonly distUnit: HTMLElement;
+  /** 칸 이름표(206차)와 마지막으로 건 이름표 원문(distName 꼴 — 바뀔 때만 다시 건다) */
+  private readonly distKey: HTMLElement;
+  private distLabel: string = DIST_LABELS.drag;
   private distShown = '';
   private distSent: string | null = null;
   /** 마지막으로 건 칸 이름(원문 — 바뀔 때만 다시 걸어 번역층이 옮긴 이름을 맞추기마다 덮지 않게) */
@@ -247,7 +255,8 @@ export class ExplodeControls {
       title: DIST_TITLES.free,
     });
     this.distUnit = h('span', { class: 'explode-unit' });
-    this.distSeg = h('label', { class: 'explode-distance', hidden: true }, h('span', { class: 'explode-distance-key' }, '거리'), this.distInput, this.distUnit);
+    this.distKey = h('span', { class: 'explode-distance-key' }, DIST_LABELS.drag);
+    this.distSeg = h('label', { class: 'explode-distance', hidden: true }, this.distKey, this.distInput, this.distUnit);
     const send = (): void => {
       const text = this.distInput.value;
       if (text === this.distShown || text === this.distSent) return;
@@ -338,6 +347,8 @@ export class ExplodeControls {
     if (this.distInput.title !== title) this.distInput.title = title;
     const name = s.fresh ? FRESH_NAMES[kind] : DIST_NAME;
     if (name !== this.distName) this.distInput.setAttribute('aria-label', (this.distName = name));
+    const label = s.fresh ? DIST_LABELS.fresh : DIST_LABELS.drag;
+    if (label !== this.distLabel) this.distKey.textContent = this.distLabel = label;
     this.distInput.setAttribute('inputmode', s.fresh && kind !== 'line' ? 'text' : 'decimal');
   }
 

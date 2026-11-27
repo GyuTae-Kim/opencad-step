@@ -192,7 +192,7 @@ describe('분해 막대 거리 칸(ExplodeControls)', () => {
     expect(b.label.hidden).toBe(true);
     expect(b.label.parentElement).toBe(b.tw);
     expect(b.input.getAttribute('inputmode')).toBe('decimal');
-    expect(b.label.textContent).toBe('거리');
+    expect(b.label.textContent).toBe('옮긴 거리');
     b.c.sync(null, 'step', true, 'x', null, { on: true, count: 1, undo: true, dist: st('12.5') });
     expect([b.label.hidden, b.input.value, b.unit.textContent, b.unit.hidden]).toEqual([false, '12.5', 'mm', false]);
     expect(b.input.title).toContain('음수는 반대쪽');
@@ -286,11 +286,40 @@ describe('분해 막대 거리 칸(ExplodeControls)', () => {
     expect(name()).toBe('옮길 거리(가로; 세로)');
   });
 
+  it('206차: 칸 이름표(보이는 글)는 칸 이름의 앞머리 — 끌기 칸 「옮긴 거리」·끌기 없이 연 빈 칸 「옮길 거리」, 바뀔 때만 다시 건다(번역층이 옮긴 글을 덮지 않게)', () => {
+    const b = bar();
+    const shown = () => b.label.querySelector('.explode-distance-key')!.textContent;
+    const fresh = (axis: DistState['axis']): DistState => ({ ...st('', axis), fresh: true });
+    expect(shown()).toBe('옮긴 거리');
+    for (const [s, want] of [
+      [fresh('free'), '옮길 거리'],
+      [fresh('x'), '옮길 거리'],
+      [st('12.5', 'sp'), '옮긴 거리'],
+      [fresh('sp'), '옮길 거리'],
+    ] as const) {
+      b.field().show(s);
+      expect(shown(), s.axis).toBe(want);
+      expect(b.input.getAttribute('aria-label')!.startsWith(want), s.axis).toBe(true);
+    }
+    // 번역층이 옮긴 글(독일어 — 두 이름표 모두 분해 쪽 낱말 Entfernung, 측정 「거리」는 Abstand)은 같은 꼴이 이어지는 동안 그대로
+    expect([translate('옮길 거리', 'de'), translate('옮긴 거리', 'de'), translate('거리', 'de')]).toEqual(['Entfernung', 'Entfernung', 'Abstand']);
+    b.label.querySelector('.explode-distance-key')!.textContent = 'Entfernung';
+    b.field().show(fresh('free'));
+    expect(shown()).toBe('Entfernung');
+    b.field().show(st('3'));
+    expect(shown()).toBe('옮긴 거리');
+    // 숨겨도 이름표는 그대로
+    b.field().show(null);
+    expect([b.label.hidden, shown()]).toEqual([true, '옮긴 거리']);
+  });
+
   it('새 글(칸 이름·설명·알림)은 네 언어 사전에 있다', () => {
     const b = bar();
     const texts = [
       b.input.getAttribute('aria-label')!,
-      '거리',
+      // 206차: 칸 이름표(끈 뒤·끌기 없이 연 빈 칸 — 측정이 쓰는 「거리」와 다른 열쇠)
+      '옮긴 거리',
+      '옮길 거리',
       '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(음수는 반대쪽)',
       '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(가로; 세로 두 수도 됩니다)',
       '옮긴 거리 — 수를 쳐 넣고 Enter를 누르면 이번 끌기를 그 거리로 맞춥니다(ΔX; ΔY; ΔZ 세 수도 됩니다)',
