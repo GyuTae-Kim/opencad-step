@@ -163,6 +163,17 @@ const section = (title: string | (Node | string)[], ...children: (HTMLElement | 
  */
 const cbHit = (cb: HTMLInputElement): HTMLElement => h('label', { class: 'cb-hit' }, cb);
 
+/**
+ * 간섭 쌍 버튼 강조: 고른 묶음 이름표가 그 쌍 이름표(data-pair)이면 `.sel`과 `aria-current="true"`(184차 — 쌍 목록에서 지금 3D 보기에 강조한 쌍.
+ * 누르면 늘 강조하는 버튼이라 토글 `aria-pressed`는 맞지 않고(182차), 목록(role=list)이라 `aria-selected`도 뜻이 없다). 그릴 때와 고르기만 바뀔 때 같은 자리
+ */
+const markPair = (b: HTMLElement, label: string | undefined): void => {
+  const on = b.dataset.pair === label;
+  b.classList.toggle('sel', on);
+  if (on) b.setAttribute('aria-current', 'true');
+  else b.removeAttribute('aria-current');
+};
+
 export class Panel {
   readonly el: HTMLElement;
   private readonly tabsEl: HTMLElement;
@@ -234,7 +245,9 @@ export class Panel {
     const d = this.doc;
     if (!d) return;
     if (d.panelTab === 'tree') {
+      // 184차: 줄 표시만 고치는 길은 간섭 쌍 묶음을 다시 그리지 않으므로 쌍 버튼 강조도 여기서 고친다(전에는 누른 쌍이 강조되지 않고 앞 강조가 남았다 — 초점·굴림은 그대로)
       if (!this.patchTreeSelection()) this.renderBody();
+      else this.interferenceEl?.querySelectorAll<HTMLElement>('[data-pair]').forEach((b) => markPair(b, d.items?.label));
     } else if (d.panelTab === 'pmi' && this.pmi) this.pmi.patch();
     else if (d.panelTab === 'layers' || d.panelTab === 'pmi' || d.panelTab === 'props') this.renderBody();
     // 아래 띠를 먼저 고친다(처음 고르면 띠가 나타나 본문이 줄어든다 — 그 뒤에 재야 고른 줄이 띠 뒤에 숨지 않는다)
@@ -298,8 +311,8 @@ export class Panel {
       const items: HTMLElement[] = [];
       for (const p of r.pairs.slice(0, LIMIT)) {
         const label = interferenceLabel(d, p);
-        const sel = d.items?.label === label;
-        const b = h('button', { type: 'button', class: `link-btn${sel ? ' sel' : ''}`, title: p.inside ? '누르면 안쪽 부품을 강조하고 그것으로 맞춰 봅니다' : '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
+        const b = h('button', { type: 'button', class: 'link-btn', 'data-pair': label, title: p.inside ? '누르면 안쪽 부품을 강조하고 그것으로 맞춰 봅니다' : '누르면 교차하는 삼각형을 강조하고 두 부품으로 맞춰 봅니다' }, h('span', { translate: 'no' }, label));
+        markPair(b, d.items?.label);
         b.addEventListener('click', () => this.host.showInterference(p));
         // 안에 든 쌍: 겉면이 만나지 않아 교차 삼각형 수 대신 "안에 듦"(앞이 안쪽 부품)
         const chip = p.inside ? h('span', { class: 'chip dim-chip', title: '앞 부품이 뒤 부품 안에 통째로 들었습니다(겉면은 만나지 않음)' }, '안에 듦') : h('span', { class: 'chip dim-chip', title: '교차하는 삼각형 쌍 수' }, fmtCount(p.count));

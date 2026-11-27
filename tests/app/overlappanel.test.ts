@@ -7,10 +7,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stepToScene } from '../../src/scene';
-import { createDoc, type StepDoc } from '../../src/app/doc';
+import { createDoc, resetSelection, type StepDoc } from '../../src/app/doc';
 import { interferenceLabel, Panel, type PanelHost } from '../../src/app/panel';
+import * as TV from '../../src/app/treeview';
 import { Fmt } from '../../src/app/display';
-import { findInterference } from '../../src/app/interference';
+import { findInterference, type InterferencePair } from '../../src/app/interference';
 import { overlapVolumes } from '../../src/app/overlap';
 import { cube, sphere, StepText } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -347,6 +348,89 @@ describe('간섭 검사: 겹친 부피', () => {
     expect(toasts).toHaveLength(2);
     // 알림 상자의 두 조각은 사전에 있는 글(새 글 없음)
     expect(['검사하지 못했습니다:', '검사 워커가 멈췄습니다'].map((m) => translate(m, 'en'))).toEqual(['Could not check:', 'The check worker stopped']);
+    panel.el.remove();
+  });
+
+  it('나무 탭에서 고르기가 바뀌면(쌍·다른 쌍·나무 줄·3D 보기·Esc·고르기 풀기) 쌍 버튼 강조(.sel·aria-current)가 지금 고름을 따르고, 쌍 묶음은 다시 그리지 않는다(184차)', () => {
+    const d = doc();
+    const result = findInterference(d.scene.meshes);
+    const labels = result.pairs.map((p) => interferenceLabel(d, p));
+    // 앱 꼴: 고름을 모두 풀고 새로 고른 뒤 패널에 알린다(showInterference·selectKey·onPick·clearSelection — 펼침이 그대로라 나무는 줄 표시만 고치는 길)
+    const pick = (set: () => void) => {
+      resetSelection(d);
+      set();
+      panel.onSelection();
+    };
+    const panel: Panel = new Panel(
+      host({
+        multiPick: false,
+        showInterference: (p: InterferencePair) => pick(() => (d.items = { ids: [p.a, p.b], label: interferenceLabel(d, p) })),
+        selectKey: (k: string | null) => pick(() => (d.selKey = k)),
+      }),
+    );
+    panel.kit = TV;
+    document.body.append(panel.el);
+    d.interference = { running: false, done: 0, total: 0, result };
+    panel.show(d);
+    const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
+    const pairs = () => [...sec().querySelectorAll<HTMLElement>('.link-btn')];
+    const marks = () => pairs().map((b) => [b.classList.contains('sel'), b.getAttribute('aria-current')]);
+    const none = [
+      [false, null],
+      [false, null],
+    ];
+    const drawn = sec();
+    const btns = pairs();
+    expect(labels).toHaveLength(2);
+    expect(btns.map((b) => b.textContent)).toEqual(labels);
+    expect(marks()).toEqual(none);
+    // 쌍 누르기: 그 쌍만 강조(전에는 묶음을 다시 그리지 않아 누른 쌍이 강조되지 않았다)
+    btns[0]!.focus();
+    btns[0]!.click();
+    expect(d.items?.label).toBe(labels[0]);
+    expect(marks()).toEqual([
+      [true, 'true'],
+      [false, null],
+    ]);
+    // 다른 쌍: 앞 강조가 풀리고 누른 쌍(전에는 앞 강조가 남았다)
+    btns[1]!.focus();
+    btns[1]!.click();
+    expect(marks()).toEqual([
+      [false, null],
+      [true, 'true'],
+    ]);
+    // 같은 묶음·같은 버튼(다시 그리지 않음 — 초점 그대로)
+    expect(sec()).toBe(drawn);
+    expect(pairs().map((b, i) => b === btns[i])).toEqual([true, true]);
+    expect(document.activeElement).toBe(btns[1]);
+    // 나무 줄 누르기(마디 고르기 — 그린 줄이라 줄 표시만 고치는 길): 쌍 강조 풂
+    panel.el.querySelector<HTMLElement>('.tree-row[data-key="0/0"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(d.selKey).toBe('0/0');
+    expect(marks()).toEqual(none);
+    // 3D 보기에서 누름(조상이 이미 펼쳐져 펼침 그대로): 쌍을 누른 뒤 부품을 누르면 쌍 강조 풂
+    btns[0]!.click();
+    expect(marks()[0]).toEqual([true, 'true']);
+    pick(() => {
+      d.pick = { kind: 'mesh', id: d.scene.meshes[0]!.id, index: 0, point: [0, 0, 0] } as unknown as StepDoc['pick'];
+      d.selKey = '0/0';
+    });
+    expect(marks()).toEqual(none);
+    // Esc·「고르기 풀기」·3D 빈 곳(clearSelection·onPick(null) — 고름 없음)
+    btns[1]!.click();
+    expect(marks()[1]).toEqual([true, 'true']);
+    pick(() => {});
+    expect(marks()).toEqual(none);
+    expect(sec()).toBe(drawn);
+    expect(pairs().map((b, i) => b === btns[i])).toEqual([true, true]);
+    // 다시 그려도(표시 단위·펼치기 등 renderBody) .sel과 aria-current는 같은 자리에서, 보이는 글은 이름표 그대로
+    btns[1]!.click();
+    panel.redraw();
+    expect(sec()).not.toBe(drawn);
+    expect(marks()).toEqual([
+      [false, null],
+      [true, 'true'],
+    ]);
+    expect(pairs().map((b) => b.textContent)).toEqual(labels);
     panel.el.remove();
   });
 });
