@@ -174,7 +174,8 @@ export class ExplodeControls {
       ['z', 'Z', 'Z축으로만: 부품을 Z축 방향으로만 벌립니다', '', world],
       ['sx', '가로', `화면 가로로만: 부품을 지금 화면의 가로 방향으로만 벌립니다 — ${AIM}`, '화면 가로', screen],
       ['sy', '세로', `화면 세로로만: 부품을 지금 화면의 세로 방향으로만 벌립니다 — ${AIM}`, '화면 세로', screen],
-      ['sp', '가로세로', `화면 평면: 부품을 보는 방향에 수직인 화면 가로·세로로만 벌립니다 — ${AIM}`, '화면 평면', screen],
+      // 193차(WCAG 2.5.3): 이름은 보이는 글로 시작(전에는 「화면 평면」이라 음성 「가로세로 누르기」가 눌리지 않음 — 앞의 「화면」 글은 aria-hidden이라 뜻은 괄호에)
+      ['sp', '가로세로', `화면 평면: 부품을 보는 방향에 수직인 화면 가로·세로로만 벌립니다 — ${AIM}`, '가로세로(화면 평면)', screen],
     ] as const) {
       const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', title, ...(name ? { 'aria-label': name } : {}) }, label);
       b.addEventListener('click', () => onAxis(k));

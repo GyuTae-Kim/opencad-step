@@ -1002,6 +1002,7 @@
   "화면 가로": "Screen horizontal",
   "화면 세로": "Screen vertical",
   "화면 평면": "Screen plane",
+  "가로세로(화면 평면)": "Both (screen plane)",
   "화면 가로로만: 부품을 지금 화면의 가로 방향으로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Screen horizontal only: moves parts apart only along the horizontal direction of the current view — set from the camera when you turn on the exploded view or press this button; press it again to re-aim at the current camera",
   "화면 세로로만: 부품을 지금 화면의 세로 방향으로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Screen vertical only: moves parts apart only along the vertical direction of the current view — set from the camera when you turn on the exploded view or press this button; press it again to re-aim at the current camera",
   "화면 평면: 부품을 보는 방향에 수직인 화면 가로·세로로만 벌립니다 — 분해를 켜거나 이 버튼을 누를 때의 카메라로 정하고, 다시 누르면 지금 카메라로 다시 맞춥니다": "Screen plane: moves parts apart only across the screen, horizontally and vertically, perpendicular to the viewing direction — set from the camera when you turn on the exploded view or press this button; press it again to re-aim at the current camera",
