@@ -166,7 +166,13 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       // APG Menu: 처음·끝 항목(53차 — 전에는 Home이 창 글쇠로 넘어가 메뉴를 연 채 3D 보기가 홈 뷰로 돌았다)
       e.preventDefault();
       usable[e.key === 'Home' ? 0 : usable.length - 1]?.focus();
-    } else if (e.key === 'Tab') closeMenu();
+    } else if (e.key === 'Tab') {
+      // 188차(WCAG 2.4.3): 메뉴 안 초점이면 Esc·항목처럼 연 곳으로 돌려준 뒤 기본 이동은 막지 않아 그 자리의 다음·앞 칸으로(APG Menu — 메뉴는 body 끝에 붙어,
+      // 전에는 지운 자리에서 떠나 Tab은 문서 밖·Shift+Tab은 앱 끝 칸으로 갔다). 밖이면 닫기만
+      const had = el.contains(document.activeElement);
+      closeMenu();
+      if (had) back();
+    }
   };
   // 휴대폰 주소 막대가 숨고 나타날 때(높이만 바뀜)는 닫지 않는다
   const width = innerWidth;

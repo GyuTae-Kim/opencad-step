@@ -3,7 +3,7 @@
  * 53차 키보드만으로 쓰기(WAI-ARIA APG Tabs·Radio Group·Toolbar·Menu, WCAG 2.4.3 초점 차례):
  * - keynav.ts: 탭·라디오·도구 막대 화살표, Tab 멈춤 하나(roving tabindex), 띠·패널을 닫을 때 초점 돌려주기
  * - panel.ts: 탭을 고르면 다시 만든 고른 탭으로 초점, 탭 본문 aria-controls·Tab 멈춤, 보이기 상자를 바꿔 다시 그려도 초점 그대로, 아래 띠 알림 끄고 켜기
- * - menu.ts: Home·End(창 글쇠로 새지 않게), 화면 점 메뉴를 닫으면 연 때 초점이 있던 곳으로
+ * - menu.ts: Home·End(창 글쇠로 새지 않게), 화면 점 메뉴를 닫으면 연 때 초점이 있던 곳으로 — 188차: Tab·Shift+Tab으로 닫아도 연 곳으로(기본 이동은 그 자리에서)
  * 헤드리스 Chrome 점검(.runtime/r53 kbd53)에서 찾은 것을 jsdom으로 다시 본다(jsdom은 숨긴 칸의 초점을 스스로 떼지 않아, 숨기는 명령이 브라우저처럼 blur한다).
  * - app.ts 격리 띠(145차): 알림은 바뀌는 글 칸만, 띠의 버튼은 알림 영역 밖(53차 측정 띠 꼴) — 180차: 이름 칸 글은 말풍선에도(말줄임된 이름을 다시 봄)
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
@@ -731,5 +731,43 @@ describe('메뉴(APG Menu): Home·End와 닫을 때 초점', () => {
     expect(document.querySelector('.menu')?.getAttribute('aria-label')).toBe('그 밖의 작업');
     key(document.activeElement!, 'Escape');
     expect(document.activeElement).toBe(row);
+  });
+
+  // 188차(WCAG 2.4.3 — 초점 잃음 감사): 메뉴는 body 끝에 붙어, Tab·Shift+Tab이 문서 캡처에서 메뉴를 지운 뒤 브라우저 기본 이동이 지운 자리(문서 끝)에서 떠났다 —
+  // Tab은 문서 밖, Shift+Tab은 앱 끝 칸. 이제 Esc·항목처럼 연 곳에 초점을 준 뒤 기본 이동은 막지 않아 그 자리의 다음·앞 칸으로(APG Menu). jsdom은 Tab 이동을 하지 않아 닫힌 직후 초점만 본다
+  it('Tab·Shift+Tab: 메뉴 안 초점이면 닫고 연 버튼(작업 메뉴는 연 때 초점 자리)으로 돌려준 뒤 기본 이동은 막지 않는다', () => {
+    const anchor = button({}, '표준 뷰');
+    const row = document.createElement('div');
+    row.tabIndex = 0;
+    document.body.append(anchor, row);
+    const got: unknown[] = [];
+    for (const shiftKey of [false, true]) {
+      anchor.focus();
+      openMenu(anchor, ['홈 뷰', '정면'].map((label) => ({ label, run: () => {} })), '표준 뷰');
+      const inside = !!document.activeElement?.classList.contains('menu-item');
+      const e = key(document.activeElement!, 'Tab', { shiftKey });
+      got.push([inside, document.querySelector('.menu') === null, document.activeElement === anchor, e.defaultPrevented, anchor.getAttribute('aria-expanded')]);
+    }
+    row.focus();
+    openMenuAt(10, 10, [{ label: '숨기기', run: () => {} }], '작업 메뉴');
+    const inside = !!document.activeElement?.classList.contains('menu-item');
+    const e = key(document.activeElement!, 'Tab');
+    got.push([inside, document.querySelector('.menu') === null, document.activeElement === row, e.defaultPrevented]);
+    expect(got).toEqual([
+      [true, true, true, false, 'false'],
+      [true, true, true, false, 'false'],
+      [true, true, true, false],
+    ]);
+  });
+
+  it('Tab: 초점이 메뉴 밖이면(항목이 모두 흐려 연 뒤에도 다른 칸) 닫기만 하고 초점은 그 칸 그대로', () => {
+    const anchor = button({}, '보기 설정');
+    const field = document.createElement('input');
+    document.body.append(anchor, field);
+    field.focus();
+    openMenu(anchor, [{ label: '고른 부품 보기', disabled: true, run: () => {} }], '보기 설정');
+    const before = [document.querySelector('.menu') !== null, document.activeElement === field];
+    key(field, 'Tab');
+    expect([...before, document.querySelector('.menu') === null, document.activeElement === field]).toEqual([true, true, true, true]);
   });
 });
