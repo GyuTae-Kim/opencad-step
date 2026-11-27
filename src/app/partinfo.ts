@@ -111,7 +111,8 @@ export function partRows(path: readonly ProductNode[], f: Fmt, count = 1, file?:
   if (p?.definition) data('정의', p.definition);
   if (p?.material) data('재질', p.material);
   if (p?.density) rows.push({ k: '밀도', v: `${densityText(p.density, f)}${p.densityText ? ` (${p.densityText})` : ''}`, vData: true });
-  for (const [k, v] of p?.items ?? []) rows.push({ k, v, kData: true, vData: true });
+  // 이름 없는 속성의 자리 이름은 앱 낱말이라 번역하는 칸(208차 — 파일 글 칸에 두어 다른 언어 화면에서 한국어로 남았다)
+  for (const [k, v] of p?.items ?? []) rows.push(k ? { k, v, kData: true, vData: true } : { k: '속성', v, vData: true });
   if (count > 1) rows.push({ k: '놓인 수', v: `×${count}`, vData: true });
   if (node.matrix) {
     const pl = placementOf(node.matrix);

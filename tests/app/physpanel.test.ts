@@ -14,6 +14,7 @@ import * as PHYS from '../../src/app/physics';
 import { Fmt } from '../../src/app/display';
 import { cube, cylinder, StepText } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
+import { installLocalization } from '../../src/app/i18n';
 
 function twoParts(): Uint8Array {
   const w = new StepText();
@@ -285,5 +286,53 @@ describe('167차: 이름·값 줄은 묶음마다 dl 하나 안의 dt(이름)·d
     const rule = (sel: string) => new RegExp(`(?:^|\\})\\s*${sel.replace(/\./g, '\\.')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     expect(rule('.prop-group dl')).toMatch(/\bmargin: 0;/);
     expect(rule('.prop-row .v')).toMatch(/\bmargin: 0;/);
+  });
+});
+
+/**
+ * 208차(WCAG 3.1.2 — 빠진 번역): 파일에 이름·설명이 없는 STEP 속성(PROPERTY_DEFINITION)은 해석기가 이름 칸에 앱 낱말 「속성」을 넣었고, 속성 줄이 그 이름을
+ * 파일 글 칸(kData — fileSpan·translate="no")에 두어 다른 언어 화면에서도 한국어로 남았다. 이제 해석기는 빈 이름을 넘기고(파일 글만 데이터에), 앱이 넣는
+ * 자리 이름은 번역층이 옮기는 dt(같은 파일 partinfo.ts의 「회전 · 없음」 꼴) — 값과 이름 있는 속성의 이름은 지금처럼 파일 글
+ */
+describe('208차: 이름 없는 STEP 속성 줄의 자리 이름 「속성」은 화면 글(다섯 언어)', () => {
+  function withProps(): Uint8Array {
+    const w = new StepText();
+    const mm = w.context('mm');
+    const p = w.product('part', [cube(w, 10).solid], mm);
+    w.textProperty(p.pd, '', '', 'ACME', mm);
+    w.textProperty(p.pd, 'user defined attribute', 'Supplier', 'Globex', mm);
+    return w.bytes();
+  }
+  it.each([
+    ['ko', '속성'],
+    ['en', 'Properties'],
+    ['ja', 'プロパティ'],
+    ['zh-CN', '属性'],
+    ['de', 'Eigenschaften'],
+  ])('%s: 이름 없는 속성 줄 이름은 「%s」(같은 사전의 속성 탭 낱말), 이름 있는 줄 이름과 값은 원문 그대로', async (code, label) => {
+    const doc = createDoc('a.stp', 1, { scene: stepToScene(withProps(), { name: 'a.stp' }), ms: 1 });
+    // 해석기는 파일에 없는 이름을 지어 넣지 않는다(빈 글)
+    expect(doc.products[0]!.props?.items).toEqual([['', 'ACME'], ['Supplier', 'Globex']]);
+    doc.selKey = '0';
+    const root = document.createElement('div');
+    document.body.append(root);
+    const panel = panelOf(host(doc));
+    root.append(panel.el);
+    panel.show(doc);
+    panel.setTab('props');
+    history.replaceState(null, '', `/?lang=${code}`);
+    const dispose = await installLocalization(root);
+    try {
+      const row = (v: string) => [...panel.el.querySelectorAll('.prop-row')].find((r) => r.querySelector('dd')?.textContent === v)!;
+      const unnamed = row('ACME').querySelector('dt')!;
+      expect([unnamed.className, unnamed.closest('[translate="no"]'), unnamed.textContent]).toEqual(['k', null, label]);
+      expect(row('ACME').querySelector('dd')!.getAttribute('translate')).toBe('no');
+      const named = row('Globex').querySelector('dt')!;
+      expect([named.className, named.getAttribute('translate'), named.textContent]).toEqual(['ftext k', 'no', 'Supplier']);
+    } finally {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    }
   });
 });

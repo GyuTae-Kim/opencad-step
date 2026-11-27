@@ -266,8 +266,8 @@ describe('측정 묶음 화면 글의 네 언어 번역(205차)', () => {
       expect(label, lang).not.toMatch(HANGUL);
       expect(label, lang).not.toBe(translate('크기', lang));
       expect(Object.values(catalogs[lang]!).filter((v) => v === label), lang).toHaveLength(1);
-      // 카드 말풍선이 이름표 낱말을 품는다(영어 말풍선 Overall size는 보고 둠 — README 남은 일 207차)
-      if (lang !== 'en') expect(translate(SIZE_TIP, lang), lang).toContain(label);
+      // 카드 말풍선이 이름표 낱말을 품는다(208차: 영어 말풍선 Overall size → 같은 사전의 이름표·물리 속성 말풍선 낱말 Bounding size — 네 언어 모두)
+      expect(translate(SIZE_TIP, lang), lang).toContain(label);
     }
   });
 });

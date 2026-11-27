@@ -205,6 +205,21 @@ describe('language URLs and UI presentation', () => {
     expect(translate('(이름 없음) 숨기기', 'en')).toBe('Hide (no name)');
     expect(translate('레이어 (레이어 없음)', 'de')).toBe('Layer (keine Layer)');
   });
+  it('names PMI types in the singular and in the same case as the other type names of the same table (208th)', () => {
+    // 208차: PMI 종류 이름(panel.ts PMI_TYPE — 이름 없는 PMI의 표현 PMI 표 줄 이름·평면 칸·말풍선·상태 막대·아래 띠)과 표 머리 칸 「주석」은 한 줄에 하나라
+    // 독일어도 단수(같은 표 Kurvenanmerkung·Textanmerkung·머리 칸 Ebene · Typ 꼴 — Anmerkungen·Zeichnungsbeschriftungen이던 것),
+    // 영어는 같은 표의 다른 종류 이름(Curve annotation·Text annotation …) 꼴로 뒤 낱말 소문자(Triangle Annotation·Drafting Annotation이던 것)
+    const src = readFileSync(join(process.cwd(), 'src/app/panel.ts'), 'utf8');
+    const names = [...(/const PMI_TYPE: Record<string, string> = \{([\s\S]*?)\n\};/.exec(src)?.[1] ?? '').matchAll(/: '([^']+)',/g)].map((m) => m[1]!);
+    expect(names).toHaveLength(9);
+    expect(readFileSync(join(process.cwd(), 'src/app/pmiview.ts'), 'utf8')).toContain("['주석', '평면·종류']");
+    for (const ko of names) {
+      expect(translate(ko, 'en'), ko).toMatch(/^[A-Z][a-z]*(?: [a-z]+)*$/);
+      expect(translate(ko, 'de'), ko).not.toMatch(/(?:anmerkung|beschriftung|annotation)en\b/i);
+    }
+    expect(['주석', '제도 주석', '삼각형 주석'].map((ko) => translate(ko, 'de'))).toEqual(['Anmerkung', 'Zeichnungsbeschriftung', 'Dreieck-Anmerkung']);
+    expect(['주석', '제도 주석', '삼각형 주석'].map((ko) => translate(ko, 'en'))).toEqual(['Annotation', 'Drafting annotation', 'Triangle annotation']);
+  });
   it('keeps the CAD sense of fit-all, display-mode and assembly words on the toolbar, menu, help and start screens (131st review)', () => {
     // 131차: 도구 막대·메뉴·문맥 메뉴·대화 상자·내보내기·그림 저장·도움말·시작 화면·보기 설정 글을 네 언어로 대조해 고친 것 — 전체 보기(F — 모두 맞춰 보기)를
     // 같은 문맥 메뉴에 함께 나오는 모두 보이기(숨긴 것 다시 보이기)와 같은 말(全部显示)·한 글자 다른 말(Alles/Alle anzeigen)로, 그리기 모드(표시 방식)를
