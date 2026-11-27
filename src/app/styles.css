@@ -1374,6 +1374,13 @@ span.check input {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }
+/* 끈 줄(옅은 글 — 54차)의 이름 버튼은 마우스·고름 바탕 위에서만 흐린 글로(옅은 글은 밝게 4.43·4.31, 어둡게 4.33·4.00:1 — 198차, 나무 숨긴 마디 꼴) */
+table.grid tr.off .link-btn:hover,
+table.grid tr.off .link-btn.sel,
+.vgrid-row.off .link-btn:hover,
+.vgrid-row.off .link-btn.sel {
+  color: var(--text-dim);
+}
 .chip.dim-chip {
   background: var(--bg-hover);
   color: var(--text-dim);
