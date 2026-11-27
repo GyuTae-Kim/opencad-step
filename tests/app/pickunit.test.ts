@@ -196,6 +196,47 @@ describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표
     void a;
     panel.el.remove();
   });
+
+  it('185차: 줄 여럿이 함께 고름이 되는 나무는 처음부터 aria-multiselectable="true", 고르지 않은 줄은 aria-selected="false"(줄 표시만 고칠 때·다시 그릴 때도)', () => {
+    const d = newDoc();
+    d.expanded.add('0/0');
+    const { host } = panelHost(d, { on: false });
+    const panel = new Panel(host);
+    panel.kit = TV;
+    panel.phys = PHYS;
+    document.body.append(panel.el);
+    const [a, b, c, o] = scene.meshes.map((m) => m.id);
+    const tree = () => panel.el.querySelector<HTMLElement>('[role=tree]')!;
+    const marks = () => [...panel.el.querySelectorAll<HTMLElement>('[role=treeitem]')].map((r) => `${r.dataset.key} ${r.getAttribute('aria-selected')}`);
+    // 고름 없음: 여러 개 고르기(Ctrl·⌘·Shift + 누르기·3D 보기·레이어·PMI·간섭 묶음)는 늘 할 수 있어 처음부터 참, 줄은 모두 "false"
+    panel.show(d);
+    const first = tree();
+    expect(first.getAttribute('aria-multiselectable')).toBe('true');
+    expect(marks()).toEqual(['0 false', '0/0 false', '0/0.1 false', '0/0.2 false', '0/0.3 false', '0/1 false']);
+    // 여러 개 고르기 묶음(부품 하나 통째): 부품 줄과 그 바디 줄 셋이 함께 고름 — 줄 표시만 고친다(같은 나무 요소)
+    d.items = { ids: [a!, b!, c!], label: '부품 1개' };
+    panel.onSelection();
+    expect(tree()).toBe(first);
+    expect(marks()).toEqual(['0 false', '0/0 true', '0/0.1 true', '0/0.2 true', '0/0.3 true', '0/1 false']);
+    // 다른 부품끼리의 묶음(바디 하나 + 부품 하나): 두 줄
+    d.items = { ids: [b!, o!], label: '부품 1개 · 바디 1개' };
+    panel.onSelection();
+    expect(tree()).toBe(first);
+    expect(marks()).toEqual(['0 false', '0/0 false', '0/0.1 false', '0/0.2 true', '0/0.3 false', '0/1 true']);
+    expect(first.getAttribute('aria-multiselectable')).toBe('true');
+    // 마디 하나를 골라도 나무 속성은 그대로(고르기 방식과 상관없이 늘), 고른 줄 하나만 "true"
+    d.items = null;
+    d.selKey = '0/1';
+    panel.onSelection();
+    expect(tree()).toBe(first);
+    expect(marks()).toEqual(['0 false', '0/0 false', '0/0.1 false', '0/0.2 false', '0/0.3 false', '0/1 true']);
+    // 다시 그린 나무(새 요소)도 같은 속성
+    panel.redraw();
+    expect(tree()).not.toBe(first);
+    expect(tree().getAttribute('aria-multiselectable')).toBe('true');
+    expect(marks()).toEqual(['0 false', '0/0 false', '0/0.1 false', '0/0.2 false', '0/0.3 false', '0/1 true']);
+    panel.el.remove();
+  });
 });
 
 describe('모델 트리 바디 줄', () => {
