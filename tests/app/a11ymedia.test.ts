@@ -200,7 +200,8 @@ describe('마우스 화면 누르는 칸(163차 — WCAG 2.5.8 최소 24×24 CSS
     // 두 가운데 사이(13/2 + 틈 + 이름 폭/2)가 24px 이상이어야 두 24px 원이 겹치지 않는다. 최소 폭이 0이면 이름 「0」(폭 16px)은 20.5px, 「L1」(23px)도 24px 미만이었다
     const gap = n('span.check', 'gap');
     expect(gap).toBe(6);
-    for (const sel of ['.link-btn', '.pmi-grid .link-btn']) expect(13 / 2 + gap + n(sel, 'min-width') / 2, sel).toBeGreaterThanOrEqual(24);
+    // PMI 표 규칙이 최소 폭을 두지 않으면 .link-btn 것(165차 — 두면 손가락 규칙의 44px를 덮었다)
+    for (const sel of ['.link-btn', '.pmi-grid .link-btn']) expect(13 / 2 + gap + (n(sel, 'min-width') || n('.link-btn', 'min-width')) / 2, sel).toBeGreaterThanOrEqual(24);
     // 높이는 그대로(레이어·PMI·간섭 표 줄이 줄마다 3px 높아지지 않게) — 위아래 줄 가운데 사이는 표 줄 여백으로 27.85px
     expect(PLAIN.get('.link-btn')?.['min-height']).toBeUndefined();
   });

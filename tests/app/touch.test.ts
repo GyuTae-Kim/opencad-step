@@ -251,6 +251,32 @@ describe('손가락 기기 규칙(styles.css)', () => {
     expect(plain).toMatch(/min-height: 28px;/);
     expect(plain).not.toMatch(/user-select|touch-callout/);
   });
+
+  it('165차: 손가락 규칙이 클래스 하나로 44px를 주는 칸을 보통 규칙이 더 구체적인 선택자로 다시 작게 두지 않는다(PMI 표 이름 단추 — .pmi-grid .link-btn이 최소 폭 44px를 덮었다)', () => {
+    // 칸(클래스 하나) → 손가락 규칙이 44px 이상으로 두는 크기 속성
+    const sized = new Map<string, string[]>();
+    for (const [sel, o] of last) if (/^\.[\w-]+$/.test(sel)) sized.set(sel, Object.keys(o).filter((p) => /^(min-)?(width|height)$/.test(p) && px(o[p]) >= 44));
+    expect(sized.get('.link-btn')).toEqual(['min-width', 'min-height']);
+    const el = document.createElement('style');
+    el.textContent = css;
+    document.head.append(el);
+    const bad: string[] = [];
+    for (const r of [...el.sheet!.cssRules]) {
+      if (!(r instanceof CSSStyleRule)) continue;
+      for (const sel of r.selectorText.split(',').map((x) => x.trim())) {
+        // 가상 요소(::before 등)는 칸 크기가 아니다. 마지막 칸(결합자 뒤)이 그 클래스를 품고 선택자가 클래스 하나보다 구체적이면 매체 조건 없는 규칙이 손가락 규칙을 이긴다
+        if (sel.includes('::')) continue;
+        const tail = sel.split(/[\s>+~]+/).at(-1)!;
+        for (const [cls, props] of sized) {
+          if (sel === cls || !new RegExp(`\\${cls}(?![\\w-])`).test(tail)) continue;
+          // 손가락 규칙에 같은 선택자·같은 속성이 있으면(.toolbar .btn 높이·.mb-btn.icon 폭 등) 그것이 뒤에 와서 이긴다
+          for (const p of props) if (r.style.getPropertyValue(p) && !last.get(sel)?.[p]) bad.push(`${sel} ${p}: ${r.style.getPropertyValue(p)}`);
+        }
+      }
+    }
+    el.remove();
+    expect(bad).toEqual([]);
+  });
 });
 
 describe('레이어·PMI 표의 보이기 칸', () => {
