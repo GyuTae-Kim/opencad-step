@@ -3246,9 +3246,10 @@ export class StepApp {
       const size = selectionSize(d.scene, selectionItemIds(d));
       if (mode === 'multi') t.append(h('span', { class: 'mb-sub' }, multiHint(this.bodyPick)));
       // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
+      // 이름표는 같은 값의 패널 물리 속성 줄과 같은 「외형 크기」(207차 — 「크기」는 그림 저장·정보 탭 파일 크기가 함께 써서 일본어·중국어·독일어가 말풍선·패널 줄과 다른 낱말이었다)
       if (size)
         t.append(
-          h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '크기'), ` ≈ ${fm.lenNum(size[0])} × ${fm.lenNum(size[1])} × ${fm.lenNum(size[2])}${fm.unit ? ` ${fm.unit}` : ''}`),
+          h('span', { class: 'mb-sub', title: '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.' }, h('span', {}, '외형 크기'), ` ≈ ${fm.lenNum(size[0])} × ${fm.lenNum(size[1])} × ${fm.lenNum(size[2])}${fm.unit ? ` ${fm.unit}` : ''}`),
         );
     }
     // 글 칸은 알림 영역이라 만든 글(번역 전)이 그대로면 바꾸지 않는다(53차 — 띠를 맞출 때마다 같은 결과를 다시 넣어 두 번 읽었다). 띠 종류가 바뀌면 다시 넣는다

@@ -231,7 +231,7 @@
   "고른 것으로 맞춰 보기": "Zoom to selection",
   "고른 것으로 할 일(숨기기·이것만 보기 등)": "Actions for the selection (hide, isolate, and more)",
   "고른 것이 많아 형상 {0}개 가운데 {1}개만 담았습니다.": "The selection is large, so only {1} of {0} shapes were included.",
-  "고른 면": "Selected faces",
+  "고른 면": "Selected face",
   "고른 면(또는 축)으로 자른 단면": "Section through the selected face (or axis)",
   "고른 면으로 자르기": "Cut through the selected face",
   "고른 면을 정면으로 보기": "Look at the selected face",

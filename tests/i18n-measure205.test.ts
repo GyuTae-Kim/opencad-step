@@ -52,7 +52,7 @@ const APP: Record<string, string[]> = {
     '면 위 점',
     '측정 기록 CSV',
     '측정 기록 CSV 복사',
-    '크기',
+    '외형 크기',
     '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.',
     '개체 측정',
     '측정: 두 점을 누르십시오',
@@ -249,5 +249,25 @@ describe('측정 묶음 화면 글의 네 언어 번역(205차)', () => {
     const dashes = Object.values(catalogs.ja!).filter((v) => v.includes('—'));
     expect(dashes.length).toBeGreaterThanOrEqual(68);
     expect(dashes.filter((v) => /\S—|—\S/.test(v))).toEqual([]);
+  });
+
+  // 207차: 「크기」는 고른 부품 카드(외형 범위 ≈ X × Y × Z)·그림 저장 크기·정보 탭 파일 크기가 함께 써서, 카드 이름표가 일본어 サイズ·중국어 大小(129차 — 파일 크기 꼴)·
+  // 독일어 Größe로 같은 카드 말풍선과 같은 값의 패널 물리 속성 줄 「외형 크기」(外形寸法·外形尺寸·Außenmaße)와 다른 낱말이었다 — 카드 원문만 그 열쇠로(206차 꼴, 새 열쇠 없음)
+  it('207차: 고른 부품 카드의 크기 이름표는 패널 물리 속성 줄과 같은 「외형 크기」 열쇠이고, 그림 저장·파일 크기의 「크기」와 갈린다', () => {
+    const SIZE_TIP = '화면에 그리는 삼각형으로 잰 외형 크기입니다. 구멍·원기둥의 정확한 지름은 면 고르기로 확인하십시오.';
+    const app = read('app.ts');
+    expect(app).toContain("h('span', {}, '외형 크기'), ` ≈ ${fm.lenNum(size[0])} × ");
+    expect(app).not.toContain("h('span', {}, '크기')");
+    expect(read('panel.ts')).toContain("r('외형 크기', `≈ ${f.lenNum(");
+    expect(read('imagedlg.ts')).toMatch(/selectRow\(\s*'크기',/);
+    expect(read('infoview.ts')).toContain("row('크기', `${formatBytes(d.size)}");
+    for (const lang of LANGS) {
+      const label = translate('외형 크기', lang);
+      expect(label, lang).not.toMatch(HANGUL);
+      expect(label, lang).not.toBe(translate('크기', lang));
+      expect(Object.values(catalogs[lang]!).filter((v) => v === label), lang).toHaveLength(1);
+      // 카드 말풍선이 이름표 낱말을 품는다(영어 말풍선 Overall size는 보고 둠 — README 남은 일 207차)
+      if (lang !== 'en') expect(translate(SIZE_TIP, lang), lang).toContain(label);
+    }
   });
 });
