@@ -73,14 +73,21 @@ export function openDialog(title: string, body: (HTMLElement | null)[], opts: { 
   };
 }
 
-/** 이름표 + 고르기 칸 한 줄 */
+/** 안내 칸 id 셈 수(문서 안에서 하나뿐이게 — 대화 상자를 열 때마다 줄을 새로 만든다) */
+let hints = 0;
+
+/**
+ * 이름표 + 고르기 칸 한 줄. 174차: 밑 안내 글(hint)이 있으면 고르기 칸의 aria-describedby로 잇는다(WCAG 1.3.1·3.3.2 — 감싼 label 안이지만
+ * 이름은 aria-label이 정해, 초점으로 옮겨 다니면 안내가 이름에도 설명에도 들지 않았다)
+ */
 export function selectRow(label: string, options: [string, string][], value: string, onChange: (v: string) => void, hint?: string): HTMLElement {
-  const sel = h('select', { class: 'dlg-select', 'aria-label': label }) as HTMLSelectElement;
+  const id = hint ? `dlg-hint-${++hints}` : null;
+  const sel = h('select', { class: 'dlg-select', 'aria-label': label, 'aria-describedby': id }) as HTMLSelectElement;
   for (const [v, text] of options) {
     const o = h('option', { value: v }, text) as HTMLOptionElement;
     if (v === value) o.selected = true;
     sel.append(o);
   }
   sel.addEventListener('change', () => onChange(sel.value));
-  return h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, label), sel, hint ? h('span', { class: 'dlg-hint' }, hint) : null);
+  return h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, label), sel, hint ? h('span', { class: 'dlg-hint', id }, hint) : null);
 }

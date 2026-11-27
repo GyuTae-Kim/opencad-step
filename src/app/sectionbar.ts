@@ -47,7 +47,8 @@ export class SectionBar {
     this.label = h('span', { class: 'section-lbl' });
     // 위치 숫자 칸(표시 단위): 바꾸면 그 위치로(Enter·초점 잃기). 123차: 원점을 걸친 장면은 음수 위치를 쳐 넣어야 해 inputmode="decimal"을 두지 않는다
     // (소수 자판은 음수 기호를 약속하지 않음 — 휴대폰·태블릿 자판은 type="number"에 맞춰 브라우저가 고른다)
-    this.num = h('input', { type: 'number', class: 'section-num', step: 'any', 'aria-label': '단면 위치(숫자)' });
+    // 174차: 옆에 보이는 단위 글(mm·in·m)을 설명으로 잇는다(WCAG 3.3.2 — 이름 뒤에 단위가 들림, 단면 막대는 하나뿐이라 고정 id)
+    this.num = h('input', { type: 'number', class: 'section-num', step: 'any', 'aria-label': '단면 위치(숫자)', 'aria-describedby': 'section-unit' });
     this.num.addEventListener('change', () => this.applyNumber());
     this.num.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -57,7 +58,7 @@ export class SectionBar {
       // 숫자 칸의 Esc는 칸만(창 Esc 순서로 넘기지 않는다)
       if (e.key === 'Escape') e.stopPropagation();
     });
-    this.unit = h('span', { class: 'section-unit' });
+    this.unit = h('span', { class: 'section-unit', id: 'section-unit' });
     this.flipBtn = h('button', { type: 'button', class: 'icon-btn', title: '잘라 내는 쪽 뒤집기', 'aria-label': '잘라 내는 쪽 뒤집기', 'aria-pressed': 'false' });
     this.flipBtn.append(icon('flip', 16));
     this.flipBtn.addEventListener('click', () => host.viewerRef?.flipSection());
