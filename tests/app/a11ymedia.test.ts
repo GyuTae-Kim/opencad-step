@@ -7,7 +7,8 @@
  * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만),
  * 초점 가려지지 않음(190차 — 2.4.11: 키보드 초점이 든 측정 띠는 위 띠 묶음 위로), 위 띠 쌓기(191차 — 휴대폰 단면 막대와 위 띠 묶음을 3D 보기 흐름에 쌓는 자리 손셈),
  * 위 띠 굴림(192차 — 휴대폰 위 띠 묶음이 단면 막대 아래 남은 높이로 줄고 넘친 띠는 묶음 안에서 굴림: 작은 3D 보기 높이 손셈),
- * 동작 버튼 알림 줄 바꿈(195차 — 1.4.10 320×256: 480px 미만에서 긴 글은 첫 줄을 채우고 버튼·✕는 다음 줄, 알림 높이·잘림 손셈).
+ * 동작 버튼 알림 줄 바꿈(195차 — 1.4.10 320×256: 480px 미만에서 긴 글은 첫 줄을 채우고 버튼·✕는 다음 줄, 알림 높이·잘림 손셈),
+ * 분해 띠 갈래 묶음 줄 바꿈(196차 — 1.4.10: 휴대폰 블록에서 띠 안보다 넓은 긴 번역 묶음은 버튼을 다음 줄로, 다섯 언어 × 휴대폰 네 폭·320px 마우스 폭 손셈).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -398,6 +399,133 @@ describe('다시 흐르기 폭(179차 — WCAG 1.4.10: 폭 320 CSS px = 1280px �
     // 짧은 글(「새 버전이 있습니다.」 어림 115 + 「새로 고침」 69)은 한 줄에 들어 줄을 바꾸지 않는다(글 칸 한도 250 안)
     expect(icon + gap + 115 + gap + 69 + gap + close).toBeLessThanOrEqual(inner);
     expect(115).toBeLessThanOrEqual(colAfter);
+  });
+
+  it('196차: 휴대폰·좁은 창 분해 띠의 갈래 묶음과 화면 방향 칸은 띠 안보다 넓으면(긴 번역) 버튼을 다음 줄로 — 위 띠 묶음(192차 굴림 상자) 안에서 가로로 굴리지 않는다', () => {
+    const coarse = rules('(pointer: coarse)');
+    const coarseNarrow = rules('(pointer: coarse) and (max-width: 759.98px)');
+    // 휴대폰 블록에서만: 분해 띠 안 갈래 묶음(.seg — 방식·장면 축·화면 방향·손질·되돌리기)과 화면 방향 칸(이름표 「화면」 + 묶음)은 줄을 바꾸고 띠 안 폭까지,
+    // 분해 띠 버튼은 줄 남은 폭을 채운다(한 줄에 든 묶음은 남는 폭이 없어 그대로 — 손질 버튼은 inline-flex라 늘어나면 아이콘·글을 가운데로)
+    for (const sel of ['.explode-bar .seg', '.explode-screen']) expect([phone.get(sel)?.['flex-wrap'], phone.get(sel)?.['max-width']], sel).toEqual(['wrap', '100%']);
+    expect([phone.get('.explode-bar .seg-btn')?.['flex-grow'], phone.get('.explode-bar .seg-btn')?.['justify-content']]).toEqual(['1', 'center']);
+    // 넓은 화면·태블릿(휴대폰 조건 밖)은 그대로: 묶음·화면 방향 칸은 줄을 바꾸지 않는 한 줄이고, 묶음 사이 줄 바꿈(갈래·방향·손질 칸 — 이미 있음)만
+    for (const R of [PLAIN, narrow, coarse, coarseNarrow]) {
+      expect(R.has('.explode-bar .seg')).toBe(false);
+      expect(R.get('.explode-screen')?.['flex-wrap']).toBeUndefined();
+      expect(R.get('.explode-bar .seg-btn')?.['flex-grow']).toBeUndefined();
+    }
+    expect(PLAIN.get('.seg')?.['flex-wrap']).toBeUndefined();
+    for (const sel of ['.explode-opts', '.explode-axes', '.explode-tweak']) expect([PLAIN.get(sel)?.['flex-wrap'], PLAIN.get(sel)?.['max-width']], sel).toEqual(['wrap', '100%']);
+    // 위 띠 묶음은 세로 굴림 상자(192차 — overflow-x를 따로 두지 않아 auto로 셈해짐): 띠 안보다 넓은 낱칸은 묶음 안 가로 굴림이 된다
+    expect([phone.get('.top-bars')?.['overflow-y'], phone.get('.top-bars')?.['overflow-x']]).toEqual(['auto', undefined]);
+    // 띠 안 폭 = 3D 보기 폭(세로 휴대폰 — 시트는 아래) − 위 띠 묶음 자리 104 − 분해 띠 좌우 여백 − 테두리 1 × 2
+    const keep = Number(/^calc\(100% - (\d+)px\)$/.exec(phone.get('.top-bars')?.['max-width'] ?? '')?.[1]);
+    const [, ePadR, , ePadL] = box(PLAIN, '.explode-bar');
+    const inner = (W: number) => W - keep - ePadL - ePadR - 2;
+    expect([320, 360, 375, 414].map(inner)).toEqual([200, 240, 255, 294]);
+    // 버튼: 손가락(P — 최소 44×44·좌우 여백 10·13px)·마우스(M — 최소 28·26·좌우 여백 6·12px), 묶음 테두리·버튼 사이 선, 손질 버튼의 아이콘·글 틈, 화면 방향 칸 틈·이름표 글 크기
+    const segLine = parseFloat(val(PLAIN, '.seg', 'border', 'border-width', 'border-top-width'));
+    const sep = Number(/\n\.seg-btn \+ \.seg-btn \{\n {2}border-left: (\d+)px solid/.exec(css)?.[1]);
+    const [, cPadR, , cPadL] = box(coarse, '.explode-bar .seg-btn');
+    const [, mPadR, , mPadL] = box(PLAIN, '.seg-btn');
+    const mFont = Number(/\n\.seg-btn \{[^}]*\n {2}font: 600 (\d+)px var\(--font\);/.exec(css)?.[1]);
+    type Dev = { min: number; minH: number; pad: number; font: number; latin: number };
+    // 글 폭 어림(195차 꼴): 버튼 글(600) 라틴·빈칸 0.54em(13px 7·12px 6.5px), 한글·가나·한자 1em
+    const P: Dev = { min: num(coarse, '.explode-bar .seg-btn', 'min-width'), minH: num(coarse, '.explode-bar .seg-btn', 'min-height'), pad: cPadL + cPadR, font: num(coarse, '.explode-bar .seg-btn', 'font-size'), latin: 7 };
+    const M: Dev = { min: num(PLAIN, '.seg-btn', 'min-width'), minH: num(PLAIN, '.seg-btn', 'min-height'), pad: mPadL + mPadR, font: mFont, latin: 6.5 };
+    expect([segLine, sep, P.min, P.minH, P.pad, P.font, M.min, M.minH, M.pad, M.font]).toEqual([1, 1, 44, 44, 20, 13, 28, 26, 12, 12]);
+    const iconGap = num(PLAIN, '.explode-tweak .seg-btn', 'gap');
+    const scrGap = num(PLAIN, '.explode-screen', 'gap');
+    const labFont = num(PLAIN, '.explode-screen-label', 'font-size');
+    expect([iconGap, scrGap, labFont]).toEqual([4, 4, 12]);
+    const textW = (s: string, cjk: number, latin: number) => [...s].reduce((a, ch) => a + (ch <= 'ɏ' ? latin : cjk), 0);
+    // 낱칸 글은 사전 값(한국어는 원문). [글, 아이콘 폭] — explodebar.ts: 옮기기·스냅 lineIcon 16, 손질 파일 ⋯ icon('more', 16), 되돌리기·다시 하기 icon('reset', 14)
+    type Btn = [string, number];
+    const LANGS = ['ko', 'en', 'de', 'ja', 'zh-CN'];
+    const groups = (lang: string): [string, Btn[], string?][] => {
+      const d = (lang === 'ko' ? {} : JSON.parse(readFileSync(join(__dirname, `../../site/locales/${lang}.json`), 'utf8'))) as Record<string, string>;
+      const t = (k: string) => d[k] ?? k;
+      return [
+        ['방식', [[t('단계별'), 0], [t('한꺼번에'), 0]]],
+        ['장면 축', [[t('사방'), 0], ['X', 0], ['Y', 0], ['Z', 0]]],
+        ['화면 방향', [[t('가로'), 0], [t('세로'), 0], [t('가로세로'), 0]], t('화면')],
+        ['손질', [[t('옮기기'), 16], [t('스냅'), 16], ['', 16]]],
+        ['되돌리기', [[t('되돌리기'), 14], [t('다시 하기'), 14]]],
+      ];
+    };
+    const btnW = ([s, icon]: Btn, D: Dev) => Math.max(D.min, D.pad + icon + (s && icon ? iconGap : 0) + textW(s, D.font, D.latin));
+    /** 줄을 바꾼 묶음: 안 너비 c에 버튼을 차례로 채운 줄 폭들(줄 머리 버튼도 앞 버튼이 있으면 사이 선 그대로) */
+    const rows = (ws: number[], c: number): number[] => {
+      const out: number[] = [];
+      ws.forEach((w, i) => {
+        const x = w + (i ? sep : 0);
+        const n = out.length - 1;
+        if (n >= 0 && out[n]! + x <= c) out[n] = out[n]! + x;
+        else out.push(x);
+      });
+      return out;
+    };
+    const wraps = phone.get('.explode-bar .seg')?.['flex-wrap'] === 'wrap' && phone.get('.explode-screen')?.['flex-wrap'] === 'wrap';
+    const labLine = labFont * 1.45; // 이름표 줄 높이(본문 1.45)
+    const devs: [string, number, Dev][] = [
+      ['P320', 320, P],
+      ['P360', 360, P],
+      ['P375', 375, P],
+      ['P414', 414, P],
+      ['M320', 320, M],
+    ];
+    const over: string[] = [];
+    const grow: Record<string, number[]> = {};
+    const undoGrow: string[] = [];
+    let widest = -Infinity;
+    for (const [name, W, D] of devs) {
+      const c = inner(W);
+      grow[name] = LANGS.map((lang) => {
+        let dH = 0;
+        for (const [g, btns, label] of groups(lang)) {
+          const ws = btns.map((b) => btnW(b, D));
+          const seg = ws.reduce((a, b) => a + b, 0) + sep * (ws.length - 1) + 2 * segLine;
+          // 이름표는 12px 보통 글(라틴 6·그 밖 12px)
+          const lab = label === undefined ? 0 : textW(label, labFont, 6);
+          const one = label === undefined ? seg : lab + scrGap + seg;
+          if (one > c) over.push(`${name} ${lang} ${g} +${Math.round(one - c)}`);
+          // 줄 바꿈이면 묶음은 안 너비(띠 안 − 테두리)에 버튼을 채우고, 넘치는 화면 방향 칸은 이름표 줄 아래 묶음 — 아니면 한 줄 그대로
+          const r = wraps ? rows(ws, c - 2 * segLine) : [seg - 2 * segLine];
+          const labRow = wraps && label !== undefined && one > c;
+          const after = Math.max(...r) + 2 * segLine;
+          widest = Math.max(widest, (label === undefined ? after : labRow ? Math.max(lab, after) : lab + scrGap + after) - c);
+          const h = (r.length - 1) * D.minH + (labRow ? labLine + scrGap : 0);
+          if (g === '되돌리기') {
+            if (h) undoGrow.push(`${name} ${lang} +${Math.round(h)}`);
+          } else dH += h;
+        }
+        return Math.round(dH);
+      });
+    }
+    // 고치기 전(한 줄): 띠 안보다 넓은 낱칸 = 위 띠 묶음 안 가로 굴림(독일어 손질 묶음이 가장 넓음 — 휴대폰 44px 버튼은 마우스보다 넓다)
+    expect(over).toEqual([
+      'P320 en 화면 방향 +9',
+      'P320 de 방식 +11',
+      'P320 de 화면 방향 +19',
+      'P320 de 손질 +68',
+      'P320 de 되돌리기 +26',
+      'P320 ja 손질 +6',
+      'P360 de 손질 +28',
+      'P375 de 손질 +13',
+      'M320 de 손질 +26',
+    ]);
+    // 고친 뒤: 가장 넓은 줄도 띠 안(가로 굴림 없음)
+    expect(widest).toBeLessThanOrEqual(0);
+    // 띠가 높아지는 양(px — 늘 보이는 칸, 언어 차례 ko·en·de·ja·zh-CN): 줄 하나 = 버튼 최소 높이(P 44·M 26), 화면 방향 이름표 줄 = 17.4 + 틈 4.
+    // 192차 굴림 상자 안이라 늘어난 만큼 세로로 굴려 닿는다. 되돌리기 묶음(손질이 있을 때)은 따로
+    expect(grow).toEqual({
+      P320: [0, 21, 109, 44, 0],
+      P360: [0, 0, 44, 0, 0],
+      P375: [0, 0, 44, 0, 0],
+      P414: [0, 0, 0, 0, 0],
+      M320: [0, 0, 26, 0, 0],
+    });
+    expect(undoGrow).toEqual(['P320 de +44']);
   });
 });
 
