@@ -368,6 +368,11 @@ input::placeholder {
 .aim-reticle svg {
   display: block;
 }
+/* 203차: 십자선 테두리는 카드 색(단면 손잡이 점 꼴 — 흰색이면 어두운 테마의 노란 선과 1.1:1, 카드 색이면 어느 바탕에서도 선이 3:1 넘음) */
+.aim-reticle .aim-halo {
+  stroke: var(--card);
+  stroke-opacity: 0.85;
+}
 
 /* 시작 화면 */
 .start {
