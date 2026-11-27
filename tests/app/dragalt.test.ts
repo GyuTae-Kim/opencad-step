@@ -4,8 +4,10 @@
  * 패널 폭(넓은 화면)·아래 시트 높이(좁은 화면) 손잡이는 끌어야만 크기가 바뀌었고, 끌지 않는 길은 두 번 누르기(기본 크기) 하나뿐이었다
  * (화살표 키는 키보드라 2.5.7의 한 점 포인터 대안이 아님). 이제 끌지 않고 한 번 누르면 기본 크기 ↔ 가장 큰 크기를 오간다 — 두 번 누르기를 깨지 않게
  * 두 번 누르기 시간(450ms — 코어 DOUBLE_CLICK_MS)을 기다리고, 그 안 둘째 누르기는 기본(손가락 두 번 두드리기도). 끌기·화살표는 그대로
+ * 186차(WCAG 4.1.2 이름·역할·값): 초점을 받는 손잡이(role=separator)는 값이 꼭 드는데 aria-valuenow·min·max가 없었다 — 이제 지금 크기가
+ * 쓸 수 있는 범위(가장 작을 때 0 ~ 가장 클 때 100)의 어디인지 정수로 두고, 크기가 바뀌는 모든 길에서 함께 바뀐다
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clampPanelWidth, clampSheetHeight, PanelResizer } from '../../src/app/resize';
 
 const KEY_W = 'opencad-step.panelWidth';
@@ -19,21 +21,31 @@ function ptr(type: string, x: number, y: number, pointerType: string): MouseEven
   return e;
 }
 
-/** 손잡이와 패널(그려진 크기 = 손잡이가 정한 값, 없으면 스타일시트 기본 320px 폭·300px 높이), 작업 영역 높이 700px */
-function setup(narrow: boolean) {
+/**
+ * 손잡이와 패널(그려진 크기 = 손잡이가 정한 값, 없으면 스타일시트 기본 320px 폭·300px 높이, 숨은 패널은 0), 작업 영역 높이 700px.
+ * stored: 처음 저장소 값, hidden: 손잡이를 만들 때 패널이 숨어 있음(앱은 문서를 열기 전 패널을 숨긴다), flip: 좁은 화면 미디어 질의를 바꿔 알림
+ */
+function setup(narrow: boolean, opts: { stored?: Record<string, string>; hidden?: boolean } = {}) {
   document.body.replaceChildren();
   const root = document.createElement('div');
   const workspace = document.createElement('main');
   const panel = document.createElement('aside');
+  panel.hidden = !!opts.hidden;
   workspace.append(panel);
   root.append(workspace);
   document.body.append(root);
   const px = (k: string, d: number) => parseFloat(root.style.getPropertyValue(k)) || d;
-  panel.getBoundingClientRect = () => ({ width: px('--panel-w', 320), height: px('--sheet-h', 300) }) as DOMRect;
+  panel.getBoundingClientRect = () => (panel.hidden ? { width: 0, height: 0 } : { width: px('--panel-w', 320), height: px('--sheet-h', 300) }) as DOMRect;
   workspace.getBoundingClientRect = () => ({ width: 1024, height: 700 }) as DOMRect;
-  const m = new Map<string, string>();
+  const m = new Map<string, string>(Object.entries(opts.stored ?? {}));
   const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
-  const mq = { matches: narrow, addEventListener: () => {} } as unknown as MediaQueryList;
+  let onChange = () => {};
+  const q = { matches: narrow, addEventListener: (_: string, f: () => void) => void (onChange = f) };
+  const flip = (n: boolean) => {
+    q.matches = n;
+    onChange();
+  };
+  const mq = q as unknown as MediaQueryList;
   const r = new PanelResizer(root, panel, workspace, mq, store);
   panel.prepend(r.el);
   const el = r.el;
@@ -47,7 +59,7 @@ function setup(narrow: boolean) {
     up(v, t);
   };
   const val = () => root.style.getPropertyValue(narrow ? '--sheet-h' : '--panel-w');
-  return { el, m, down, move, up, tap, val };
+  return { el, m, down, move, up, tap, val, panel, workspace, flip };
 }
 
 afterEach(() => {
@@ -140,5 +152,109 @@ describe('173차: 패널·시트 크기 손잡이의 끌지 않는 한 점 대�
     vi.advanceTimersByTime(450);
     expect(s.val()).toBe('');
     expect(s.m.has(KEY_H)).toBe(false);
+  });
+});
+
+describe('186차: 패널·시트 크기 손잡이 값(WCAG 4.1.2 — 초점을 받는 separator의 aria-valuenow·min·max)', () => {
+  // 숨었던 패널이 열리거나 창 크기가 바뀌는 것은 코드가 지나지 않아 ResizeObserver(패널·작업 영역)가 알린다 — 시험에서는 그 알림을 손으로 보낸다
+  let observers: { cb: () => void; els: Element[] }[] = [];
+  const saved = globalThis.ResizeObserver;
+  beforeEach(() => {
+    observers = [];
+    globalThis.ResizeObserver = class {
+      readonly rec: { cb: () => void; els: Element[] };
+      constructor(cb: () => void) {
+        this.rec = { cb, els: [] };
+        observers.push(this.rec);
+      }
+      observe(e: Element): void {
+        this.rec.els.push(e);
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    } as unknown as typeof ResizeObserver;
+  });
+  afterEach(() => {
+    globalThis.ResizeObserver = saved;
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true });
+  });
+  const resized = () => observers.forEach((o) => o.cb());
+  /** [지금 값, 최소, 최대] */
+  const aria = (el: HTMLElement) => [el.getAttribute('aria-valuenow'), el.getAttribute('aria-valuemin'), el.getAttribute('aria-valuemax')];
+  const key = (el: HTMLElement, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+
+  it('넓은 화면: 되살린 폭은 숨었던 패널이 열릴 때 값이 되고, 화살표·끌기(끄는 동안도)·Home·한 번 누르기·두 번 누르기·창 폭에 함께 바뀐다', () => {
+    vi.useFakeTimers();
+    // 창 폭 1024px: 폭 240 ~ min(720, 1024 × 0.7) = 716px(476px 범위), 저장해 둔 폭 500px — 손잡이를 만들 때 패널은 숨어 있다
+    const s = setup(false, { stored: { [KEY_W]: '500' }, hidden: true });
+    expect(s.val()).toBe('500px');
+    expect(s.el.hasAttribute('aria-valuenow')).toBe(true);
+    expect(aria(s.el).slice(1)).toEqual(['0', '100']);
+    expect(observers.flatMap((o) => o.els)).toEqual(expect.arrayContaining([s.panel, s.workspace]));
+    // 문서를 열어 패널이 열림: (500 − 240) / 476 = 54.6%
+    s.panel.hidden = false;
+    resized();
+    expect(aria(s.el)).toEqual(['55', '0', '100']);
+    key(s.el, 'ArrowLeft');
+    expect(s.val()).toBe('516px');
+    expect(aria(s.el)).toEqual(['58', '0', '100']);
+    key(s.el, 'ArrowRight');
+    expect(aria(s.el)).toEqual(['55', '0', '100']);
+    // 왼쪽으로 100px 끌기 — 끄는 동안도 값이 따라온다
+    s.down(600);
+    s.move(500);
+    expect(s.val()).toBe('600px');
+    expect(aria(s.el)).toEqual(['76', '0', '100']);
+    s.up(500);
+    expect(aria(s.el)).toEqual(['76', '0', '100']);
+    // Home(기본 320px): 80 / 476 = 16.8%
+    key(s.el, 'Home');
+    expect(s.val()).toBe('');
+    expect(aria(s.el)).toEqual(['17', '0', '100']);
+    // 173차 한 번 누르기: 기다리는 동안 그대로, 450ms 뒤 가장 넓게(100), 다시 한 번이면 기본
+    s.tap(500);
+    expect(aria(s.el)).toEqual(['17', '0', '100']);
+    vi.advanceTimersByTime(450);
+    expect(s.val()).toBe('716px');
+    expect(aria(s.el)).toEqual(['100', '0', '100']);
+    s.tap(500);
+    vi.advanceTimersByTime(450);
+    expect(s.val()).toBe('');
+    expect(aria(s.el)).toEqual(['17', '0', '100']);
+    // 두 번 누르기(기본)
+    key(s.el, 'ArrowLeft');
+    expect(aria(s.el)).toEqual(['20', '0', '100']);
+    s.el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(aria(s.el)).toEqual(['17', '0', '100']);
+    // 창 폭 800px: 상한이 560px로 — 같은 320px 폭이 80 / 320 = 25%
+    Object.defineProperty(window, 'innerWidth', { value: 800, configurable: true });
+    resized();
+    expect(aria(s.el)).toEqual(['25', '0', '100']);
+  });
+
+  it('좁은 화면 시트: 처음 값과 화살표·끌기·Home 뒤 값, 넓은 ↔ 좁은 화면을 오가면 같은 손잡이가 그 꼴(폭·높이)의 값으로', () => {
+    // 작업 영역 높이 700px: 시트 120 ~ 580px(460px 범위), 처음 300px — (300 − 120) / 460 = 39.1%
+    const s = setup(true);
+    expect(aria(s.el)).toEqual(['39', '0', '100']);
+    key(s.el, 'ArrowUp');
+    expect(s.val()).toBe('316px');
+    expect(aria(s.el)).toEqual(['43', '0', '100']);
+    // 위로 50px 끌기
+    s.down(400);
+    s.move(350);
+    expect(s.val()).toBe('366px');
+    expect(aria(s.el)).toEqual(['53', '0', '100']);
+    s.up(350);
+    expect(aria(s.el)).toEqual(['53', '0', '100']);
+    // 넓은 화면으로: 같은 요소가 폭(기본 320px — 창 폭 1024px에서 17%)의 값으로, 다시 좁은 화면이면 끌어 둔 시트 높이의 값으로
+    s.flip(false);
+    expect(s.el.getAttribute('aria-orientation')).toBe('vertical');
+    expect(aria(s.el)).toEqual(['17', '0', '100']);
+    s.flip(true);
+    expect(s.el.getAttribute('aria-orientation')).toBe('horizontal');
+    expect(aria(s.el)).toEqual(['53', '0', '100']);
+    key(s.el, 'Home');
+    expect(s.val()).toBe('');
+    expect(aria(s.el)).toEqual(['39', '0', '100']);
   });
 });
