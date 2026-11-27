@@ -25,8 +25,10 @@ export interface MenuItem {
   run: () => void;
 }
 
-/** spot: 화면 점 메뉴를 연 자리에서 누르면 초점을 받는 칸(3D 보기·나무 줄 — 159차, openMenuAt) */
-let current: { el: HTMLElement; anchor: HTMLElement; close: () => void; spot?: Element | null } | null = null;
+/** spot: 화면 점 메뉴를 연 자리에서 누르면 초점을 받는 칸(3D 보기·나무 줄 — 159차, openMenuAt), owner: 화면 점 메뉴를 연 버튼(183차) */
+let current: { el: HTMLElement; anchor: HTMLElement; close: () => void; spot?: Element | null; owner?: HTMLElement | null } | null = null;
+/** 183차: 항목 명령이 도는 동안 그 메뉴의 owner — 명령이 같은 자리에 다시 여는 하위 메뉴(불투명도…·그 밖의 작업…)도 그 버튼이 펼친 메뉴 */
+let carry: HTMLElement | null = null;
 
 /** 열린 메뉴가 있는지 */
 export function menuOpen(): boolean {
@@ -43,8 +45,10 @@ export function closeMenu(): boolean {
 /**
  * 화면 점(client 좌표)에 메뉴를 연다(오른쪽 누르기·길게 누르기 작업 메뉴). 보이지 않는 1화소 기준점을 그 자리에 두고 연다.
  * 65차: 연 메뉴 요소를 돌려주고, 닫힐 때(고르기 — 그 명령보다 먼저·Esc·바깥 누르기·바깥 초점·다른 메뉴) onClose를 부른다(겹친 것 목록 미리 강조 되돌리기 — ctxmenu.ts)
+ * 183차(WCAG 4.1.2): owner는 그 자리에서 메뉴를 연 메뉴 버튼(여러 개 고르기 띠 「작업」) — 펼침(aria-expanded)을 기준점 대신 그 버튼에 열 때 true, 닫을 때 false로 둔다
+ * (전에는 버튼이 메뉴를 열어도 펼침이 아니었다). 주지 않으면 항목 명령이 다시 연 하위 메뉴는 앞 메뉴의 owner(carry)
  */
-export function openMenuAt(x: number, y: number, items: MenuItem[], label: string, onClose?: () => void): HTMLElement | null {
+export function openMenuAt(x: number, y: number, items: MenuItem[], label: string, onClose?: () => void, owner: HTMLElement | null = carry): HTMLElement | null {
   closeMenu();
   // 159차: 그 자리에서 누르면 초점을 받는 칸(배치가 없는 환경은 없음). 기준점은 누르기를 받지 않고 메뉴는 그 자리 4px 아래·위에 놓여 덮지 않는다
   const spot = document.elementFromPoint?.(x, y)?.closest('[tabindex],button');
@@ -52,13 +56,16 @@ export function openMenuAt(x: number, y: number, items: MenuItem[], label: strin
   anchor.style.cssText = `position:fixed;left:${Math.round(x)}px;top:${Math.round(y)}px;width:1px;height:1px;pointer-events:none`;
   document.body.append(anchor);
   openMenu(anchor, items, label);
-  const c = current as { el: HTMLElement; close: () => void; spot?: Element | null } | null;
+  const c = current as { el: HTMLElement; close: () => void; spot?: Element | null; owner?: HTMLElement | null } | null;
   if (c) {
     c.spot = spot;
+    c.owner = owner;
+    owner?.setAttribute('aria-expanded', 'true');
     const close = c.close;
     c.close = () => {
       close();
       anchor.remove();
+      owner?.setAttribute('aria-expanded', 'false');
       onClose?.();
     };
   } else anchor.remove();
@@ -94,9 +101,16 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       // 항목을 고르면 메뉴가 사라지므로 초점을 연 단추로 돌려준다(키보드로 고른 뒤 초점이 문서 처음으로 날아가지 않게,
       // 그 명령이 대화 상자를 열면 닫을 때 이 단추로 돌아온다). 화면 점 메뉴의 보이지 않는 기준점은 초점을 받지 않으므로 연 때 초점이 있던 곳으로
       const hadFocus = el.contains(document.activeElement);
+      const owner = current?.owner ?? null;
       closeMenu();
       if (hadFocus) back();
-      it.run();
+      // 183차: 그 명령이 같은 자리에 다시 여는 하위 메뉴도 이 메뉴를 연 버튼이 펼친 것(openMenuAt owner — 도구 막대 「보기 설정 → 내보내기…」가 같은 버튼에 다시 여는 것과 같은 끝 상태)
+      carry = owner;
+      try {
+        it.run();
+      } finally {
+        carry = null;
+      }
     });
     buttons.push(b);
     el.append(b);

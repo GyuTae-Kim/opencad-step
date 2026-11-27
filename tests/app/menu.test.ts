@@ -4,8 +4,10 @@
  * 375px 독일어 화면에서 오른쪽 끝 단추(앱 설정)의 메뉴가 한국어 폭(최소 180px)으로 놓여 번역 뒤(206px) 화면 밖으로 18px 나갔다.
  * jsdom에는 배치가 없어 메뉴 폭은 가장 긴 항목 글 길이로 흉내 낸다(글자당 9px, 최소 180px).
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closeMenu, menuOpen, openMenu, openMenuAt } from '../../src/app/menu';
+import { closeMenu, menuOpen, openMenu, openMenuAt, type MenuItem } from '../../src/app/menu';
 
 const LONG = 'Anzeigeeinstellungen…';
 let observer: MutationObserver | null = null;
@@ -237,5 +239,74 @@ describe('메뉴: 밖 초점에 닫기(159차)', () => {
       row.remove();
       other.remove();
     }
+  });
+});
+
+/**
+ * 183차(WCAG 4.1.2 — 펼침 버튼 감사): 여러 개 고르기 띠 「작업」은 메뉴 버튼(aria-haspopup=menu)인데 작업 메뉴를 버튼 자리 화면 점에 열어(openMenuAt)
+ * menu.ts가 aria-expanded를 보이지 않는 기준점에 두었다 — 메뉴가 열려도 버튼은 펼침이 아니었다(APG Menu Button: 메뉴가 보이면 aria-expanded=true)
+ */
+describe('메뉴: 화면 점 메뉴를 연 버튼의 펼침(183차)', () => {
+  it('연 버튼(owner)을 주면 열 때 true, 닫는 모든 길(Esc·바깥 누르기·Tab·항목 고르기·창 폭·다른 메뉴)에서 false — 항목이 같은 자리에 다시 연 하위 메뉴도 그 버튼 것, 버튼 없이 연 메뉴는 건드리지 않음', () => {
+    const owner = document.createElement('button');
+    owner.setAttribute('aria-haspopup', 'menu');
+    owner.setAttribute('aria-expanded', 'false');
+    const outside = document.createElement('button');
+    document.body.append(owner, outside);
+    const other = anchorAt(10);
+    const exp = () => owner.getAttribute('aria-expanded');
+    const key = (k: string) => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    const open = (items: MenuItem[] = [{ label: '숨기기', run: () => {} }]) => openMenuAt(50, 60, items, '작업 메뉴', undefined, owner);
+    try {
+      owner.focus();
+      open();
+      expect([menuOpen(), exp()]).toEqual([true, 'true']);
+      key('Escape');
+      expect([menuOpen(), exp(), document.activeElement === owner]).toEqual([false, 'false', true]);
+      open();
+      outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      expect([menuOpen(), exp()]).toEqual([false, 'false']);
+      open();
+      key('Tab');
+      expect([menuOpen(), exp()]).toEqual([false, 'false']);
+      open();
+      menuEl().querySelector<HTMLButtonElement>('.menu-item')!.click();
+      expect([menuOpen(), exp()]).toEqual([false, 'false']);
+      open();
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 360 });
+      window.dispatchEvent(new Event('resize'));
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+      expect([menuOpen(), exp()]).toEqual([false, 'false']);
+      open();
+      openMenu(other, [{ label: '홈 뷰', run: () => {} }], '표준 뷰');
+      expect([menuOpen(), exp(), other.getAttribute('aria-expanded')]).toEqual([true, 'false', 'true']);
+      closeMenu();
+      // 작업 메뉴 「불투명도…」·손가락 기기 「그 밖의 작업…」(ctxmenu.ts — 같은 자리에 openMenuAt): 하위 메뉴도 이 버튼이 펼친 것(도구 막대 「보기 설정 → 내보내기…」와 같은 끝 상태)
+      open([{ label: '불투명도…', run: () => void openMenuAt(50, 60, [{ label: '50%', run: () => {} }], '불투명도') }]);
+      menuEl().querySelector<HTMLButtonElement>('.menu-item')!.click();
+      expect([menuEl()?.getAttribute('aria-label'), exp()]).toEqual(['불투명도', 'true']);
+      key('Escape');
+      expect([menuOpen(), exp()]).toEqual([false, 'false']);
+      // 버튼 없이 연 화면 점 메뉴(3D 보기 오른쪽 누르기·길게 누르기·나무 줄)는 그 버튼을 건드리지 않는다
+      openMenuAt(50, 60, [{ label: '숨기기', run: () => {} }], '작업 메뉴');
+      expect([menuOpen(), exp()]).toEqual([true, 'false']);
+      closeMenu();
+    } finally {
+      closeMenu();
+      owner.remove();
+      outside.remove();
+      other.remove();
+    }
+  });
+
+  it('「작업」 버튼은 처음 aria-expanded=false인 메뉴 버튼이고 작업 메뉴를 자기를 연 버튼으로 넘겨 연다(app.ts 원문 — 앱 전체는 시험에서 띄우지 않는다, 169차 꼴)', () => {
+    const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
+    const made = /this\.selMore = h\('button', \{([^}]*)\}/.exec(app)?.[1] ?? '';
+    expect([made.includes("'aria-haspopup': 'menu'"), made.includes("'aria-expanded': 'false'")]).toEqual([true, true]);
+    const click = /this\.selMore\.addEventListener\('click', \(\) => \{([\s\S]*?)\n {4}\}\);/.exec(app)?.[1] ?? '';
+    expect(click).toMatch(/this\.openContextMenu\([^)]*, this\.selMore\);/);
+    const open = /\n {2}openContextMenu\(([^)]*)\): void \{([\s\S]*?)\n {2}\}/.exec(app);
+    expect(open?.[1]).toBe('clientX: number, clientY: number, owner?: HTMLElement');
+    expect(open?.[2]).toContain("openMenuAt(clientX, clientY, items, '작업 메뉴', undefined, owner)");
   });
 });
