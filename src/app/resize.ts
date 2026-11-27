@@ -3,7 +3,7 @@
  * 높이(--sheet-h)를 바꾼다. 화살표 키로도(16px씩), 두 번 누르면 기본값. 고른 크기는 이 브라우저에 기억한다.
  * 173차(WCAG 2.5.7 끄는 동작): 끌지 않고 한 번 누르면 기본 크기 ↔ 가장 큰 크기 — 크기가 바뀌면 손잡이가 옮겨 가 두 번 누르기의 둘째가
  * 다른 곳에 떨어지므로 두 번 누르기 시간(TAP_WAIT_MS)을 기다리고, 그 안 둘째 누르기는 기본(손가락 두 번 두드리기도).
- * 186차(WCAG 4.1.2): 초점을 받는 separator라 값(aria-valuenow·min·max)을 둔다 — value.
+ * 186차(WCAG 4.1.2): 초점을 받는 separator라 값(aria-valuenow·min·max)을 둔다 — value. 187차: 크기를 바꾸는 패널을 aria-controls로 가리킨다.
  */
 
 export const PANEL_MIN = 240;
@@ -50,6 +50,8 @@ export class PanelResizer {
     this.el.className = 'panel-resizer';
     this.el.tabIndex = 0;
     this.el.setAttribute('role', 'separator');
+    // 187차(WCAG 4.1.2 — APG 창 가르개): 손잡이는 크기를 바꾸는 주 패널을 가리킨다(넓은 화면 폭·좁은 화면 시트 높이 모두 같은 패널)
+    if (panel.id) this.el.setAttribute('aria-controls', panel.id);
     this.el.addEventListener('pointerdown', (e) => this.down(e));
     this.el.addEventListener('pointermove', (e) => this.move(e));
     this.el.addEventListener('pointerup', (e) => this.up(e));

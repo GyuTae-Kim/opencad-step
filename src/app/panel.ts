@@ -209,7 +209,8 @@ export class Panel {
     close.addEventListener('click', () => this.host.togglePanel(false));
     this.body = h('div', { class: 'panel-body', role: 'tabpanel', id: 'panel-body' });
     this.foot = h('div', { class: 'panel-foot', 'aria-live': 'polite', hidden: true });
-    this.el = h('aside', { class: 'panel', 'aria-label': '제품·정보 패널', hidden: true }, h('div', { class: 'panel-head' }, this.tabsEl, close), this.body, this.foot);
+    // 187차: id는 크기 손잡이(resize.ts — 패널 첫 자식)가 aria-controls로 가리킨다(APG 창 가르개 — 손잡이는 주 패널을 가리킴)
+    this.el = h('aside', { class: 'panel', 'aria-label': '제품·정보 패널', id: 'panel', hidden: true }, h('div', { class: 'panel-head' }, this.tabsEl, close), this.body, this.foot);
   }
 
   /** 문서 바꾸기(null이면 비움) */
