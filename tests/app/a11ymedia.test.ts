@@ -6,7 +6,8 @@
  * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이),
  * 다시 흐르기 폭(179차 — 1.4.10 320px: 창 폭을 따르는 칸의 손셈, 좁은 화면 격리 띠 「격리 풀기」는 아이콘만),
  * 초점 가려지지 않음(190차 — 2.4.11: 키보드 초점이 든 측정 띠는 위 띠 묶음 위로), 위 띠 쌓기(191차 — 휴대폰 단면 막대와 위 띠 묶음을 3D 보기 흐름에 쌓는 자리 손셈),
- * 위 띠 굴림(192차 — 휴대폰 위 띠 묶음이 단면 막대 아래 남은 높이로 줄고 넘친 띠는 묶음 안에서 굴림: 작은 3D 보기 높이 손셈).
+ * 위 띠 굴림(192차 — 휴대폰 위 띠 묶음이 단면 막대 아래 남은 높이로 줄고 넘친 띠는 묶음 안에서 굴림: 작은 3D 보기 높이 손셈),
+ * 동작 버튼 알림 줄 바꿈(195차 — 1.4.10 320×256: 480px 미만에서 긴 글은 첫 줄을 채우고 버튼·✕는 다음 줄, 알림 높이·잘림 손셈).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -328,6 +329,75 @@ describe('다시 흐르기 폭(179차 — WCAG 1.4.10: 폭 320 CSS px = 1280px �
     expect(box(PLAIN, '.mb-btn')[1]).toBe(12);
     expect(PLAIN.has('.iso-bar .mb-btn > span')).toBe(false);
     expect(PLAIN.get('.iso-text')?.['text-overflow']).toBe('ellipsis');
+  });
+
+  it('195차: 480px 미만 화면의 동작 버튼이 있는 알림은 글이 한 줄에 들지 않으면 버튼·✕를 다음 줄로 — 320px 창에서 버튼·✕가 글 칸을 62~130px로 좁혀 3D 보기보다 높아진 알림의 위가 잘리지 않는다', () => {
+    // 동작 버튼(보기 링크의 「파일로 내보내기」·「새로 고침」)이 있는 알림만 줄을 바꾸고, 글 칸은 글 폭(바탕 auto — 보통 규칙 flex 1은 바탕 0%라 줄을 나누지 않음)에서
+    // 첫 줄의 아이콘 16 + 틈 8 뒤 폭까지 — 글이 길면 첫 줄을 채워 버튼·✕(문서 차례 그대로 — Tab 차례와 같음)가 다음 줄, 짧으면(알림 폭이 내용 폭) 한 줄 그대로
+    const A = '.toast:has(.toast-act)';
+    expect(tiny.get(A)?.['flex-wrap']).toBe('wrap');
+    expect([tiny.get(`${A} > span`)?.['flex-basis'], tiny.get(`${A} > span`)?.['max-width']]).toEqual(['auto', 'calc(100% - 24px)']);
+    // 넓은 화면·동작 버튼 없는 알림은 그대로(한 줄, 글 칸은 남은 폭)
+    expect(PLAIN.get('.toast')?.['flex-wrap']).toBeUndefined();
+    for (const sel of [A, `${A} > span`]) expect(PLAIN.has(sel), sel).toBe(false);
+    expect(tiny.has('.toast')).toBe(false);
+    // 320px 창 알림 안 폭 = 알림 칸(3D 보기 − 24) − 좌우 여백 − 테두리 1 × 2
+    const keep = Number(/\n\.toasts \{[^}]*\n {2}width: min\(560px, calc\(100% - (\d+)px\)\);/.exec(css)?.[1]);
+    const [pT, pR, pB, pL] = box(PLAIN, '.toast');
+    const inner = 320 - keep - pL - pR - 2;
+    expect(inner).toBe(274);
+    const gap = num(PLAIN, '.toast', 'gap');
+    const close = num(PLAIN, '.icon-btn', 'width');
+    const icon = 16; // app.ts toast(): icon(…, 16)
+    const lead = Number(/^calc\(100% - (\d+)px\)$/.exec(tiny.get(`${A} > span`)?.['max-width'] ?? '')?.[1]);
+    expect(lead).toBe(icon + gap);
+    // 보기 링크 알림(손질을 못 담음 — 두 문장 + 「파일로 내보내기」)의 글 폭·버튼 폭 어림(13px 글: 한글·가나·한자 13px, 라틴 6.5px / 12px 버튼 글 + 좌우 여백 8 + 테두리)
+    const langs: [string, number, number][] = [
+      ['ko', 1150, 105],
+      ['en', 1430, 106],
+      ['de', 1580, 146],
+      ['ja', 1460, 126],
+      ['zh-CN', 970, 78],
+    ];
+    const lineH = 13 * 1.45;
+    const lines = (w: number, col: number) => Math.ceil(w / (col * 0.9)); // 줄 끝 빈자리 어림 10%
+    const frame = pT + pB + 2;
+    // 고치기 전: 아이콘·글·버튼·✕가 한 줄 — 글 칸 = 안 폭 − 아이콘 − 틈 셋 − 버튼 − ✕
+    const colBefore = langs.map(([, , act]) => inner - icon - 3 * gap - act - close);
+    expect(colBefore).toEqual([103, 102, 62, 82, 130]);
+    const hBefore = langs.map(([, w], i) => Math.round(Math.max(lines(w, colBefore[i]!) * lineH, close) + frame));
+    // 고친 뒤: 글 칸이 첫 줄(안 폭 − 아이콘 − 틈), 버튼·✕는 다음 줄(줄 틈 + max(버튼 24, ✕ 26))
+    const colAfter = inner - lead;
+    expect(colAfter).toBe(250);
+    const hAfter = langs.map(([, w]) => Math.round(lines(w, colAfter) * lineH + gap + Math.max(24, close) + frame));
+    expect([hBefore, hAfter]).toEqual([
+      [263, 320, 565, 395, 188],
+      [165, 184, 203, 184, 146],
+    ]);
+    // 3D 보기(넘침 숨김) 아래에서 위로 쌓여 넘친 위쪽은 잘린다(알림 칸은 굴리지 않음): 320×256 창(앱 480px — 작업 영역 370, 시트를 열면 3D 보기 206),
+    // 알림 칸 bottom 12px(고른 부품 카드가 보이면 68px)
+    const cut = (h: number[], V: number, bottom: number) => h.map((x) => Math.max(0, x - (V - bottom)));
+    const views: [number, number][] = [
+      [370, 12],
+      [370, 68],
+      [206, 12],
+      [206, 68],
+    ];
+    expect(views.map(([V, b]) => cut(hBefore, V, b))).toEqual([
+      [0, 0, 207, 37, 0],
+      [0, 18, 263, 93, 0],
+      [69, 126, 371, 201, 0],
+      [125, 182, 427, 257, 50],
+    ]);
+    expect(views.map(([V, b]) => cut(hAfter, V, b))).toEqual([
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+      [0, 0, 9, 0, 0],
+      [27, 46, 65, 46, 8],
+    ]);
+    // 짧은 글(「새 버전이 있습니다.」 어림 115 + 「새로 고침」 69)은 한 줄에 들어 줄을 바꾸지 않는다(글 칸 한도 250 안)
+    expect(icon + gap + 115 + gap + 69 + gap + close).toBeLessThanOrEqual(inner);
+    expect(115).toBeLessThanOrEqual(colAfter);
   });
 });
 
