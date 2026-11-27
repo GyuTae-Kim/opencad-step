@@ -71,7 +71,8 @@ describe('손가락 기기 규칙(styles.css)', () => {
       ['.title-actions .btn', 'height', 'min-width'],
       ['.titlebar .language-trigger', 'height', 'width'],
       ['html .language-list button', 'min-height', null],
-      ['.menu-item', 'height', null],
+      // 메뉴 항목은 최소 높이(171차 — 이름이 두 줄이면 따라 커진다)
+      ['.menu-item', 'min-height', null],
       ['.btn.small', 'height', null],
       ['.btn.large', 'height', null],
       ['.icon-btn', 'height', 'width'],

@@ -2,7 +2,8 @@
 /**
  * 55차 WCAG 크기·간격·움직임 규칙(styles.css): 강제 색(forced-colors: active — Windows 고대비 등), 움직임 줄이기(prefers-reduced-motion: reduce — 2.3.3),
  * 다시 흐르기(1.4.10 — 1280px 창 400% = 320×256), 글만 키우기(1.4.4 — 갈래 단추·상태 막대가 글을 따라 커짐), 갈래 단추 초점,
- * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭).
+ * 마우스 화면 누르는 칸 크기(163차 — 2.5.8 최소 24px 또는 간격: 확인 칸 옆 이름 단추 최소 폭),
+ * 글 간격(171차 — 1.4.12: 높이를 못 박은 글 칸의 줄 높이 1.5배 한 줄 손셈, 이름이 줄을 바꿀 수 있는 메뉴 항목은 최소 높이).
  * 실제 화면은 헤드리스 Chrome으로 쟀다(README 개발 절 — 상태를 끈/켠 화소, Tab 초점 화소, 잘림·닿음, 카메라 프레임).
  * A11Y_CSS: 다른 판의 스타일시트로 돌려 볼 때(앞 판에서 실패하는지 확인용)
  */
@@ -180,7 +181,7 @@ describe('마우스 화면 누르는 칸(163차 — WCAG 2.5.8 최소 24×24 CSS
       ['.seg-btn', 'min-width'],
       ['.seg-btn', 'min-height'],
       ['.tab', 'height'],
-      ['.menu-item', 'height'],
+      ['.menu-item', 'min-height'],
       ['.tree-row', 'min-height'],
       ['.twisty', 'width'],
       ['.twisty', 'height'],
@@ -204,5 +205,64 @@ describe('마우스 화면 누르는 칸(163차 — WCAG 2.5.8 최소 24×24 CSS
     for (const sel of ['.link-btn', '.pmi-grid .link-btn']) expect(13 / 2 + gap + (n(sel, 'min-width') || n('.link-btn', 'min-width')) / 2, sel).toBeGreaterThanOrEqual(24);
     // 높이는 그대로(레이어·PMI·간섭 표 줄이 줄마다 3px 높아지지 않게) — 위아래 줄 가운데 사이는 표 줄 여백으로 27.85px
     expect(PLAIN.get('.link-btn')?.['min-height']).toBeUndefined();
+  });
+});
+
+describe('글 간격(171차 — WCAG 1.4.12: 줄 높이를 글자 크기의 1.5배·글자 간격 0.12배·낱말 간격 0.16배로 덮는 사용자 스타일)', () => {
+  const coarse = rules('(pointer: coarse)');
+  const narrow = rules('(max-width: 767px)');
+  /** 선언의 px 값(없으면 NaN) */
+  const num = (R: Rules, sel: string, p: string) => parseFloat(R.get(sel)?.[p] ?? '');
+  /** 위아래 여백 합(줄임 꼴은 첫 값이 위 — 이 칸들은 한두 값 꼴이라 위 = 아래) */
+  const padY = (R: Rules, sel: string) => 2 * (parseFloat(R.get(sel)?.['padding-top'] ?? R.get(sel)?.padding ?? '0') || 0);
+
+  it('높이를 못 박은 글 칸은 글이 한 줄(줄을 바꾸지 않는 단추·이름, 한 줄 입력 칸)이고 줄 높이 1.5배 한 줄(글자 크기 × 1.5 + 위아래 여백·테두리)이 그 높이 안에 든다', () => {
+    // [규칙, 선택자, 글자 크기(규칙에 없으면 물려받는 값 — 본문 13px, 제목 막대는 앱 이름 15px, 단면 막대 12px, 손가락 거르기 입력 칸 16px), 위아래 테두리 합]
+    const boxes: [Rules, string, number, number][] = [
+      [PLAIN, '.btn', 13, 2],
+      [PLAIN, '.btn.large', 13, 2],
+      [PLAIN, '.btn.small', 13, 2],
+      [PLAIN, '.titlebar', 15, 1],
+      [PLAIN, '.toolbar .btn', 13, 2],
+      [PLAIN, '.mb-btn', 13, 2],
+      [PLAIN, '.tab', 13, 2],
+      [PLAIN, '.tree-search', 13, 2],
+      [PLAIN, '.explode-num', 13, 2],
+      [PLAIN, '.section-num', 12, 2],
+      [coarse, '.toolbar .btn', 13, 2],
+      [coarse, '.btn.small', 13, 2],
+      [coarse, '.btn.large', 13, 2],
+      [coarse, '.tab', 13, 2],
+      [coarse, '.tree-search', 16, 2],
+      [coarse, '.title-actions .btn', 13, 2],
+      [coarse, '.mb-btn', 13, 2],
+      [coarse, '.explode-num', 13, 2],
+      [coarse, '.section-num', 13, 2],
+      [narrow, '.titlebar', 15, 1],
+    ];
+    const over = boxes.flatMap(([R, sel, inherited, border]) => {
+      const hh = num(R, sel, 'height');
+      const size = num(R, sel, 'font-size') || num(PLAIN, sel, 'font-size') || inherited;
+      const line = size * 1.5 + padY(R, sel) + border;
+      return hh >= line ? [] : [`${sel} ${hh}px < ${line}px`];
+    });
+    expect(over).toEqual([]);
+    // 한 줄인 까닭: 단추·띠 단추·탭·앱 이름·문서 이름은 줄을 바꾸지 않는다(넘치면 단추가 넓어지거나 말줄임 — 문서 이름은 말풍선에 전체), 나머지는 한 줄 입력 칸
+    for (const sel of ['.btn', '.mb-btn', '.tab', '.brand', '.doc-name']) expect(PLAIN.get(sel)?.['white-space'], sel).toBe('nowrap');
+  });
+
+  it('이름이 줄을 바꿀 수 있는 메뉴 항목은 높이를 못 박지 않고 최소 높이 — 좁은 창에서 간격을 넓혀 두 줄(39px)이 되면 항목이 따라 커져 이웃 항목 글과 겹치지 않는다', () => {
+    // 메뉴 항목 이름은 줄 바꿈을 막지 않는다(메뉴 폭은 창 폭 − 16px까지 — 320px 창의 이름 자리 258px에 넓힌 간격의 영어·독일어 이름이 들지 않음)
+    expect(PLAIN.get('.menu-item')?.['white-space']).toBeUndefined();
+    expect(PLAIN.get('.menu-label')?.['white-space']).toBeUndefined();
+    for (const [R, sel, min] of [
+      [PLAIN, '.menu-item', 30],
+      [coarse, '.menu-item', 44],
+    ] as [Rules, string, number][]) {
+      expect(R.get(sel)?.height, sel).toBeUndefined();
+      expect(num(R, sel, 'min-height'), sel).toBe(min);
+    }
+    // 보통 글 간격의 한 줄(13px × 1.45 = 18.85px)은 최소 높이 안이라 항목 높이는 그대로(30px·손가락 44px — 두 줄 13px × 1.5 × 2 = 39px는 마우스 30px를 넘었다)
+    expect(13 * 1.45 + padY(PLAIN, '.menu-item')).toBeLessThan(30);
   });
 });
