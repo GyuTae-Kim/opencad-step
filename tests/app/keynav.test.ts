@@ -9,6 +9,7 @@
  * - 단면·분해 막대(146차): 속 수(0~1000·0~100) 대신 옆에 보이는 값 글을 aria-valuetext로(NC 140차 꼴 — 번역층이 옮기지 않아 낱말 없이)
  * - 측정 띠 글 칸이 CSS로 숨는 화면(147차 — 넓은 화면·마우스의 면 고르기·고른 부품 카드): 패널 아래 띠가 알린다(SKP 152차 표 ⑤ 꼴)
  * - app.ts 진행 카드(157차): 숨어 있던 카드를 보일 때 단계 칸(알림 칸)은 빈 채로 한 번 그린 뒤 첫 글을 넣는다
+ * - 손잡이(187차): 패널 크기 손잡이는 크기를 바꾸는 패널을 aria-controls로(APG 창 가르개), 3D 보기 위 단면 손잡이는 끌기만 받는 꾸밈(aria-hidden — 값은 단면 막대 밀대)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,6 +23,7 @@ import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { SectionBar } from '../../src/app/sectionbar';
+import { PanelResizer } from '../../src/app/resize';
 import type { SectionState, Viewer3d } from 'opencad-viewer3d';
 import { translate } from '../../site/i18n.mjs';
 
@@ -507,6 +509,48 @@ describe('146차: 막대(input range)의 화면 읽기 값 — 속 수 대신 �
     doc.explode = 0.123;
     sync();
     expect(read()).toEqual(['12', '12%', '12%']);
+  });
+});
+
+/**
+ * 187차(WCAG 4.1.2 이름·역할·값 — 186차 남은 일 둘, 한 규칙 「값·관계 속성 빠짐」):
+ * - 패널 폭·시트 높이 손잡이(role=separator, 초점·키·값 — 186차)는 APG 창 가르개처럼 크기를 바꾸는 주 패널을 aria-controls로 가리켜야 하는데 관계가 없었다
+ *   (손잡이가 패널 첫 자식이라 자리로만 드러남). 패널(aside)에 겹치지 않는 id를 두고 손잡이가 그 id를 가리킨다.
+ * - 3D 보기 위 단면 손잡이는 role=slider인데 값이 없고 Tab 멈춤·키도 없어(끌기만) 가상 커서가 만나면 값 없는 조작 못 하는 슬라이더였다.
+ *   같은 값(단면 위치)은 단면 막대 밀대가 키로 바꾸고 이름·값 글을 나르니, 손잡이는 끌기 덧그림처럼 꾸밈(aria-hidden — 조준 십자선·분해 거리 글상자 꼴)으로 숨기고
+ *   aria-hidden 요소가 초점을 받지 않게 tabindex도 뺀다. 끌기·말풍선은 그대로
+ */
+describe('187차: 패널 크기 손잡이의 주 패널 관계·단면 손잡이 꾸밈', () => {
+  it('패널 크기 손잡이(창 가르개)는 크기를 바꾸는 패널(aside)을 aria-controls로 가리키고, 그 id는 문서에 하나뿐이며 탭 본문 id와 다르다', () => {
+    // app.ts 528~529와 같은 차례: 패널을 만든 뒤 손잡이를 만들어 패널 첫 자식으로
+    const panel = new Panel(host());
+    const root = document.createElement('div');
+    const workspace = document.createElement('main');
+    workspace.append(panel.el);
+    root.append(workspace);
+    document.body.append(root);
+    const r = new PanelResizer(root, panel.el, workspace, null, null);
+    panel.el.prepend(r.el);
+    const id = r.el.getAttribute('aria-controls') ?? '';
+    expect([r.el.getAttribute('role'), id !== '', document.getElementById(id) === panel.el, document.querySelectorAll(`[id="${id}"]`).length]).toEqual(['separator', true, true, 1]);
+    expect(id).not.toBe(panel.el.querySelector('[role=tabpanel]')!.id);
+  });
+
+  it('3D 보기 위 단면 손잡이는 화면 읽기에서 숨는 꾸밈이고 초점을 받지 않으며, 같은 값은 단면 막대 밀대가 이름·값 글로 나른다', () => {
+    const viewer = { section: null, canvas: document.createElement('canvas') } as unknown as Viewer3d;
+    const bar = new SectionBar({ viewerRef: viewer, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {} });
+    document.body.append(bar.handle, bar.el);
+    const hd = bar.handle;
+    expect([hd.getAttribute('aria-hidden'), hd.getAttribute('role'), hd.getAttribute('aria-label'), hd.getAttribute('tabindex')]).toEqual(['true', null, null, null]);
+    // aria-hidden 안에 초점을 받는 칸이 없다(손잡이 자신도 — 보이게 두고 초점을 주어도 받지 않음)
+    expect(hd.querySelectorAll('a[href], button, input, select, textarea, [tabindex]').length).toBe(0);
+    hd.hidden = false;
+    hd.focus();
+    expect(document.activeElement).toBe(document.body);
+    // 같은 일(단면 위치)은 Tab 멈춤인 밀대가 키로 하고 이름·값 글을 나른다(146차)
+    bar.sync({ axis: 'x', flip: false, position: 10, min: -40, max: 40, t: 0.625 } as SectionState);
+    const slider = bar.el.querySelector<HTMLInputElement>('.section-slider')!;
+    expect([slider.getAttribute('aria-label'), slider.getAttribute('aria-valuetext'), slider.tabIndex]).toEqual(['단면 위치', 'X = 10 mm', 0]);
   });
 });
 

@@ -68,8 +68,9 @@ export class SectionBar {
     const value = h('span', { class: 'section-val' }, this.label, this.num, this.unit);
     this.el = h('div', { class: 'section-bar', role: 'group', 'aria-label': '단면 보기', hidden: true }, icon('section', 16), axes, this.faceTag, this.slider, value, this.flipBtn, close);
 
-    // 3D 보기 위 손잡이: 끌어 평면을 법선 방향으로 옮긴다
-    this.handle = h('div', { class: 'section-handle', role: 'slider', 'aria-label': '단면 손잡이 — 끌어 옮기기', title: '끌어서 단면 옮기기', hidden: true, tabindex: '-1' });
+    // 3D 보기 위 손잡이: 끌어 평면을 법선 방향으로 옮긴다. 187차(WCAG 4.1.2): 키도 Tab 멈춤도 없이 끌기만 받아 값 없는 조작 못 하는 slider로 읽혔다 —
+    // 같은 값은 위 밀대(키·이름·값 글 — 146차)·숫자 칸이 나르니 끌기 덧그림(조준 십자선·분해 거리 글상자 꼴)처럼 꾸밈으로 숨기고 초점도 받지 않는다
+    this.handle = h('div', { class: 'section-handle', title: '끌어서 단면 옮기기', hidden: true, 'aria-hidden': 'true' });
     this.handle.innerHTML =
       '<svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true"><circle r="7" class="sh-dot"/><path class="sh-arrow" d="M0 -6V-19M-5 -14 0 -19 5 -14"/><path class="sh-arrow back" d="M0 6V19M-5 14 0 19 5 14"/></svg>';
     this.handle.addEventListener('pointerdown', (e) => {
