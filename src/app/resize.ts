@@ -3,6 +3,7 @@
  * 높이(--sheet-h)를 바꾼다. 화살표 키로도(16px씩), 두 번 누르면 기본값. 고른 크기는 이 브라우저에 기억한다.
  * 173차(WCAG 2.5.7 끄는 동작): 끌지 않고 한 번 누르면 기본 크기 ↔ 가장 큰 크기 — 크기가 바뀌면 손잡이가 옮겨 가 두 번 누르기의 둘째가
  * 다른 곳에 떨어지므로 두 번 누르기 시간(TAP_WAIT_MS)을 기다리고, 그 안 둘째 누르기는 기본(손가락 두 번 두드리기도).
+ * 186차(WCAG 4.1.2): 초점을 받는 separator라 값(aria-valuenow·min·max)을 둔다 — value.
  */
 
 export const PANEL_MIN = 240;
@@ -56,6 +57,12 @@ export class PanelResizer {
     this.el.addEventListener('dblclick', () => this.reset());
     this.el.addEventListener('keydown', (e) => this.key(e));
     this.narrow?.addEventListener('change', () => this.sync());
+    // 숨었던 패널이 열림(문서를 열기 전에는 숨어 되살린 크기를 잴 수 없다)·창 크기(상한이 바뀜)는 코드가 지나지 않아 크기 알림으로 값을 다시
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => this.value());
+      ro.observe(panel);
+      ro.observe(workspace);
+    }
     this.restore();
     this.sync();
   }
@@ -70,6 +77,21 @@ export class PanelResizer {
     this.el.setAttribute('aria-orientation', n ? 'horizontal' : 'vertical');
     this.el.setAttribute('aria-label', n ? '패널 높이 바꾸기(끌기·위아래 화살표, 두 번 누르면 기본)' : '패널 폭 바꾸기(끌기·좌우 화살표, 두 번 누르면 기본)');
     this.el.title = n ? '끌어서 시트 높이 바꾸기 · 두 번 누르면 기본' : '끌어서 패널 폭 바꾸기 · 두 번 누르면 기본';
+    this.value();
+  }
+
+  /**
+   * 손잡이 값: 지금 크기가 쓸 수 있는 범위(가장 작을 때 0 ~ 가장 클 때 100)의 어디인지 정수 비율. ARIA 기본 범위 0~100이라 화소와 달리
+   * 데스크톱(값 수)과 휴대폰(범위 비율 %) 화면 읽기가 같은 수로 읽고 새 글(aria-valuetext)이 들지 않는다. 크기를 바꾸는 apply·reset·sync와 크기 알림이 부른다
+   */
+  private value(): void {
+    const n = this.isNarrow;
+    const lo = n ? SHEET_MIN : PANEL_MIN;
+    const hi = n ? clampSheetHeight(Infinity, this.workspace.getBoundingClientRect().height) : clampPanelWidth(Infinity, window.innerWidth);
+    const t = hi > lo ? (this.size() - lo) / (hi - lo) : 0;
+    this.el.setAttribute('aria-valuemin', '0');
+    this.el.setAttribute('aria-valuemax', '100');
+    this.el.setAttribute('aria-valuenow', String(Math.round(Math.min(1, Math.max(0, t)) * 100)));
   }
 
   private size(): number {
@@ -87,6 +109,7 @@ export class PanelResizer {
       this.root.style.setProperty('--panel-w', `${w}px`);
       if (save) this.save(KEY_W, w);
     }
+    this.value();
   }
 
   private save(k: string, v: number): void {
@@ -126,6 +149,7 @@ export class PanelResizer {
     } catch {
       /* 무시 */
     }
+    this.value();
   }
 
   private down(e: PointerEvent): void {
