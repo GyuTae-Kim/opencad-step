@@ -419,7 +419,7 @@ describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG
     expect([z('.section-bar'), z('.top-bars'), z('.measure-bar')]).toEqual([6, 6, 4]);
   });
 
-  it('192차: 휴대폰은 3D 보기를 세로 flex로 두어 위 띠 묶음이 단면 막대 아래 남은 높이(아래 10px 띄움)로 줄고 넘친 띠는 묶음 안에서 굴린다 — 작은 3D 보기 밖으로 잘리지 않음', () => {
+  it('192차: 휴대폰은 3D 보기를 세로 flex로 두어 위 띠 묶음이 단면 막대 아래 남은 높이(3D 보기 아래 끝까지)로 줄고 넘친 띠는 묶음 안에서 굴린다 — 작은 3D 보기 밖으로 잘리지 않음', () => {
     // 3D 보기: 휴대폰 조건에서만 세로 flex — 흐름 자식은 단면 막대·위 띠 묶음 둘(191차 시험 — 나머지는 absolute에 위·아래 자리를 적어 자리 그대로), 넓은 화면·태블릿·760px 미만·손가락 블록은 block 그대로
     expect([phone.get('.view')?.display, phone.get('.view')?.['flex-direction']]).toEqual(['flex', 'column']);
     for (const R of [PLAIN, narrow, coarse, coarseNarrow]) expect(R.get('.view')?.display).toBeUndefined();
@@ -428,12 +428,14 @@ describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG
     expect(phone.get('.top-bars')?.['overflow-y']).toBe('auto');
     expect(phone.get('.top-bars')?.['max-height']).toBeUndefined();
     for (const sel of ['.top-bars', '.explode-bar', '.iso-bar']) expect([PLAIN.get(sel)?.overflow, PLAIN.get(sel)?.['overflow-y']], sel).toEqual([undefined, undefined]);
-    // 아래 바깥 여백 = 흐름 자리에서 옮긴 top + 10(단면 막대가 숨으면 top 10, 보이면 16): 흐름은 막대 높이 + 묶음 높이 + 여백 ≤ 3D 보기 높이 → 그려진 아래 끝 ≤ 3D 보기 − 10(측정 띠 bottom과 같음)
+    // 아래 바깥 여백 = 흐름 자리에서 옮긴 top(단면 막대가 숨으면 10, 보이면 16): 흐름은 막대 높이 + 묶음 높이 + 여백 ≤ 3D 보기 높이 → 그려진 아래 끝 ≤ 3D 보기 아래 끝
+    // (위 여백만 빼는 꼴 — 보이는 높이는 191차와 같고 잘리던 만큼이 굴림으로 닿는다)
     const top0 = px(PLAIN, '.top-bars', 'top');
     const top1 = px(phone, STACK, 'top');
     const mb0 = px(phone, '.top-bars', 'margin-bottom');
     const mb1 = px(phone, STACK, 'margin-bottom');
-    expect([mb0 - top0, mb1 - top1]).toEqual([10, 10]);
+    expect([mb0, mb1]).toEqual([top0, top1]);
+    expect([top0, top1]).toEqual([10, 16]);
     for (const sel of ['.top-bars', STACK]) expect(PLAIN.get(sel)?.['margin-bottom'], sel).toBeUndefined();
     // 띠 높이(손가락 44px): 분해 띠 = 테두리 + 위아래 여백 + 첫 줄(밀대 44 + 브라우저 기본 바깥 여백 2 × 2) + 줄 틈 + 아래 칸 줄(방식·방향·화면 방향·손질 —
     // 띠 안쪽이 방향 줄보다 좁은 세로 휴대폰은 네 줄, 가로 524px 보기는 세 줄: 갈래 44 + 테두리 2, 틈 6), 격리 띠 = 테두리 + 여백 + 버튼 44, 둘 다면 묶음 틈 6
@@ -459,19 +461,20 @@ describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG
       const [top, mb] = H ? [top1, mb1] : [top0, mb0];
       // 고치기 전(191차): 묶음은 내용 높이 그대로 H + top부터 — 3D 보기(넘침 숨김) 밖은 잘려 누를 수 없고 굴릴 수도 없다
       const cut = Math.max(0, H + top + C - V);
-      // 고친 뒤: flex가 묶음을 남은 높이로 줄이고(0 아래로는 줄지 않음) 숨은 만큼은 묶음 안 굴림으로 닿는다
+      // 고친 뒤: flex가 묶음을 남은 높이로 줄이고(0 아래로는 줄지 않음) 숨은 만큼은 묶음 안 굴림으로 닿는다 — 보이는 높이는 전과 같고 잘리던 만큼이 그대로 굴림
       const h = Math.max(0, Math.min(C, V - H - mb));
-      // 묶음 상자가 3D 보기 안 → 잘린 칸에 Tab 초점이 가면 브라우저가 가장 가까운 굴림 상자(묶음)를 굴리고 3D 보기는 굴리지 않는다
-      expect(H + top + h, name).toBeLessThanOrEqual(V - 10);
-      return [name, cut, h, C - h];
+      expect(C - h, name).toBe(cut);
+      // 묶음 상자가 3D 보기 안 → 잘린 칸에 Tab 초점이 가면 브라우저가 가장 가까운 굴림 상자(묶음)를 굴린다(초점 칸이 묶음 창 안에 들면 3D 보기는 굴리지 않음)
+      expect(H + top + h, name).toBeLessThanOrEqual(V);
+      return [name, cut, h];
     });
     expect(got).toEqual([
-      ['320×568', 254, 0, 264],
-      ['360×640', 225, 29, 235],
-      ['375×812', 87, 167, 97],
-      ['414×896', 45, 209, 55],
-      ['844×390', 18, 184, 28],
-      ['360×640 막대 숨김·분해+격리', 127, 187, 137],
+      ['320×568', 254, 10],
+      ['360×640', 225, 39],
+      ['375×812', 87, 177],
+      ['414×896', 45, 219],
+      ['844×390', 18, 194],
+      ['360×640 막대 숨김·분해+격리', 127, 197],
     ]);
   });
 });
