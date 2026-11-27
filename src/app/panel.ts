@@ -455,12 +455,14 @@ export class Panel {
     const res = filtering ? filterRows(roots, d.treeFilter, d.expanded, d.treeLimit, (n, i) => bodyName(n, itemById(d.scene, nodeItems(n)[i]!)?.[0], i >= n.meshIds.length)) : { ...visibleRows(roots, d.expanded, d.treeLimit), matches: -1 };
     const { rows, truncated, total } = res;
 
-    // 이름 거르기
+    // 이름 거르기. 168차: 화면 읽기 이름은 보이는 자리 글과 같은 글(WCAG 2.5.3 — 감싼 label에는 아이콘뿐이라 보이는 글은 자리 글 하나. 전에는 「모델 트리 이름 거르기」라
+    // 그 글을 품지 않아 보이는 글로 부를 수 없었다 — SKP 172차 꼴). 무엇을 거르는지는 바로 위 묶음 제목 「모델 트리」. 이름이 자리 글에만 기대지 않게 aria-label은 둔다
+    const tip = '이름·자리 이름·제품 번호로 거르기';
     const input = h('input', {
       type: 'search',
       class: 'tree-filter',
-      placeholder: '이름·자리 이름·제품 번호로 거르기',
-      'aria-label': '모델 트리 이름 거르기',
+      placeholder: tip,
+      'aria-label': tip,
       spellcheck: 'false',
       autocomplete: 'off',
     });

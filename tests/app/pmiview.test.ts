@@ -134,7 +134,8 @@ describe('PMI 탭 본문(가상 목록)', () => {
     for (const id of d.vis.pmiIds) d.vis.setPmi(id, show.has(id));
     panel.onVisibility();
     const all = panel.el.querySelector<HTMLInputElement>('.all-check input')!;
-    expect(all.getAttribute('aria-label')).toBe('표현 PMI 모두 보이기');
+    // 168차: 상자 이름은 감싼 이름표의 보이는 글(aria-label 없음 — 아래 168차 시험)
+    expect(all.closest('label')!.textContent).toBe('표현 PMI 보이기');
     expect([all.checked, all.indeterminate]).toEqual([false, true]);
     const grid = panel.el.querySelector('.pmi-grid')!;
     const rows = () => [...grid.querySelectorAll<HTMLElement>('[role=rowgroup] > [role=row]')];
@@ -246,5 +247,20 @@ describe('PMI 탭 본문(가상 목록)', () => {
     expect(sem2.querySelector('.link-btn')).toBeNull();
     expect(tips(sem2)).toEqual([]);
     expect(tips(pres2).length).toBe(1);
+  });
+
+  it('168차: 「표현 PMI 보이기」 상자의 이름은 감싼 이름표의 보이는 글(aria-label 없음 — WCAG 2.5.3), 줄 상자 이름은 그 줄의 보이는 이름을 품는다', () => {
+    const { panel } = setup();
+    const lab = panel.el.querySelector<HTMLLabelElement>('label.all-check')!;
+    const all = lab.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+    // 전에는 aria-label 「표현 PMI 모두 보이기」가 보이는 글을 앞서 이름이 그 글을 품지 않았다(다섯 언어 모두)
+    expect([all.getAttribute('aria-label'), all.getAttribute('aria-labelledby')]).toEqual([null, null]);
+    expect(lab.textContent).toBe('표현 PMI 보이기');
+    // 이름표 글은 번역층이 옮기는 화면 글(파일 글 가둠 밖)
+    expect(lab.closest('[translate="no"], [data-i18n-skip]')).toBeNull();
+    for (const code of ['en', 'ja', 'zh-CN', 'de']) expect(translate('표현 PMI 보이기', code), code).not.toMatch(/[가-힣]/);
+    const rows = [...panel.el.querySelectorAll<HTMLElement>('.pmi-grid [role=rowgroup] > [role=row]')].slice(0, 3);
+    expect(rows.length).toBe(3);
+    for (const row of rows) expect(row.querySelector('input[type=checkbox]')!.getAttribute('aria-label')).toContain(row.querySelector('.link-btn')!.textContent!);
   });
 });
