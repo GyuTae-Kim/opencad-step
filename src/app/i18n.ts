@@ -11,6 +11,37 @@ const loaders: Record<string, () => Promise<{default: Record<string,string>}>> =
 async function loadLanguage(language: string): Promise<void> { if (loaders[language]) registerCatalog(language,(await loaders[language]()).default); }
 
 type RecordValue = { source: string; rendered: string };
+/**
+ * 211차(WCAG 3.1.2): 앱 글 칸(data-i18n-ui — 상태 막대 고른 것·묶음 이름표 칸·PMI 표 이름 버튼)은 틀이 잡은 값도 옮긴다(「고른 것: {0}」이 끼운 「부품 2개」·PMI 종류는
+ * 앱 글인데 그대로 끼워 다른 언어에서 한국어로 남았다). 그 칸의 파일 글은 FSI…PDI로 갇혀 있으니(ftext.ts isolateText) 바깥 가둠 하나째(겹쳐 가둔 경로 글도 하나로)를
+ * 사적 영역 글자 하나로 바꿔 번역이 한글 없는 값으로 그대로 끼우게 하고, 옮긴 뒤 되돌린다(NC 199차 mixSpan ui 꼴 — 파일 글 조각은 그대로)
+ */
+function uiTranslate(source: string, language: string): string {
+  const kept: string[] = [];
+  let masked = '';
+  let depth = 0;
+  let from = 0;
+  const keep = (end: number): void => {
+    masked += String.fromCharCode(0xe000 + kept.push(source.slice(from, end)) - 1);
+    from = end;
+  };
+  for (let i = 0; i < source.length; i++) {
+    const c = source.charCodeAt(i);
+    // LRI·RLI·FSI 열기, PDI 닫기(UAX #9)
+    if (c > 0x2065 && c < 0x2069) {
+      if (!depth++) {
+        masked += source.slice(from, i);
+        from = i;
+      }
+    } else if (c === 0x2069 && depth && !--depth) keep(i + 1);
+  }
+  // 닫지 않은 가둠은 끝까지 파일 글로
+  if (depth) keep(source.length);
+  else masked += source.slice(from);
+  let out = translate(masked, language, true);
+  kept.forEach((run, i) => (out = out.split(String.fromCharCode(0xe000 + i)).join(run)));
+  return out;
+}
 const SKIP = '[data-static-languages], [translate="no"], [data-i18n-skip], script, style, [contenteditable]:not([contenteditable="false"]), textarea, input, code, pre, canvas, svg, .anno-layer, .pmi-layer, .docname, .doc-name, .code-list, .cmd-input, .file-name, .tree .name, .tree-name, .boot-recent-list button, .plist .name, .def-cell, .scene-tabs, .scene-cap, .group-item:not(.opt) .name';
 export async function installLocalization(root: HTMLElement): Promise<() => void> {
   let language = currentLanguage(location.href);
@@ -26,18 +57,18 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
   const texts = new WeakMap<Node, RecordValue>();
   const attributes = new WeakMap<Element, Map<string, RecordValue>>();
   const control = createLanguageMenu(languages, language, changeLanguage);
-  function value(current: string, record?: RecordValue): RecordValue {
+  function value(current: string, record?: RecordValue, ui?: boolean): RecordValue {
     const source = record && current === record.rendered ? record.source : sourceMessage(current);
-    const rendered = translate(source, language);
+    const rendered = ui ? uiTranslate(source, language) : translate(source, language);
     // Keep spacing around split text nodes and inline elements.
     return { source, rendered: rendered === source ? source : (source.match(/^\s*/)?.[0] ?? '') + rendered + (source.match(/\s*$/)?.[0] ?? '') };
   }
   // Callers (update) have already checked that el and its ancestors are outside SKIP or el is a skipped form field outside translate="no"
-  function element(el: Element): void {
+  function element(el: Element, ui?: boolean): void {
     const records = attributes.get(el) ?? new Map<string, RecordValue>(); attributes.set(el, records);
     for (const name of ['title','aria-label','aria-description','placeholder','alt']) {
       if (!el.hasAttribute(name)) continue;
-      const record = value(el.getAttribute(name)!, records.get(name)); records.set(name, record);
+      const record = value(el.getAttribute(name)!, records.get(name), ui); records.set(name, record);
       if (el.getAttribute(name) !== record.rendered) el.setAttribute(name, record.rendered);
     }
     if (el instanceof HTMLAnchorElement && el.hasAttribute('href')) {
@@ -47,19 +78,24 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
       records.set('href',{source,rendered}); if (el.getAttribute('href') !== rendered) el.setAttribute('href',rendered);
     }
   }
-  // inside: the parent was walked here and is outside SKIP, so the ancestor lookup (closest per node — slow for a 3,000-row tree) is skipped
-  function update(node: Node, inside?: boolean): void {
-    if (!inside && node.parentElement?.closest(SKIP)) return;
+  // inside: the parent was walked here and is outside SKIP, so the ancestor lookup (closest per node — slow for a 3,000-row tree) is skipped.
+  // ui: inside an app-text cell (data-i18n-ui — uiTranslate), handed down the same way
+  function update(node: Node, inside?: boolean, ui?: boolean): void {
+    if (!inside) {
+      if (node.parentElement?.closest(SKIP)) return;
+      ui = !!node.parentElement?.closest('[data-i18n-ui]');
+    }
     if (node.nodeType === Node.TEXT_NODE) {
       if (!node.parentElement) return;
-      const record = value(node.nodeValue ?? '', texts.get(node)); texts.set(node, record);
+      const record = value(node.nodeValue ?? '', texts.get(node), ui); texts.set(node, record);
       if (node.nodeValue !== record.rendered) node.nodeValue = record.rendered;
       return;
     }
     if (!(node instanceof Element)) return;
-    if (node.matches(SKIP)) { if (node.matches('input, textarea, canvas, [contenteditable]') && !node.closest('[translate="no"], [data-i18n-skip]')) element(node); return; }
-    element(node);
-    for (const child of [...node.childNodes]) update(child, true);
+    ui ||= node.hasAttribute('data-i18n-ui');
+    if (node.matches(SKIP)) { if (node.matches('input, textarea, canvas, [contenteditable]') && !node.closest('[translate="no"], [data-i18n-skip]')) element(node, ui); return; }
+    element(node, ui);
+    for (const child of [...node.childNodes]) update(child, true, ui);
   }
   function mountSelector(): void {
     // The shared widget preserves native language names with translate="no".

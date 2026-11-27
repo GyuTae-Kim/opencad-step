@@ -102,7 +102,8 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         const label = p.name ? isolateText(p.name) : pmiTypeLabel(p.type);
         const cb = h('input', { type: 'checkbox', 'aria-label': `${p.name ? label : p.type} 보이기` });
         cb.addEventListener('change', () => host.setPmiVisible(p.id, cb.checked));
-        const nameBtn = h('button', { type: 'button', class: 'link-btn', title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${isolateText(p.model)}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)` }, p.name ? fileSpan(p.name) : label);
+        // 211차: 앱 글 칸(i18n.ts uiTranslate) — 말풍선 틀이 잡은 종류도 옮긴다(갇힌 모형 이름은 그대로)
+        const nameBtn = h('button', { type: 'button', class: 'link-btn', title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${isolateText(p.model)}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)`, 'data-i18n-ui': '' }, p.name ? fileSpan(p.name) : label);
         nameBtn.addEventListener('click', (ev) => {
           if (ev.detail === 2) host.selectItems([p.id], `PMI ${label}`, true);
           else if (ev.detail <= 1) host.selectItems(picked(p.id) ? null : [p.id], `PMI ${label}`);

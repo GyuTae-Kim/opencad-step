@@ -491,7 +491,7 @@ export class StepApp {
     this.aimLayer = h('div', { class: 'aim-layer', 'aria-hidden': 'true' });
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기.
     // 알림은 바뀌는 글 칸(이름표·이름)만(145차 — 전에는 띠 전체가 status라 「격리 풀기」 버튼 이름까지 읽혔다, 53차 측정 띠와 같은 꼴)
-    this.isoText = h('span', { class: 'iso-text', role: 'status' });
+    this.isoText = h('span', { class: 'iso-text', role: 'status', 'data-i18n-ui': '' });
     const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
     isoOff.addEventListener('click', () => this.unisolate());
     this.isoLabel = h('span', { class: 'iso-label', role: 'status' }, '이것만 보기');
@@ -520,7 +520,8 @@ export class StepApp {
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
-    this.statusSel = h('div', { class: 'status-sel' });
+    // 211차: 앱 글 칸(i18n.ts uiTranslate) — 말풍선은 번역 전 글 통째라 틀 「고른 것: {0}」이 묶음 이름표·PMI 종류를 그대로 끼워 다른 언어에서 한국어로 남았다
+    this.statusSel = h('div', { class: 'status-sel', 'data-i18n-ui': '' });
     this.statusSnap = h('div', { class: 'status-snap', title: '커서 아래 스냅할 점', hidden: true });
     const status = h('footer', { class: 'statusbar' }, this.statusDoc, this.statusSnap, this.statusSel, this.sayEl);
 
@@ -3242,7 +3243,7 @@ export class StepApp {
     else {
       // 부품 이름은 파일 글이라 FSI…PDI로 가둬(selectionName) 번역층이 그대로 두고 화면 글("몸체 2"·"부품 3개")만 옮긴다. 휴대폰 띠는 두 줄까지(말풍선에 전체)
       const nm = this.selectionName(d);
-      t.append(h('b', { class: 'mb-value mb-name', title: nm }, nm));
+      t.append(h('b', { class: 'mb-value mb-name', title: nm, 'data-i18n-ui': '' }, nm));
       const size = selectionSize(d.scene, selectionItemIds(d));
       if (mode === 'multi') t.append(h('span', { class: 'mb-sub' }, multiHint(this.bodyPick)));
       // 화면용 삼각형으로 잰 범위라 곡면은 실제보다 조금 작을 수 있어 근삿값(≈)으로 보인다. 정확한 지름은 면 고르기
