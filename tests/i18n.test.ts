@@ -85,7 +85,8 @@ describe('language URLs and UI presentation', () => {
       ['데이텀', ['Datum', 'データム', '基准', 'Bezug']],
     ];
     for (const [ko, want] of gdt) expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate(ko, code)), ko).toEqual(want);
-    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('고른 면', code))).toEqual(['Selected faces', '選んだ面', '所选面', 'Ausgewählte Flächen']);
+    // 207차: 아래 띠 머리 「고른 면」은 면 하나(doc.face — 패널 faceLines)라 영어·독일어도 단수 — 같은 띠 머리 고른 모서리 Selected edge·Ausgewählte Kante, 고른 바디 Selected body·Ausgewählter Körper 꼴
+    expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('고른 면', code))).toEqual(['Selected face', '選んだ面', '所选面', 'Ausgewählte Fläche']);
     // 거리(distance)를 거리(street)로 옮긴 말 — 측정 거리 글상자·CSV·개체 측정 이름에 쓰인다(206차: 독일어는 측정 낱말 Abstand — 분해 거리 칸 이름표는 옮긴·옮길 거리)
     expect(['en', 'ja', 'zh-CN', 'de'].map((code) => translate('거리', code))).toEqual(['Distance', '距離', '距离', 'Abstand']);
     // 도구 모음(OpenCAD 도구를 모은 쪽)을 도구 막대(toolbar)로 옮긴 말 — 첫 화면 링크·제목 줄 단추 설명에 쓰인다(다른 OpenCAD 앱과 같은 말)
