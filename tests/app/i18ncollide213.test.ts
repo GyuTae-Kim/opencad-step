@@ -7,6 +7,8 @@
  * 묶음 열쇠의 번역이 다른 언어에서 갈리고 뜻이 다르면 해가 있다 — 213차에 같은 사전 근거로 셋을 갈랐다(zh-CN 「숨김」 已隐藏·「압축 풀기」 解压, de 「압축 푸는 중」 Wird entpackt).
  * 남은 겹침은 KNOWN으로 고정한다: 목록 밖 새 겹침, 목록에 있는데 이제 안 겹침, 번역이 갈리는 언어가 바뀜 — 모두 실패(DWG 324차 꼴). 고쳤거나 새로 겹치면 표(README 개발 절 213차)를 보고 목록을 고친다.
  * 공용 규칙 9번(NC 201차 기호 열쇠 ':' 사고): 네 사전 열쇠는 한글이나 {n} 틀을 품는다(og 그림 주소 하나 뺌) — 맨 아래.
+ * 214차: 쓰는 곳 0 열쇠를 뺀 만큼(i18n-unused201 — 본체·작성·소스 코드·코드·도면층·면 선택 등) 묶음이 줄고(37 → 23), 중국어·독일어 덮개 글 「읽는 중」을
+ * 같은 단계 표 꼴(正在读取·Wird gelesen)로 바꿔 단계 이름 「읽기」와의 겹침도 풀렸다.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,9 +51,7 @@ const KNOWN: Record<Lang, [value: string, keys: string[], split: Lang[], why: Wh
   en: [
     ['Actions', ['작업', '작업 메뉴'], ['ja', 'zh-CN'], '같은 명령'],
     ['All', ['모두', '전체'], ['ja'], '안 그림'],
-    ['Author', ['작성', '작성자'], ['zh-CN', 'de'], '그리는 쪽이 이김'],
-    // 본체는 예제 레이어 이름(파일 글로 갇힘)이라 화면에 안 나오는데 거꾸로 찾기에서 이긴다(바디 → ja 本体)
-    ['Body', ['바디', '본체'], ['ja'], '근거 없음'],
+    // 214차: 「작성」(Author — 작성자 안의 조각)·「본체」(Body — 예제 레이어 이름, 거꾸로 찾기에서 바디를 이기던 것)·「면 선택」(Select faces)은 쓰는 곳 0이라 뺐다
     ['Look at', ['정면', '정면으로 보기'], ['ja', 'de'], '같은 명령'],
     // 타원 모서리 긴·짧은 반지름 ↔ 원환 면 큰·작은 반지름(ja 長半径·大半径, de Große Halbachse·Großer Radius) — en 사전에 semi-axis 꼴이 없음(205차 보고 둔 것)
     ['Major radius', ['긴 반지름', '큰 반지름'], ['ja', 'zh-CN', 'de'], '근거 없음'],
@@ -59,31 +59,25 @@ const KNOWN: Record<Lang, [value: string, keys: string[], split: Lang[], why: Wh
     ['Minor radius', ['작은 반지름', '짧은 반지름'], ['ja', 'zh-CN', 'de'], '근거 없음'],
     // 밀도 고르기 빈 항목 ↔ 회전 없음(ja 選択しない·なし, de Keiner·Keine)
     ['None', ['고르지 않음', '없음'], ['ja', 'zh-CN', 'de'], '근거 없음'],
-    ['Select faces', ['면 고르기', '면 선택'], [], '네 언어 같음'],
     ['Selected: {0}', ['고른 것: {0}', '가상 커서 알림 — 골랐습니다: {0}'], ['ja', 'zh-CN'], '틀'],
   ],
   ja: [
-    ['作成者', ['작성', '작성자'], ['zh-CN', 'de'], '그리는 쪽이 이김'],
     ['配置数', ['놓인 수', '자리'], ['en', 'zh-CN', 'de'], '같은 뜻'],
     // 나무 눈 버튼·작업 메뉴 숨기기(할 일) ↔ 레이어 칩 숨김(상태) — ja 사전은 상태도 非表示(칩 말풍선 「非表示にした」)
     ['非表示', ['숨기기', '숨김'], ['en', 'zh-CN', 'de'], '근거 없음'],
-    ['面を選択', ['면 고르기', '면 선택'], [], '네 언어 같음'],
   ],
   'zh-CN': [
     ['全部', ['모두', '전체'], ['ja'], '안 그림'],
     // 단면 축 메뉴 끔 ↔ 대화 상자 닫기 — zh 사전은 끔·끄기를 모두 关闭(关闭剖面·剖面关闭·全部关闭)
     ['关闭', ['끔', '닫기'], ['en', 'ja', 'de'], '근거 없음'],
-    ['图层', ['도면층', '레이어'], ['en', 'ja'], '그리는 쪽이 이김'],
+    // 214차: 「도면층」(图层)·「소스 코드」·「코드」(源代码)·「면 선택」(选择面)은 쓰는 곳 0이라 뺐고, 덮개 글 「읽는 중」은 正在读取로(단계 이름 「읽기」 读取와 갈림)
     ['图层 {0}', ['레이어 {0}', '레이어 {0}개'], ['en', 'ja', 'de'], '틀'],
     ['多选', ['여러 개', '여러 개 고르기'], ['en', 'ja', 'de'], '같은 명령'],
-    // 바디·솔리드·STEP 엔티티 수 — zh 사전에서 STEP 개체는 实体·对象가 섞여 가를 근거가 서지 않음
-    ['实体', ['바디', '본체', '솔리드', '엔티티'], ['en', 'ja', 'de'], '근거 없음'],
+    // 바디·솔리드·STEP 엔티티 수 — zh 사전에서 STEP 개체는 实体·对象가 섞여 가를 근거가 서지 않음(214차에 쓰는 곳 0인 「본체」만 뺌)
+    ['实体', ['바디', '솔리드', '엔티티'], ['en', 'ja', 'de'], '근거 없음'],
     ['正视', ['정면', '정면으로 보기'], ['ja', 'de'], '같은 명령'],
-    ['源代码', ['소스 코드', '코드'], ['en', 'ja'], '안 그림'],
     ['线框', ['와이어', '와이어프레임'], ['en', 'ja', 'de'], '그리는 쪽이 이김'],
     ['缩放到所选', ['고른 것으로 맞춰 보기', '맞춰 보기'], ['en', 'ja', 'de'], '같은 명령'],
-    ['读取', ['읽기', '읽는 중'], ['en', 'ja'], '그리는 쪽이 이김'],
-    ['选择面', ['면 고르기', '면 선택'], [], '네 언어 같음'],
   ],
   de: [
     ['Aktionen', ['작업', '작업 메뉴'], ['ja', 'zh-CN'], '같은 명령'],
@@ -92,11 +86,7 @@ const KNOWN: Record<Lang, [value: string, keys: string[], split: Lang[], why: Wh
     ['Entfernung', ['옮긴 거리', '옮길 거리'], ['en', 'ja', 'zh-CN'], '설계'],
     // 측정 넓이 ↔ 면 — 208차와 같이 같은 사전에 넓이 낱말 근거가 없음
     ['Fläche', ['넓이', '면'], ['en', 'ja', 'zh-CN'], '근거 없음'],
-    ['Flächen auswählen', ['면 고르기', '면 선택'], [], '네 언어 같음'],
-    ['Körper', ['바디', '본체'], ['ja'], '근거 없음'],
-    ['Layer', ['도면층', '레이어'], ['en', 'ja'], '그리는 쪽이 이김'],
-    ['Lesen', ['읽기', '읽는 중'], ['en', 'ja'], '그리는 쪽이 이김'],
-    ['Quellcode', ['소스 코드', '코드'], ['en', 'ja'], '안 그림'],
+    // 214차: 「본체」(Körper)·「도면층」(Layer)·「소스 코드」·「코드」(Quellcode)·「면 선택」은 쓰는 곳 0이라 뺐고, 덮개 글 「읽는 중」은 Wird gelesen으로(단계 이름 「읽기」 Lesen과 갈림)
   ],
 };
 const known = (lang: Lang, g: Group) => KNOWN[lang].find(([value, keys]) => value === g.value && keys.join('\n') === g.keys.join('\n'));
@@ -135,6 +125,31 @@ describe('같은 언어 안 겹친 값 — 목록 고정(213차)', () => {
     for (const k of ['파일 받는 중', '파일 읽는 중', '제품 구조 읽는 중', '곡면 삼각화 중', '결과 넘기는 중', '압축 푸는 중']) expect(de[k], k).toMatch(/\b(wird|Wird|werden)\b/);
     expect(de['압축을 풀었지만 STEP 글이 아닙니다. {0}']).toMatch(/^Entpackt, /);
     expect(de['압축 풀기']).toBe('Entpacken');
+  });
+
+  it('214차: 여는 중 덮개 글은 같은 단계 표 꼴(zh 「正在…」·de 「… wird/werden …」)이고, 「읽는 중」(단계 이름이 빌 때)도 단계 이름 「읽기」와 다른 값', () => {
+    const zh = CATALOG['zh-CN'];
+    const de = CATALOG.de;
+    // 덮개 글: format.ts STAGES(+ 단계 이름이 빌 때 「읽는 중」)·app.ts 받기 진행·화면에 올리기
+    expect(readFileSync(join(__dirname, '../../src/app/format.ts'), 'utf8')).toContain(": '읽는 중');");
+    expect(readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8')).toContain("stage: '화면에 올리는 중'");
+    const COVER = ['파일 받는 중', '파일 받는 중 ({0})', '압축 푸는 중', '파일 읽는 중', '제품 구조 읽는 중', '곡면 삼각화 중', '결과 넘기는 중', '화면에 올리는 중', '읽는 중'];
+    for (const k of COVER) {
+      expect(zh[k], k).toMatch(/^正在/);
+      expect(de[k], k).toMatch(/\b(wird|Wird|werden)\b/);
+    }
+    // zh: 正在 + 단계 이름(「압축 푸는 중」 正在解压 = 正在 + 「압축 풀기」 解压와 같은 꼴), de: 「파일 읽는 중」 Datei wird gelesen의 주어 없는 꼴(213차 Wird entpackt 꼴)
+    expect(zh['압축 푸는 중']).toBe(`正在${zh['압축 풀기']}`);
+    expect(zh['읽는 중']).toBe(`正在${zh['읽기']}`);
+    expect(de['파일 읽는 중']).toMatch(/ wird gelesen$/);
+    expect(de['읽는 중']).toBe('Wird gelesen');
+    const all = LANGS.flatMap((lang) => Object.values(CATALOG[lang]).map(norm));
+    for (const v of [zh['읽는 중']!, de['읽는 중']!]) {
+      expect(all.filter((x) => x === v).length, v).toBe(1);
+      expect(sourceMessage(v), v).toBe('읽는 중');
+    }
+    // 영어·일본어는 같은 표 꼴 그대로(-ing·〜中)
+    expect([CATALOG.en['읽는 중'], CATALOG.ja['읽는 중']]).toEqual(['Reading', '読み込み中']);
   });
 });
 
