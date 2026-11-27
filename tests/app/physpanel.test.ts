@@ -3,8 +3,11 @@
  * 속성 탭 물리 속성 묶음과 미룬 질량 속성: 워커가 적분하는 동안 부피·질량·무게중심·관성은 "계산 중…", 정확도 줄에는 끝낸 입체 수.
  * 값이 오면(onProps) 그 묶음만 다시 그려 한 번에 구한 문서와 같은 글을 보이고, 멈추면(stopped) 삼각형 값과 안내를 보인다.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stepToScene, stepToSceneDeferred, type StepMeta } from '../../src/scene';
+import { infoView } from '../../src/app/infoview';
 import { applyDocProps, createDoc, type StepDoc } from '../../src/app/doc';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as PHYS from '../../src/app/physics';
@@ -219,5 +222,68 @@ describe('155차: 밀도 칸에 받지 않는 값', () => {
   it('알림 글은 네 언어로 옮긴다(같은 사전의 「밀도」·「…지 않았습니다 — …쳐 넣으십시오」 꼴)', () => {
     expect(translate(MSG, 'en')).toBe('The density was not changed — type a number greater than 0 (g/cm³).');
     for (const l of ['ja', 'zh-CN', 'de']) expect(translate(MSG, l)).not.toMatch(/[가-힣]/);
+  });
+});
+
+/**
+ * 167차(WCAG 1.3.1 정보와 관계 — SKP 171차와 같은 꼴, H40 설명 목록): 속성 탭(부품 속성·물리 속성)과 정보 탭의 이름 | 값 두 칸 줄은
+ * `div.prop-row > span.k + span.v`라 화면 읽기에 이름과 값이 짝 없는 두 글이었다. 이제 묶음마다 dl 하나 안에 줄(div.prop-row — 클래스 그대로)마다
+ * dt.k(이름)·dd.v(값) — 안내 글·재질 고르기·밀도 칸은 dl 밖. 파일 글 칸(fileSpan)도 같은 dt·dd(ftext·translate="no"·말풍선 그대로)
+ */
+describe('167차: 이름·값 줄은 묶음마다 dl 하나 안의 dt(이름)·dd(값)', () => {
+  /** 묶음(section) 안 이름·값 줄의 꼴 */
+  const shape = (sec: Element) => {
+    const dls = [...sec.children].filter((c) => c.tagName === 'DL');
+    const rows = [...sec.querySelectorAll('.prop-row')];
+    const cell = (c: Element) => `${c.tagName.toLowerCase()}.${c.classList.contains('k') ? 'k' : c.classList.contains('v') ? 'v' : '?'}`;
+    return {
+      dls: dls.length,
+      inDl: rows.every((r) => r.parentElement === dls[0]),
+      onlyRows: dls.every((dl) => [...dl.children].every((c) => c.classList.contains('prop-row'))),
+      cells: [...new Set(rows.map((r) => [...r.children].map(cell).join(' ')))],
+    };
+  };
+  const OK = { dls: 1, inDl: true, onlyRows: true, cells: ['dt.k dd.v'] };
+  const titled = (root: Element, t: string) => [...root.querySelectorAll<HTMLElement>('section.prop-group')].find((s) => s.querySelector('h3')?.textContent === t)!;
+
+  it('속성 탭: 부품 속성(파일 글 값 포함)·물리 속성(계산 중·정확도 줄 포함), 안내 글·재질 칸은 dl 밖. 정보 탭 묶음마다도. 스타일은 dl·dd 기본 여백을 지운다', () => {
+    const def = stepToSceneDeferred(twoParts(), { name: 'a.stp' });
+    const job = def.props!;
+    const doc = createDoc('a.stp', 1, { scene: def.scene, ms: 1, props: { tables: job.tables(), solids: job.total } });
+    doc.density = 7850;
+    doc.selKey = '0/1';
+    const panel = panelOf(host(doc));
+    document.body.append(panel.el);
+    panel.show(doc);
+    panel.setTab('props');
+    const part = titled(panel.el, '부품 속성');
+    expect(shape(part)).toEqual(OK);
+    // 파일 글 값(이름): dd가 곧 파일 글 칸 — 번역하지 않음·말풍선 그대로
+    const name = part.querySelector('.prop-row')!;
+    expect(name.querySelector('dt')!.textContent).toBe('이름');
+    const dd = name.querySelector('dd')!;
+    expect([dd.className, dd.getAttribute('translate'), dd.title]).toEqual(['ftext v', 'no', dd.textContent]);
+    expect(['cyl', 'box']).toContain(dd.textContent);
+    const phys = titled(panel.el, '물리 속성');
+    expect(shape(phys)).toEqual(OK);
+    // 계산 중 줄·정확도 줄도 같은 dl 안(줄 클래스 그대로 — onProps가 '.prop-row.pending.acc .v'로 찾는다)
+    expect(phys.querySelector('dl > .prop-row.pending.acc > dd.v')!.textContent).toBe('곡면 적분 계산 중(입체 0/2)');
+    expect(rows(phys)['부피']).toBe('계산 중…');
+    expect([...phys.children].map((c) => c.tagName)).toEqual(['H3', 'DL', 'LABEL', 'LABEL', 'P']);
+    panel.el.remove();
+    // 정보 탭(뷰어 조각): 줄이 있는 묶음마다 dl 하나, 경고 묶음은 dl 없음
+    const inline = createDoc('a.stp', 1, { scene: stepToScene(twoParts(), { name: 'a.stp' }), ms: 1 });
+    const secs = infoView(inline, new Fmt('mm'));
+    const withRows = secs.filter((s) => s.querySelector('.prop-row'));
+    expect(withRows.map((s) => s.querySelector('h3')!.textContent)).toEqual(expect.arrayContaining(['문서', '단위', '통계']));
+    for (const s of withRows) expect(shape(s), s.querySelector('h3')!.textContent!).toEqual(OK);
+    expect(secs.filter((s) => !s.querySelector('.prop-row')).every((s) => !s.querySelector('dl'))).toBe(true);
+    const file = withRows[0]!.querySelector('dd')!;
+    expect([file.className, file.getAttribute('translate'), file.textContent]).toEqual(['ftext v', 'no', 'a.stp']);
+    // 스타일: UA 기본 여백(dl 위아래 1em·dd 앞 40px)을 지워 모양 그대로
+    const css = readFileSync(join(__dirname, '../../src/app/styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = (sel: string) => new RegExp(`(?:^|\\})\\s*${sel.replace(/\./g, '\\.')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+    expect(rule('.prop-group dl')).toMatch(/\bmargin: 0;/);
+    expect(rule('.prop-row .v')).toMatch(/\bmargin: 0;/);
   });
 });

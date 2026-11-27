@@ -10,12 +10,13 @@ import { formatBytes, formatMs, fmtCount } from './format';
 import { fileSpan, isolateText } from './ftext';
 import { warningNodes } from './warnparts';
 
+/** 이름·값 줄: 이름 dt·값 dd(167차 — 묶음마다 줄들을 dl 하나에 넣어 화면 읽기가 짝으로 읽는다, 패널 속성 줄과 같은 꼴) */
 const row = (k: string, v: string, title?: string): HTMLElement =>
-  h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), h('span', { class: 'v', title: title ?? v }, v));
+  h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v', title: title ?? v }, v));
 
 /** 값이 파일 글인 줄. 값 앞에 화면 글(압축 종류)이 붙으면 lead */
 const fileRow = (k: string, v: string, lead = ''): HTMLElement =>
-  h('div', { class: 'prop-row' }, h('span', { class: 'k' }, k), lead ? h('span', { class: 'v', title: `${lead}${isolateText(v)}` }, lead, fileSpan(v)) : fileSpan(v, 'v', v));
+  h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), lead ? h('dd', { class: 'v', title: `${lead}${isolateText(v)}` }, lead, fileSpan(v)) : fileSpan(v, 'v', v, 'dd'));
 
 const section = (title: string, ...children: (HTMLElement | null)[]): HTMLElement =>
   h('section', { class: 'prop-group' }, h('h3', {}, title), ...children.filter((c): c is HTMLElement => !!c));
@@ -43,7 +44,7 @@ export function infoView(d: StepDoc, f: Fmt): HTMLElement[] {
     docRows.push(row('최소', f.pt(b.min)), row('최대', f.pt(b.max)));
   }
   docRows.push(row('삼각형', fmtCount(c.triangles), '놓인 자리를 모두 센 삼각형 수'));
-  out.push(section('문서', ...docRows));
+  out.push(section('문서', h('dl', {}, ...docRows)));
 
   const hd = info.header;
   if (hd) {
@@ -61,10 +62,10 @@ export function infoView(d: StepDoc, f: Fmt): HTMLElement[] {
       hd.implementationLevel ? fileRow('구현 수준', hd.implementationLevel) : null,
       hd.schemas.length ? fileRow('FILE_SCHEMA', hd.schemas.join(', ')) : null,
     ];
-    if (r.some(Boolean)) out.push(section('파일 머리', ...r));
+    if (r.some(Boolean)) out.push(section('파일 머리', h('dl', {}, ...r)));
   }
 
-  out.push(section('단위', row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름'), row('표시 단위', f.unit || '—'), row('소수 자리', String(f.decimals))));
+  out.push(section('단위', h('dl', {}, row('장면 단위', u || '모름'), row('파일 길이 단위', info.lengthUnit || '모름'), row('표시 단위', f.unit || '—'), row('소수 자리', String(f.decimals)))));
 
   const st = info.stats;
   const statRows: HTMLElement[] = [];
@@ -80,7 +81,7 @@ export function infoView(d: StepDoc, f: Fmt): HTMLElement[] {
   if (d.pmi.presentations.length || d.pmi.semantic.length) statRows.push(row('PMI', `표현 ${fmtCount(d.pmi.presentations.length)} · 의미 ${fmtCount(d.pmi.semantic.length)}`));
   if (info.entityCount !== null) statRows.push(row('엔티티', fmtCount(info.entityCount)));
   if (st) statRows.push(row('구조 읽기', formatMs(st.parseMs)), row('삼각화', formatMs(st.meshMs)), row('해석 전체', formatMs(st.totalMs)));
-  if (statRows.length) out.push(section('통계', ...statRows));
+  if (statRows.length) out.push(section('통계', h('dl', {}, ...statRows)));
 
   const warns = s.warnings ?? [];
   if (warns.length) {
