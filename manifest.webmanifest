@@ -1,0 +1,86 @@
+{
+  "name": "OpenCAD STEP 뷰어",
+  "short_name": "STEP 뷰어",
+  "description": "STEP·STP 3D CAD 파일을 설치 없이 여는 무료 STEP 뷰어입니다. AP203·AP214·AP242 모델의 조립 구조·부품 색·단위를 확인하고 거리를 측정하거나 PNG로 저장하세요. 파일은 브라우저에서 처리합니다.",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#232830",
+  "background_color": "#232830",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            ".stp",
+            ".step",
+            ".p21",
+            ".stpz",
+            ".gz",
+            ".zip",
+            "model/step",
+            "application/step",
+            "application/octet-stream",
+            "application/zip",
+            "application/gzip"
+          ]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": {
+        "model/step": [
+          ".stp",
+          ".step",
+          ".p21"
+        ],
+        "application/octet-stream": [
+          ".stp",
+          ".step",
+          ".p21",
+          ".stpz"
+        ],
+        "application/gzip": [
+          ".gz"
+        ],
+        "application/zip": [
+          ".zip"
+        ]
+      }
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
+}
