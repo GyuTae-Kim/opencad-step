@@ -197,8 +197,9 @@ describe('224차: 앱 원문 — 받기 자리마다 같은 길(app.ts·main.ts)
     expect(app).toContain(`void this.loadExplode().catch(${fail('분해 보기를 받지 못했습니다.', 'applyLooks()')});`);
     expect(app).toContain(`await this.loadExplode().catch(${fail('분해 보기를 받지 못했습니다.', 'dropTweaks(f)')});`);
     expect(app).not.toContain("this.toast('분해 보기를 받지 못했습니다.'");
-    // 예제: 까닭은 콘솔에만, 열기 오류 알림은 알기 쉬운 글(ensureViewer 꼴)
-    expect(app).toMatch(/await import\('\.\/sample'\)\.catch\(\(e: unknown\) => \{\n\s*console\.error\(e\);\n\s*throw new Error\('예제 모형을 받지 못했습니다\.'\);/);
+    // 예제: 까닭은 콘솔에만, 열기 오류 알림은 알기 쉬운 글(ensureViewer 꼴) — 225차: 까닭은 표지 오류(ChunkGone)의 cause로 넘기고
+    // 콘솔에는 load가 다시 시도를 달며 loadFailed로 남긴다(loadfail225)
+    expect(app).toMatch(/await import\('\.\/sample'\)\.catch\(\(e: unknown\) => \{\n\s*throw new ChunkGone\('예제 모형을 받지 못했습니다\.', \{ cause: e \}\);/);
     // 언어 사전: 앱 입구가 번역층의 실패를 앱 알림으로
     expect(read('src/app/main.ts')).toContain("void installLocalization(root, (e, retry) => app.fail('고른 언어를 받지 못했습니다.', retry)(e));");
     expect(read('src/app/main.ts').match(/installLocalization\(/g)).toHaveLength(1);

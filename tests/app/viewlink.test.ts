@@ -146,7 +146,8 @@ describe('149차: 열린 문서에 받은 보기 링크의 격리(README 「보�
     // app.ts 원문 applyViewLink 몸통을 잘라 실제 링크 풀기·자리 낱말 풀기로 돌린다(앱 전체는 시험에서 띄우지 않는다 — 낱말 모듈 받기만 받은 모듈로 바꿈).
     // 224차: 낱말 모듈은 linker(받지 못하면 알림과 「다시 시도」를 띄우고 undefined — loadfail224)로 받는다 — 가짜 this의 linker가 받은 모듈(또는 받지 못함)을 준다
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-    const body = /\n {2}async applyViewLink\(link: ViewLink\): Promise<void> \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
+    // 225차: 다 걸었으면 true를 돌려준다(주소의 보기 안내는 그때만 — loadfail225)
+    const body = /\n {2}async applyViewLink\(link: ViewLink\): Promise<boolean \| undefined> \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
     expect(body).toContain('const sel = await this.linker(() => this.applyViewLink(link));');
     expect(body).toContain('if (!sel || this.doc !== d) return;');
     expect(body).toContain('const r = sel.resolveTokens(d.products, link.sel);');

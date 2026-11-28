@@ -112,17 +112,26 @@ export function pushToast(box: Element, t: Element, max: number, ms?: number, ho
 
 /** 224차: 받지 못한 조각 알림 — 글마다 지금 떠 있는 알림을 닫는 함수(같은 글이면 앞 알림을 떼고 새로) */
 const failing = new Map<string, () => void>();
+/** 225차: 「다시 시도」를 누른 글(이 문서 동안) — 그 글이 또 받지 못하면 단추가 「새로 고침」 */
+const tried = new Set<string>();
+
+/** 225차: 열 때 받는 조각(예제 모형·3D 보기)을 받지 못함 — 열기 오류 알림에 「다시 시도」를 다는 표지(app.ts load). cause에 브라우저 까닭 */
+export class ChunkGone extends Error {}
 
 /**
  * 224차(WCAG 3.3.1·4.1.3): 열 때 받는 조각(import())을 받지 못했을 때(오프라인에서 새 판과 옛 캐시가 엇갈림·네트워크 끊김) — 까닭(e — 브라우저 TypeError, 영어 글)은
  * 콘솔에만 남기고 show로 msg 알림과 「다시 시도」(누르면 retry — 그 명령을 처음부터 다시, 또 받지 못하면 그 길이 다시 여기로)를 띄운다. 같은 글 알림은 하나로
  * (앞 알림을 떼고 새로 — 분해 밀대를 움직일 때마다 쌓이지 않게). 전에는 내보내기·보기 링크·분해 손질 파일·언어 메뉴가 아무 알림 없이 끝났다(처리하지 않은 거절).
- * catch에 그대로 넣을 수 있게 undefined로 풀린다(부른 쪽은 그만둔다)
+ * catch에 그대로 넣을 수 있게 undefined로 풀린다(부른 쪽은 그만둔다).
+ * 225차: 다시 시도를 누른 글이 또 받지 못하면 그 알림의 단추만 「새로 고침」(reload — 페이지를 다시 받아 서비스 워커가 새 판을 받게)으로 바꾼다 — 글은 그대로(같은 글 하나),
+ * 새로 고침은 다시 시도를 부르지 않는다(되풀이 고리 없음). 브라우저가 같은 문서에서 받지 못한 모듈 받기를 기억하면(HTML module map) 다시 시도는 다시 받지 않기 때문.
+ * 누른 글은 이 문서 동안 기억한다 — 다시 시도로 받았으면 그 조각은 다시 받지 않아(모듈 지도·explodeLoad·뷰어) 같은 글이 또 나지 않고,
+ * 다른 언어 사전만 같은 글로 날 수 있는데 한 번 받지 못한 문서라 그때도 새로 고침이 새 판을 받는 길
  */
-export function loadFailed(e: unknown, msg: string, retry: () => unknown, show: (msg: string, action: { label: string; run: () => void }) => () => void): undefined {
+export function loadFailed(e: unknown, msg: string, retry: () => unknown, show: (msg: string, action: { label: string; run: () => void }) => () => void, reload = () => location.reload()): undefined {
   console.error(e);
   failing.get(msg)?.();
-  failing.set(msg, show(msg, { label: '다시 시도', run: retry }));
+  failing.set(msg, show(msg, tried.has(msg) ? { label: '새로 고침', run: reload } : { label: '다시 시도', run: () => (tried.add(msg), retry()) }));
 }
 
 /**
