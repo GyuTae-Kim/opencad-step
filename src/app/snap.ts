@@ -474,14 +474,18 @@ export const LOCK_KEYS_HINT = 'Shift·화살표로 방향 잠금';
 /** 키보드 기기에서 끝점을 잡는 동안 잠그는 법(커서 아래에 잠글 방향이 없을 때 — 화살표 축 잠금은 늘 된다) */
 export const LOCK_ARROWS_HINT = '화살표로 축 잠금';
 
+/** 217차: 가상 커서가 켜진 동안(화살표는 커서 옮기기 — 216차 X·Y·Z·L) 잠그는 법 — [잠글 방향이 있을 때, 없을 때(X·Y·Z 축 잠금은 늘 된다)] */
+export const LOCK_CURSOR_HINTS = ['X·Y·Z로 축 방향, L로 지금 방향 잠금', 'X·Y·Z로 축 잠금'] as const;
+
 /**
  * 잠금 안내: 잠갔으면 잠근 방향(첫 점을 찍기 전 화살표 축 잠금 포함), 아니면 끝점을 잡는 동안(첫 점을 찍은 뒤) 키보드 기기에만
  * 커서 아래에 Shift로 잠글 방향이 있으면(canLock — 코어 measureHoverLock) Shift·화살표 안내, 없으면 화살표 안내
- * (손가락 기기는 측정 띠의 잠금 단추). 그 밖에는 null
+ * (손가락 기기는 측정 띠의 잠금 단추). 217차: 가상 커서가 켜진 동안(cursor)은 X·Y·Z·L 안내(LOCK_CURSOR_HINTS). 그 밖에는 null
  */
-export function lockHint(points: number, lock: LockName | null, touch = false, canLock = true): string | null {
+export function lockHint(points: number, lock: LockName | null, touch = false, canLock = true, cursor = false): string | null {
   if (lock) return LOCK_HINTS[lock];
   if (points !== 1 || touch) return null;
+  if (cursor) return LOCK_CURSOR_HINTS[canLock ? 0 : 1];
   return canLock ? LOCK_KEYS_HINT : LOCK_ARROWS_HINT;
 }
 
@@ -500,8 +504,8 @@ export function arrowLock(key: string, points: number, cur: Pick<MeasureInferenc
   return cur ? false : true;
 }
 
-/** 측정 잠금 안내가 읽는 코어 뷰어 상태(0.12.0) */
-export type LockViewer = Pick<Viewer3d, 'measureHoverLock' | 'measureInferenceLock' | 'measurePointCount'>;
+/** 측정 잠금 안내가 읽는 코어 뷰어 상태(0.12.0 — 217차: 가상 커서 keyboardCursor도, 없으면 꺼짐) */
+export type LockViewer = Pick<Viewer3d, 'measureHoverLock' | 'measureInferenceLock' | 'measurePointCount'> & Partial<Pick<Viewer3d, 'keyboardCursor'>>;
 
 /** 곡선 접선 잠금(tangent.ts TangentLock — 문서를 열 때 받는다)에서 안내가 읽는 것 */
 export interface TangentHint {
@@ -520,9 +524,9 @@ export function viewerLockName(v: Pick<Viewer3d, 'measureInferenceLock'>, tangen
  * 지금 측정 잠금 안내(상태 막대·측정 띠): 무엇을 잠글지는 코어가 정한다 — Shift·↓·잠금 단추는 커서 아래 방향 추론(축·모서리와 나란히·수직)이나,
  * 첫 점을 지나는 모서리 위의 점 붙잡기(모서리 끝에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 — 코어 0.12.0)면 그 모서리 방향을 잠근다.
  * 첫 점이 곡선 모서리 끝이고 커서가 그 곡선 위면 앱이 접선 방향으로 잠근다(tangent — 받기 전이면 null).
- * 그 방향이 있는지(measureHoverLock, 접선)로 Shift 안내를 보일지 고른다
+ * 그 방향이 있는지(measureHoverLock, 접선)로 Shift 안내를 보일지 고른다. 217차: 가상 커서가 켜져 있으면(keyboardCursor) X·Y·Z·L 안내
  */
 export function viewerLockHint(v: LockViewer, touch = false, tangent: TangentHint | null = null): string | null {
   const lock = viewerLockName(v, tangent);
-  return lockHint(v.measurePointCount, lock, touch, !!v.measureHoverLock || (!lock && !!tangent?.now(v)));
+  return lockHint(v.measurePointCount, lock, touch, !!v.measureHoverLock || (!lock && !!tangent?.now(v)), !!v.keyboardCursor);
 }
