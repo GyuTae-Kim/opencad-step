@@ -22,8 +22,12 @@
  * 232차(231차가 표에 둔 셈 수 꼴): format.ts fmtCount가 늘 ko-KR이라 독일어 화면에서도 천 단위가 「12,345」였다 — 이제 화면 언어 꼴(독일어 「12.345」, 나머지 그대로).
  * 대표 칸(정보 탭 파일 크기 바이트·상태 막대 파일 크기 말풍선·간섭 결과 범위가 겹친 쌍·ms·쌍 칩)을 다섯 언어로 그려 꼴을 보고, 앱 언어 알림 처리기(refreshFmt →
  * panel.redraw·updateStatus — app.ts 원문)로 바꾼 뒤 처음부터 그 언어로 그린 것과 견준다. 230차 껍데기의 panel.redraw도 그린 패널을 실제로 다시 그린다(앱과 같게).
+ * 233차(232차가 보고 둔 소수점): 크기·시간 글(format.ts formatBytes·formatMs)과 단면 막대의 화면 읽기 값 글(sectionbar.ts aria-valuetext)은 소수점이 늘 「.」라
+ * 독일어 화면에서 「18.6 KB」·「1.25 s」·「X = 12.5 mm」였다(같은 화면 Fmt는 「12,5」) — 이제 화면 언어 꼴. 상태 막대·정보 탭·단면 막대를 다섯 언어로 그려 소수점을 보고,
+ * 숫자 칸 값(기계가 읽는 글)은 「.」 그대로인지, 언어를 바꾸면(refreshFmt → syncSection 포함 — app.ts 원문) 새 꼴로 다시 그려지는지 견준다.
+ * 끝 describe는 src/app의 toFixed(·toPrecision( 자리를 고정한다(화면 글에 수를 바로 넣는 새 자리가 생기지 않게 — src/app 파일을 모두 소스 글로 읽는다, ci-guard 12번).
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatKeySnapMessage, KEY_SNAP_KEYS, keySnapMessages, type GroupInfo, type Pick3d, type SectionState, type Viewer3d } from 'opencad-viewer3d';
@@ -1174,5 +1178,186 @@ describe('232차: 셈 수(fmtCount)의 천 단위 묶음은 화면 언어 꼴(�
       }
     }
     expect(left).toEqual([]);
+  });
+});
+
+// ───────────────────────── 233차 ─────────────────────────
+// 232차가 보고 둔 소수점: 크기·시간 글(format.ts formatBytes·formatMs — toFixed라 늘 「.」)과 단면 막대의 화면 읽기 값 글(sectionbar.ts aria-valuetext — 숫자 칸 값을 그대로 「X = 12.5 mm」)이
+// 독일어 화면에서도 「.」였다(같은 화면의 Fmt — 측정 값·패널 수 — 는 「12,5」). 상태 막대 문서 칸·단면 막대·정보 탭을 다섯 언어로 그려 소수점을 보고, 숫자 칸 값(input type=number —
+// 기계가 읽는 글)은 「.」 그대로인지, 앱 언어 알림 처리기(refreshFmt → panel.redraw·updateStatus·syncSection — app.ts 원문)로 바꾼 뒤 처음부터 그 언어로 그린 것과 같은지 견준다
+const SYNC_SECTION = cut(/\n {2}private syncSection\(st: SectionState \| null\): void \{\n([\s\S]*?)\n {2}\}\n/);
+/** 걸린 시간(ms): 상태 막대 「읽기 1.25초」·말풍선 「워커 전체 1.25초 · 화면까지 2.5초」·정보 탭 「읽은 시간 2.5초」 */
+const TIMES = { parseMs: 1250, openMs: 2500 };
+/** 파일 크기 KB(모형 STEP 글 — 1024 단위, 10~100 KB라 소수 한 자리: Intl을 거치지 않은 기대) */
+const KB = (bytes.length / 1024).toFixed(1);
+/** 화면 언어의 소수점(Intl 로캘 꼴 — display.ts numberLocale과 같은 언어: 독일어만 「,」) */
+const POINT: Record<string, string> = { ko: '.', en: '.', ja: '.', 'zh-CN': '.', de: ',' };
+/** 글 안에 소수점 point로 쓴 수 v(「18.6」 → 「18,6」)가 따로 있는가(앞뒤가 수·「.」·「,」가 아님 — 「19,043」 같은 묶음과 갈린다) */
+const hasDec = (all: string, v: string, point: string): boolean => new RegExp(`(?:^|[^\\d.,])${v.replace('.', point === '.' ? '\\.' : point)}(?:[^\\d.,]|$)`).test(all);
+
+interface Drawn233 {
+  /** 상태 막대 문서 칸·단면 막대·정보 탭 패널 차례 */
+  views: HTMLElement;
+  /** 단면 위치 막대(aria-valuetext — 화면 읽기 값 글)·숫자 칸(값 — 기계가 읽는 글) */
+  slider: HTMLInputElement;
+  num: HTMLInputElement;
+  done(): void;
+}
+/**
+ * 앱 차례: 생성자처럼 언어 알림 처리기를 먼저(번역층보다 앞) 달고 상태 막대 문서 칸·단면 막대를 둔 뒤 번역층을 건다(처음 언어 알림 → refreshFmt가 상태 막대를 채우고
+ * syncSection으로 단면 막대를 맞춤 — 뷰어가 있고 단면이 켜진 상태), 그 뒤 정보 탭 패널(걸린 시간이 든 문서)을 그린다
+ */
+async function draw233(code: string): Promise<Drawn233> {
+  history.replaceState(null, '', `/?lang=${code}`);
+  const statusDoc = h('div', { class: 'status-doc' });
+  const views = h('div', {}, statusDoc);
+  const root = h('div', {}, views);
+  document.body.append(root);
+  const panels: Panel[] = [];
+  const self: Record<string, unknown> = {
+    viewer: { section: SECTIONS[0], viewCubeSize: 96, setMeasureFormat: () => {}, setViewCubeSize: () => {} },
+    cube: null,
+    keySnap: null,
+    doc: Object.assign(newDoc(), TIMES),
+    display: undefined,
+    entMeasuring: false,
+    statusDoc,
+    panel: { redraw: () => panels.forEach((p) => p.redraw()) },
+    toolbar: { refresh: () => {} },
+    refreshRecent: async () => {},
+  };
+  // 앱 자신이 막대의 host(this.fmt — refreshFmt가 새로 만든 꼴을 sync가 읽는다)
+  const bar = new SectionBar({
+    viewerRef: null,
+    get fmt() {
+      return self.fmt as Fmt;
+    },
+    hasDoc: true,
+    setSectionAxis: () => {},
+    toast: () => {},
+  });
+  self.sectionBar = bar;
+  views.append(bar.el);
+  self.makeFmt = new Function('Fmt', 'numberLocale', MAKE_FMT).bind(self, Fmt, numberLocale);
+  self.refreshFmt = new Function('measureLabelLines', 'translateUi', REFRESH_FMT).bind(self, measureLabelLines, translateUi);
+  self.relabelCube = new Function('translateUi', RELABEL).bind(self, translateUi);
+  self.updateStatus = new Function('h', 'docStatus', `const d = this.doc;\nthis.statusDoc.innerHTML = '';\n${STATUS_DOC}`).bind(self, h, docStatus);
+  self.syncSection = new Function('st', SYNC_SECTION).bind(self);
+  root.addEventListener('languagechange', new Function(ON_LANG).bind(self) as () => void);
+  const dispose = await installLocalization(root);
+  views.append(panel('info', (d) => Object.assign(d, TIMES), panels));
+  await settle();
+  return {
+    views,
+    slider: bar.el.querySelector<HTMLInputElement>('.section-slider')!,
+    num: bar.el.querySelector<HTMLInputElement>('.section-num')!,
+    done: () => {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    },
+  };
+}
+
+describe('233차: 크기·시간 글과 단면 막대 화면 읽기 값 글의 소수점은 화면 언어 꼴(독일어 「18,6 KB」·「1,25 s」·「X = 12,5 mm」·나머지 「.」), 숫자 칸 값은 「.」 그대로, 언어를 바꾸면 새 꼴(WCAG 3.1.2·3.2.4)', () => {
+  beforeAll(async () => {
+    // 언어 메뉴가 기다리지 않고 받는 사전 조각을 미리(ci-guard 5번 — JSON이라 곁효과 없음)
+    await Promise.all([import('../../site/locales/en.json'), import('../../site/locales/ja.json'), import('../../site/locales/zh-CN.json'), import('../../site/locales/de.json')]);
+  });
+
+  it('다섯 언어로 처음 그린 대표 칸(상태 막대 파일 크기·읽기 시간·말풍선, 정보 탭 크기·읽은 시간, 단면 막대 값 글)이 그 언어의 소수점만 쓰고, 단면 숫자 칸 값은 「12.5」, 파일 글 밖 한글 0', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 견줄 크기가 끝 0 없는 소수다(18.6 꼴)
+    expect(KB).toMatch(/^\d\d\.[1-9]$/);
+    const bad: string[] = [];
+    for (const code of LANGS) {
+      const s = await draw233(code);
+      try {
+        expect(leaks(s.views, code), code).toEqual([]);
+        const [status, , info] = [...s.views.children];
+        const point = POINT[code]!;
+        const other = point === '.' ? ',' : '.';
+        const scopes: [string, string, string[]][] = [
+          ['상태 막대', texts(status ?? null).join('\n'), [KB, '1.25', '2.5']],
+          ['정보 탭', texts(info ?? null).join('\n'), [KB, '2.5']],
+          ['단면 막대 값 글', s.slider.getAttribute('aria-valuetext') ?? '', ['12.5']],
+        ];
+        for (const [where, all, nums] of scopes) {
+          for (const v of nums) if (!hasDec(all, v, point) || hasDec(all, v, other)) bad.push(`${code} ${where}: ${v.replace('.', point)} 꼴이어야 함(${hasDec(all, v, other) ? `${v.replace('.', other)} 꼴` : '없음'})`);
+        }
+        // 기계가 읽는 글: 숫자 칸(input type=number)의 값은 언어와 상관없이 점 소수(브라우저가 읽는 값 — 바꾸지 않음)
+        if (s.num.value !== '12.5') bad.push(`${code} 단면 숫자 칸 값: ${s.num.value}`);
+      } finally {
+        s.done();
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('한국어·영어에서 시작해 다섯 번 바꾼 화면 = 처음부터 그 언어로 그린 화면(상태 막대 문서 칸·단면 막대 값 글·정보 탭 — 크기·시간 꼴 포함), 숫자 칸 값은 그대로', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const snap = (s: Drawn233): string[] => [...texts(s.views), `aria-valuetext=${s.slider.getAttribute('aria-valuetext')}`, `value=${s.num.value}`];
+    const base: Record<string, string[]> = {};
+    for (const code of LANGS) {
+      const s = await draw233(code);
+      try {
+        base[code] = snap(s);
+      } finally {
+        s.done();
+      }
+    }
+    for (const code of LANGS) expect(base[code]!.length, code).toBe(base.ko!.length);
+    // 견줄 것이 비지 않았다: 영어와 독일어는 같은 크기를 다른 소수점으로 쓴 칸(상태 막대·정보 탭)과 단면 막대 값 글이 있다(독일어로·독일어에서 바꿀 때 다시 그려야 하는 칸)
+    const flip = base.en!.filter((t, i) => hasDec(t, KB, '.') && hasDec(base.de![i]!, KB, ','));
+    expect(flip.length).toBeGreaterThan(1);
+    expect(base.de!.find((t) => t.startsWith('aria-valuetext='))).toBe('aria-valuetext=X = 12,5 mm');
+    const left: string[] = [];
+    const chains: [string, string[]][] = [
+      ['ko', ['en', 'ja', 'zh-CN', 'de', 'ko']],
+      ['en', ['ja', 'zh-CN', 'de', 'ko', 'en']],
+    ];
+    for (const [start, order] of chains) {
+      const s = await draw233(start);
+      try {
+        for (const code of order) {
+          await switchTo(code);
+          const now = snap(s);
+          const b = base[code]!;
+          if (now.length !== b.length) left.push(`${start}→${code}: ${now.length} ≠ ${b.length}칸`);
+          now.forEach((t, i) => t !== b[i] && left.push(`${start}→${code}: ${t} ≠ ${b[i]}`));
+        }
+      } finally {
+        s.done();
+      }
+    }
+    expect(left).toEqual([]);
+  });
+});
+
+describe('233차: 수를 바로 글로 만드는 자리(toFixed(·toPrecision()는 이 표뿐 — 화면 글은 Fmt·fmtNum·fmtCount·formatBytes·formatMs(화면 언어 꼴)로', () => {
+  it('src/app 파일마다 toFixed(·toPrecision( 수가 표와 같다(새 자리는 화면 언어 꼴 함수로 — 기계가 읽는 글이면 이 표에 까닭과 함께 더한다)', () => {
+    const dir = join(__dirname, '../../src/app');
+    const got = Object.fromEntries(
+      readdirSync(dir)
+        .filter((f) => f.endsWith('.ts'))
+        .map((f): [string, number] => [f, (read(`src/app/${f}`).match(/\.to(?:Fixed|Precision)\(/g) ?? []).length])
+        .filter(([, n]) => n > 0),
+    );
+    expect(got).toEqual({
+      // 화면 언어 꼴 함수 안의 반올림(글은 Intl.NumberFormat): Fmt.num, fmtNum·크기·시간(233차 plainNum)
+      'display.ts': 1,
+      'format.ts': 2,
+      // 어림 오차 반올림·accuracyText 기본 num(앱은 Fmt.num을 넘김 — propsview)
+      'physics.ts': 2,
+      // 입력 칸 값(기계가 읽는 글 — input type=number): 단면 위치(화면 읽기 값 글은 Fmt — 233차)·밀도·분해 거리 칸(plainLength)과 끌기 걸음(수)
+      'sectionbar.ts': 1,
+      'propsview.ts': 1,
+      'explodetweak.ts': 2,
+      // 파일·주소·열쇠(기계): CSV·내보내기, 분해 손질 파일, 보기 링크, 보기 상태 열쇠
+      'export.ts': 3,
+      'explodefile.ts': 1,
+      'viewlink.ts': 1,
+      'looks.ts': 2,
+    });
   });
 });
