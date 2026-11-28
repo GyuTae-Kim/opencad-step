@@ -590,6 +590,8 @@ describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목�
         const v = translate(t, lang);
         expect(v, `${lang}: ${t}`).not.toMatch(/[가-힣]/);
         if (t.includes('⌘')) expect(v, `${lang}: ${t}`).toContain(lang === 'de' ? 'Strg/⌘+' : 'Ctrl/⌘+');
+        // 227차: 키 글은 네 언어 모두 원문처럼 끝의 「 (…)」(빈칸 + 반각 괄호) — 일본어 열기만 「（Ctrl/⌘+O）」(전각·빈칸 없음)였다(일본어 말풍선 키 글 꼴 반각 5 : 전각 1)
+        expect(v, `${lang}: ${t}`).toMatch(/ \([^()（）]+\)$/);
       }
   });
 

@@ -682,7 +682,7 @@
   "이 면으로는 자를 평면을 정할 수 없습니다(평면이거나 축이 있는 면만).": "No section plane can be determined from this face (planar faces or faces with an axis only).",
   "이 면은 정면 방향을 정할 수 없습니다(평면과 원기둥·원뿔·원환 면만).": "A viewing direction cannot be determined for this face (planes and cylinder, cone and torus faces only).",
   "이 문서에는 면 정보가 없어 면을 고를 수 없습니다.": "This document contains no face information; therefore, no face can be selected.",
-  "이 부품이 모형에 {0}번 놓였습니다": "This component has been placed {0} times in the model.",
+  "이 부품이 모형에 {0}번 놓였습니다": "This part has been placed {0} times in the model",
   "이 뷰어는 JavaScript가 필요합니다.": "This viewer requires JavaScript.",
   "이 브라우저는 WebGL2를 지원하지 않아 3D 보기를 열 수 없습니다": "Cannot open the 3D view because this browser does not support WebGL2.",
   "이 브라우저는 압축 풀기(DecompressionStream)를 지원하지 않습니다. 압축을 푼 .stp 파일을 여십시오.": "This browser does not support decompression (DecompressionStream). Please open an uncompressed .stp file.",

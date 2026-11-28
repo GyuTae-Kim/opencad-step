@@ -198,12 +198,22 @@ describe('수 틀의 1 — 영어·독일어 단·복수(215차)', () => {
     expect(['의미 PMI 1개', '의미 PMI 2개', '이 부품이 모형에 2번 놓였습니다', '제품 1종, 놓인 형상 1개', '제품 2종, 놓인 형상 3개'].map((ko) => translate(ko, 'en'))).toEqual([
       '1 semantic PMI',
       '2 semantic PMI',
-      'This component has been placed 2 times in the model.',
+      // 227차: 부품 낱말은 같은 사전의 part, 원문처럼 끝 마침표 없음(i18n.test 56차 규칙 표·매개변수 시험이 함께 본다)
+      'This part has been placed 2 times in the model',
       'Product types: 1, placed instances: 1',
       'Product types: 2, placed instances: 3',
     ]);
     // 같은 PMI 탭의 형제 머리(표현 PMI·의미 PMI)는 같은 꼴 — 영어·독일어
     expect(EN['의미 PMI {0}개']!.replace('semantic', 'presentation')).toBe(EN['표현 PMI {0}개']);
     expect([EN['의미 PMI {0}개'], DE['의미 PMI {0}개']].map((v) => v!.indexOf('{0}'))).toEqual([0, 0]);
+  });
+
+  it('227차: 아래 띠의 짝(고른 면 「· #{0} · 삼각형 {1}」·고른 모서리 「· #{0} · 선분 {1}」)은 네 언어 모두 낱말만 다른 같은 꼴 — 일본어 면 줄만 「三角形{1}」(빈칸 없음)이었다', () => {
+    const WORDS: Record<string, [string, string]> = { en: ['Triangles', 'Segments'], ja: ['三角形', '線分'], 'zh-CN': ['三角形', '线段'], de: ['Dreiecke', 'Segmente'] };
+    for (const [code, [tri, seg]] of Object.entries(WORDS)) {
+      const c = catalogs[code]!;
+      expect(c['· #{0} · 삼각형 {1}'], code).toContain(tri);
+      expect(c['· #{0} · 삼각형 {1}']!.replace(tri, seg), code).toBe(c['· #{0} · 선분 {1}']);
+    }
   });
 });
