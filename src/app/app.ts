@@ -25,7 +25,7 @@ import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../a
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import type { TouchAim } from './aim';
-import { h, icon, iconButton, nextFrame, pushToast } from './dom';
+import { h, icon, iconButton, loadFailed, nextFrame, pushToast } from './dom';
 import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, dialogOpen, openDialog, selectRow } from './dialog';
@@ -735,8 +735,20 @@ export class StepApp {
 
   /** 예제 모형 열기 */
   openSample(): Promise<boolean> {
-    // 예제 모형 글쓴이(sample.ts·stepText.ts)는 누를 때 받는다 — 첫 화면 스크립트를 줄이려고(서비스 워커가 미리 담아 오프라인에서도 연다)
-    return this.load(SAMPLE_NAME, async () => (await import('./sample')).sampleStepBytes().buffer as ArrayBuffer, 'sample');
+    // 예제 모형 글쓴이(sample.ts·stepText.ts)는 누를 때 받는다 — 첫 화면 스크립트를 줄이려고(서비스 워커가 미리 담아 오프라인에서도 연다).
+    // 224차: 받지 못하면(오프라인에서 새 판과 옛 캐시가 엇갈림 등) 까닭(브라우저 TypeError — 영어 글)은 콘솔에만, 열기 오류 알림은 알기 쉬운 글(ensureViewer 꼴 —
+    // 전에는 영어 까닭 글이 알림·시작 화면 오류 줄에 그대로 들어갔다). 다시 열기는 시작 화면·메뉴의 「예제 열기」 그대로
+    return this.load(
+      SAMPLE_NAME,
+      async () =>
+        (
+          await import('./sample').catch((e: unknown) => {
+            console.error(e);
+            throw new Error('예제 모형을 받지 못했습니다.');
+          })
+        ).sampleStepBytes().buffer as ArrayBuffer,
+      'sample',
+    );
   }
 
   /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
@@ -1819,7 +1831,8 @@ export class StepApp {
     if (!v || !d) return;
     // 분해 양: 분해 조각을 받았으면 그 계획으로, 아직이면 받은 뒤 다시 건다(문서를 열 때 미리 받으므로 보통은 이미 있다)
     const ui = d.explode > 0 ? this.explodeUi : null;
-    if (d.explode > 0 && !ui) void this.loadExplode().catch(() => this.toast('분해 보기를 받지 못했습니다.', 'warn'));
+    // 224차: 받지 못하면 같은 글(전과 같은 원문)에 「다시 시도」(다시 걸기 — 받으면 단추를 끼우고 벌린다), 밀대를 움직일 때마다 쌓이던 같은 알림은 하나로
+    if (d.explode > 0 && !ui) void this.loadExplode().catch(this.fail('분해 보기를 받지 못했습니다.', () => this.applyLooks()));
     (this.lookSync ??= new this.ent!.LookSync()).apply(v, {
       items: [...d.scene.meshes, ...d.scene.lines, ...(d.scene.points ?? [])],
       products: d.products,
@@ -1982,10 +1995,13 @@ export class StepApp {
     this.syncExplode();
   }
 
-  /** 끌어다 놓은 분해 손질 파일 받기: 분해 막대를 열고 받는다(받지 못하면 닫혀 있던 막대는 다시 닫는다) */
+  /**
+   * 끌어다 놓은 분해 손질 파일 받기: 분해 막대를 열고 받는다(받지 못하면 닫혀 있던 막대는 다시 닫는다).
+   * 224차: 분해 조각을 받지 못하면 알림과 「다시 시도」(그 파일로 다시 — 전에는 아무 알림 없이 끝났다)
+   */
   private async dropTweaks(f: File): Promise<void> {
     const d = this.doc;
-    await this.loadExplode().catch(() => undefined);
+    await this.loadExplode().catch(this.fail('분해 보기를 받지 못했습니다.', () => this.dropTweaks(f)));
     const tool = this.tweakTool;
     if (!d || this.doc !== d || !tool) return;
     const was = this.explodeOpen;
@@ -2649,6 +2665,14 @@ export class StepApp {
     return 'saved';
   }
 
+  /**
+   * 224차: 내보내기 조각(STL·OBJ·CSV — export.ts)을 받는다. 받지 못하면 알림과 「다시 시도」(retry — 그 명령을 처음부터)를 띄우고 undefined
+   * (전에는 처리하지 않은 거절로 아무 알림 없이 끝났다)
+   */
+  private exporter(retry: () => unknown) {
+    return import('./export').catch(this.fail('내보내기 기능을 받지 못했습니다.', retry));
+  }
+
   /** 보이는(또는 고른 것 가운데 보이는) 그물을 STL·OBJ로 */
   async exportMesh(format: 'stl' | 'obj', which: 'visible' | 'selected'): Promise<void> {
     const d = this.doc;
@@ -2662,8 +2686,9 @@ export class StepApp {
     }
     const u = this.doc?.scene.units ?? 'unknown';
     const head = `OpenCAD STEP viewer - ${d.name} - units ${u}`;
-    const { meshesToObj, meshesToStl } = await import('./export');
-    const blob = format === 'stl' ? new Blob([meshesToStl(meshes, head)], { type: 'model/stl' }) : new Blob([meshesToObj(meshes, head)], { type: 'model/obj' });
+    const x = await this.exporter(() => this.exportMesh(format, which));
+    if (!x) return;
+    const blob = format === 'stl' ? new Blob([x.meshesToStl(meshes, head)], { type: 'model/stl' }) : new Blob([x.meshesToObj(meshes, head)], { type: 'model/obj' });
     const how = await this.deliver(blob, `${stemName(d.name)}${pick ? '-selection' : ''}.${format}`);
     if (how === 'cancelled') return;
     trackExport(format);
@@ -2687,9 +2712,10 @@ export class StepApp {
   async copyMeasureCsv(): Promise<void> {
     const d = this.doc;
     if (!d || !d.measureLog.length) return;
-    const { measureRows, toCsv } = await import('./export');
-    const rows = measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
-    await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
+    const x = await this.exporter(() => this.copyMeasureCsv());
+    if (!x) return;
+    const rows = x.measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
+    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
     trackExport('csv');
   }
 
@@ -2699,9 +2725,18 @@ export class StepApp {
     if (!d || !d.pmi.semantic.length) return;
     const rows: (string | number)[][] = [[translateUi('종류'), translateUi('이름'), translateUi('값'), translateUi('이어진 면 수'), 'STEP #']];
     for (const x of d.pmi.semantic) rows.push([translateUi(semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
-    const { toCsv } = await import('./export');
-    await this.copyText(`\ufeff${toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
+    const x = await this.exporter(() => this.copyPmiCsv());
+    if (!x) return;
+    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
     trackExport('csv');
+  }
+
+  /**
+   * 224차: 보기 링크 고른 것 낱말 조각(selink.ts)을 받는다. 받지 못하면 알림과 「다시 시도」(retry — 그 명령을 처음부터)를 띄우고 undefined
+   * (전에는 처리하지 않은 거절로 링크를 복사하지 않거나 받은 링크의 고른 것·격리가 빠진 채 아무 알림이 없었다)
+   */
+  private linker(retry: () => unknown) {
+    return import('./selink').catch(this.fail('보기 링크 기능을 받지 못했습니다.', retry));
   }
 
   /**
@@ -2743,7 +2778,9 @@ export class StepApp {
     const d = this.doc;
     if (!d) return;
     // 나무 마디 하나는 기다리지 않고(클립보드 쓰기는 누른 직후여야 하는 브라우저가 있다), 그 밖의 고른 것은 낱말 모듈(문서를 열 때 미리 받음)을 받아
-    const sel = !d.selKey && selectionItemIds(d).length ? await import('./selink') : null;
+    const sel = !d.selKey && selectionItemIds(d).length ? await this.linker(() => this.copyViewLink()) : null;
+    // 224차: 낱말 조각을 받지 못했으면(알림과 다시 시도는 linker) 고른 것을 뺀 링크를 복사하지 않는다
+    if (sel === undefined) return;
     const { url, kept, total, tweakCut } = this.viewLinkUrl(sel);
     // 고른 것이 많아 일부만 담았거나 손질을 담지 못했으면 알림에 덧붙인다(조각마다 따로 번역되게)
     const cut = [
@@ -2797,8 +2834,10 @@ export class StepApp {
       this.unisolate();
       return;
     }
-    const r = (await import('./selink')).resolveTokens(d.products, link.sel);
-    if (this.doc !== d) return;
+    // 224차: 낱말 조각을 받지 못하면 알림과 「다시 시도」(링크를 처음부터 다시 적용)만 — 고른 것·격리는 그대로(카메라·단면·분해는 이미 걸었다)
+    const sel = await this.linker(() => this.applyViewLink(link));
+    if (!sel || this.doc !== d) return;
+    const r = sel.resolveTokens(d.products, link.sel);
     if (!r.ids.length) {
       if (!link.iso) this.unisolate();
       return;
@@ -3166,6 +3205,14 @@ export class StepApp {
     });
     close.addEventListener('click', remove);
     return remove;
+  }
+
+  /**
+   * 224차(WCAG 3.3.1·4.1.3): 열 때 받는 조각(export·selink·explodebar·사전)을 받지 못한 길의 catch — 경고 알림과 「다시 시도」(dom.ts loadFailed: 까닭은 콘솔에만,
+   * 같은 글 알림은 하나로). retry는 그 명령을 처음부터 다시(또 받지 못하면 같은 길로 알림을 갈아 끼운다). 언어 사전은 main.ts가 이것으로 잇는다(i18n.ts)
+   */
+  fail(msg: string, retry: () => unknown): (e: unknown) => undefined {
+    return (e) => loadFailed(e, msg, retry, (m, a) => this.toast(m, 'warn', 8000, a));
   }
 
   private updateAll(): void {

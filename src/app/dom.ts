@@ -110,6 +110,21 @@ export function pushToast(box: Element, t: Element, max: number, ms?: number, ho
   return close;
 }
 
+/** 224차: 받지 못한 조각 알림 — 글마다 지금 떠 있는 알림을 닫는 함수(같은 글이면 앞 알림을 떼고 새로) */
+const failing = new Map<string, () => void>();
+
+/**
+ * 224차(WCAG 3.3.1·4.1.3): 열 때 받는 조각(import())을 받지 못했을 때(오프라인에서 새 판과 옛 캐시가 엇갈림·네트워크 끊김) — 까닭(e — 브라우저 TypeError, 영어 글)은
+ * 콘솔에만 남기고 show로 msg 알림과 「다시 시도」(누르면 retry — 그 명령을 처음부터 다시, 또 받지 못하면 그 길이 다시 여기로)를 띄운다. 같은 글 알림은 하나로
+ * (앞 알림을 떼고 새로 — 분해 밀대를 움직일 때마다 쌓이지 않게). 전에는 내보내기·보기 링크·분해 손질 파일·언어 메뉴가 아무 알림 없이 끝났다(처리하지 않은 거절).
+ * catch에 그대로 넣을 수 있게 undefined로 풀린다(부른 쪽은 그만둔다)
+ */
+export function loadFailed(e: unknown, msg: string, retry: () => unknown, show: (msg: string, action: { label: string; run: () => void }) => () => void): undefined {
+  console.error(e);
+  failing.get(msg)?.();
+  failing.set(msg, show(msg, { label: '다시 시도', run: retry }));
+}
+
 /**
  * 다음 프레임에 한 번 부르기: 앞서 잡은 예약(prev, 0 = 없음)은 지우고 지금 다시 잡는다. 그사이 다른 쪽이 잡은 프레임 일(코어가 포인터 사건에서
  * 예약한 그리기 — 그때 커서 아래 붙잡을 점을 구한다)보다 먼저 돌아 옛 값을 읽지 않게. 돌려준 수를 다음 부름의 prev로 준다
