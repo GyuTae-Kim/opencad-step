@@ -212,7 +212,8 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
 
   it('키 표 글(aria-keyshortcuts)과 도움말 키 표(keyLabel — 기본 걸음 5·50화소)', () => {
     // 216차: 가상 커서가 켜진 동안 두 점 측정 방향 잠금 글쇠 X·Y·Z·L(앱 키 — 키 표와 따로)
-    expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'X', 'Y', 'Z', 'L', 'F', '1', '2', '3', '4', '5', '6', '7']);
+    // 218차: 3D 보기에 초점이 있으면 앱 창 키가 받는 Home·H·I·F7(keys.ts routeKey)과 커서 자리 작업 메뉴 Shift+F10·ContextMenu도(받는 키 대조는 tests/app/keyshortcuts218.test.ts)
+    expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'X', 'Y', 'Z', 'L', 'F', '1', '2', '3', '4', '5', '6', '7', 'Home', 'H', 'I', 'F7', 'Shift+F10', 'ContextMenu']);
     // 116차: 마우스 미리 보기 Tab 돌리기(코어 0.116.0 tabCycle)는 가상 커서 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 키 표를 바꿔도 남는다
     const custom = keyShortcuts({ ...KEY_SNAP_KEYS, next: ['n'], prev: ['p'], exit: ['q'] }).split(' ');
     for (const k of ['Tab', 'Shift+Tab', 'Escape', 'X', 'L']) expect(custom, k).toContain(k);

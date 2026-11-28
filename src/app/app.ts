@@ -1089,13 +1089,18 @@ export class StepApp {
     // 값이 같으면 오지 않는다(읽어도 같은 이름). 측정이 꺼져 있으면 바로 돌아간다(끌 때는 toggleMeasure가 읽는다)
     v.onMeasureHoverChange(() => v.measureMode && this.showHoverSnap());
     // Shift를 뗀 채 움직이면 Shift로 건 곡선 접선 잠금도 푼다(코어가 제 Shift 잠금을 푸는 것과 같다)
+    // 218차: 마우스가 3D 보기에 들고 나거나 캔버스 초점이 바뀌면 캔버스가 받는 화살표의 임자가 바뀐다(cursorArrows) — 잠금 안내도
     this.hostEl.addEventListener('pointermove', (e) => {
       if (!e.shiftKey) this.tangentShift(false);
+      const was = this.pointerIn;
       this.pointerIn = e.pointerType !== 'touch';
+      if (was !== this.pointerIn) this.refreshLock();
     });
     this.hostEl.addEventListener('pointerleave', () => {
       this.pointerIn = false;
+      this.refreshLock();
     });
+    for (const t of ['focus', 'blur']) v.canvas.addEventListener(t, () => this.refreshLock());
     this.viewer = v;
     // 분해 조각을 먼저 받았으면 끌기 손짓도 단다(코어 포인터 맡기 훅 — 길게 눌러 잡은 손가락은 정밀 조준 뒤 같은 캡처 단계에서 듣는다)
     this.tweakTool?.attach(v);
@@ -2264,8 +2269,9 @@ export class StepApp {
     const lock = on ? viewerLockName(v, this.tangents) : null;
     if (lock) this.dropLockFail();
     const can = on && !lock && v.measurePointCount === 1 && (!!v.measureHoverLock || !!this.tangents?.now(v));
-    // 217차: 가상 커서를 켜고 끄면(코어 'start'·'end' 알림 → 다음 프레임) 안내도 그때 맞는 키로(켜진 동안 X·Y·Z·L — snap.ts lockHint)
-    const key = on ? `${lock}|${v.measurePointCount}|${can}|${!!v.keyboardCursor}` : '';
+    // 217차: 가상 커서를 켜고 끄면(코어 'start'·'end' 알림 → 다음 프레임) 안내도 그때 맞는 키로(켜진 동안 X·Y·Z·L — snap.ts lockHint).
+    // 218차: 커서 켜짐 대신 화살표 임자(cursorArrows — 마우스가 들고 날 때·캔버스 초점이 바뀔 때도 부른다)
+    const key = on ? `${lock}|${v.measurePointCount}|${can}|${this.cursorArrows()}` : '';
     if (key === this.lockKey) return;
     this.lockKey = key;
     this.updateStatus();
@@ -2282,7 +2288,16 @@ export class StepApp {
   private measureLockHint(): string | null {
     const v = this.viewer;
     if (!v || !this.doc || !v.measureMode || this.entMeasuring) return null;
-    return viewerLockHint(v, this.touch, this.tangents);
+    return viewerLockHint(v, this.touch, this.tangents, this.cursorArrows());
+  }
+
+  /**
+   * 218차: 3D 보기가 받은 화살표가 가상 커서 몫인지(keys.ts arrowOwner — 커서가 켜졌거나, 3D 보기에 초점이 있고 마우스·펜이 밖이면 화살표는 커서 켜기·옮기기).
+   * 그동안 두 점 측정 방향 잠금은 X·Y·Z·L(뷰어 조각 keysnap.ts lockKey가 고르기 호스트 — 앱 자신 — 에서 읽는다)이고 잠금 안내도 그 키. 초점이 3D 보기 밖이면 화살표는 앱 잠금(onKey)
+   */
+  cursorArrows(): boolean {
+    const v = this.viewer;
+    return !!v && arrowOwner(!!v.keyboardCursor, this.pointerIn || document.activeElement !== v.canvas) === 'core';
   }
 
   /**

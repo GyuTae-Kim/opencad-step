@@ -248,8 +248,9 @@ describe('사전·app.ts 길(217차)', () => {
       expect(i, head).toBeGreaterThan(0);
       return app.slice(i, app.indexOf('\n  }\n', i));
     };
-    expect(method('private refreshLock(): void {')).toContain('const key = on ? `${lock}|${v.measurePointCount}|${can}|${!!v.keyboardCursor}` : \'\';');
-    expect(method('private measureLockHint(): string | null {')).toContain('return viewerLockHint(v, this.touch, this.tangents);');
+    // 218차: 커서 켜짐 대신 화살표 임자(cursorArrows — 커서가 켜졌거나, 3D 보기에 초점이 있고 마우스가 밖이면 화살표는 커서 몫이라 그때도 X·Y·Z·L 안내 — tests/app/keyshortcuts218.test.ts)
+    expect(method('private refreshLock(): void {')).toContain('const key = on ? `${lock}|${v.measurePointCount}|${can}|${this.cursorArrows()}` : \'\';');
+    expect(method('private measureLockHint(): string | null {')).toContain('return viewerLockHint(v, this.touch, this.tangents, this.cursorArrows());');
     expect(method('private showHoverSnap(): void {')).toContain('this.refreshLock();');
     const i = app.indexOf('announced: (a) => {');
     expect(i).toBeGreaterThan(0);
