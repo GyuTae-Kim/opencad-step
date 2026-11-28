@@ -212,14 +212,15 @@ describe('사전·app.ts 길(217차)', () => {
   it('새 원문 둘은 네 사전에 같은 사전 근거 값(「화살표로 축 잠금」의 화살표 낱말만 X·Y·Z로, 「지금 방향 잠그기」의 지금 방향 낱말)이고 같은 언어의 다른 값과 겹치지 않아 거꾸로 찾으면 제 원문', () => {
     const want: Record<(typeof CODES)[number], [string, string]> = {
       en: ['X·Y·Z lock an axis', 'X·Y·Z lock an axis, L locks the current direction'],
-      ja: ['X・Y・Zで軸をロック', 'X・Y・Zで軸方向、Lで今の方向をロック'],
+      // 228차: 일본어 「지금 …」은 사전 다수 꼴 現在の(i18n.test 한 개념 한 낱말 — 今の 6 : 現在 8)
+      ja: ['X・Y・Zで軸をロック', 'X・Y・Zで軸方向、Lで現在の方向をロック'],
       'zh-CN': ['按 X·Y·Z 锁定轴', '按 X·Y·Z 锁定轴方向，按 L 锁定当前方向'],
       de: ['X·Y·Z sperren eine Achse', 'X·Y·Z sperren eine Achse, L sperrt die aktuelle Richtung'],
     };
     /** 「화살표로 축 잠금」 값의 화살표 낱말 → X·Y·Z(일본어는 같은 사전 「Shift・矢印キー」 꼴의 ・) */
     const arrow: Record<(typeof CODES)[number], [string, string]> = { en: ['Arrow keys', 'X·Y·Z'], ja: ['矢印キー', 'X・Y・Z'], 'zh-CN': ['方向键', ' X·Y·Z '], de: ['Pfeiltasten', 'X·Y·Z'] };
     /** 「지금 방향 잠그기(다시 누르면 풀기)」의 지금 방향 잠금 낱말 */
-    const now: Record<(typeof CODES)[number], string> = { en: 'the current direction', ja: '今の方向をロック', 'zh-CN': '锁定当前方向', de: 'aktuelle richtung' };
+    const now: Record<(typeof CODES)[number], string> = { en: 'the current direction', ja: '現在の方向をロック', 'zh-CN': '锁定当前方向', de: 'aktuelle richtung' };
     for (const code of CODES) {
       const c = catalogs[code]!;
       expect([AXES, ON].map((k) => c[k]), code).toEqual(want[code]);

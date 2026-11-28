@@ -157,12 +157,13 @@ describe('분해·격리·단면 묶음 화면 글의 네 언어 번역(204차)'
       [ACTIONS, 'de', 'Aktionen für die Auswahl (Ausblenden, Isolieren usw.)'],
       [SECTION_TIP, 'de', 'Schnittansicht: Mit einer Ebene senkrecht zur Achse (X·Y·Z) schneiden – Position ziehen und Schnittseite umdrehen in der Leiste über der 3D-Ansicht'],
       ['분해 끄기(제자리로)', 'de', 'Explosion aus (zurück an Ort und Stelle)'],
-      [DIST_TIPS[0], 'de', 'Verschobene Entfernung — Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (negativ = Gegenrichtung)'],
-      [DIST_TIPS[1], 'de', 'Verschobene Entfernung — Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (auch zwei Zahlen: horizontal; vertikal)'],
-      [DIST_TIPS[2], 'de', 'Verschobene Entfernung — Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (auch drei Zahlen: ΔX; ΔY; ΔZ)'],
-      [DIST_TIPS[3], 'de', 'Zu verschiebende Entfernung — Zahl eingeben und Enter drücken, um die Auswahl um diese Strecke in der aktuellen Explosionsrichtung zu verschieben (negativ = Gegenrichtung)'],
-      [DIST_TIPS[4], 'de', 'Zu verschiebende Entfernung — zwei Zahlen eingeben (horizontal; vertikal) und Enter drücken, um die Auswahl um diesen Betrag zu verschieben'],
-      [DIST_TIPS[5], 'de', 'Zu verschiebende Entfernung — drei Zahlen eingeben (ΔX; ΔY; ΔZ) und Enter drücken, um die Auswahl um diesen Betrag zu verschieben'],
+      // 228차: 독일어 띄어 쓴 줄표는 「 – 」(i18n.test — 사전 전체 「 — 」 0, 같은 표의 단면 말풍선 꼴)
+      [DIST_TIPS[0], 'de', 'Verschobene Entfernung – Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (negativ = Gegenrichtung)'],
+      [DIST_TIPS[1], 'de', 'Verschobene Entfernung – Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (auch zwei Zahlen: horizontal; vertikal)'],
+      [DIST_TIPS[2], 'de', 'Verschobene Entfernung – Zahl eingeben und Enter drücken, um dieses Ziehen auf diese Strecke zu setzen (auch drei Zahlen: ΔX; ΔY; ΔZ)'],
+      [DIST_TIPS[3], 'de', 'Zu verschiebende Entfernung – Zahl eingeben und Enter drücken, um die Auswahl um diese Strecke in der aktuellen Explosionsrichtung zu verschieben (negativ = Gegenrichtung)'],
+      [DIST_TIPS[4], 'de', 'Zu verschiebende Entfernung – zwei Zahlen eingeben (horizontal; vertikal) und Enter drücken, um die Auswahl um diesen Betrag zu verschieben'],
+      [DIST_TIPS[5], 'de', 'Zu verschiebende Entfernung – drei Zahlen eingeben (ΔX; ΔY; ΔZ) und Enter drücken, um die Auswahl um diesen Betrag zu verschieben'],
       ['거리로 옮기기…', 'de', 'Um Entfernung verschieben…'],
     ];
     const all = LANGS.flatMap((lang) => Object.values(catalogs[lang]!));
