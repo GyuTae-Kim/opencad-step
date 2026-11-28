@@ -9,6 +9,8 @@ import { createDoc, type ProductNode, type StepDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
+// 223차: 아래 띠는 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 나무와 함께 넣는다(띠가 보이면 본문 높이가 준다 — viewOf)
+import * as PV from '../../src/app/panelview';
 import { siblingInfo, type TreeView } from '../../src/app/treeview';
 import { AIM_SLOP_PX, HOLD_MENU_MS, touchPointerEvent } from '../../src/app/aim';
 import { Fmt } from '../../src/app/display';
@@ -74,7 +76,7 @@ afterEach(() => {
 function mount(d: StepDoc, groups: GroupInfo[] = []) {
   const { host: hst, calls } = host(d, groups);
   const panel = new Panel(hst);
-  panel.kit = TV;
+  panel.kit = { ...TV, ...PV };
   document.body.append(panel.el);
   const body = panel.el.querySelector<HTMLElement>('.panel-body')!;
   Object.defineProperty(body, 'clientHeight', { configurable: true, get: () => viewOf(body) });

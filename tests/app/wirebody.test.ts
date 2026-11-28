@@ -8,6 +8,8 @@ import { resolveTokens, selectionTokens } from '../../src/app/selink';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import * as PROPS from '../../src/app/propsview';
+// 223차: 아래 띠(「고른 바디 …」)는 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 나무와 함께 넣는다
+import * as PV from '../../src/app/panelview';
 import { Fmt } from '../../src/app/display';
 import { StepText, cube } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -155,7 +157,7 @@ describe('패널: 선 형상 바디 줄', () => {
     d.expanded.add('0/0').add('0/1');
     const { host, calls } = panelHost(d);
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     // 222차: 속성 탭 본문(부품 속성·「선 형상에는 부피·질량이 없습니다」 안내)은 뷰어 조각의 propsview.ts — 앱처럼 넣는다(없으면 속성 탭을 비움)
     panel.phys = PROPS;
     document.body.append(panel.el);

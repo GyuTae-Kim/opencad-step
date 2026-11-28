@@ -6,6 +6,8 @@ import { bodyTitle, carryDocState, createDoc, multiLabel, selectedBody, selectio
 import { multiHint } from '../../src/app/measure';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
+// 223차: 아래 띠·간섭 검사 묶음은 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 나무와 함께 넣는다
+import * as PV from '../../src/app/panelview';
 // 물리 속성 계산도 뷰어 조각에 들어 있어(53차) 앱이 뷰어를 만들 때 패널에 넣는다
 // 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
 import * as PHYS from '../../src/app/propsview';
@@ -120,7 +122,7 @@ describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표
     const multi = { on: true };
     const { host, calls } = panelHost(d, multi);
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
@@ -140,7 +142,7 @@ describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     const [, b] = scene.meshes;
@@ -171,7 +173,7 @@ describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     const [a, b] = scene.meshes;
@@ -203,7 +205,7 @@ describe('모델 트리: 여러 개 고르기 모드와 바디 일부 고름 표
     d.expanded.add('0/0');
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     const [a, b, c, o] = scene.meshes.map((m) => m.id);
@@ -249,7 +251,7 @@ describe('모델 트리 바디 줄', () => {
     const d = newDoc();
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
@@ -280,7 +282,7 @@ describe('모델 트리 바디 줄', () => {
     const multi = { on: false };
     const { host, calls } = panelHost(d, multi);
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     panel.show(d);
@@ -301,7 +303,7 @@ describe('모델 트리 바디 줄', () => {
     d.expanded.add('0/0');
     const { host } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     const [, b, c] = scene.meshes;
@@ -353,7 +355,7 @@ describe('간섭 검사 결과: 안에 든 쌍', () => {
     const d = newDoc();
     const { host, calls } = panelHost(d, { on: false });
     const panel = new Panel(host);
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     panel.phys = PHYS;
     document.body.append(panel.el);
     const [a, , , o] = scene.meshes.map((m) => m.id);

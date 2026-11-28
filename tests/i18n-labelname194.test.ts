@@ -116,8 +116,9 @@ describe('번역 뒤에도 화면 읽기 이름이 보이는 글을 품는다(19
     expect(bar).toContain("const DIST_LABELS = { drag: '옮긴 거리', fresh: '옮길 거리' } as const;");
     expect(bar).toContain("this.distKey = h('span', { class: 'explode-distance-key' }, DIST_LABELS.drag);");
     expect(bar).toContain('const label = s.fresh ? DIST_LABELS.fresh : DIST_LABELS.drag;');
-    expect(src('panel.ts')).toContain("'aria-label': `${nm} 레이어 보이기`");
-    expect(src('panel.ts')).toContain("addRow(NO_LAYER, '(레이어 없음)'");
+    // 223차: 레이어 탭 본문은 panel.ts에서 뷰어 조각의 panelview.ts로 옮겨 원문도 그 파일에
+    expect(src('panelview.ts')).toContain("'aria-label': `${nm} 레이어 보이기`");
+    expect(src('panelview.ts')).toContain("addRow(NO_LAYER, '(레이어 없음)'");
     expect(src('treeview.ts')).toContain("'aria-label': `${isolateText(g.name)} 보이기`");
   });
 });
