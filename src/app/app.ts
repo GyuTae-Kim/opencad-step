@@ -684,8 +684,8 @@ export class StepApp {
   }
 
   private recentRow(r: RecentEntry, now: number, locale: string): HTMLElement {
-    // 파일 이름은 번역하지 않는다(방향 가둠·길이 한도 — ftext.ts)
-    const open = h('button', { type: 'button', class: 'recent-open' }, fileSpan(r.name, 'recent-name'), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
+    // 파일 이름은 번역하지 않는다(방향 가둠·길이 한도 — ftext.ts). 238차(WCAG 1.4.12): 말줄임 이름은 말풍선에 전체(글 간격을 넓히면 더 일찍 잘려 다시 볼 곳이 없었다)
+    const open = h('button', { type: 'button', class: 'recent-open' }, fileSpan(r.name, 'recent-name', r.name), h('span', { class: 'recent-meta' }, `${formatBytes(r.size)} · ${recentTimeLabel(r.time, now, locale)}`));
     // 저장한 파일이 없어 이 줄을 지우면(openRecent) ✕와 같은 자리로(148차 — 전에는 다시 그린 목록에서 누른 버튼이 빠져 초점이 문서로 빠졌다)
     open.addEventListener('click', () => void this.openRecent(r, recentFocus(open, this.recentList, this.startOpen)));
     const del = h('button', { type: 'button', class: 'icon-btn recent-del', title: '목록에서 지우기', 'aria-label': `최근 문서에서 지우기: ${isolateText(r.name)}` });
@@ -3208,7 +3208,8 @@ export class StepApp {
     this.busyEl.hidden = !l;
     if (had) (this.doc ? this.viewer?.canvas : this.startOpen)?.focus({ preventScroll: true });
     if (l) {
-      this.busyName.textContent = clipText(l.name);
+      // 238차(WCAG 1.4.12): 말줄임 이름(.busy-name)은 말풍선에 전체 — 글 간격을 넓히면 더 일찍 잘리고 카드가 떠 있는 동안 다시 볼 곳이 없었다
+      this.busyName.textContent = this.busyName.title = clipText(l.name);
       // Keep stage messages separate from punctuation so every progress stage
       // uses its catalog entry, including worker-provided stage names.
       // 알림 칸이므로 단계가 바뀔 때만 바꾼다(진행할 때마다 같은 글을 다시 넣으면 다시 읽는다)
