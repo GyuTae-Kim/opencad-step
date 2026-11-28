@@ -13,6 +13,8 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { groupGrid, treeView } from '../../src/app/treeview';
 import { pmiView } from '../../src/app/pmiview';
+// 223차: 레이어 탭 본문(과 아래 띠·간섭 검사 묶음)은 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다
+import * as PV from '../../src/app/panelview';
 import { SectionBar, type SectionBarHost } from '../../src/app/sectionbar';
 import type { SectionState, Viewer3d } from 'opencad-viewer3d';
 
@@ -297,8 +299,8 @@ describe('레이어·PMI 표의 보이기 칸', () => {
     const meta = { products: [], layers: [{ name: 'L1', meshIds: ['m1'] }], pmi: { presentations: [{ id: 'p1', name: '치수 1', type: 'annotation_curve_occurrence', stepId: 9 }] } };
     const d = createDoc('l.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
     const panel = new Panel(host);
-    // PMI 탭 본문은 나무 조각(54차 — pmiview.ts 가상 목록)이 그린다: 앱처럼 넣는다
-    panel.kit = { treeView, groupGrid, pmiView };
+    // PMI 탭 본문은 나무 조각(54차 — pmiview.ts 가상 목록)이 그린다: 앱처럼 넣는다(223차: 레이어 탭 본문 panelview.ts도)
+    panel.kit = { treeView, groupGrid, pmiView, ...PV };
     document.body.append(panel.el);
     panel.show(d);
     panel.setOpen(true);

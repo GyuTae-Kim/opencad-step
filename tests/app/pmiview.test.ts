@@ -11,6 +11,8 @@ import { Panel, type PanelHost } from '../../src/app/panel';
 import { Fmt } from '../../src/app/display';
 import { groupGrid, treeView } from '../../src/app/treeview';
 import { pmiView } from '../../src/app/pmiview';
+// 223차: 레이어 탭 본문·아래 띠(panelview.ts — panel.ts에서 옮김)도 나무 조각 — 앱처럼 함께 넣는다
+import * as PV from '../../src/app/panelview';
 import { translate } from '../../site/i18n.mjs';
 
 const NP = 1500;
@@ -55,7 +57,7 @@ function setup(faces: (i: number) => number[] = (i) => (i % 2 ? [] : [7])): { pa
   const meta = { products: [], pmi: { presentations, semantic } };
   d = createDoc('p.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
   panel = new Panel(host);
-  panel.kit = { treeView, groupGrid, pmiView };
+  panel.kit = { treeView, groupGrid, pmiView, ...PV };
   document.body.append(panel.el);
   panel.show(d);
   panel.setOpen(true);
@@ -317,7 +319,7 @@ describe('PMI 탭 본문(가상 목록)', () => {
     const meta = { products: [], layers: [{ name: 'L1', meshIds: ['m1'] }, { name: 'L2', meshIds: ['m2'] }] };
     ld = createDoc('l.stp', 1, { scene: { meshes: [], lines: [], meta }, ms: 1 } as unknown as ParseResult);
     lp = new Panel(lhost);
-    lp.kit = { treeView, groupGrid, pmiView };
+    lp.kit = { treeView, groupGrid, pmiView, ...PV };
     document.body.append(lp.el);
     lp.show(ld);
     lp.setOpen(true);

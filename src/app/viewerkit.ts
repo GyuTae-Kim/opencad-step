@@ -19,6 +19,7 @@
  * - 큰 장면 나눠 올리기(upload.ts — 58차, 앱 입구에서 옮김): 문서를 뷰어에 올릴 때 나눠 올릴지와 그물 수에 맞춘 몫
  * - 연 뒤 알림(opennotice.ts — 58차, 앱 입구에서 옮김): 끊긴 파일·조립 자리 상한·경고 수, 코어가 빼거나 고쳐 그린 장면 입력의 경고 글(61차 — 코어 0.50.0 onSceneIssues)
  * - 패널 정보 탭 본문(infoview.ts — 59차, panel.ts에서 옮김): 문서·파일 머리·단위·통계·경고 — 나무 조각과 함께 패널에 넣는다.
+ *   223차: 레이어 탭 본문·제품 탭의 간섭 검사 묶음·아래 띠 줄(panelview.ts — panel.ts에서 옮김, 문서가 있어야 그린다)도 나무 조각과 함께 패널에 넣는다
  *   나눠 올리기 걸음마다 몫(upload.ts stepBudgetMs — 59차, 앞 두 걸음 8 ms)과 다시 그리기 간격(61차 — 코어 0.51.0 공개 선택으로, uploadOptions)도 같은 모듈
  * - 키보드로 3D 붙잡기·고르기(keysnap.ts — 62차, 코어 0.46.0·0.47.0 setKeyboardSnap): 뷰어를 만들 때 켜고 알림 영역·캔버스 키 안내를 단다, 도움말 키 표도
  * - 큰 그림 저장 대화 상자 본문(imagedlg.ts — 62차, 앱 입구에서 옮김): 뷰어가 있어야 연다
@@ -48,6 +49,7 @@ export { installKeySnap, keyHelpBody } from './keysnap';
 // 106차: 보이기 걸기(putVisibility — 앱 applyVisibility의 고리)도 같은 모듈에서
 export { LookSync, putVisibility } from './looks';
 export { openNotice, sceneIssueLines } from './opennotice';
+export { footView, interferenceView, layersView } from './panelview';
 export { pickGroup } from './picklist';
 // 뷰 큐브 면 글(코어가 캔버스에 그린다 — 앱이 화면 언어로 바꾼다, app.ts relabelCube). 61차: 코어 0.44.0에서 커진 viewcube 모듈을 첫 화면 JS에서 빼려고
 // i18n.ts에서 이 조각으로 옮겼다(코어 뷰어가 이미 이 모듈을 쓴다)

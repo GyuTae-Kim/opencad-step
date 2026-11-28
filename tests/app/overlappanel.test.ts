@@ -10,6 +10,8 @@ import { stepToScene } from '../../src/scene';
 import { createDoc, resetSelection, type StepDoc } from '../../src/app/doc';
 import { interferenceLabel, Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
+// 223차: 간섭 검사 묶음(과 아래 띠)은 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 패널 kit에 넣는다(나무 줄은 넣지 않은 시험은 전처럼 그리지 않는다)
+import * as PV from '../../src/app/panelview';
 import { Fmt } from '../../src/app/display';
 import { findInterference, type InterferencePair } from '../../src/app/interference';
 import { overlapVolumes } from '../../src/app/overlap';
@@ -47,6 +49,7 @@ describe('간섭 검사: 겹친 부피', () => {
     const result = findInterference(meshes);
     expect(result.pairs).toHaveLength(2);
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     // 워커가 쌍을 보낸 뒤(pairs) 겹친 부피를 구하는 동안
@@ -88,6 +91,7 @@ describe('간섭 검사: 겹친 부피', () => {
     const d = doc();
     const result = findInterference(d.scene.meshes);
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
@@ -145,6 +149,7 @@ describe('간섭 검사: 겹친 부피', () => {
         },
       }),
     );
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사');
@@ -180,6 +185,7 @@ describe('간섭 검사: 겹친 부피', () => {
   it('검사하지 못한 오류 줄은 워커 알림으로 묶음을 갈아 끼울 때만 role=alert(화면 읽기 프로그램이 읽음), 탭을 다시 그리면 같은 오류를 다시 읽히지 않음(143차)', () => {
     const d = doc();
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     // 앱처럼 패널을 연 채 검사(156차부터 닫힌 패널·다른 탭이면 알림 상자가 알린다 — 아래 156차 시험)
@@ -215,6 +221,7 @@ describe('간섭 검사: 겹친 부피', () => {
     // 겹친 정육면체 쌍을 n개로 불린 결과(겹친 부피 없음 — 쌍마다 이름 줄 하나)
     const many = (n: number) => ({ ...found, tested: n, pairs: Array.from({ length: n }, (_, i) => ({ ...cubes, count: i + 1 })) });
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
@@ -253,6 +260,7 @@ describe('간섭 검사: 겹친 부피', () => {
     const labels = result.pairs.map((p) => interferenceLabel(d, p));
     expect(labels).toHaveLength(2);
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     const sec = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group')].find((s) => s.querySelector('h3')?.textContent === '간섭 검사')!;
@@ -305,6 +313,7 @@ describe('간섭 검사: 겹친 부피', () => {
     const d = doc();
     const toasts: unknown[][] = [];
     const panel = new Panel(host({ toast: (...a: unknown[]) => toasts.push(a) }));
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(d);
     const err = () => [...panel.el.querySelectorAll<HTMLElement>('.prop-group .hint')].find((p) => p.textContent?.startsWith('검사하지 못했습니다'));
@@ -370,7 +379,7 @@ describe('간섭 검사: 겹친 부피', () => {
         selectKey: (k: string | null) => pick(() => (d.selKey = k)),
       }),
     );
-    panel.kit = TV;
+    panel.kit = { ...TV, ...PV };
     document.body.append(panel.el);
     d.interference = { running: false, done: 0, total: 0, result };
     panel.show(d);

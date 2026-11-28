@@ -24,6 +24,8 @@ import { Panel, pmiTypeLabel, semanticLabel, type PanelHost } from '../../src/ap
 import * as TV from '../../src/app/treeview';
 import { infoView } from '../../src/app/infoview';
 import { pmiView } from '../../src/app/pmiview';
+// 223차: 레이어 탭 본문·아래 띠·간섭 검사 묶음은 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 나무와 함께 넣는다
+import * as PV from '../../src/app/panelview';
 // 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
 import * as PHYS from '../../src/app/propsview';
 import { Fmt } from '../../src/app/display';
@@ -108,7 +110,7 @@ function panel(tab: PanelTab, picked: string[]): HTMLElement {
   // 이름 없는 부품을 고른 채(아래 띠), 뿌리와 그 부품을 펼쳐 몸체 줄까지
   d.selKey = bareKey;
   d.expanded = new Set(['0', bareKey]);
-  const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, infoView } });
+  const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, ...PV, infoView } });
   p.show(d);
   p.setTab(tab);
   return p.el;
@@ -281,7 +283,7 @@ describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — �
     document.body.append(root);
     const picked: string[] = [];
     const d = createDoc('p.stp', 1, { scene: pscene, ms: 1 });
-    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, infoView, pmiView } });
+    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, ...PV, infoView, pmiView } });
     p.show(d);
     p.setTab('pmi');
     views.append(p.el);
@@ -350,7 +352,7 @@ describe('211차: 앱 글 칸은 틀이 잡은 앱 글도 옮긴다 — 이름 �
     document.body.append(root);
     const picked: string[] = [];
     const d = createDoc('s.stp', 1, { scene: { meshes: [], lines: [], meta: { products: [], pmi: { presentations: [], semantic: SEM } } }, ms: 1 } as unknown as ParseResult);
-    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, infoView, pmiView } });
+    const p = Object.assign(new Panel(host(d, picked)), { phys: PHYS, kit: { ...TV, ...PV, infoView, pmiView } });
     p.show(d);
     p.setTab('pmi');
     views.append(p.el);

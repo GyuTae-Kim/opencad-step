@@ -23,6 +23,8 @@ import { closeMenu, openMenu, openMenuAt } from '../../src/app/menu';
 import { createDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
 import { Panel, type PanelHost } from '../../src/app/panel';
+// 223차: 레이어 탭 본문(보이기 상자)·아래 띠는 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 넣는다(나무 줄은 넣지 않아 전처럼 그리지 않음)
+import * as PV from '../../src/app/panelview';
 import { Fmt } from '../../src/app/display';
 import { SectionBar } from '../../src/app/sectionbar';
 import { PanelResizer } from '../../src/app/resize';
@@ -320,6 +322,7 @@ const layeredDoc = () =>
 describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
   it('Tab 멈춤은 고른 탭 하나, 탭은 본문을 aria-controls로 가리키고, 키보드로 탭을 고르면 새로 만든 고른 탭에 초점이 남는다', () => {
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(layeredDoc());
     panel.setOpen(true);
@@ -343,6 +346,7 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
 
   it('153차: 속성·정보 탭 본문(Tab 멈춤 스크롤 영역)에 초점이 있으면 굴리는 키(Home·End·Page·↑↓)는 앱 창 글쇠(홈 뷰·뷰어)로 가지 않는다', () => {
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(layeredDoc());
     panel.setOpen(true);
@@ -390,6 +394,7 @@ describe('패널 탭(APG Tabs)과 본문 다시 그리기', () => {
 
   it('레이어 보이기 상자를 바꿔 본문을 다시 그려도 같은 차례의 새 상자에 초점이 남는다', () => {
     const panel = new Panel(host());
+    panel.kit = PV;
     document.body.append(panel.el);
     panel.show(layeredDoc());
     panel.setOpen(true);
