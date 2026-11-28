@@ -25,7 +25,7 @@ import { isStepXml, isStepXmlName, sniffContainer, STEP_XML_MESSAGE } from '../a
 import { ParseCancelled, ParseClient } from './client';
 import { beginOpen, showAnalyticsSettings, trackExport, type InputKind, type OpenAttempt } from 'opencad-site-kit/analytics';
 import type { TouchAim } from './aim';
-import { h, icon, iconButton, loadFailed, nextFrame, pushToast } from './dom';
+import { ChunkGone, h, icon, iconButton, loadFailed, nextFrame, pushToast } from './dom';
 import { clipText, fileSpan, isolateText } from './ftext';
 import { DEFAULT_DISPLAY, Fmt, MAX_DECIMALS, numberLocale, QUALITY_OPTIONS, readDisplaySettings, writeDisplaySettings, type DisplaySettings } from './display';
 import { closeDialog, dialogOpen, openDialog, selectRow } from './dialog';
@@ -623,8 +623,10 @@ export class StepApp {
   /**
    * 파일 열기. 확장자가 STEP이 아니면 앞부분을 보고 가린다: STEP 글·gzip·ZIP(워커가 푼다)은 열고,
    * STEP-XML(.stpx)과 그 밖의 것은 알기 쉬운 이유로 거절한다. remember면 잘 열었을 때 최근 문서에 남긴다(고르기·끌어다 놓기).
+   * again(225차): 받지 못한 조각 오류 알림의 「다시 시도」 — 최근 문서만(저장한 파일을 다시 읽는다). 고르기·끌어다 놓기·연결 프로그램·넣은 쪽이 넘긴 파일은
+   * 앱이 바이트를 따로 두지 않아(잘 연 뒤에야 최근 문서에 남긴다) 없음 — 지금처럼 「다시 여십시오」(load)
    */
-  async openFile(file: File, remember = true): Promise<boolean> {
+  async openFile(file: File, remember = true, again?: () => unknown): Promise<boolean> {
     const attempt = beginOpen('local', file.name.split('.').pop() ?? 'other');
     // 알림 글 속 파일 이름은 방향을 가두고 번역층이 건드리지 않게(ftext.ts)
     const fname = isolateText(file.name);
@@ -655,16 +657,12 @@ export class StepApp {
         return false;
       }
     }
-    const ok = await this.load(file.name, () => file.arrayBuffer(), 'local', attempt);
+    const ok = await this.load(file.name, () => file.arrayBuffer(), 'local', attempt, null, again);
     // 최근 문서 항목(같은 이름·크기)에 남긴 분해 손질을 받고, 이 문서에서 끌어 옮긴 것을 그 항목에 남긴다
     const d = ok ? this.doc : null;
     if (d) {
       d.recentKey = recentId(file.name, file.size);
-      void this.loadExplode()
-        .then(() => this.tweakTool?.restore(d))
-        .then((got) => {
-          if (got && this.doc === d) this.redrawExplode();
-        }, () => undefined);
+      void this.restoreTweaks(d);
     }
     if (ok && remember)
       void this.recent.add(file.name, file).then((saved) => {
@@ -717,7 +715,8 @@ export class StepApp {
       this.toast('저장해 둔 파일을 지금 읽지 못했습니다. 잠시 뒤 다시 눌러 보세요.', 'warn');
       return false;
     }
-    const ok = await this.openFile(got.file, false);
+    // 225차: 조각을 받지 못한 오류 알림의 「다시 시도」는 저장한 파일을 다시 읽어 처음부터(load)
+    const ok = await this.openFile(got.file, false, () => this.openRecent(r));
     if (ok) void this.recent.touch(r.id).then(() => this.refreshRecent());
     return ok;
   }
@@ -738,20 +737,26 @@ export class StepApp {
     // 예제 모형 글쓴이(sample.ts·stepText.ts)는 누를 때 받는다 — 첫 화면 스크립트를 줄이려고(서비스 워커가 미리 담아 오프라인에서도 연다).
     // 224차: 받지 못하면(오프라인에서 새 판과 옛 캐시가 엇갈림 등) 까닭(브라우저 TypeError — 영어 글)은 콘솔에만, 열기 오류 알림은 알기 쉬운 글(ensureViewer 꼴 —
     // 전에는 영어 까닭 글이 알림·시작 화면 오류 줄에 그대로 들어갔다). 다시 열기는 시작 화면·메뉴의 「예제 열기」 그대로
+    // 225차: 그 알림에 「다시 시도」(예제 열기를 처음부터 — 또 받지 못하면 「새로 고침」, load·dom.ts loadFailed). 까닭은 표지 오류의 cause로 넘겨 loadFailed가 콘솔에
     return this.load(
       SAMPLE_NAME,
       async () =>
         (
           await import('./sample').catch((e: unknown) => {
-            console.error(e);
-            throw new Error('예제 모형을 받지 못했습니다.');
+            throw new ChunkGone('예제 모형을 받지 못했습니다.', { cause: e });
           })
         ).sampleStepBytes().buffer as ArrayBuffer,
       'sample',
+      undefined,
+      null,
+      () => this.openSample(),
     );
   }
 
-  /** 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다 */
+  /**
+   * 같은 출처 주소의 파일 열기(?open=). 받는 동안 진행률(크기를 모르면 받은 양)을 보인다.
+   * 225차: 뷰어 조각을 받지 못한 오류 알림의 「다시 시도」는 주소에서 다시 받기부터(load)
+   */
   openUrl(url: string): Promise<boolean> {
     const name = baseName(url) || 'model.stp';
     return this.load(name, async (signal, progress) => {
@@ -783,7 +788,7 @@ export class StepApp {
         p += c.length;
       }
       return out.buffer;
-    }, 'url');
+    }, 'url', undefined, null, () => this.openUrl(url));
   }
 
   /** 열고 있는 것을 멈춘다 */
@@ -804,6 +809,8 @@ export class StepApp {
     attempt: OpenAttempt = beginOpen(input, name.split('.').pop() ?? 'other'),
     /** 같은 파일을 다시 삼각화할 때(곡면 품질) 앞 문서 — 보기·고르기·보이기를 이어 간다 */
     carry: StepDoc | null = null,
+    /** 225차: 열 때 받는 조각(ChunkGone — 예제·3D 보기)을 받지 못한 오류 알림의 「다시 시도」 — 그 문서 열기를 처음부터(예제·주소·최근 문서). 없으면 지금처럼 */
+    again?: () => unknown,
   ): Promise<boolean> {
     let reading = true;
     // 178차: 다 열었는지(finally에서 곡면 품질을 견줄 때)
@@ -867,7 +874,10 @@ export class StepApp {
       attempt.error(reading ? (input === 'url' ? 'fetch_error' : 'read_error') : 'parse_error');
       // 조각마다 따로 번역되게(파일 이름은 그대로) 문장 단위로 나눠 보인다
       const detail = (e as { detail?: string } | null)?.detail;
-      this.showError([`${isolateText(name)}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])]);
+      const parts = [`${isolateText(name)}: 파일을 열지 못했습니다.`, friendlyError(errorText(e)), ...(detail ? [detail] : [])];
+      // 225차(WCAG 3.3.1): 조각을 받지 못했고 다시 열 길이 있으면 오류 알림에 「다시 시도」(그 문서 열기를 처음부터 — 또 받지 못하면 「새로 고침」, dom.ts loadFailed)
+      if (again && e instanceof ChunkGone) loadFailed(e, parts.join(' '), again, (_, a) => this.showError(parts, a));
+      else this.showError(parts);
       return false;
     } finally {
       if (seq === this.loadSeq) {
@@ -983,8 +993,9 @@ export class StepApp {
         const link = this.pendingView;
         if (link && this.doc === doc) {
           this.pendingView = null;
-          void this.applyViewLink(link);
-          this.toast('주소의 보기(카메라·단면·고른 것·분해)를 적용했습니다.');
+          // 225차(WCAG 3.3.1·4.1.3): 다 건 뒤에만 안내한다 — 고른 것(보기 링크 조각)·분해(분해 조각)를 받지 못했으면 받지 못함 알림과 「다시 시도」가 대신
+          // (전에는 걸기 시작하자마자 「적용했습니다」가 떠 뒤따른 받지 못함 알림과 어긋났다)
+          void this.applyViewLink(link).then((ok) => ok && this.toast('주소의 보기(카메라·단면·고른 것·분해)를 적용했습니다.'));
         }
       }),
     );
@@ -999,9 +1010,10 @@ export class StepApp {
     let core: Awaited<ReturnType<typeof loadViewerCore>>;
     try {
       core = await loadViewerCore();
-    } catch {
-      // 나눠 받는 코어 조각을 받지 못했다(오프라인에서 새 판 등) — 다음 열기에서 다시 받는다(core.ts)
-      throw new Error('3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.');
+    } catch (e) {
+      // 나눠 받는 코어 조각을 받지 못했다(오프라인에서 새 판 등) — 다음 열기에서 다시 받는다(core.ts).
+      // 225차: 표지 오류(ChunkGone)라 다시 열 길(예제·주소·최근 문서)이 있으면 열기 오류 알림에 「다시 시도」(load)
+      throw new ChunkGone('3D 보기를 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 여십시오.', { cause: e });
     }
     if (this.viewer) return;
     // 개체 측정 계산은 같은 조각에 들어 있다(첫 화면 JS 밖 — 뷰어의 누르기로만 쓴다). 끌어온 점 나란함·수직의 기준 선분 거르기도
@@ -1984,6 +1996,25 @@ export class StepApp {
     ));
   }
 
+  /**
+   * 최근 문서 항목(같은 이름·크기)에 남긴 분해 손질 받기(분해 조각 — 받았으면 다시 그린다).
+   * 225차(WCAG 3.3.1·4.1.3): 조각을 받지 못했는데 그 항목에 손질이 있으면 분해 알림과 「다시 시도」(이것을 처음부터 — 전에는 손질이 알림 없이 빠지고,
+   * 분해를 켤 때 뜨는 applyLooks 알림의 다시 시도는 되살리지 않아 이 문서 동안 손질이 빠졌다). 손질이 없는 항목은 조용히(빠지는 것이 없다)
+   */
+  private restoreTweaks(d: StepDoc): Promise<unknown> {
+    return this.loadExplode()
+      .then(() => this.tweakTool?.restore(d))
+      .then(
+        (got) => {
+          if (got && this.doc === d) this.redrawExplode();
+        },
+        (e) =>
+          this.recent.list().then((l) => {
+            if (this.doc === d && l.some((r) => r.id === d.recentKey && r.explode)) this.fail('분해 보기를 받지 못했습니다.', () => this.restoreTweaks(d))(e);
+          }),
+      );
+  }
+
   /** 분해 막대 열고 닫기(닫으면 제자리로, 열 때 화면 방향이면 지금 카메라로 방향을 정한다) */
   toggleExplode(on = !this.explodeOpen): void {
     if (!on) this.tweakTool?.cancel();
@@ -2799,11 +2830,15 @@ export class StepApp {
     }
   }
 
-  /** 보기 링크 적용(지금 문서에): 카메라·단면·분해는 바로, 고른 것(마디·몸체·여러 개)과 격리는 자리 낱말을 푼 뒤 */
-  async applyViewLink(link: ViewLink): Promise<void> {
+  /**
+   * 보기 링크 적용(지금 문서에): 카메라·단면·분해는 바로, 고른 것(마디·몸체·여러 개)과 격리는 자리 낱말을 푼 뒤.
+   * 225차: 다 걸었으면 true — 고른 것·분해 조각을 받지 못했거나(그 알림과 다시 시도가 대신) 그새 다른 문서면 아니다(주소의 보기 안내는 true일 때만 — showDoc)
+   */
+  async applyViewLink(link: ViewLink): Promise<boolean | undefined> {
     const v = this.viewer;
     const d = this.doc;
     if (!v || !d) return;
+    let ok = true;
     if (link.cam) {
       v.setProjection(link.cam.projection);
       v.setCamera({ ...v.getCamera(), ...link.cam, target: [...link.cam.target] });
@@ -2820,19 +2855,23 @@ export class StepApp {
         else this.aimExplode();
       }
       this.explodeOpen = true;
-      // 손질(exm)이 있으면 그 방향의 손질을 링크대로(없는 링크는 이 문서의 손질 그대로 — 34차까지의 링크)
-      if (link.exm) {
-        await this.loadExplode().catch(() => undefined);
-        if (this.doc !== d) return;
-        this.tweakTool?.applyLink(d, link.exm);
-      }
       this.setExplode(link.exp.t);
+      // 손질(exm)이 있으면 그 방향의 손질을 링크대로(없는 링크는 이 문서의 손질 그대로 — 34차까지의 링크) — 분해 조각을 받은 뒤(setExplode가 시작한 같은 받기를 기다린다).
+      // 225차(WCAG 3.3.1·4.1.3): 받지 못하면 분해가 빠져 다 걸지 못함(주소의 보기 안내 없음). 손질이 있으면 분해 알림의 다시 시도를 이 링크로 — 손질까지 처음부터
+      // (같은 받기의 뒤 손잡이라 setExplode → applyLooks 알림을 갈아 끼운다 — 받기 한 번·알림 하나. 전에는 손질이 알림 없이 빠지고 남은 알림의 다시 시도는 손질을 걸지 않았다),
+      // 손질이 없으면 applyLooks 알림 그대로(다시 시도 = 벌리기)
+      ok = !!(await this.loadExplode().then(() => true, link.exm ? this.fail('분해 보기를 받지 못했습니다.', () => this.applyViewLink(link)) : () => false));
+      if (this.doc !== d) return;
+      if (ok && link.exm) {
+        this.tweakTool?.applyLink(d, link.exm);
+        this.redrawExplode();
+      }
     } else if (d.explode || this.explodeOpen) this.toggleExplode(false);
     this.toolbar.refresh();
     // 링크에 격리가 없으면 고른 것이 없거나 이 문서에서 풀리지 않아도 앞서 한 격리를 푼다(149차 — README 보기 링크. 전에는 아래 격리 줄 앞에서 돌아가 남았다)
     if (!link.sel) {
       this.unisolate();
-      return;
+      return ok;
     }
     // 224차: 낱말 조각을 받지 못하면 알림과 「다시 시도」(링크를 처음부터 다시 적용)만 — 고른 것·격리는 그대로(카메라·단면·분해는 이미 걸었다)
     const sel = await this.linker(() => this.applyViewLink(link));
@@ -2840,7 +2879,7 @@ export class StepApp {
     const r = sel.resolveTokens(d.products, link.sel);
     if (!r.ids.length) {
       if (!link.iso) this.unisolate();
-      return;
+      return ok;
     }
     // 몸체 낱말이 가리킨 부품을 펼쳐 몸체 줄을 보인다(많으면 앞의 100개만)
     for (const k of r.open.slice(0, 100)) {
@@ -2854,6 +2893,7 @@ export class StepApp {
     // 격리는 링크대로: 열린 문서에서 해시만 바뀌어도 앞서 한 격리를 풀고 링크의 고른 것으로 다시
     if (d.vis.isolated || d.dim) this.unisolate();
     if (link.iso) this.isolateSelection();
+    return ok;
   }
 
   /** 내보내기 메뉴 항목(도구 막대·휴대폰 보기 설정) */
@@ -3179,12 +3219,16 @@ export class StepApp {
     this.updateStatus();
   }
 
-  /** 오류 알림: 문장 조각(번역층이 조각마다 옮긴다 — 한 글로 이으면 뒤 조각이 변수로 잡혀 한국어로 남는다) */
-  private showError(parts: string[]): void {
+  /**
+   * 오류 알림: 문장 조각(번역층이 조각마다 옮긴다 — 한 글로 이으면 뒤 조각이 변수로 잡혀 한국어로 남는다).
+   * 225차: action이면 알림에 단추(받지 못한 조각의 「다시 시도」·「새로 고침」 — load), 닫는 함수를 돌려준다(같은 글 알림 하나 — dom.ts loadFailed)
+   */
+  private showError(parts: string[], action?: { label: string; run: () => void }): () => void {
     this.lastErrorParts = parts;
     this.lastError = parts.join(' ');
-    this.toast(parts, 'error', 9000);
+    const close = this.toast(parts, 'error', 9000, action);
     this.updateAll();
+    return close;
   }
 
   /**
