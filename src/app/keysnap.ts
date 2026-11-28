@@ -254,7 +254,15 @@ export function installKeySnap(
   // 216차: lockKey 알림(화면 언어 — 코어 다시 알림을 기다린다)과 이음 글(코어 켜기 틀 「…. {0}. {1}」의 {0}과 {1} 사이 — 한·영·독 「. 」, 일·중 「。」)
   let lead = '';
   let gap = ' ';
+  // 230차(WCAG 3.1.2): 영역 글을 넣은 화면 언어 — 언어가 바뀐 뒤 sync(앱 언어 알림)면 앞 언어 알림 글(과 기다리던 잠금 알림)을 비운다(번역층이 건너뛰는 칸이라
+  // 옮겨지지 않고 새 `<html lang>` 아래 남았다 — 다음 알림은 새 언어 틀)
+  let lang = document.documentElement.lang;
   const sync = (): void => {
+    if (document.documentElement.lang !== lang) {
+      lang = document.documentElement.lang;
+      live.textContent = '';
+      lead = '';
+    }
     messages = keySnapMessagesFor(host.tr);
     const st = keySnapMessages(messages).start;
     const i = st.indexOf('{0}');

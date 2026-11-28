@@ -432,9 +432,9 @@ const TOAST = cut(/\n\s*(const t = h\('div', \{ class: `toast \$\{kind\}`[^\n]*)
 const START_MAKE = cut(/\n\s*(this\.startError = h\('div', \{ class: 'start-error'[^\n]*)\n/);
 const START_FILL = cut(/\n\s*(this\.startError\.replaceChildren\([^\n]*)\n/);
 
-/** 오류 알림 하나(app.ts toast의 만드는 줄 — 동작·닫기 버튼 없이) */
+/** 오류 알림 하나(app.ts toast의 만드는 줄 — 동작·닫기 버튼 없이). 230차: ui = 앱 글 칸(toast 기본 — 오류 알림이면 켬) */
 function errorToast(parts: string[]): HTMLElement {
-  return new Function('h', 'icon', 'warningNodes', 'msg', 'kind', 'keep', 'act', 'close', `${TOAST}\nreturn t;`)(h, icon, warningNodes, parts, 'error', false, null, null) as HTMLElement;
+  return new Function('h', 'icon', 'warningNodes', 'msg', 'kind', 'keep', 'act', 'close', 'ui', `${TOAST}\nreturn t;`)(h, icon, warningNodes, parts, 'error', false, null, null, true) as HTMLElement;
 }
 
 /** 처음 화면 읽기 오류(app.ts startError 만들기·채우기 줄 — showError가 남긴 글 조각) */

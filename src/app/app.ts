@@ -2738,12 +2738,13 @@ export class StepApp {
 
   /** 글을 클립보드로(안 되면 파일로 건넨다) */
   private async copyText(text: string, fileName: string, what: string): Promise<void> {
+    // 230차(WCAG 3.1.2): what은 원문(한국어 앱 낱말) — 앱 글 칸 알림이라 번역층이 틀 값도 옮긴다(전에는 화면 언어로 미리 옮긴 낱말을 끼워, 알림이 떠 있는 동안 언어를 바꾸면 앞 언어 낱말이 남았다)
     try {
       await navigator.clipboard.writeText(text);
-      this.toast(`${what}을(를) 클립보드에 복사했습니다.`);
+      this.toast(`${what}을(를) 클립보드에 복사했습니다.`, 'info', 3500, undefined, false, true);
     } catch {
       await this.deliver(new Blob([text], { type: fileName.endsWith('.csv') ? 'text/csv' : 'text/plain' }), fileName);
-      this.toast(`클립보드를 쓸 수 없어 ${what}을(를) 파일로 저장했습니다.`, 'warn');
+      this.toast(`클립보드를 쓸 수 없어 ${what}을(를) 파일로 저장했습니다.`, 'warn', 3500, undefined, false, true);
     }
   }
 
@@ -2754,7 +2755,7 @@ export class StepApp {
     const x = await this.exporter(() => this.copyMeasureCsv());
     if (!x) return;
     const rows = x.measureRows(d.measureLog, this.fmt, (k) => translateUi(k));
-    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, translateUi('측정 기록 CSV'));
+    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-measure.csv`, '측정 기록 CSV');
     trackExport('csv');
   }
 
@@ -2767,7 +2768,7 @@ export class StepApp {
     for (const x of d.pmi.semantic) rows.push([translateUi(this.ent!.semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
     const x = await this.exporter(() => this.copyPmiCsv());
     if (!x) return;
-    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
+    await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, 'PMI 표 CSV');
     trackExport('csv');
   }
 
@@ -3244,13 +3245,14 @@ export class StepApp {
    * 잠깐 보이는 알림(action을 주면 단추 하나 — 누르면 닫고 실행한다, keep이면 알림 칸 한도(셋)에 밀리지 않음 — 144차).
    * ms 뒤 닫는 시계는 pushToast가 맡아 마우스가 올라 있거나 초점이 그 안이면 멈춘다(160차). 닫는 함수도 pushToast가 돌려준다 — 닫히는 알림 안에
    * 초점이 있었으면 알림 칸에 들어오기 전 자리로, 없으면 3D 보기(문서 전이면 시작 화면 「파일 열기」)로 돌려준다(166차). 동작은 닫은 뒤라 명령이 옮긴 초점이 남는다.
-   * 212차: 오류 글 칸은 앱 글 칸(data-i18n-ui) — 해석 일의 「압축을 풀었지만 STEP 글이 아닙니다. {까닭}」처럼 틀이 잡은 까닭(앱 글)도 옮긴다(파일 이름·ZIP 항목 이름은 갇혀 그대로)
+   * 212차: 오류 글 칸은 앱 글 칸(data-i18n-ui) — 해석 일의 「압축을 풀었지만 STEP 글이 아닙니다. {까닭}」처럼 틀이 잡은 까닭(앱 글)도 옮긴다(파일 이름·ZIP 항목 이름은 갇혀 그대로).
+   * 230차: ui면 안내·경고 알림도 앱 글 칸(복사 알림 — 틀이 잡은 앱 낱말을 원문으로 받아 언어를 바꿔도 새 언어로)
    */
-  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }, keep = false): () => void {
+  toast(msg: string | string[], kind: 'info' | 'warn' | 'error' = 'info', ms = 3500, action?: { label: string; run: () => void }, keep = false, ui = kind === 'error'): () => void {
     const close = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '알림 닫기' });
     close.append(icon('close', 14));
     const act = action ? h('button', { type: 'button', class: 'btn small toast-act' }, action.label) : null;
-    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-keep': keep }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', { 'data-i18n-ui': kind === 'error' }, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
+    const t = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-keep': keep }, icon(kind === 'info' ? 'info' : 'warn', 16), h('span', { 'data-i18n-ui': ui }, ...(Array.isArray(msg) ? msg.flatMap((m, i) => (i ? [' ', h('span', {}, ...warningNodes(m))] : [h('span', {}, ...warningNodes(m))])) : [msg])), act, close);
     const remove = pushToast(this.toasts, t, 3, ms, () => (this.doc ? this.viewer?.canvas : this.startOpen));
     act?.addEventListener('click', () => {
       remove();
@@ -3570,9 +3572,10 @@ function translateUi(ko: string): string {
 }
 
 /**
- * 그림 저장 실패 알림. 까닭(코어 Error 글 — 「3D 보기 문맥이 없어 그림을 만들 수 없습니다」 등)은 틀 「그림을 저장하지 못했습니다: {0}」의
- * 자리 값이라 번역층이 그대로 두므로, 끼우기 전에 화면 언어로 옮긴다(115차 — 전에는 다른 언어 화면에서도 까닭이 한국어로 남음)
+ * 그림 저장 실패 알림. 까닭(코어 Error 글 — 「3D 보기 문맥이 없어 그림을 만들 수 없습니다」 등)은 틀 「그림을 저장하지 못했습니다: {0}」의 자리 값이다.
+ * 115차는 번역층이 틀 값을 그대로 두어 끼우기 전에 화면 언어로 옮겼다. 230차(WCAG 3.1.2): 오류 알림은 앱 글 칸(212차)이라 번역층이 틀 값도 옮기므로 원문 그대로 끼운다
+ * (미리 옮긴 까닭은 알림이 떠 있는 동안 언어를 바꾸면 앞 언어로 남았다)
  */
 function imageSaveFailed(e: unknown): string {
-  return `그림을 저장하지 못했습니다: ${translateUi(errorText(e))}`;
+  return `그림을 저장하지 못했습니다: ${errorText(e)}`;
 }

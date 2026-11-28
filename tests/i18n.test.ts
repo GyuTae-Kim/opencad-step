@@ -325,16 +325,17 @@ describe('language URLs and UI presentation', () => {
     expect(translate('경고 2개', 'en')).toBe('2 warnings');
     expect(translate('OBJ로 내보냈습니다: 메시 1개 · 삼각형 12개 · 단위 mm', 'en')).toBe('Exported as OBJ: meshes 1 · triangles 12 · unit mm');
   });
-  it('translates the core Error text before it fills the image-save failure notice (115th)', () => {
-    // 그림 저장 실패 알림(app.ts imageSaveFailed): 코어 Error 글은 틀 「그림을 저장하지 못했습니다: {0}」의 자리 값이라 번역층이 그대로 두므로
-    // 앱이 끼우기 전에 화면 언어로 옮긴다. 글은 설치한 코어 viewer.ts의 throw에서 읽는다(코어가 새 글을 던지면 사전에 없다고 알린다)
+  it('translates the core Error text that fills the image-save failure notice (115th, 230th)', () => {
+    // 그림 저장 실패 알림(app.ts imageSaveFailed): 코어 Error 글은 틀 「그림을 저장하지 못했습니다: {0}」의 자리 값이다. 115차는 앱이 끼우기 전에 화면 언어로 옮겼고,
+    // 230차부터는 원문 그대로 끼워 오류 알림의 앱 글 칸(212차 data-i18n-ui — 번역층이 uiParameters로 틀 값도 옮김)이 옮긴다(미리 옮긴 까닭은 언어를 바꾸면 앞 언어로 남았다).
+    // 글은 설치한 코어 viewer.ts의 throw에서 읽는다(코어가 새 글을 던지면 사전에 없다고 알린다)
     const core = readFileSync(join(process.cwd(), 'node_modules/opencad-viewer3d/src/viewer.ts'), 'utf8');
     const constant = (name: string) => core.match(new RegExp(`const ${name} = '([^']*)'`))?.[1] ?? name;
     const thrown = [...new Set([...core.matchAll(/new Error\((?:'([^']*)'|`([^`]*)`|([A-Z][A-Z0-9_]*))\)/g)]
       .map((m) => m[1] ?? m[2]?.replace(/\$\{[^}]*\}/g, '512') ?? constant(m[3]!)))];
     expect(thrown).toContain('3D 보기 문맥이 없어 그림을 만들 수 없습니다');
     expect(thrown).toContain('그림을 만들지 못했습니다(512×512)');
-    const notice = (reason: string, code: string) => translate(`그림을 저장하지 못했습니다: ${translate(reason, code)}`, code);
+    const notice = (reason: string, code: string) => translate(`그림을 저장하지 못했습니다: ${reason}`, code, true);
     for (const {code} of languages.filter(item => item.code !== 'ko'))
       for (const reason of thrown) {
         expect(translate(reason, code), `${code}: ${reason}`).not.toMatch(/[가-힣]/);
