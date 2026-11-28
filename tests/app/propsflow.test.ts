@@ -48,8 +48,10 @@ function parts(n: number): Uint8Array {
 
 const tablesOf = (s: { meta?: unknown }) => ((s.meta as StepMeta).faceTables ?? []) as StepFaceTable[];
 const bits = (p: Float64Array | undefined) => (p ? Array.from(new Uint8Array(p.buffer, p.byteOffset, p.byteLength)) : null);
+/** 219차(CI 14차 — 공용 규칙 13번): 횟수(setTimeout 2를 2,000번 — 어림 4 s)가 아니라 마감 시간 20 s 안에서 같은 조건으로(부하가 커 가짜 워커 적분이 늦어도 모자라지 않게) */
 const until = async (ok: () => boolean, what: string) => {
-  for (let i = 0; i < 2000 && !ok(); i++) await new Promise((r) => setTimeout(r, 2));
+  const end = Date.now() + 20_000;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 2));
   if (!ok()) throw new Error(`기다림 끝: ${what}`);
 };
 

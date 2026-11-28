@@ -360,6 +360,8 @@ export class StepApp {
       if (f) void this.openFile(f);
     });
     const openBtn = iconButton('open', '열기', { title: 'STEP 파일 열기 (Ctrl+O)', cls: 'primary' });
+    // 219차(WCAG 4.1.2): 같은 일을 하는 앱 키(keys.ts open — Ctrl·⌘ 둘)를 단축키로 알린다(218차 캔버스 값과 같은 꼴)
+    openBtn.setAttribute('aria-keyshortcuts', 'Control+O Meta+O');
     openBtn.addEventListener('click', () => this.pickFile());
     const sampleBtn = iconButton('sample', '예제 열기', { title: '예제 조립 모형 열기' });
     sampleBtn.addEventListener('click', () => void this.openSample());
@@ -493,7 +495,8 @@ export class StepApp {
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기.
     // 알림은 바뀌는 글 칸(이름표·이름)만(145차 — 전에는 띠 전체가 status라 「격리 풀기」 버튼 이름까지 읽혔다, 53차 측정 띠와 같은 꼴)
     this.isoText = h('span', { class: 'iso-text', role: 'status', 'data-i18n-ui': '' });
-    const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
+    // 219차: 격리 띠는 격리 중에만 보이고 그동안 I(keys.ts isolate)는 격리를 푼다 — 같은 일을 하는 앱 키를 단축키로 알린다
+    const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)', 'aria-keyshortcuts': 'I' }, icon('eye', 16), h('span', {}, '격리 풀기'));
     isoOff.addEventListener('click', () => this.unisolate());
     this.isoLabel = h('span', { class: 'iso-label', role: 'status' }, '이것만 보기');
     this.isoBar = h('div', { class: 'iso-bar', hidden: true }, this.isoLabel, this.isoText, isoOff);

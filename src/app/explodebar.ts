@@ -234,9 +234,10 @@ export class ExplodeControls {
         '손질 파일',
       ),
     );
-    this.undoBtn = h('button', { type: 'button', class: 'seg-btn explode-undo', title: '손질 한 단계 되돌리기 (Ctrl+Z)', hidden: true }, icon('reset', 14), h('span', {}, '되돌리기'));
+    // 219차(WCAG 4.1.2): 같은 일을 하는 앱 키(keys.ts undo·redo — 같은 손질 도구 함수)를 단축키로 알린다(Ctrl·⌘ 둘, 다시 하기는 Windows 꼴 Ctrl+Y도 — 218차 캔버스 값과 같은 꼴)
+    this.undoBtn = h('button', { type: 'button', class: 'seg-btn explode-undo', title: '손질 한 단계 되돌리기 (Ctrl+Z)', 'aria-keyshortcuts': 'Control+Z Meta+Z', hidden: true }, icon('reset', 14), h('span', {}, '되돌리기'));
     this.undoBtn.addEventListener('click', () => tweak.undo?.());
-    this.redoBtn = h('button', { type: 'button', class: 'seg-btn explode-redo', title: '되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)', hidden: true }, icon('reset', 14), h('span', {}, '다시 하기'));
+    this.redoBtn = h('button', { type: 'button', class: 'seg-btn explode-redo', title: '되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)', 'aria-keyshortcuts': 'Control+Shift+Z Meta+Shift+Z Control+Y', hidden: true }, icon('reset', 14), h('span', {}, '다시 하기'));
     this.redoBtn.addEventListener('click', () => tweak.redo?.());
     this.resetBtn = h('button', { type: 'button', class: 'seg-btn explode-reset', title: '손질을 모두 지우고 계획 자리로', hidden: true }, '모두 되돌리기');
     this.resetBtn.addEventListener('click', () => tweak.reset?.());

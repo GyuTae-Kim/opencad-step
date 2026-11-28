@@ -133,7 +133,9 @@ export class Toolbar {
     this.el = h('nav', { class: 'toolbar', role: 'toolbar', 'aria-label': '보기 도구', id: 'view-tools' });
     const H = host;
 
-    this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit());
+    // 219차(WCAG 4.1.2): 말풍선이 말하는 키 가운데 이 버튼과 같은 일을 하는 앱 키를 단축키로 알린다(218차 캔버스 값과 같은 꼴 — F는 코어 handleKey의 fit, 격자 F7은 keys.ts grid).
+    // 표준 뷰(1~7 — 메뉴 항목의 일)·측정(Esc — 지우기)·고르기(누르기 수정 키)는 같은 일이 아니라 달지 않는다
+    this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit()).el.setAttribute('aria-keyshortcuts', 'F');
     const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (모델 트리에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
       focus.el.disabled = !H.hasDoc || !H.hasSelection;
     }, 'wide-only');
@@ -194,7 +196,7 @@ export class Toolbar {
     section.el.classList.add('has-menu');
     this.sep('wide-only');
 
-    this.toggle('grid', '격자', '바닥 격자 (F7)', () => H.gridOn, () => H.toggleGrid(), 'wide-only');
+    this.toggle('grid', '격자', '바닥 격자 (F7)', () => H.gridOn, () => H.toggleGrid(), 'wide-only').el.setAttribute('aria-keyshortcuts', 'F7');
     this.toggle('cube', '뷰 큐브', '뷰 큐브 보이기', () => H.cubeOn, () => H.toggleCube(), 'wide-only');
     this.toggle('axes', '좌표축', '좌표축 보이기', () => H.axesOn, () => H.toggleAxes(), 'wide-only');
     this.sep();

@@ -73,9 +73,13 @@ function marks(v: Viewer3d): { fills: number; strokes: number; moves: [number, n
   return out;
 }
 
-/** 면 셈 조각(코어 import())이 와서 면 표식이 그려질 때까지 이벤트 고리를 돌린다 */
+/**
+ * 면 셈 조각(코어 import())이 와서 면 표식이 그려질 때까지 이벤트 고리를 돌린다.
+ * 219차(CI 14차 — 공용 규칙 13번): 횟수(setTimeout 0을 400번 — 어림 0.4 s)가 아니라 마감 시간 10 s 안에서 같은 조건으로(부하가 커 조각 받기가 늦어도 모자라지 않게)
+ */
 async function faceKitReady(v: Viewer3d): Promise<void> {
-  for (let i = 0; i < 400 && marks(v).fills === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  const end = Date.now() + 10_000;
+  while (marks(v).fills === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 0));
 }
 
 /** 지금 후보(가상 커서 차례의 고르기 후보 — 코어와 같은 선택·묶음으로 다시 구한다) */
