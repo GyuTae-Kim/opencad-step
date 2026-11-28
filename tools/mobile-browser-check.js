@@ -59,7 +59,9 @@ async (page) => {
   await page.goto(origin+'?sample'); await loaded('opencad-sample.stp');
   await page.context().route('**/missing.stp', (route) => route.fulfill({status:404, body:'missing'}));
   await page.goto(origin+'?open=missing.stp');
-  await page.locator('.start-error[role=alert]').filter({hasText:'HTTP 404'}).waitFor();
+  // Round 244 (WCAG 4.1.3): the error alert announces it once; the start-screen error keeps the same text without being a second live region
+  await page.locator('.toast.error[role=alert]').filter({hasText:'HTTP 404'}).waitFor();
+  await page.locator('.start-error:not([role])').filter({hasText:'HTTP 404'}).waitFor();
   assert((await state()).docName === null, 'A missing ?open file shows an alert and leaves the start screen usable');
   await page.locator('.start').getByRole('button', {name:'예제 열기', exact:true}).click();
   await loaded('opencad-sample.stp');
