@@ -503,8 +503,8 @@ export class StepApp {
     this.isoOff.addEventListener('click', () => this.unisolate());
     this.isoLabel = h('span', { class: 'iso-label', role: 'status' }, '이것만 보기');
     this.isoBar = h('div', { class: 'iso-bar', hidden: true }, this.isoLabel, this.isoText, this.isoOff);
-    // 220차: 격리 띠는 3D 보기 밖이라 172차 설정을 끄면 I가 듣지 않아 값에서 뺀다(setLetterKeys가 다시 단다)
-    markKeys(this.isoOff, 'I', this.letterKeys);
+    // 220차: 격리 띠는 3D 보기 밖이라 172차 설정을 끄면 I가 듣지 않아 값에서 뺀다(setLetterKeys가 다시 단다). 221차: 말풍선(좁은 창에서는 이름)도 「(I)」 없이
+    markKeys(this.isoOff, 'I', this.letterKeys, '격리 풀기');
     // 분해 막대(3D 보기 위 가운데): 분해 정도 0~100%와 닫기(제자리로)
     this.explodeSlider = h('input', { type: 'range', class: 'explode-slider', min: '0', max: '100', step: '1', value: '0', 'aria-label': '분해 정도' });
     this.explodeSlider.addEventListener('input', () => this.setExplode(Number(this.explodeSlider.value) / 100));
@@ -2078,11 +2078,11 @@ export class StepApp {
 
   /**
    * 172차 설정을 켜고 끈다(이 브라우저에 기억). 220차(WAI-ARIA — 값은 그 버튼이 받는 키만): 3D 보기 밖 버튼(격리 풀기·도구 막대 전체 보기)의 단축키 값을 다시 단다
-   * (메뉴 항목은 열 때 그 설정으로 단다)
+   * (메뉴 항목은 열 때 그 설정으로 단다). 221차: 말풍선(격리 풀기·전체 보기·표준 뷰)·메뉴 키 글도 같은 키만
    */
   private setLetterKeys(on: boolean): void {
     this.letterKeys = writeLetterKeys(safeLocalStorage(), on);
-    markKeys(this.isoOff, 'I', on);
+    markKeys(this.isoOff, 'I', on, '격리 풀기');
     this.toolbar.refresh();
   }
 

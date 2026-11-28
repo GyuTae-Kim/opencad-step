@@ -8,9 +8,12 @@ import { fileSpan } from './ftext';
 
 export interface MenuItem {
   label: string;
-  /** 오른쪽에 보일 단축키 */
+  /** 오른쪽에 보일 단축키(221차: 번역하지 않는 원문 — 한글이 없어 사전 밖, 키 도움말 표 kbd와 같이 translate="no") */
   hint?: string;
-  /** 220차: 같은 일을 하는 앱 키(aria-keyshortcuts 값 — 부르는 쪽이 172차 설정대로 고른 값, keys.ts outsideKeys). 없으면 달지 않는다 */
+  /**
+   * 220차: 같은 일을 하는 앱 키(aria-keyshortcuts 값 — 부르는 쪽이 172차 설정대로 고른 값, keys.ts outsideKeys). 없으면 달지 않는다.
+   * 221차: null(설정을 꺼 그 키가 메뉴 밖에서 듣지 않음)이면 키 글도 보이지 않는다 — 보이는 키 = 값(값을 주지 않는 Enter·Alt 키 글은 그대로)
+   */
   keys?: string | null;
   /** 고른 상태(라디오, toggle이면 켜짐) — undefined면 표시 없는 명령 */
   checked?: boolean;
@@ -97,7 +100,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       h('span', { class: `menu-check${it.toggle ? ' tick' : ''}`, 'aria-hidden': 'true' }, it.checked ? (it.toggle ? '✓' : '●') : ''),
       h('span', { class: 'menu-label' }, it.label),
       it.file ? fileSpan(it.file, 'menu-file') : null,
-      it.hint ? h('kbd', {}, it.hint) : null,
+      it.hint && it.keys !== null ? h('kbd', { translate: 'no' }, it.hint) : null,
     );
     b.addEventListener('click', () => {
       // 항목을 고르면 메뉴가 사라지므로 초점을 연 단추로 돌려준다(키보드로 고른 뒤 초점이 문서 처음으로 날아가지 않게,

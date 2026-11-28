@@ -18,6 +18,8 @@
  *   (ㄴ) 시작 화면 「파일 열기」와 키 글(kbd)이 보이는 메뉴 항목(표준 뷰 메뉴 Home·1~7, 작업 메뉴 H·I·F, 분해 손질 Ctrl·⌘+Z·Ctrl·⌘+Shift+Z)에 같은 일을 하는 앱 키(그 함수를 routeKey → onKey가
  *   부를 때만 — 「거리로 옮기기…」 Enter는 routeKey 밖이라 없음). 메뉴 항목은 열린 동안만 있고 그동안 수정 키 없는 키는 메뉴 것(158차)이라, 값은 메뉴 밖(3D 보기 밖 초점)에서 그 항목의 일을 하는 키.
  *   (ㄷ) 172차 설정을 끄면 3D 보기 밖 값(도구 막대 전체 보기·격리 띠 격리 풀기·메뉴 항목)에서 수정 키 없는 한 글자 키를 뺀다(3D 보기 밖 초점의 routeKey viewOnly가 받는 키 = 값 — 켜면 다시)
+ * - 221차: (ㄱ) 분해 손질 메뉴 키 글이 분해 막대 말풍선 꼴(「Ctrl·⌘+Z」·「Ctrl·⌘+Shift+Z·Ctrl+Y」)이고 그 키 = 값, 메뉴 키 글은 translate="no"(한글이 없어 사전 밖 — 원문만).
+ *   (ㄴ) 172차 설정을 끄면 3D 보기 밖 말풍선(전체 보기 「(F)」·격리 풀기 「(I)」·표준 뷰 「(1 앞 · …)」)과 메뉴 키 글(H·I·F·1~7)도 그 칸에서 듣는 키만 — 보이는 키 = 값(220차까지 값만 빠짐)
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -450,8 +452,8 @@ describe('말풍선이 단축키를 말하는 버튼의 aria-keyshortcuts = 같�
     expect(routeNames('open')).toEqual(['Control+O', 'Meta+O']);
     expect(routeNames('isolate')).toEqual(['I']);
     expect(lit(/openBtn\.setAttribute\('aria-keyshortcuts', '([^']+)'\);/)).toEqual(routeNames('open').sort());
-    // 220차: 격리 풀기 값은 만들 때와 172차 설정을 바꿀 때 keys.ts markKeys로(설정을 끄면 한 글자 키를 뺀다 — 아래 220차 (ㄷ))
-    expect(lit(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys\);/)).toEqual(routeNames('isolate'));
+    // 220차: 격리 풀기 값은 만들 때와 172차 설정을 바꿀 때 keys.ts markKeys로(설정을 끄면 한 글자 키를 뺀다 — 아래 220차 (ㄷ)), 221차: 말풍선도 함께(이름 인자)
+    expect(lit(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys, '격리 풀기'\);/)).toEqual(routeNames('isolate'));
     expect(APP).toContain("openBtn.addEventListener('click', () => this.pickFile());");
     expect(appBetween("case 'open':", 'return;')).toContain('this.pickFile();');
     expect(APP).toContain("isoOff.addEventListener('click', () => this.unisolate());");
@@ -571,7 +573,7 @@ describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목�
     };
     pairs.push(
       [found(/const openBtn = iconButton\('open', '열기', \{ title: '([^']+)'/), found(/openBtn\.setAttribute\('aria-keyshortcuts', '([^']+)'\);/)],
-      [found(/this\.isoOff = h\('button', \{[^}]*title: '([^']+)'/), found(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys\);/)],
+      [found(/this\.isoOff = h\('button', \{[^}]*title: '([^']+)'/), found(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys, '격리 풀기'\);/)],
     );
     for (const [t, v] of pairs) expect(titleKeys(t), t).toEqual(v.split(' ').sort());
     // 손셈: 여섯 버튼의 말풍선
@@ -653,8 +655,9 @@ describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목�
       expect(m, String(re)).not.toBeNull();
       return m![1]!.split(' ').sort();
     };
-    expect(tw(/\{ label: '손질 되돌리기', hint: 'Ctrl\+Z', keys: '([^']+)', [^}]*run: \(\) => this\.undo\(\) \}/)).toEqual(outsideNames('undo', true));
-    expect(tw(/\{ label: '손질 다시 하기', hint: 'Ctrl\+Shift\+Z', keys: '([^']+)', [^}]*run: \(\) => this\.redo\(\) \}/)).toEqual(outsideNames('redo', true));
+    // 221차: 키 글은 분해 막대 말풍선 꼴(아래 221차 (ㄱ)) — 여기서는 값만
+    expect(tw(/\{ label: '손질 되돌리기', hint: '[^']+', keys: '([^']+)', [^}]*run: \(\) => this\.undo\(\) \}/)).toEqual(outsideNames('undo', true));
+    expect(tw(/\{ label: '손질 다시 하기', hint: '[^']+', keys: '([^']+)', [^}]*run: \(\) => this\.redo\(\) \}/)).toEqual(outsideNames('redo', true));
     // Enter는 routeKey 밖(창 캡처 tweakTool.key — 메뉴 항목의 Enter는 그 항목 누르기)이라 달지 않는다
     expect(EXT).toMatch(/\{ label: '거리로 옮기기…', hint: 'Enter', run: /);
     expect(outsideNames('viewer', true)).toContain('Enter');
@@ -699,7 +702,7 @@ describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목�
     } finally {
       closeMenu();
     }
-    // 작업 메뉴: 끄면 H·I·F 항목에 값 없음(키 글은 그대로 — 3D 보기에서는 그 키가 듣는다)
+    // 작업 메뉴: 끄면 H·I·F 항목에 값 없음(항목의 hint는 그대로 — 221차부터 menu.ts가 값이 null이면 키 글을 그리지 않는다, 아래 221차 (ㄴ))
     for (const c of CTX_CASES) {
       const items = contextItems(ctxHost([], { ...c, letters: false }), null, { x: 0, y: 0 });
       checkCtx(items, false, core);
@@ -707,13 +710,153 @@ describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목�
       expect(items.filter((it) => it.hint).length, JSON.stringify(c)).toBeGreaterThan(0);
     }
     // 앱(원문): 격리 풀기는 만들 때 그 설정으로, 설정 메뉴 항목은 setLetterKeys(기억 → 격리 풀기 → 도구 막대 다시 그리기), 도구 막대·작업 메뉴 호스트는 앱의 lettersOutside
-    expect(APP).toContain("markKeys(this.isoOff, 'I', this.letterKeys);");
+    expect(APP).toContain("markKeys(this.isoOff, 'I', this.letterKeys, '격리 풀기');");
     expect(APP).toContain('run: () => this.setLetterKeys(!this.letterKeys) },');
     const set = appBetween('  private setLetterKeys(on: boolean): void {', '\n  }\n');
     expect(set).toContain('this.letterKeys = writeLetterKeys(safeLocalStorage(), on);');
-    expect(set).toContain("markKeys(this.isoOff, 'I', on);");
+    expect(set).toContain("markKeys(this.isoOff, 'I', on, '격리 풀기');");
     expect(set).toContain('this.toolbar.refresh();');
     expect(appBetween('  get lettersOutside(): boolean {', '\n  }')).toContain('return this.letterKeys;');
+  });
+});
+
+describe('221차: 메뉴 키 글 = 말풍선 꼴, 172차 설정을 끄면 3D 보기 밖 말풍선·메뉴 키 글도 값을 따라감', () => {
+  it('(ㄱ) 분해 손질 메뉴 키 글(explodetool.ts 원문)이 분해 막대 말풍선 끝 괄호(jsdom)와 같은 글이고 그 키 = 값 — 220차까지 「Ctrl+Z」·「Ctrl+Shift+Z」에 ⌘·Ctrl+Y가 없었다. 메뉴 키 글은 translate="no"(한글이 없어 사전 밖 — 원문만)', () => {
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      { undo: () => {}, redo: () => {} },
+    );
+    const tip = (cls: string): string => {
+      const b = c.els.flatMap((e) => [...e.querySelectorAll<HTMLButtonElement>(`button.${cls}`)])[0];
+      expect(b, cls).toBeDefined();
+      return /\(([^()]+)\)$/.exec(b!.title)![1]!;
+    };
+    const item = (label: string): [string, string] => {
+      const m = new RegExp(`\\{ label: '${label}', hint: '([^']+)', keys: '([^']+)', `).exec(EXT);
+      expect(m, label).not.toBeNull();
+      return [m![1]!, m![2]!];
+    };
+    const pairs = [
+      ['손질 되돌리기', 'explode-undo', 'undo'],
+      ['손질 다시 하기', 'explode-redo', 'redo'],
+    ] as const;
+    const hints = pairs.map(([label, cls, action]) => {
+      const [hint, keys] = item(label);
+      expect(hint, label).toBe(tip(cls));
+      expect(titleKeys(`(${hint})`), label).toEqual(keys.split(' ').sort());
+      // 수정 키 명령이라 172차 설정과 무관
+      expect(keys.split(' ').sort(), label).toEqual(outsideNames(action, false));
+      return hint;
+    });
+    expect(hints).toEqual(['Ctrl·⌘+Z', 'Ctrl·⌘+Shift+Z·Ctrl+Y']);
+    // 그린 메뉴: 키 글은 translate="no"(키 도움말 표 kbd와 같은 꼴 — 번역층·브라우저 번역이 키 이름을 옮기지 않는다)
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    try {
+      openMenu(
+        anchor,
+        [
+          { label: '거리로 옮기기…', hint: 'Enter', run: () => {} },
+          { label: '손질 되돌리기', hint: hints[0], keys: 'Control+Z Meta+Z', run: () => {} },
+          { label: '손질 다시 하기', hint: hints[1], keys: 'Control+Shift+Z Meta+Shift+Z Control+Y', run: () => {} },
+        ],
+        '작업 메뉴',
+      );
+      expect([...document.querySelectorAll('.menu kbd')].map((k) => [k.textContent, k.getAttribute('translate')])).toEqual([
+        ['Enter', 'no'],
+        [hints[0], 'no'],
+        [hints[1], 'no'],
+      ]);
+    } finally {
+      closeMenu();
+      anchor.remove();
+    }
+    // 사전에 키 글 열쇠는 없다(공용 규칙 9번 — 한글 없는 열쇠를 두지 않음)
+    for (const lang of LANGS) for (const hint of hints) expect(translate(hint, lang), lang).toBe(hint);
+  });
+
+  it('(ㄴ) 172차 설정을 끄면 3D 보기 밖 말풍선·메뉴 키 글도 그 칸에서 듣는 키만 = 값(WAI-ARIA 1.2 §6.7 — 말풍선은 그 요소의 단축키를 드러내는 자리) — 220차까지 값만 빠지고 「(F)」·「(I)」·「(1 앞 · …)」·키 글 H·I·F·1~7은 그대로', () => {
+    // keys.ts markKeys 이름 인자: 말풍선 「이름 (키)」 — 끄면 이름만(값과 함께), 켜면 다시
+    const el = document.createElement('button');
+    const mark = (L: boolean) => {
+      markKeys(el, 'I', L, '격리 풀기');
+      return [el.title, el.getAttribute('aria-keyshortcuts')];
+    };
+    expect([mark(true), mark(false), mark(true)]).toEqual([
+      ['격리 풀기 (I)', 'I'],
+      ['격리 풀기', null],
+      ['격리 풀기 (I)', 'I'],
+    ]);
+    // 끈 말풍선은 이미 있는 열쇠(버튼·메뉴 이름) — 네 사전에 한글 없이
+    for (const t of ['전체 보기', '격리 풀기', '표준 뷰']) for (const lang of LANGS) expect(translate(t, lang), `${lang}: ${t}`).not.toMatch(/[가-힣]/);
+    const core = coreRig();
+    let letters = true;
+    const tb = new Toolbar({
+      ...toolHost([]),
+      get lettersOutside() {
+        return letters;
+      },
+    });
+    const tool = (n: string) => tb.el.querySelector<HTMLButtonElement>(`button[data-tool="${n}"]`)!;
+    for (const L of [false, true, false, true]) {
+      letters = L;
+      tb.refresh();
+      // 전체 보기: 말풍선 괄호의 키 = 값(없으면 괄호도 없음)
+      const fit = tool('fit');
+      expect(fit.title, String(L)).toBe(L ? '전체 보기 (F)' : '전체 보기');
+      expect(L ? titleKeys(fit.title) : [], String(L)).toEqual(valueOf(fit));
+      // 표준 뷰 버튼 말풍선의 뷰 키 1~7: 3D 보기 밖에서 그 키가 뷰를 바꿀 때만
+      const views = tool('views').title;
+      expect(views === '표준 뷰', String(L)).toBe(core('front', L).length === 0);
+      if (L) expect(views).toMatch(/^표준 뷰 \(1 .+ · 7 .+\)$/);
+      // 표준 뷰 메뉴(열 때 그 설정으로): 키 글이 보이는 줄 = 값이 있는 줄, 키 글 = 값
+      try {
+        const rows = viewsMenu(tb);
+        expect(rows.filter((r) => r.hint).map((r) => [r.label, r.hint]), String(L)).toEqual(rows.filter((r) => r.keys.length).map((r) => [r.label, r.keys.join(' ')]));
+        expect(rows.filter((r) => r.hint).length, String(L)).toBe(L ? 8 : 1);
+      } finally {
+        closeMenu();
+      }
+    }
+    // 작업 메뉴(jsdom contextItems → openMenu): 줄마다 키 글 = 값 — 끄면 H·I·F 키 글이 없고 켜면 다시
+    for (const L of [false, true])
+      for (const c of CTX_CASES) {
+        const items = contextItems(ctxHost([], { ...c, letters: L }), null, { x: 0, y: 0 });
+        const anchor = document.createElement('button');
+        document.body.append(anchor);
+        try {
+          openMenu(anchor, items, '작업 메뉴');
+          const rows = [...document.querySelectorAll('.menu .menu-item')].map((r) => [r.querySelector('kbd')?.textContent ?? null, r.getAttribute('aria-keyshortcuts')]);
+          for (const [kbd, keys] of rows) expect(kbd, `${L} ${JSON.stringify(c)}`).toBe(keys);
+          expect(rows.some(([kbd]) => kbd), `${L} ${JSON.stringify(c)}`).toBe(L);
+        } finally {
+          closeMenu();
+          anchor.remove();
+        }
+      }
+    // 값을 주지 않는 키 글(Enter — routeKey 밖, Alt — 누르기 수정 키)은 그대로 보이고, 설정이 뺀 값(null)이면 키 글도 없다
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    try {
+      openMenu(
+        opener,
+        [
+          { label: '숨기기', hint: 'H', keys: null, run: () => {} },
+          { label: '면·모서리', hint: 'Alt', run: () => {} },
+        ],
+        '작업 메뉴',
+      );
+      expect([...document.querySelectorAll('.menu .menu-item')].map((r) => r.querySelector('kbd')?.textContent ?? null)).toEqual([null, 'Alt']);
+    } finally {
+      closeMenu();
+      opener.remove();
+    }
+    // 앱(원문): 격리 풀기는 만들 때·설정을 바꿀 때 markKeys에 이름(말풍선도 따라감) — 격리 띠 원문 조각(filecells209·keynav가 h·icon만 넘겨 돌림) 밖
+    expect(APP).toContain("markKeys(this.isoOff, 'I', this.letterKeys, '격리 풀기');");
+    expect(appBetween('  private setLetterKeys(on: boolean): void {', '\n  }\n')).toContain("markKeys(this.isoOff, 'I', on, '격리 풀기');");
+    // 조각 안 219차 주석은 「값은 아래 markKeys」라 부르는 꼴(이름 뒤 괄호)만 본다
+    expect(/this\.isoText = h\([\s\S]*?this\.isoBar = h\([^\n]*\n/.exec(APP)![0]).not.toContain('markKeys(');
   });
 });
 
