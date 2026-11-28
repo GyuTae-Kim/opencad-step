@@ -43,9 +43,15 @@ function uiTranslate(source: string, language: string): string {
   return out;
 }
 const SKIP = '[data-static-languages], [translate="no"], [data-i18n-skip], script, style, [contenteditable]:not([contenteditable="false"]), textarea, input, code, pre, canvas, svg, .anno-layer, .pmi-layer, .docname, .doc-name, .code-list, .cmd-input, .file-name, .tree .name, .tree-name, .boot-recent-list button, .plist .name, .def-cell, .scene-tabs, .scene-cap, .group-item:not(.opt) .name';
-export async function installLocalization(root: HTMLElement): Promise<() => void> {
+/**
+ * 224차(WCAG 3.3.1·4.1.3): 사전 조각을 받지 못하면(오프라인에서 새 판과 옛 캐시가 엇갈림·네트워크 끊김) failed로 알린다(앱 — 바꾸기 전 화면 언어의 경고 알림과
+ * 「다시 시도」 = 그 언어로 바꾸기, 까닭은 콘솔에만). 처음 받기에 실패하면 원문(한국어)으로 세운다(lang·언어 메뉴도 한국어 — 전에는 거절로 끝나 번역층·언어 메뉴가 서지 않았다).
+ * 언어 메뉴로 바꾸다 실패하면 지금 언어 그대로(전에는 아무 알림 없이 끝났다)
+ */
+export async function installLocalization(root: HTMLElement, failed?: (e: unknown, retry: () => void) => void): Promise<() => void> {
+  const fail = (e: unknown, code: string): void => failed?.(e, () => void changeLanguage(code));
   let language = currentLanguage(location.href);
-  await loadLanguage(language);
+  try { await loadLanguage(language); } catch (e) { fail(e, language); language = 'ko'; }
   const originalViews = Object.entries(VIEW_LABELS);
   // View cube face labels (core viewcube module) are relabeled by the app once the viewer chunk is loaded (app.ts relabelCube — 61st round:
   // keeps the core viewcube module out of the first-screen bundle)
@@ -139,7 +145,7 @@ export async function installLocalization(root: HTMLElement): Promise<() => void
     }
   }
   async function changeLanguage(next: string): Promise<void> {
-    try { await loadLanguage(next); } catch { return; }
+    try { await loadLanguage(next); } catch (e) { fail(e, next); return; }
     const url = new URL(languageUrl(location.href,next));
     // Dev servers use /en/; published apps use /opencad-<format>/en/.
     if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {

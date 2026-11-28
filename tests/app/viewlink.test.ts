@@ -143,14 +143,17 @@ describe('보기 링크 글(#view=…;sel:…)', () => {
 
 describe('149차: 열린 문서에 받은 보기 링크의 격리(README 「보기 링크」 — 링크에 격리가 없으면 앞서 한 격리를 풉니다)', () => {
   it('고른 것이 없거나 이 문서에서 자리 낱말이 풀리지 않는 링크도 격리가 없으면 앞서 한 이것만 보기·나머지 흐리게를 풀고, 고른 것이 풀린 링크는 그대로(고른 뒤 풀고 iso:1이면 다시 격리)', async () => {
-    // app.ts 원문 applyViewLink 몸통을 잘라 실제 링크 풀기·자리 낱말 풀기로 돌린다(앱 전체는 시험에서 띄우지 않는다 — 낱말 모듈 import()만 받은 모듈로 바꿈)
+    // app.ts 원문 applyViewLink 몸통을 잘라 실제 링크 풀기·자리 낱말 풀기로 돌린다(앱 전체는 시험에서 띄우지 않는다 — 낱말 모듈 받기만 받은 모듈로 바꿈).
+    // 224차: 낱말 모듈은 linker(받지 못하면 알림과 「다시 시도」를 띄우고 undefined — loadfail224)로 받는다 — 가짜 this의 linker가 받은 모듈(또는 받지 못함)을 준다
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
     const body = /\n {2}async applyViewLink\(link: ViewLink\): Promise<void> \{\n([\s\S]*?)\n {2}\}\n/.exec(app)?.[1];
-    expect(body).toContain("(await import('./selink')).resolveTokens(d.products, link.sel)");
-    type Run = (this: object, link: ViewLink | null, selink: { resolveTokens: typeof resolveTokens }, screenAxis: () => boolean, reveal: typeof revealKey, label: typeof multiLabel) => Promise<void>;
+    expect(body).toContain('const sel = await this.linker(() => this.applyViewLink(link));');
+    expect(body).toContain('if (!sel || this.doc !== d) return;');
+    expect(body).toContain('const r = sel.resolveTokens(d.products, link.sel);');
+    type Run = (this: object, link: ViewLink | null, screenAxis: () => boolean, reveal: typeof revealKey, label: typeof multiLabel) => Promise<void>;
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => Run;
-    const run = new AsyncFunction('link', 'selink', 'screenAxis', 'revealKey', 'multiLabel', body!.replace("import('./selink')", 'selink'));
-    const apply = async (hash: string, start: 'hide' | 'dim' | null): Promise<[string, string]> => {
+    const run = new AsyncFunction('link', 'screenAxis', 'revealKey', 'multiLabel', body!);
+    const apply = async (hash: string, start: 'hide' | 'dim' | null, fails = false): Promise<[string, string]> => {
       const log: string[] = [];
       const d = { products: tree, vis: { isolated: start === 'hide' ? new Set(['m0']) : null as Set<string> | null }, dim: start === 'dim' ? new Set(['m0']) : null as Set<string> | null, explode: 0, expanded: new Set<string>() };
       const self = {
@@ -174,8 +177,14 @@ describe('149차: 열린 문서에 받은 보기 링크의 격리(README 「보�
           log.push('격리');
           return true;
         },
+        // 앱 linker 꼴: 받으면 낱말 모듈, 받지 못하면 알림(다시 시도는 링크를 처음부터 다시 적용)을 띄우고 undefined
+        linker: (retry: () => unknown) => {
+          if (!fails) return Promise.resolve({ resolveTokens });
+          log.push(`알림(다시 시도 ${typeof retry})`);
+          return Promise.resolve(undefined);
+        },
       };
-      await run.call(self, decodeViewLink(hash), { resolveTokens }, () => false, revealKey, multiLabel);
+      await run.call(self, decodeViewLink(hash), () => false, revealKey, multiLabel);
       return [log.join(' · '), d.vis.isolated ? [...d.vis.isolated].join(',') : d.dim ? '흐리게' : '없음'];
     };
     const cam = 'cam:1,2,3,50,0.5,-0.25,p';
@@ -199,6 +208,11 @@ describe('149차: 열린 문서에 받은 보기 링크의 격리(README 「보�
       ['마디 0/7 · 격리 풀기', '없음'],
       ['몸체 b2 · 격리 풀기 · 격리', '고른 것'],
       ['', '없음'],
+    ]);
+    // 224차: 낱말 모듈을 받지 못하면 알림만 — 고른 것·격리는 그대로(앞 격리를 풀지도 다시 걸지도 않음), 단면·카메라는 이미 걸렸다
+    expect([await apply('#view=sel:0/7', 'hide', true), await apply('#view=sec:0,0,1,5;sel:0/6.2;iso:1', 'dim', true)]).toEqual([
+      ['알림(다시 시도 function)', 'm0'],
+      ['단면 · 알림(다시 시도 function)', '흐리게'],
     ]);
   });
 });

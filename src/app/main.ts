@@ -58,6 +58,6 @@ if (root) {
     },
   };
   void app.start();
+  // 224차: 사전 조각을 받지 못하면(오프라인에서 새 판과 옛 캐시가 엇갈림 등) 바꾸기 전 화면 언어로 경고 알림과 「다시 시도」(그 언어로 다시 바꾸기 — i18n.ts)
+  void installLocalization(root, (e, retry) => app.fail('고른 언어를 받지 못했습니다.', retry)(e));
 }
-
-if (root) void installLocalization(root);
