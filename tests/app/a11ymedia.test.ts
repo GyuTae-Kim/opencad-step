@@ -552,12 +552,21 @@ describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG
   const line = (R: Rules, sel: string) => px(R, sel, 'border', 'border-width', 'border-top-width');
   const z = (sel: string) => parseFloat(PLAIN.get(sel)?.['z-index'] ?? '');
   const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
-  /** 3D 보기 자식 차례(app.ts viewEl) — 같은 z면 뒤 칸이 위에 그려진다 */
-  const kids = /\n {4}this\.viewEl = h\('section', \{[^}]*\}, ([^;]*)\);/.exec(app)?.[1]?.split(',').map((s) => s.trim()) ?? [];
+  /**
+   * 3D 보기 자식 차례(app.ts viewEl) — 같은 z면 뒤 칸이 위에 그려진다.
+   * 226차: 단면 손잡이·단면 막대는 뷰어 조각(sectionbar.ts)에서 뷰어를 만들 때 만들어 끼운다(ensureViewer — 손잡이는 조준 층 뒤, 막대는 끌어 놓기 안내 뒤).
+   * 시작 화면(그 전)에는 숨은 두 칸이 없을 뿐이고 문서를 연 뒤 차례는 225차까지와 같다 — 원문의 두 끼우기 줄로 그 차례를 만들어 본다
+   */
+  const start = /\n {4}this\.viewEl = h\('section', \{[^}]*\}, ([^;]*)\);/.exec(app)?.[1]?.split(',').map((s) => s.trim()) ?? [];
+  const insert = /\n\s*const bar = \(this\.sectionBar = new core\.SectionBar\(this\)\);\n\s*this\.(\w+)\.after\(bar\.handle\);\n\s*this\.(\w+)\.after\(bar\.el\);\n/.exec(app);
+  const kids = start.flatMap((k) => (k === `this.${insert?.[1]}` ? [k, 'this.sectionBar.handle'] : k === `this.${insert?.[2]}` ? [k, 'this.sectionBar.el'] : [k]));
   const STACK = '.view:has(.section-bar:not([hidden])) .top-bars';
 
   it('191차: 휴대폰은 단면 막대와 위 띠 묶음을 3D 보기 흐름에 쌓아 위 띠 묶음이 단면 막대 실제 높이(두 줄·세 줄·가로 한 줄) 아래에 온다 — 넓은 화면·태블릿은 지금 자리(56px)', () => {
     // 3D 보기 자식(app.ts 원문 차례): 단면 막대·위 띠 묶음 밖은 모두 absolute(어느 미디어 조건도 position을 바꾸지 않음) — 흐름에는 둘만, 단면 막대가 앞
+    // 226차: 시작 화면은 단면 두 칸이 없는 차례, 뷰어를 만들며 끼운 뒤는 225차까지와 같은 차례
+    expect(start).toEqual(['this.hostEl', 'this.aimLayer', 'this.startEl', 'this.busyEl', 'this.dropEl', 'topBars', 'this.measureBar', 'this.toasts']);
+    expect([insert?.[1], insert?.[2]]).toEqual(['aimLayer', 'dropEl']);
     expect(kids).toEqual(['this.hostEl', 'this.aimLayer', 'this.sectionBar.handle', 'this.startEl', 'this.busyEl', 'this.dropEl', 'this.sectionBar.el', 'topBars', 'this.measureBar', 'this.toasts']);
     const out = ['.viewer-host', '.aim-layer', '.section-handle', '.start', '.busy', '.drop-hint', '.measure-bar', '.toasts'];
     for (const sel of out) expect(PLAIN.get(sel)?.position, sel).toBe('absolute');

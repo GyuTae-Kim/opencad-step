@@ -10,8 +10,61 @@ import { h, icon } from './dom';
 import type { StepDoc } from './doc';
 import { fmtCount } from './format';
 import { fileSpan, isolateText } from './ftext';
-import { pmiTypeLabel, semanticLabel, type PanelHost } from './panel';
+import type { PanelHost } from './panel';
 import { VList } from './treeview';
+
+// 226차: 표현·의미 PMI 종류 이름 표와 이름 함수는 panel.ts(첫 화면 JS)에서 글자 그대로 옮겼다 — 이 모듈(PMI 표)·아래 띠(panelview.ts)와 앱의 상태 막대 고른 PMI·
+// PMI 표 CSV(app.ts — 뷰어 조각에서 this.ent!)가 쓴다. 모두 문서가 있어야 부르고 문서는 뷰어(= 이 조각)를 만든 뒤에만 있다(app.ts showDoc)
+
+const PMI_TYPE: Record<string, string> = {
+  ANNOTATION_CURVE_OCCURRENCE: '곡선 주석',
+  ANNOTATION_OCCURRENCE: '주석',
+  ANNOTATION_FILL_AREA_OCCURRENCE: '채운 영역 주석',
+  DRAUGHTING_ANNOTATION_OCCURRENCE: '제도 주석',
+  TESSELLATED_ANNOTATION_OCCURRENCE: '삼각형 주석',
+  ANNOTATION_PLACEHOLDER_OCCURRENCE: '자리 주석',
+  ANNOTATION_SYMBOL_OCCURRENCE: '기호 주석',
+  ANNOTATION_TEXT_OCCURRENCE: '글 주석',
+  ANNOTATION_POINT_OCCURRENCE: '점 주석',
+};
+
+const SEMANTIC_TYPE: Record<string, string> = {
+  DIMENSIONAL_SIZE: '크기 치수',
+  DIMENSIONAL_LOCATION: '위치 치수',
+  ANGULAR_SIZE: '각도 크기',
+  ANGULAR_LOCATION: '각도 위치',
+  DIMENSIONAL_SIZE_WITH_PATH: '경로 크기 치수',
+  DIMENSIONAL_LOCATION_WITH_PATH: '경로 위치 치수',
+  DIRECTED_DIMENSIONAL_LOCATION: '방향 위치 치수',
+  FLATNESS_TOLERANCE: '평면도 ⏥',
+  STRAIGHTNESS_TOLERANCE: '진직도 ⏤',
+  ROUNDNESS_TOLERANCE: '진원도 ○',
+  CYLINDRICITY_TOLERANCE: '원통도 ⌭',
+  LINE_PROFILE_TOLERANCE: '선의 윤곽도 ⌒',
+  SURFACE_PROFILE_TOLERANCE: '면의 윤곽도 ⌓',
+  ANGULARITY_TOLERANCE: '경사도 ∠',
+  PARALLELISM_TOLERANCE: '평행도 ∥',
+  PERPENDICULARITY_TOLERANCE: '직각도 ⟂',
+  POSITION_TOLERANCE: '위치도 ⌖',
+  CONCENTRICITY_TOLERANCE: '동심도 ◎',
+  COAXIALITY_TOLERANCE: '동축도 ◎',
+  SYMMETRY_TOLERANCE: '대칭도 ⌯',
+  CIRCULAR_RUNOUT_TOLERANCE: '원주 흔들림 ↗',
+  TOTAL_RUNOUT_TOLERANCE: '온 흔들림 ⌰',
+  GEOMETRIC_TOLERANCE: '기하 공차',
+  DATUM: '데이텀',
+  COMMON_DATUM: '공통 데이텀',
+};
+
+/** 의미 PMI 개체 이름 → 한국어 */
+export function semanticLabel(type: string): string {
+  return SEMANTIC_TYPE[type] ?? type;
+}
+
+/** 표현 PMI 개체 이름 → 한국어 */
+export function pmiTypeLabel(type: string): string {
+  return PMI_TYPE[type] ?? type;
+}
 
 /** PMI 탭 본문: 패널이 본문에 붙이고, 목록은 자리가 정해진 뒤 update, 고르기·보이기가 바뀌면 patch */
 export interface PmiView {

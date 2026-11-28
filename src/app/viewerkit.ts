@@ -14,7 +14,10 @@
  * - 키보드 길잡이(keynav.ts — 53차): 패널 탭·라디오 묶음·도구 막대의 화살표와 띠·막대·패널을 닫을 때 초점 돌려주기 — 모두 문서가 있어야 쓴다
  * - 물리 속성 계산(physics.ts — 53차에 첫 화면 JS에서 옮김): 속성 탭의 부피·질량·무게중심·관성은 문서가 있어야 그린다.
  *   222차: 속성 탭 본문(propsview.ts — panel.ts renderProps·physSection에서 옮김, 부품 속성 줄 partinfo.ts와 physics.ts를 가져간다)째 이 조각에(앱이 패널에 넣는다)
- * - PMI 탭 본문(pmiview.ts — 54차에 첫 화면 JS에서 옮김): 표현·의미 PMI 표를 보이는 줄만 그리는 가상 목록, 나무 조각과 함께 패널에 넣는다
+ * - PMI 탭 본문(pmiview.ts — 54차에 첫 화면 JS에서 옮김): 표현·의미 PMI 표를 보이는 줄만 그리는 가상 목록, 나무 조각과 함께 패널에 넣는다.
+ *   226차: 같은 모듈의 PMI 종류 이름(pmiTypeLabel·semanticLabel — panel.ts에서 옮김)은 PMI 표·아래 띠와 앱의 상태 막대·PMI 표 CSV가 쓴다(모두 문서가 있어야 — 문서는 뷰어 뒤)
+ * - 단면 막대·3D 보기 위 단면 손잡이(sectionbar.ts — 226차, 앱 입구에서 옮김): 단면은 뷰어가 있어야 켜진다 — 앱이 뷰어를 만들 때(ensureViewer) 만들어
+ *   3D 보기의 전과 같은 자리(손잡이는 조준 층 뒤, 막대는 끌어 놓기 안내 뒤)에 끼운다. 숨은 두 칸이라 시작 화면에 보이는 것·초점 차례·읽는 글은 같다
  * - (55~60차의 카메라 옮기기·움직임 줄이기 motion.ts는 61차에 뺐다 — 코어 0.48.0 animate 'auto'와 0.49.0 flyTo가 맡는다)
  * - 큰 장면 나눠 올리기(upload.ts — 58차, 앱 입구에서 옮김): 문서를 뷰어에 올릴 때 나눠 올릴지와 그물 수에 맞춘 몫
  * - 연 뒤 알림(opennotice.ts — 58차, 앱 입구에서 옮김): 끊긴 파일·조립 자리 상한·경고 수, 코어가 빼거나 고쳐 그린 장면 입력의 경고 글(61차 — 코어 0.50.0 onSceneIssues)
@@ -54,8 +57,9 @@ export { pickGroup } from './picklist';
 // 뷰 큐브 면 글(코어가 캔버스에 그린다 — 앱이 화면 언어로 바꾼다, app.ts relabelCube). 61차: 코어 0.44.0에서 커진 viewcube 모듈을 첫 화면 JS에서 빼려고
 // i18n.ts에서 이 조각으로 옮겼다(코어 뷰어가 이미 이 모듈을 쓴다)
 export { CUBE_FACES } from 'opencad-viewer3d/viewcube';
-export { pmiView } from './pmiview';
+export { pmiTypeLabel, pmiView, semanticLabel } from './pmiview';
 export { propsView } from './propsview';
+export { SectionBar } from './sectionbar';
 export { guideSnapLabel, straightEdgeFilter } from './trackdir';
 export { groupGrid, treeView } from './treeview';
 export { holdUpload, sceneUpload, uploadOptions } from './upload';

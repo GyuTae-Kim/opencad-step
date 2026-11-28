@@ -93,7 +93,8 @@ describe('코어 나눠 받기', () => {
     // 74차: upload.ts는 다시 내보내기와 조각 미리 받기(warmMerging) 가져오기 두 문이라 모듈마다 한 번 센다
     // 222차: 물리 속성 계산(physics.ts)은 속성 탭 본문(propsview.ts — panel.ts에서 옮김)이 가져가, 조각은 propsview 하나를 내보낸다
     // 223차: 레이어 탭 본문·간섭 검사 묶음·아래 띠(panelview.ts — panel.ts에서 옮김)도
-    expect([...new Set(importsOf(readFileSync(kit, 'utf8')).values)].sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './panelview', './picklist', './pmiview', './propsview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
+    // 226차: 단면 막대·3D 보기 위 단면 손잡이(sectionbar.ts — 앱 입구에서 옮김)도(PMI 종류 이름 표는 이미 든 pmiview.ts로 옮겨 모듈 수 그대로)
+    expect([...new Set(importsOf(readFileSync(kit, 'utf8')).values)].sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './panelview', './picklist', './pmiview', './propsview', './sectionbar', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
     // 66차: 부품 겉모습 걸기(looks.ts LookSync)도 그 조각에만 — 앱은 뷰어를 만든 뒤 조각에서 만들고, 반투명 보기 판정(translucentView)은 doc.ts에서
     expect(files.has(join(ROOT, 'src/app/looks.ts'))).toBe(false);
     expect(readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8')).toMatch(/\(this\.lookSync \?\?= new this\.ent!\.LookSync\(\)\)\.apply\(v, \{/);
@@ -266,5 +267,41 @@ describe('코어 나눠 받기', () => {
     const m = await import('../../src/app/viewerkit');
     const own = await import('../../src/app/panelview');
     for (const k of ['footView', 'interferenceView', 'layersView'] as const) expect(m[k], k).toBe(own[k]);
+  });
+
+  it('226차: 단면 막대·손잡이(sectionbar.ts)와 PMI 종류 이름 표(pmiview.ts PMI_TYPE·SEMANTIC_TYPE — panel.ts에서 옮김)는 뷰어 조각에만 — 첫 화면 조각에 다시 들어오면 실패', async () => {
+    const { files, dynamic } = staticGraph(ENTRY);
+    const sb = join(ROOT, 'src/app/sectionbar.ts');
+    // 시험이 헛돌지 않게: 옮긴 모듈이 있고, 앱 입구·패널(첫 화면)에는 닿는다
+    expect(existsSync(sb)).toBe(true);
+    expect(files.has(join(ROOT, 'src/app/app.ts'))).toBe(true);
+    expect(files.has(join(ROOT, 'src/app/panel.ts'))).toBe(true);
+    expect(files.has(sb)).toBe(false);
+    expect(dynamic.filter((d) => /\/sectionbar$/.test(d.spec))).toEqual([]);
+    const app = readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8');
+    // 앱은 타입만 가져오고(값 가져오기 0) 뷰어를 만들 때(조각을 받은 뒤·뷰어 앞 — 막대를 읽는 syncSection·onCameraChange는 모두 뷰어 뒤라 「받는 중」 길이 없다) 조각에서 만든다
+    expect(importsOf(app).values.filter((s) => /\/sectionbar$/.test(s))).toEqual([]);
+    expect(app).toMatch(/^import type \{ SectionBar \} from '\.\/sectionbar';$/m);
+    expect(app).not.toMatch(/new SectionBar\(/);
+    const ensure = app.indexOf('core = await loadViewerCore();');
+    const made = app.indexOf('new core.SectionBar(this)', ensure);
+    expect(ensure).toBeGreaterThan(0);
+    expect(made).toBeGreaterThan(ensure);
+    expect(app.indexOf('new core.Viewer3d(', ensure)).toBeGreaterThan(made);
+    // PMI 종류 이름: 첫 화면 원문(앱 입구에서 닿는 src 파일)에 표가 남지 않고, 앱은 조각의 함수를 부른다(문서는 뷰어를 만든 뒤에만 있다 — showDoc)
+    for (const f of [...files].filter((x) => x.startsWith(join(ROOT, 'src')))) {
+      const t = readFileSync(f, 'utf8');
+      for (const gone of ['PMI_TYPE', 'SEMANTIC_TYPE', "'곡선 주석'", "'크기 치수'", 'function pmiTypeLabel(', 'function semanticLabel(']) expect(t, `${relative(ROOT, f)}: ${gone}`).not.toContain(gone);
+    }
+    expect(app).toContain("h('span', {}, this.ent!.pmiTypeLabel(pm.type))");
+    expect(app).toContain('translateUi(this.ent!.semanticLabel(x.type))');
+    const kit = readFileSync(join(ROOT, 'src/app/viewerkit.ts'), 'utf8');
+    expect(kit).toMatch(/^export \{ SectionBar \} from '\.\/sectionbar';$/m);
+    expect(kit).toMatch(/^export \{ pmiTypeLabel, pmiView, semanticLabel \} from '\.\/pmiview';$/m);
+    // 조각이 주는 것은 그 모듈의 것 그대로
+    const m = await import('../../src/app/viewerkit');
+    expect(m.SectionBar).toBe((await import('../../src/app/sectionbar')).SectionBar);
+    const pv = await import('../../src/app/pmiview');
+    for (const k of ['pmiTypeLabel', 'semanticLabel'] as const) expect(m[k], k).toBe(pv[k]);
   });
 });

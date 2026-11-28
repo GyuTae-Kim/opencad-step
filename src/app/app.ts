@@ -43,10 +43,10 @@ import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './
 import { arrowOwner, controlOf, isTextTarget, markKeys, readLetterKeys, routeKey, writeLetterKeys } from './keys';
 import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
-import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
+import { interferenceLabel, Panel } from './panel';
 import { emptyReason, errorText, friendlyError, sceneHasGeometry, sniffStep } from './protocol';
 import { recentFocus, recentId, RecentStore, recentTimeLabel, type RecentEntry } from './recent';
-import { SectionBar } from './sectionbar';
+import type { SectionBar } from './sectionbar';
 import { arrowLock, circleCenters, type CurveSnap, hoverSnapLabel, isTrackDir, lockMeet, type LockName, measureSnapOptions, refinedKind, snapPair, syncMeasurePickThrough, trackMark, viewerLockHint, viewerLockName } from './snap';
 import type { TangentLock } from './tangent';
 import type { FaceSurfaceLookup } from './facesnap';
@@ -208,8 +208,8 @@ export class StepApp {
   private entMeasuring = false;
   private readonly measureKindBtns = new Map<MeasureKind, HTMLButtonElement>();
   private readonly measureKindSeg: HTMLElement;
-  // ── 단면 막대·손잡이 ──
-  private readonly sectionBar: SectionBar;
+  // ── 단면 막대·손잡이 ── 226차: 뷰어 조각(sectionbar.ts)에서 뷰어를 만들 때 만든다(ensureViewer — 그 전에는 없음, 단면은 뷰어가 있어야 켜진다)
+  private sectionBar: SectionBar | null = null;
   // ── 측정 띠(휴대폰·터치) ──
   private readonly measureBar: HTMLElement;
   private readonly selFit: HTMLButtonElement;
@@ -426,8 +426,6 @@ export class StepApp {
     );
     this.dropEl = h('div', { class: 'drop-hint', hidden: true, 'aria-hidden': 'true' }, h('div', {}, icon('upload', 40), h('p', {}, '놓으면 STEP 파일을 엽니다')));
     this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
-    // ── 단면 막대(단면을 켜면 3D 보기 왼쪽 위에): 축 · 위치 슬라이더 · 위치 숫자 · 뒤집기 · 끄기, 3D 보기 위 끌기 손잡이 ──
-    this.sectionBar = new SectionBar(this);
     // ── 측정 띠(좁은 화면·터치에서 측정·면 고르기 중): 안내·결과를 크게 보이고, Esc 대신 다시 재기·끝내기 단추 ──
     this.measureText = h('div', { class: 'mb-text', 'aria-live': 'polite' });
     // 좁은 휴대폰은 아이콘만(52차 — 이름은 aria-label)
@@ -525,7 +523,8 @@ export class StepApp {
       explodeOff,
     );
     const topBars = h('div', { class: 'top-bars' }, this.explodeBar, this.isoBar);
-    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.sectionBar.handle, this.startEl, this.busyEl, this.dropEl, this.sectionBar.el, topBars, this.measureBar, this.toasts);
+    // 226차: 단면 손잡이(조준 층 뒤)·단면 막대(끌어 놓기 안내 뒤)는 뷰어를 만들 때 이 차례 그대로 끼운다(ensureViewer — 숨은 두 칸이라 시작 화면에 보이는 것은 같다)
+    this.viewEl = h('section', { class: 'view', 'aria-label': '3D 보기' }, this.hostEl, this.aimLayer, this.startEl, this.busyEl, this.dropEl, topBars, this.measureBar, this.toasts);
 
     // ── 상태 막대 ──
     this.statusDoc = h('div', { class: 'status-doc' });
@@ -1024,6 +1023,15 @@ export class StepApp {
     this.panel.kit = core;
     // 속성 탭의 물리 속성 계산도(53차 — physics.ts를 첫 화면 JS에서 이 조각으로 옮겼다)
     this.panel.phys = core;
+    // ── 단면 막대(단면을 켜면 3D 보기 왼쪽 위에): 축 · 위치 슬라이더 · 위치 숫자 · 뒤집기 · 끄기, 3D 보기 위 끌기 손잡이 ──
+    // 226차: 이 조각(sectionbar.ts — 첫 화면 JS에서 옮김)에서 만들어 3D 보기의 전과 같은 자리에 끼운다 — 손잡이는 조준 층 뒤, 막대는 끌어 놓기 안내 뒤
+    // (휴대폰 흐름 쌓기는 막대가 위 띠 묶음 앞이어야 하고, 같은 z의 그리는 차례도 그대로 — a11ymedia 시험). 막대·손잡이를 읽는 길(syncSection·onCameraChange)은
+    // 모두 뷰어 뒤라 받기 전에 부르지 않는다. 뷰어 만들기가 실패해 다시 오면 만든 것을 그대로 쓴다(두 번 끼우지 않는다)
+    if (!this.sectionBar) {
+      const bar = (this.sectionBar = new core.SectionBar(this));
+      this.aimLayer.after(bar.handle);
+      this.dropEl.after(bar.el);
+    }
     // 뷰 큐브 면 글을 화면 언어로(61차 — 첫 화면의 번역층 i18n.ts에서 옮김: 코어 viewcube 모듈은 이 조각에만)
     this.cube ??= { faces: core.CUBE_FACES, ko: core.CUBE_FACES.map((f) => f.label) };
     this.relabelCube();
@@ -1073,7 +1081,7 @@ export class StepApp {
     // 단면 막대·도구 막대는 코어 알림으로만 맞춘다(막대·메뉴 조작, 손잡이 끌기, 새 장면에서 꺼짐, 범위 바뀜)
     v.onSectionChange((st) => this.syncSection(st));
     // 카메라가 바뀌면 단면 손잡이 자리를 다시 잡는다
-    v.onCameraChange(() => this.sectionBar.place());
+    v.onCameraChange(() => this.sectionBar?.place());
     // 그래픽 문맥을 잃으면(GPU 다시 시작·오래 숨긴 탭) 되찾을 때까지 안내하고(알림 칸 한도에 밀리지 않게 — 144차), 되찾으면 거둔다(코어 0.25.0 — gpucontext.ts)
     core.watchGraphicsContext(v, (msg, kind, ms, keep) => this.toast(msg, kind, ms, undefined, keep));
     // 키보드 길잡이(53차 — keynav.ts): 패널 탭·라디오 묶음·도구 막대 화살표, 띠·막대·패널을 닫을 때 초점 돌려주기
@@ -1257,7 +1265,7 @@ export class StepApp {
 
   /** 단면 막대·손잡이·도구 막대를 단면 상태에 맞춘다(코어 onSectionChange 알림에서 — 코어가 버린 측정 미리 보기의 스냅 이름은 코어 미리 보기 알림이 읽는다) */
   private syncSection(st: SectionState | null): void {
-    this.sectionBar.sync(st);
+    this.sectionBar?.sync(st);
     this.toolbar.refresh();
   }
 
@@ -2755,7 +2763,8 @@ export class StepApp {
     const d = this.doc;
     if (!d || !d.pmi.semantic.length) return;
     const rows: (string | number)[][] = [[translateUi('종류'), translateUi('이름'), translateUi('값'), translateUi('이어진 면 수'), 'STEP #']];
-    for (const x of d.pmi.semantic) rows.push([translateUi(semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
+    // 226차: 종류 이름 표는 뷰어 조각(pmiview.ts — 문서가 있으면 조각도 있다: 문서는 showDoc에서만 두고 그 앞에 뷰어를 만든다)
+    for (const x of d.pmi.semantic) rows.push([translateUi(this.ent!.semanticLabel(x.type)), x.name, x.value, x.faces?.length ?? 0, x.stepId]);
     const x = await this.exporter(() => this.copyPmiCsv());
     if (!x) return;
     await this.copyText(`\ufeff${x.toCsv(rows)}`, `${stemName(d.name)}-pmi.csv`, translateUi('PMI 표 CSV'));
@@ -3430,7 +3439,8 @@ export class StepApp {
     if (d.pick) {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
       // 210차: 이름 없는 PMI의 종류(화면 글)는 따로 옮기는 조각으로 — 한 글이면 틀 「고른 PMI: {0}」이 종류를 그대로 끼워 다른 언어에서 한국어로 남았다(아래 띠 꼴)
-      if (pm) return pm.name ? [`고른 PMI: ${isolateText(pm.name)}`] : [h('span', {}, '고른 PMI'), ': ', h('span', {}, pmiTypeLabel(pm.type))];
+      // 226차: 종류 이름 표는 뷰어 조각(pmiview.ts — d는 보인 문서, 문서는 뷰어를 만든 뒤에만 있다)
+      if (pm) return pm.name ? [`고른 PMI: ${isolateText(pm.name)}`] : [h('span', {}, '고른 PMI'), ': ', h('span', {}, this.ent!.pmiTypeLabel(pm.type))];
     }
     if (d.items) return [h('span', {}, '고른 것'), ': ', h('span', {}, d.items.label)];
     return d.pick || d.body ? [`고른 것: ${this.selectionName(d)}`] : [];
