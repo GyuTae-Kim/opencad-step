@@ -146,6 +146,13 @@ describe('language URLs and UI presentation', () => {
       // 227차: 부품이 주어인 글은 영어도 part(「부품」 든 열쇠 53의 영어 part 48 : component 4 — component는 기능·분류 이름 「Component colors」·「Fastening components」와
       // 나무 ×n 칩 말풍선 「This component has been placed …」뿐이었다)
       ['부품이', 'en', /\b[Pp]arts?\b/, /component/i],
+      // 228차 (ㄱ): 일본어 「지금 …」(지금 보기·지금 화면·지금 방향·지금 카메라 등 명사 앞)은 現在 하나로 — 「지금」 든 열쇠의 명사 앞 14에서 現在 8(現在の 6·現在： 2) : 今の 6
+      // (지금 방향 今の 2 : 現在の 2, 지금 화면 今の 2 : 現在の 2로도 갈림). 이웃 글도 現在(도구 막대 투영 전환·표준 뷰 메뉴 말풍선, 도움말 대화 상자 지금 방향 둘).
+      // 「지금 읽지 못했습니다」의 今は(때 부사)는 「今の」가 아니라 걸리지 않는다
+      ['지금', 'ja', null, /今の/],
+      // 228차 (ㅂ): 삼각화는 영어도 triangulate 하나로(10 : 2 — 곡면 품질을 바꿔 다시 삼각화하는 것도 같은 삼각화 단계를 다시 돈다: 그동안 덮개 단계 글
+      // 「Triangulating curved surfaces」, 끝 알림만 「Re-tessellated」였다)
+      ['삼각화', 'en', /[Tt]riangul/, /[Tt]essellat/],
     ];
     for (const [term, lang, need, ban] of rules)
       for (const code of lang === '*' ? codes : [lang])
@@ -160,7 +167,17 @@ describe('language URLs and UI presentation', () => {
         expect(value, `${code}: ${key}`).not.toMatch(/District|Bezirk|正義駅|カーネル|ろ過|第二$|[​-‍﻿]/);
     expect(codes.map((code) => translate('구', code))).toEqual(['Sphere', '球', '球体', 'Kugel']);
     expect(codes.map((code) => translate('허용', code))).toEqual(['Allow', '許可', '允许', 'Zulassen']);
-    expect(codes.map((code) => translate('(원점)', code))).toEqual(['(origin)', '(原点)', '（原点）', '(Ursprung)']);
+    // 228차: 일본어 풀이 괄호는 전각(아래 괄호 시험 — 그 언어 다수 꼴, 중국어와 같은 꼴)
+    expect(codes.map((code) => translate('(원점)', code))).toEqual(['(origin)', '（原点）', '（原点）', '(Ursprung)']);
+    // 228차 (ㄴ): 예제(번들 예제 STEP 문서 열기) 기능 글은 영어도 보이는 버튼 글 「Open sample」의 sample 하나로 — 머리 줄 버튼의 말풍선만
+    // 「Open example assembly model」이라 버튼 이름과 낱말이 달랐다(WCAG 2.5.3 이름 안의 글·3.2.4). 「OpenCAD 예제 조립(·모형)」은 sample.ts가 STEP 글에 적는
+    // 예제 문서 자체의 제품 이름·설명(자료)이라 이 규칙 밖(「예제」로 시작하지 않음)
+    const sampleKeys = Object.keys(catalogs.en).filter((key) => key.startsWith('예제'));
+    expect(sampleKeys.length).toBeGreaterThanOrEqual(3);
+    for (const key of sampleKeys) {
+      expect(catalogs.en[key], key).toMatch(/\bsample\b/);
+      expect(catalogs.en[key], key).not.toMatch(/example/i);
+    }
     expect(codes.map((code) => translate('X축에 수직인 평면', code))).toEqual(['Plane perpendicular to the X axis', 'X軸に垂直な平面', '垂直于 X 轴的平面', 'Ebene senkrecht zur X-Achse']);
   });
   it('keeps the CAD sense of section-flip, drag and bar words on the measure, section and explode screens (127th review)', () => {
@@ -253,8 +270,25 @@ describe('language URLs and UI presentation', () => {
     const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
     const depth = (text: string) => [...text].reduce((n, ch) => n + Number('(（'.includes(ch)) - Number(')）'.includes(ch)), 0);
     // 227차: 원문이 마침표 없이 「다」로 끝나면(말풍선·알림 글) 값 끝에도 . 。 없이 — 같은 꼴 en·ja·de 45 : 3, zh-CN 47 : 1(나무 ×n 칩 말풍선이 마침표를 달았던 것).
-    // 아래 둘은 215차 앞 값(227차 대조 범위 밖 — README 남은 일 227차 줄에 보고 둠)
-    const tailDotKnown = new Set(['뷰 큐브: 면·모서리·구석을 누르면 그 방향으로 봅니다', '이 브라우저는 WebGL2를 지원하지 않아 3D 보기를 열 수 없습니다']);
+    // 228차: 뷰 큐브 말풍선(코어 cube.title)은 말풍선이라 규칙대로 마침표를 뺐다. 아래 하나만 둔다 — 코어가 던지는 오류 글을 앱 load가 열기 오류 알림의
+    // 둘째 문장으로 붙이고(「{이름}: 파일을 열지 못했습니다.」 뒤 — app.ts parts·friendlyError), 같은 알림 묶음의 글(파일을 열지 못했습니다.·메모리가 모자라 …
+    // 해 보십시오.·파일 구조가 너무 깊어 읽지 못했습니다.·알 수 없는 오류로 파일을 열지 못했습니다.)이 모두 마침표로 끝나는 여러 문장 알림이라 네 언어 값도 마침표
+    const tailDotKnown = new Set(['이 브라우저는 WebGL2를 지원하지 않아 3D 보기를 열 수 없습니다']);
+    // 228차 (ㄹ): 일본어·중국어 괄호 — 말풍선 키 글(끝의 「 (키)」 — 227차 꼴 반각 + 빈칸: F·F7·I·Ctrl·⌘+…·Esc = …·표준 뷰 1~7)은 키 글 꼴 그대로,
+    // 키 글이 아닌 풀이 괄호(안에 한자·가나)는 그 언어 다수 꼴 전각(풀이 괄호 마디 ja 전각 115 : 반각 39, zh-CN 130 : 25 — 3D 보기 알림 묶음 셋·해석기 경고·말풍선이
+    // 반각이었다), 전각 괄호 앞에는 빈칸 없음(ja·zh-CN 0). 라틴 글만 든 괄호(단위 mm·g/cm³, 파일 형식, 수 자리)는 종류마다 다수 꼴이 달라 보지 않는다(228차 README)
+    const keyTip = (key: string) => key.startsWith('표준 뷰 (') || / \((?:F7?|I|Ctrl·⌘\+[^()]+|Esc = [^()]+)\)$/.test(key);
+    const cjkHalf = /\([^()]*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー][^()]*\)/u;
+    for (const code of ['ja', 'zh-CN'])
+      for (const [key, value] of Object.entries(catalogs[code])) {
+        if (keyTip(key)) expect(value, `${code}: ${key}`).toMatch(/ \([^()（）]+\)$/);
+        expect(keyTip(key) ? value.replace(/ \([^()（）]+\)$/, '') : value, `${code}: ${key}`).not.toMatch(cjkHalf);
+        expect(value, `${code}: ${key}`).not.toMatch(/ （/);
+      }
+    // 거르개가 말풍선 키 글 열쇠를 잡는지(228차 9 — 227차 여섯·표준 뷰 둘·측정 버튼)
+    expect(Object.keys(catalogs.ja).filter(keyTip).length).toBeGreaterThanOrEqual(9);
+    // 228차 (ㄷ): 독일어 띄어 쓴 줄표(Gedankenstrich)는 반각 줄표 「 – 」 하나로(원문 「 — 」 든 열쇠 80에서 「 — 」 34 : 「 – 」 36으로 갈렸다 — 독일어 조판 꼴)
+    for (const [key, value] of Object.entries(catalogs.de)) expect(value, `de: ${key}`).not.toMatch(/ — /);
     for (const code of ['en', 'ja', 'zh-CN', 'de'])
       for (const [key, value] of Object.entries(catalogs[code])) {
         expect(value, `${code}: ${key}`).not.toMatch(/[가-힣]/);
