@@ -99,7 +99,8 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
       { type: 'button', class: `menu-item${it.checked ? ' checked' : ''}`, role, 'aria-checked': it.checked === undefined ? null : String(it.checked), 'aria-keyshortcuts': it.keys, disabled: !!it.disabled, tabindex: '-1' },
       h('span', { class: `menu-check${it.toggle ? ' tick' : ''}`, 'aria-hidden': 'true' }, it.checked ? (it.toggle ? '✓' : '●') : ''),
       h('span', { class: 'menu-label' }, it.label),
-      it.file ? fileSpan(it.file, 'menu-file') : null,
+      // 238차(WCAG 1.4.12): 말줄임 부품 이름(.menu-file)은 말풍선에 전체 — 글 간격을 넓히면 더 일찍 잘리고, 앞부분이 같은 이름은 3D 미리 강조로만 갈렸다
+      it.file ? fileSpan(it.file, 'menu-file', it.file) : null,
       it.hint && it.keys !== null ? h('kbd', { translate: 'no' }, it.hint) : null,
     );
     b.addEventListener('click', () => {
