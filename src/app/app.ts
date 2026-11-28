@@ -2255,7 +2255,7 @@ export class StepApp {
   }
 
   /**
-   * 잠금 상태가 바뀌었으면(잠근 방향·찍은 점 수·커서 아래에 Shift로 잠글 방향이 있는지) 상태 막대·측정 띠의 잠금 안내와 잠금 단추를 고친다.
+   * 잠금 상태가 바뀌었으면(잠근 방향·찍은 점 수·커서 아래에 Shift로 잠글 방향이 있는지·가상 커서가 켜졌는지) 상태 막대·측정 띠의 잠금 안내와 잠금 단추를 고친다.
    * 잠금이 걸렸으면 "잠글 방향이 없습니다" 알림을 거둔다(띠의 잠금 안내와 어긋나지 않게 — 다른 알림은 둔다)
    */
   private refreshLock(): void {
@@ -2264,7 +2264,8 @@ export class StepApp {
     const lock = on ? viewerLockName(v, this.tangents) : null;
     if (lock) this.dropLockFail();
     const can = on && !lock && v.measurePointCount === 1 && (!!v.measureHoverLock || !!this.tangents?.now(v));
-    const key = on ? `${lock}|${v.measurePointCount}|${can}` : '';
+    // 217차: 가상 커서를 켜고 끄면(코어 'start'·'end' 알림 → 다음 프레임) 안내도 그때 맞는 키로(켜진 동안 X·Y·Z·L — snap.ts lockHint)
+    const key = on ? `${lock}|${v.measurePointCount}|${can}|${!!v.keyboardCursor}` : '';
     if (key === this.lockKey) return;
     this.lockKey = key;
     this.updateStatus();
