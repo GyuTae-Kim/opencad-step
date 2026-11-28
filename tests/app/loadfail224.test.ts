@@ -37,15 +37,16 @@ const cut = (re: RegExp): string => {
 function fakeApp() {
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
   document.body.append(toasts);
-  const toastFn = new Function('h', 'icon', 'pushToast', 'warningNodes', 'msg', 'kind', 'ms', 'action', 'keep',
+  // 230차: toast의 여섯째 인자 ui(앱 글 칸 — 기본은 오류 알림)도 넘긴다
+  const toastFn = new Function('h', 'icon', 'pushToast', 'warningNodes', 'msg', 'kind', 'ms', 'action', 'keep', 'ui',
     cut(/\n {2}toast\(msg: string \| string\[\], kind[^\n]*\{\n([\s\S]*?)\n {2}\}\n/).replace(/\baction!\./g, 'action.'));
   const failFn = new Function('loadFailed', 'msg', 'retry', cut(/\n {2}fail\(msg: string, retry: \(\) => unknown\): \(e: unknown\) => undefined \{\n([\s\S]*?)\n {2}\}\n/));
   const exporterText = cut(/\n {2}private exporter\(retry: \(\) => unknown\) \{\n([\s\S]*?)\n {2}\}\n/);
   expect(exporterText).toContain("import('./export')");
   const exporterFn = new Function('load', 'retry', exporterText.replace("import('./export')", 'load()'));
   const self: Record<string, unknown> = { toasts, doc: null, viewer: null, startOpen: null };
-  self.toast = function (this: unknown, msg: string, kind = 'info', ms = 3500, action?: unknown, keep = false) {
-    return toastFn.call(this, h, icon, pushToast, warningNodes, msg, kind, ms, action, keep);
+  self.toast = function (this: unknown, msg: string, kind = 'info', ms = 3500, action?: unknown, keep = false, ui = kind === 'error') {
+    return toastFn.call(this, h, icon, pushToast, warningNodes, msg, kind, ms, action, keep, ui);
   };
   self.fail = function (this: unknown, msg: string, retry: () => unknown) {
     return failFn.call(this, loadFailed, msg, retry);

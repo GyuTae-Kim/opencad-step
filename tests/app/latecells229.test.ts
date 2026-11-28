@@ -12,14 +12,20 @@
  * 상태 막대·측정 띠·알림·시작 화면 오류 줄은 앱 전체를 띄우지 않고 app.ts 원문을 잘라 돌린다(filecells209·loadfail225 꼴). dom.ts는 다시 시도를 누른 글을 모듈 안에 기억하므로
  * 시험마다 새로 받는다(vi.resetModules — 맨 위 곁효과 없음).
  * 229차에 남는 글이 없었다(고칠 것 0) — 이 시험은 그 상태들이 0을 지키게 하고, 끝 묶음이 셈이 비지 않음(번역하지 않는 칸의 앱 낱말·사전에 없는 앱 글은 잡힌다)을 함께 본다.
+ * 230차(229차가 그리지 못한 것): 여는 중 덮개 단계 아홉, 캔버스 글(측정 글상자·뷰 큐브 면 — 앱이 넣기 전에 옮김), 겹친 것 고르기 목록 셋, 209차 앞 메뉴(보기 설정·그리기 모드·내보내기)와
+ * 단면 보기·고르기 메뉴, 복사 알림 넷·그림 저장 실패 알림을 같은 다섯 언어 셈에 더하고(남는 글 0), 둘째 describe가 언어를 바꾼 뒤 다시 옮기는 차례를 본다 —
+ * 한국어·영어에서 시작해 다섯 번 바꾼 화면이 처음부터 그 언어로 그린 화면과 같은지(고치기 전: 복사 알림이 미리 옮긴 낱말·그림 저장 실패가 미리 옮긴 까닭을 앞 언어로 남김,
+ * 가상 커서 알림 영역이 앞 언어 글을 남김 — 언어마다 4~5칸과 영역 1).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { KEY_SNAP_KEYS, type GroupInfo, type SectionState, type Viewer3d } from 'opencad-viewer3d';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatKeySnapMessage, KEY_SNAP_KEYS, keySnapMessages, type GroupInfo, type Pick3d, type SectionState, type Viewer3d } from 'opencad-viewer3d';
+import { CUBE_FACES } from 'opencad-viewer3d/viewcube';
+import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { stepToScene, type StepMeta } from '../../src/scene';
-import { bodyTitle, createDoc, productAt, type PanelTab, type StepDoc } from '../../src/app/doc';
-import { friendlyError, type ParseResult } from '../../src/app/protocol';
+import { bodyTitle, createDoc, productAt, selectionItemIds, type PanelTab, type StepDoc } from '../../src/app/doc';
+import { errorText, friendlyError, type ParseResult } from '../../src/app/protocol';
 import { nodeLabel } from '../../src/app/tree';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
@@ -27,20 +33,23 @@ import * as PV from '../../src/app/panelview';
 import * as PHYS from '../../src/app/propsview';
 import { infoView } from '../../src/app/infoview';
 import { pmiTypeLabel } from '../../src/app/pmiview';
-import { Fmt } from '../../src/app/display';
+import { Fmt, numberLocale } from '../../src/app/display';
 import { h, icon } from '../../src/app/dom';
-import { isolateText } from '../../src/app/ftext';
+import { clipText, isolateText } from '../../src/app/ftext';
+import { fmtPercent, formatBytes, stageLabel } from '../../src/app/format';
 import { installLocalization } from '../../src/app/i18n';
+import { measureLabelLines } from '../../src/app/measure';
 import { warningNodes } from '../../src/app/warnparts';
 import { SectionBar } from '../../src/app/sectionbar';
 import { ExplodeControls, type TweakState } from '../../src/app/explodebar';
 import type { ExplodeAxis } from '../../src/app/explode';
 import { ExplodeTweakTool } from '../../src/app/explodetool';
-import { contextItems, type CtxHost } from '../../src/app/ctxmenu';
+import { contextItems, openPickList, type CtxHost } from '../../src/app/ctxmenu';
+import { pickRows, type PickRow } from '../../src/app/picklist';
 import { closeMenu, openMenu, type MenuItem } from '../../src/app/menu';
 import { Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import { openDialog } from '../../src/app/dialog';
-import { keyHelpBody } from '../../src/app/keysnap';
+import { installKeySnap, keyHelpBody } from '../../src/app/keysnap';
 import { lockHint, type LockName } from '../../src/app/snap';
 import type { FacePick } from '../../src/app/faces';
 import type { InterferencePair } from '../../src/app/interference';
@@ -253,7 +262,8 @@ function toolHost(letters: boolean): ToolbarHost {
     toggleMultiPick: no,
     setSectionAxis: no,
     savePng: no,
-    exportItems: () => [],
+    // 230차: 내보내기 메뉴는 앱 항목 그대로(app.ts exportItems 원문 — 아래)
+    exportItems: () => exportItems(newDoc()),
     togglePanel: no,
   };
 }
@@ -319,9 +329,136 @@ function strip(lock: string, on: boolean): HTMLElement {
   return t;
 }
 
-/** 알림 하나(app.ts toast 몸통 — 알림 칸에 넣기 전까지) */
-function toastEl(msg: string | string[], kind: 'info' | 'warn' | 'error', action?: Act): HTMLElement {
-  return new Function('h', 'icon', 'warningNodes', 'msg', 'kind', 'keep', 'action', `${TOAST_BODY}\nreturn t;`)(h, icon, warningNodes, msg, kind, false, action) as HTMLElement;
+/** 알림 하나(app.ts toast 몸통 — 알림 칸에 넣기 전까지). 230차: ui = 앱 글 칸(toast의 기본은 오류 알림 — TOAST_SIG로 본다) */
+function toastEl(msg: string | string[], kind: 'info' | 'warn' | 'error', action?: Act, ui = kind === 'error'): HTMLElement {
+  return new Function('h', 'icon', 'warningNodes', 'msg', 'kind', 'keep', 'action', 'ui', `${TOAST_BODY}\nreturn t;`)(h, icon, warningNodes, msg, kind, false, action, ui) as HTMLElement;
+}
+
+// ── 230차: 여는 중 덮개·캔버스 글·언어 알림·복사 알림·그림 저장 실패·내보내기 메뉴(app.ts 원문을 잘라 돌린다) ──
+const TOAST_SIG = cut(/\n {2}toast\((msg: string \| string\[\], [^\n]*)\): \(\) => void \{\n/);
+// 생성자의 진행 카드 줄(이름·단계·백분율·진행 막대·취소)과 setLoading(157차 — 숨은 카드를 보이는 차례면 다음 그림에 단계 글)
+const BUSY_MAKE = cut(/\n(\s*this\.busyName = h\('div', \{ class: 'busy-name'[\s\S]*?\n\s*\);)\n\s*this\.dropEl = /);
+const SET_LOADING = cut(/\n {2}private setLoading\(l: Loading \| null\): void \{\n([\s\S]*?)\n {2}\}\n/);
+// 생성자의 언어 알림 처리기(뷰 큐브 면 글·최근 문서·수 꼴·가상 커서 알림 틀)와 그것이 부르는 것
+const ON_LANG = cut(/\n\s*root\.addEventListener\('languagechange', \(\) => \{\n([\s\S]*?)\n {4}\}\);\n/);
+const REFRESH_FMT = cut(/\n {2}refreshFmt\(\): void \{\n([\s\S]*?)\n {2}\}\n/);
+const MAKE_FMT = cut(/\n {2}private makeFmt\(\): Fmt \{\n([\s\S]*?)\n {2}\}\n/);
+const RELABEL = cut(/\n {2}private relabelCube\(\): void \{\n([\s\S]*?)\n {2}\}\n/).replace(/\]!/g, ']');
+const TRANSLATE_UI = cut(/\nfunction translateUi\(ko: string\): string \{\n([\s\S]*?)\n\}\n/);
+const IMAGE_FAIL = cut(/\nfunction imageSaveFailed\(e: unknown\): string \{\n([\s\S]*?)\n\}\n/);
+const COPY_TEXT = cut(/\n {2}private async copyText\(text: string, fileName: string, what: string\): Promise<void> \{\n([\s\S]*?)\n {2}\}\n/);
+/** 복사 알림이 끼우는 낱말(copyMeasureCsv·copyPmiCsv가 copyText에 넘기는 식 그대로) */
+const COPY_WHAT = [...APP.matchAll(/await this\.copyText\([^\n]*, ((?:translateUi\()?'[^']+'\)?)\);/g)].map((m) => m[1]!);
+const EXPORT_ITEMS = cut(/\n {2}exportItems\(\): MenuItem\[\] \{\n([\s\S]*?)\n {2}\}\n/);
+
+/** app.ts translateUi(파일·캔버스로 나가는 글을 지금 화면 언어로 — 번역층과 같은 사전) */
+const translateUi = new Function('translateCatalog', 'ko', TRANSLATE_UI).bind(null, translateCatalog) as (ko: string) => string;
+/** app.ts imageSaveFailed */
+const imageSaveFailed = (e: unknown): string => new Function('e', 'translateUi', 'errorText', IMAGE_FAIL)(e, translateUi, errorText) as string;
+/** app.ts exportItems(고른 것·측정 기록·PMI 표 — 이 문서) */
+function exportItems(d: StepDoc): MenuItem[] {
+  return new Function('selectionItemIds', EXPORT_ITEMS).call({ doc: d }, selectionItemIds) as MenuItem[];
+}
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...a: string[]) => (...b: unknown[]) => Promise<void>;
+/** app.ts copyText(클립보드 됨·안 됨) — 알림은 app.ts toast 몸통으로 */
+const copyText = new AsyncFunction('navigator', 'text', 'fileName', 'what', COPY_TEXT);
+const CLIP_OK = { clipboard: { writeText: async () => {} } };
+const CLIP_NO = { clipboard: { writeText: async () => Promise.reject(new Error('denied')) } };
+/** 복사 알림 넷(측정 기록·PMI 표 × 클립보드 됨·안 됨)을 box에 — 낱말은 지금 화면 언어에서 앱이 넘기는 그대로 */
+async function copyToasts(box: HTMLElement): Promise<void> {
+  const self = {
+    toast: (msg: string, kind: 'info' | 'warn' | 'error' = 'info', _ms?: number, action?: Act, _keep?: boolean, ui?: boolean) => box.append(toastEl(msg, kind, action, ui)),
+    deliver: async () => 'saved',
+  };
+  for (const expr of COPY_WHAT) {
+    const what = new Function('translateUi', `return ${expr}`)(translateUi) as string;
+    for (const nav of [CLIP_OK, CLIP_NO]) await copyText.call(self, nav, 'x', 'a-measure.csv', what);
+  }
+}
+/** 코어가 던지는 그림 만들기 실패(115차 i18n.test가 코어 원문에서 읽는 글 가운데 하나) */
+const GL_LOST = new Error('3D 보기 문맥이 없어 그림을 만들 수 없습니다');
+
+/** 해석 단계 이름(scene.ts·job.ts progress — 읽기·구조·삼각화·완료·압축 풀기)과 앱이 넣는 단계 글(열기 첫 글·주소 파일 받기 — app.ts load) */
+const BUSY_STAGES = ['파일 읽는 중', `파일 받는 중 (${formatBytes(1.2e6)} / ${formatBytes(3.4e6)})`, `파일 받는 중 (${formatBytes(5e5)})`, ...['읽기', '구조', '삼각화', '완료', '압축 풀기', ''].map(stageLabel)];
+/** 여는 중 덮개 하나(생성자 줄 + setLoading — 숨은 카드를 처음 보이는 차례) */
+function busy(stage: string): HTMLElement {
+  const self: Record<string, unknown> = { loading: null, doc: null, viewer: null, startOpen: null, updateStatus: () => {}, cancel: () => {} };
+  new Function('h', BUSY_MAKE).call(self, h);
+  new Function('l', 'clipText', 'fmtPercent', 'nextPaint', SET_LOADING).call(self, { name: 'a.stp', fraction: 0.42, stage }, clipText, fmtPercent, () => Promise.resolve());
+  return self.busyEl as HTMLElement;
+}
+
+/** 3D 보기 측정 값 하나(코어 MeasureResult — 거리·성분) */
+const MEASURE = { distance: 12.5, dx: 1.5, dy: -2, dz: 12.3 };
+/** 뷰 큐브 면 글 원문(코어 표 — relabelCube가 바꿔 쓰므로 시험마다 되돌린다) */
+const CUBE_KO = CUBE_FACES.map((f) => f.label);
+const restoreCube = (): void => CUBE_FACES.forEach((f, i) => ((f as { label: string }).label = CUBE_KO[i]!));
+
+/** 가짜 뷰어(가상 커서 붙잡기·측정 글 꼴·뷰 큐브 크기 — 앱이 쓰는 만큼) */
+interface FakeViewer {
+  canvas: HTMLCanvasElement;
+  ks: { announce(a: unknown): void; messages?: Record<string, string> } | null;
+  format: ((m: typeof MEASURE) => string[]) | null;
+}
+interface Shell {
+  /** 가상 커서 알림 영역(keysnap.ts — data-i18n-skip) */
+  live(): HTMLElement;
+  /** 캔버스 글: 측정 글상자 두 줄과 뷰 큐브 면 여섯 */
+  canvas(): string[];
+  /** 지금 화면 언어의 가상 커서 알림 하나(코어가 앱이 준 틀로 만든 글) */
+  announce(): void;
+  /** 뷰어를 만든 뒤(app.ts ensureViewer 차례 — 뷰 큐브 면 글·측정 글 꼴·가상 커서 붙잡기) */
+  ready(): void;
+}
+/** 앱 껍데기: 생성자처럼 번역층보다 먼저 언어 알림 처리기를 달고(app.ts 원문), 뷰어를 만든 뒤 캔버스 글·가상 커서 붙잡기를 건다 */
+function shell(root: HTMLElement, host: HTMLElement): Shell {
+  const fv: FakeViewer & Record<string, unknown> = {
+    canvas: h('canvas'),
+    ks: null,
+    format: null,
+    keyboardSnap: { step: 8, bigStep: 40, keys: KEY_SNAP_KEYS },
+    keyboardCursor: null,
+    measureInferenceLock: null,
+    viewCubeSize: 96,
+    section: null,
+    setKeyboardSnap: (o: FakeViewer['ks']) => (fv.ks = o),
+    setMeasureFormat: (fn: FakeViewer['format']) => (fv.format = fn),
+    setViewCubeSize: () => {},
+  };
+  host.append(h('div', { class: 'viewer-host' }, fv.canvas));
+  const self: Record<string, unknown> = { viewer: null, cube: null, keySnap: null, doc: null, display: undefined, entMeasuring: false, panel: { redraw: () => {} }, updateStatus: () => {}, syncSection: () => {}, refreshRecent: async () => {} };
+  self.makeFmt = new Function('Fmt', 'numberLocale', MAKE_FMT).bind(self, Fmt, numberLocale);
+  self.refreshFmt = new Function('measureLabelLines', 'translateUi', REFRESH_FMT).bind(self, measureLabelLines, translateUi);
+  self.relabelCube = new Function('translateUi', RELABEL).bind(self, translateUi);
+  root.addEventListener('languagechange', new Function(ON_LANG).bind(self) as () => void);
+  let ks: ReturnType<typeof installKeySnap> | null = null;
+  return {
+    live: () => ks!.live,
+    canvas: () => [...(fv.format?.(MEASURE) ?? []), ...CUBE_FACES.map((f) => f.label)],
+    announce: () => fv.ks!.announce({ mode: 'select', reason: 'start', text: formatKeySnapMessage(keySnapMessages(fv.ks!.messages).start, ['1', '2']) }),
+    ready: () => {
+      self.viewer = fv;
+      self.cube = { faces: CUBE_FACES, ko: [...CUBE_KO] };
+      (self.relabelCube as () => void)();
+      (self.refreshFmt as () => void)();
+      ks = self.keySnap = installKeySnap(fv as unknown as Viewer3d, { tr: translateUi, pickThrough: () => false });
+    },
+  };
+}
+
+/** 겹친 것 고르기 목록 셋(picklist.ts pickRows — 부품 단위: 부품 전체·면·모서리, 바디 단위: 바디·선 형상·점 형상·PMI, 여러 개 고르기) */
+function pickLists(): { rows: PickRow[]; multi: boolean }[] {
+  const d = newDoc();
+  d.selKey = bareKey;
+  (d.vis.pmiIds as Set<string>).add('pmi-1');
+  const P = (kind: string, id: string, raw = 0): Pick3d => ({ kind, id, index: raw, raw, point: [0, 0, 0] }) as unknown as Pick3d;
+  const line = scene.lines?.[0]?.id;
+  const host = (pickUnit: 'part' | 'body', multiPick = false) => ({ faceMode: false, multiPick, pickUnit });
+  return [
+    { rows: pickRows(d, [P('mesh', ids[0]!), P('mesh', ids[0]!, 1), P('mesh', ids[2]!), ...(line ? [P('edge', line)] : [])], host('part')), multi: false },
+    { rows: pickRows(d, [P('mesh', ids[1]!), P('line', 'ln-1'), P('point', 'pt-1'), P('mesh', 'pmi-1')], host('body')), multi: false },
+    { rows: pickRows(d, [P('mesh', ids[0]!), P('mesh', ids[2]!)], host('part', true)), multi: true },
+  ];
 }
 
 /** 처음 화면 읽기 오류(app.ts startError 만들기·채우기 줄 — showError가 남긴 글 조각) */
@@ -350,6 +487,12 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
     expect([false, true].map((touch) => new Function(`return ${LOCK_FAIL}`).call({ touch }) as string).every((s) => s.startsWith('잠글 방향이 없습니다: '))).toBe(true);
     expect(new Set(LOCKS).size).toBe(10);
     expect(LOCKS.slice(-2)).toEqual(['X·Y·Z로 축 방향, L로 지금 방향 잠금', 'X·Y·Z로 축 잠금']);
+    // 230차: 복사 알림 낱말 둘(측정 기록·PMI 표 CSV)은 원문 그대로 넘기고 그 알림을 앱 글 칸으로 — 알림의 앱 글 칸 기본은 오류 알림
+    expect(COPY_WHAT).toEqual(["'측정 기록 CSV'", "'PMI 표 CSV'"]);
+    expect(TOAST_SIG).toMatch(/, ui = kind === 'error'$/);
+    // 언어 알림 처리기가 캔버스 글(뷰 큐브 면·측정 글 꼴 — refreshFmt)과 가상 커서 알림 틀을 다시 맞춘다
+    expect(ON_LANG).toMatch(/this\.relabelCube\(\);[\s\S]*this\.refreshFmt\(\);[\s\S]*this\.keySnap\?\.sync\(\);/);
+    expect(REFRESH_FMT).toContain('setMeasureFormat((m) => measureLabelLines(m, this.fmt, translateUi))');
   });
 
   it.each(LANGS)('%s: 뷰어 조각 칸·분해 막대·도구 막대·잠금 안내·알림을 그린 뒤, 메뉴 아홉·키보드 도움말을 하나씩 열고', async (code) => {
@@ -358,10 +501,17 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
     const views = h('div');
     const root = h('div', {}, views);
     document.body.append(root);
+    // 230차: 앱 생성자처럼 언어 알림 처리기를 번역층보다 먼저
+    const sh = shell(root, views);
     const dispose = await installLocalization(root);
     const found: string[] = [];
     const anchors: HTMLElement[] = [];
     try {
+      // 230차 (ㄴ): 뷰어를 만든 뒤 캔버스 글(측정 글상자·뷰 큐브 면)과 가상 커서 알림 하나
+      sh.ready();
+      sh.announce();
+      // 230차 (ㄱ): 여는 중 덮개(단계마다 하나 — 숨은 카드를 처음 보이는 차례)
+      views.append(...BUSY_STAGES.map(busy));
       // 1) 문서를 연 뒤 받는 조각이 그린 칸 — 번역층을 건 뒤(앱 차례)
       for (const tab of ['props', 'layers', 'info'] as const) views.append(panel(tab));
       for (const st of CHECKS) views.append(panel('tree', (d) => (d.interference = st)));
@@ -421,20 +571,34 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
       }
       box.append(toastEl(LINK_OK!, 'info'), toastEl(SW![1]!, 'info', { label: SW![2]!, run: () => {} }));
       for (const touch of [false, true]) box.append(toastEl(new Function(`return ${LOCK_FAIL}`).call({ touch }) as string, 'warn'));
+      // 230차: 복사 알림 넷(측정 기록·PMI 표 CSV — 클립보드 됨·안 됨)과 그림 저장 실패 오류 알림(코어 까닭)
+      await copyToasts(box);
+      box.append(toastEl(imageSaveFailed(GL_LOST), 'error'));
       await settle();
-      // 그린 것이 비지 않았다(간섭 쌍 버튼 넷, 단면 막대 셋, 분해 손질 칸 셋, 도구 막대 둘, 잠금 안내 열씩, 알림 열여섯·버튼 열셋, 시작 화면 오류 줄 둘)
+      // 그린 것이 비지 않았다(간섭 쌍 버튼 넷, 단면 막대 셋, 분해 손질 칸 셋, 도구 막대 둘, 잠금 안내 열씩, 알림 스물하나·버튼 열셋, 시작 화면 오류 줄 둘, 여는 중 덮개 아홉)
       expect(views.querySelectorAll('[data-pair]').length).toBe(4);
       expect(views.querySelectorAll('.section-bar:not([hidden])').length).toBe(3);
       expect(views.querySelectorAll('.explode-tweak').length).toBe(3);
       expect(views.querySelectorAll('nav.toolbar').length).toBe(2);
       expect(views.querySelectorAll('.status-sel .st-lock').length).toBe(10);
       expect(views.querySelectorAll('.mb-lock-hint').length).toBe(10);
-      expect(views.querySelectorAll('.toast').length).toBe(16);
+      expect(views.querySelectorAll('.toast').length).toBe(21);
       expect(views.querySelectorAll('.start-error').length).toBe(2);
+      // 덮개 단계 글은 늦게 넣은 뒤(157차) 글 마디 둘 — 단계와 「…」
+      const stages = [...views.querySelectorAll('.busy:not([hidden]) .busy-stage')].map((s) => s.textContent ?? '');
+      expect(stages).toHaveLength(9);
+      expect(stages.every((s) => s.length > 1 && s.endsWith('…'))).toBe(true);
+      if (code === 'ko') expect(stages).toEqual(BUSY_STAGES.map((s) => `${s}…`));
       const actLabels = [...box.querySelectorAll('.toast-act')].map((b) => b.textContent);
       expect(actLabels).toHaveLength(13);
       if (code === 'ko') expect(actLabels).toEqual([...[...FAILS, ...GONE].flatMap(() => ['다시 시도', '새로 고침']), '새로 고침']);
       found.push(...leaks(views, code));
+      // 230차 (ㄴ): 캔버스 글(번역층이 비키는 칸 — 앱이 넣기 전에 옮김). 한국어 화면은 원문 그대로라 다른 언어만 센다
+      const canvasText = sh.canvas();
+      expect(canvasText).toHaveLength(8);
+      if (code === 'ko') expect(canvasText.slice(2)).toEqual(CUBE_KO);
+      else found.push(...canvasText.filter((s) => HANGUL.test(s)).map((s) => `canvas: ${s}`));
+      expect(sh.live().textContent).not.toBe('');
 
       // 6) 메뉴(문서 body에 붙는다 — 하나씩 열고 센다)와 키보드 도움말
       const anchor = (): HTMLElement => {
@@ -448,6 +612,9 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
         ...CTX.map((c, i): [string, () => void] => [`작업 메뉴 ${i}`, () => openMenu(anchor(), ctxMenu(c), '작업 메뉴')]),
         ['그 밖의 작업', () => ctxMenu(CTX[4]!).find((it) => it.label === '그 밖의 작업…')!.run()],
         ...bars.map((tb, i): [string, () => void] => [`표준 뷰 ${i}`, () => tb.el.querySelector<HTMLButtonElement>('button[data-tool="views"]')!.click()]),
+        // 230차 (ㄷ): 겹친 것 고르기 목록 셋, (ㄹ): 209차 앞 메뉴(보기 설정·그리기 모드·내보내기)와 단면 보기·고르기
+        ...pickLists().map((l, i): [string, () => void] => [`겹친 것 ${i}`, () => openPickList({ x: 8, y: 8 }, { ...l, choose: () => {} })]),
+        ...(['sliders', 'shade', 'image', 'section', 'pick'] as const).map((t): [string, () => void] => [`도구 ${t}`, () => bars[0]!.el.querySelector<HTMLButtonElement>(`button[data-tool="${t}"]`)!.click()]),
       ];
       const labels: string[] = [];
       const kbds: string[] = [];
@@ -468,6 +635,9 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
         // 연 메뉴에 든 상태: 분해 손질 항목·손질 파일·면·불투명도·손가락 접기·홈 뷰·키보드 도움말
         for (const l of ['거리로 옮기기…', '손질 되돌리기', '손질 다시 하기', '손질 불러오기…', '이 면으로 자르기', '축을 지나게 자르기', '불투명도 모두 되돌리기', '고르기 풀기', '홈 뷰', '키보드로 3D 보기 다루기'])
           expect(labels, l).toContain(l);
+        // 230차: 겹친 것 목록의 종류 줄(부품 전체·면·바디·선 형상·점 형상·PMI)과 메뉴 다섯의 항목
+        for (const l of ['부품 전체', '평면', '바디', '선 형상', '점 형상', 'PMI', '고른 부품 보기', '그리기 모드…', '내보내기…', '와이어프레임', '숨은 모서리 점선', '분해 보기', 'PNG 크게·투명 배경…', 'OBJ — 고른 것', '보기 링크 복사', '여러 개 고르기'])
+          expect(labels, l).toContain(l);
         // 키 글(번역하지 않는 칸 — 한글 없음): 172차 설정을 끈 메뉴에는 한 글자 키가 없다
         expect(kbds).toEqual([
           '손질 파일: ',
@@ -479,6 +649,14 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
           '그 밖의 작업: ',
           '표준 뷰 0: Home 1 2 3 4 5 6 7',
           '표준 뷰 1: Home',
+          '겹친 것 0: ',
+          '겹친 것 1: ',
+          '겹친 것 2: ',
+          '도구 sliders: ',
+          '도구 shade: ',
+          '도구 image: ',
+          '도구 section: ',
+          '도구 pick: Alt',
         ]);
       }
       const dlg = openDialog('키보드로 3D 보기 다루기', keyHelpBody(KEYS_VIEWER));
@@ -491,6 +669,7 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
     } finally {
       closeMenu();
       dispose();
+      restoreCube();
       for (const a of anchors) a.remove();
       root.remove();
       history.replaceState(null, '', '/');
@@ -514,5 +693,159 @@ describe('229차: 209차 시험 밖 상태(늦게 받는 조각이 그린 칸·�
       root.remove();
       history.replaceState(null, '', '/');
     }
+  });
+});
+
+/** (ㅁ) 견줄 글: 글 마디(빈칸뿐인 것 빼고)와 번역층이 옮기는 속성을 차례대로 — 번역층이 비키는 data-i18n-skip 칸(가상 커서 알림 영역)은 따로 본다 */
+function texts(el: Element | null): string[] {
+  const out: string[] = [];
+  const walk = (e: Element): void => {
+    if (e.matches('[data-i18n-skip]')) return;
+    for (const a of ATTRS) {
+      const v = e.getAttribute(a);
+      if (v !== null) out.push(`${a}=${v}`);
+    }
+    for (const n of e.childNodes) {
+      if (n instanceof Element) walk(n);
+      else if (n.nodeType === Node.TEXT_NODE && n.nodeValue?.trim()) out.push(n.nodeValue);
+    }
+  };
+  if (el) walk(el);
+  return out;
+}
+
+interface Drawn {
+  views: HTMLElement;
+  sh: Shell;
+  done(): void;
+}
+type Shot = Record<'page' | 'menu' | 'canvas', string[]>;
+const shot = (s: Drawn): Shot => ({ page: texts(s.views), menu: texts(document.querySelector('.menu')), canvas: s.sh.canvas() });
+
+/**
+ * (ㅁ) 그려진 채 언어를 바꿀 수 있는 상태를 앱 차례대로 그린다: 생성자가 만드는 도구 막대(번역층보다 먼저), 뷰어를 만든 뒤의 캔버스 글·가상 커서 알림,
+ * 여는 중 덮개, 패널 본문(속성·레이어·정보·간섭 결과), 단면 막대, 분해 막대, 잠금 안내(상태 막대·측정 띠), 떠 있는 알림(받지 못한 조각·열기 오류·보기 링크·새 판·잠글 방향 없음·
+ * 복사 넷·그림 저장 실패), 시작 화면 오류, 연 작업 메뉴(언어를 고르면 닫히는지 본다)
+ */
+async function switchable(code: string): Promise<Drawn> {
+  history.replaceState(null, '', `/?lang=${code}`);
+  const views = h('div');
+  const root = h('div', {}, views);
+  document.body.append(root);
+  const sh = shell(root, views);
+  views.append(new Toolbar(toolHost(true)).el);
+  const dispose = await installLocalization(root);
+  sh.ready();
+  views.append(busy(stageLabel('삼각화')));
+  for (const tab of ['props', 'layers', 'info'] as const) views.append(panel(tab));
+  views.append(panel('tree', (d) => (d.interference = CHECKS[0])));
+  const bar = new SectionBar({ viewerRef: null, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {}, toast: () => {} });
+  views.append(bar.el, bar.handle);
+  bar.sync(SECTIONS[0]!);
+  const c = new ExplodeControls(
+    () => {},
+    () => {},
+    {},
+  );
+  views.append(h('div', { class: 'explode-opts' }, ...c.els));
+  c.sync(null, 'all', true, TWEAKS[0]![0], null, TWEAKS[0]![1]);
+  const d = newDoc();
+  d.selKey = bareKey;
+  LOCKS.forEach((lock, i) => views.append(status(d, lock), strip(lock, i < 6)));
+  const box = h('div', { class: 'toasts' });
+  views.append(box);
+  for (const m of FAILS) box.append(toastEl(m, 'warn', { label: '다시 시도', run: () => {} }));
+  for (const g of GONE) box.append(toastEl([OPEN_FAIL, friendlyError(g)], 'error', { label: '새로 고침', run: () => {} }));
+  box.append(toastEl(LINK_OK!, 'info'), toastEl(SW![1]!, 'info', { label: SW![2]!, run: () => {} }));
+  for (const touch of [false, true]) box.append(toastEl(new Function(`return ${LOCK_FAIL}`).call({ touch }) as string, 'warn'));
+  await copyToasts(box);
+  box.append(toastEl(imageSaveFailed(GL_LOST), 'error'));
+  views.append(startError([OPEN_FAIL, friendlyError(GONE[0]!)]));
+  const anchor = h('button', { type: 'button' });
+  document.body.append(anchor);
+  openMenu(anchor, ctxMenu(CTX[0]!), '작업 메뉴');
+  sh.announce();
+  await settle();
+  return {
+    views,
+    sh,
+    done: () => {
+      closeMenu();
+      dispose();
+      restoreCube();
+      anchor.remove();
+      root.remove();
+      history.replaceState(null, '', '/');
+    },
+  };
+}
+
+/** 언어 메뉴의 그 언어를 누르고, 화면 언어가 바뀐 뒤 번역층·앱 다시 그리기가 가라앉을 때까지(마감 5초 — 13번, i18ncollide213 switchTo 꼴) */
+async function switchTo(code: string): Promise<void> {
+  document.querySelector<HTMLButtonElement>(`.language-list [data-language="${code}"]`)!.click();
+  const end = Date.now() + 5000;
+  while (document.documentElement.lang !== code && Date.now() < end) await settle();
+  let changed = false;
+  const watch = new MutationObserver(() => (changed = true));
+  watch.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+  for (let quiet = 0; quiet < 5 && Date.now() < end; ) {
+    changed = false;
+    await settle();
+    quiet = changed ? 0 : quiet + 1;
+  }
+  watch.disconnect();
+  expect(document.documentElement.lang).toBe(code);
+}
+
+describe('230차: 그려진 채 언어를 바꾸면 모든 칸이 새 언어로 다시 옮겨진다(앞 언어 글이 남지 않음 — WCAG 3.1.2)', () => {
+  beforeAll(async () => {
+    // 언어 메뉴가 기다리지 않고 받는 사전 조각을 미리(ci-guard 5번 — JSON이라 곁효과 없음)
+    await Promise.all([import('../../site/locales/en.json'), import('../../site/locales/ja.json'), import('../../site/locales/zh-CN.json'), import('../../site/locales/de.json')]);
+  });
+
+  it('한국어·영어에서 시작해 다섯 번 바꾼 화면 = 처음부터 그 언어로 그린 화면(글·말풍선·이름·캔버스 글), 연 메뉴는 닫히고 가상 커서 알림 영역은 앞 언어 글을 비운다', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base: Record<string, Shot> = {};
+    for (const code of LANGS) {
+      const s = await switchable(code);
+      try {
+        base[code] = shot(s);
+      } finally {
+        s.done();
+      }
+    }
+    // 견줄 것이 비지 않았다: 언어마다 같은 칸 수, 한국어와 다른 칸이 많다, 연 메뉴와 캔버스 글이 있다
+    for (const code of LANGS) expect(base[code]!.page.length, code).toBe(base.ko!.page.length);
+    expect(base.en!.page.filter((t, i) => t !== base.ko!.page[i]).length).toBeGreaterThan(50);
+    expect(base.ja!.menu.length).toBeGreaterThan(5);
+    expect(base.de!.canvas).toHaveLength(8);
+    const left: string[] = [];
+    const chains: [string, string[]][] = [
+      ['ko', ['en', 'ja', 'zh-CN', 'de', 'ko']],
+      ['en', ['ja', 'zh-CN', 'de', 'ko', 'en']],
+    ];
+    for (const [start, order] of chains) {
+      const s = await switchable(start);
+      try {
+        for (const code of order) {
+          await switchTo(code);
+          // 연 작업 메뉴는 언어를 고르면 닫힌다(언어 메뉴가 초점을 버튼으로 돌려 menu.ts focusin이 닫음 — 누르기 전 pointerdown도 닫는다). 그래서 견주지 않는다
+          if (document.querySelector('.menu')) left.push(`${start}→${code} menu: 열린 채`);
+          const live = s.sh.live().textContent ?? '';
+          if (live) left.push(`${start}→${code} live: ${live}`);
+          const now = shot(s);
+          const b = base[code]!;
+          for (const k of ['page', 'canvas'] as const) {
+            if (now[k].length !== b[k].length) left.push(`${start}→${code} ${k}: ${now[k].length} ≠ ${b[k].length}칸`);
+            now[k].forEach((t, i) => t !== b[k][i] && left.push(`${start}→${code} ${k}: ${t} ≠ ${b[k][i]}`));
+          }
+          // 새 언어로 다음 알림(다음 바꿈에서 비울 글)
+          s.sh.announce();
+        }
+      } finally {
+        s.done();
+      }
+    }
+    expect(left).toEqual([]);
   });
 });

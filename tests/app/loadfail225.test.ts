@@ -51,14 +51,15 @@ beforeEach(async () => {
 function fakeApp(reload: () => void) {
   const toasts = dom.h('div', { class: 'toasts', 'aria-live': 'polite' });
   document.body.append(toasts);
-  const toastFn = new Function('h', 'icon', 'pushToast', 'warningNodes', 'msg', 'kind', 'ms', 'action', 'keep',
+  // 230차: toast의 여섯째 인자 ui(앱 글 칸 — 기본은 오류 알림)도 넘긴다
+  const toastFn = new Function('h', 'icon', 'pushToast', 'warningNodes', 'msg', 'kind', 'ms', 'action', 'keep', 'ui',
     cut(/\n {2}toast\(msg: string \| string\[\], kind[^\n]*\{\n([\s\S]*?)\n {2}\}\n/).replace(/\baction!\./g, 'action.'));
   const failFn = new Function('loadFailed', 'msg', 'retry', cut(/\n {2}fail\(msg: string, retry: \(\) => unknown\): \(e: unknown\) => undefined \{\n([\s\S]*?)\n {2}\}\n/));
   const showErrorFn = new Function('parts', 'action', cut(/\n {2}private showError\(parts: string\[\], action\?: \{ label: string; run: \(\) => void \}\): \(\) => void \{\n([\s\S]*?)\n {2}\}\n/));
   const loadFailed: Dom['loadFailed'] = (e, msg, retry, show) => dom.loadFailed(e, msg, retry, show, reload);
   const self: Record<string, unknown> = { toasts, doc: null, viewer: null, startOpen: null, lastError: null, lastErrorParts: [], updateAll: () => undefined };
-  self.toast = function (this: unknown, msg: string | string[], kind = 'info', ms = 3500, action?: Action, keep = false) {
-    return toastFn.call(this, dom.h, dom.icon, dom.pushToast, warningNodes, msg, kind, ms, action, keep);
+  self.toast = function (this: unknown, msg: string | string[], kind = 'info', ms = 3500, action?: Action, keep = false, ui = kind === 'error') {
+    return toastFn.call(this, dom.h, dom.icon, dom.pushToast, warningNodes, msg, kind, ms, action, keep, ui);
   };
   self.fail = function (this: unknown, msg: string, retry: () => unknown) {
     return failFn.call(this, loadFailed, msg, retry);
