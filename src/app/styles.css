@@ -850,9 +850,10 @@ input::placeholder {
 .measure-bar.multi:not([hidden]) {
   display: flex;
 }
+/* 239차: 띠가 높으면(측정 결과 세 줄·잠금 안내, 휴대폰 두 줄 이름 카드) 띠 위 6px로 — 변수는 labelavoid.ts가 띠 크기를 지켜봐 둔다(없으면 못 박은 자리) */
 .view:has(.measure-bar.measuring:not([hidden])) .toasts,
 .view:has(.measure-bar.multi:not([hidden])) .toasts {
-  bottom: 68px;
+  bottom: max(68px, var(--toast-over-bar, 0px));
 }
 .mb-kind[hidden] {
   display: none;
@@ -868,7 +869,7 @@ input::placeholder {
   }
   /* 띠가 있으면 알림은 그 위로 */
   .view:has(.measure-bar:not([hidden])) .toasts {
-    bottom: 68px;
+    bottom: max(68px, var(--toast-over-bar, 0px));
   }
 }
 @media (max-width: 759.98px) {
@@ -899,7 +900,7 @@ input::placeholder {
     white-space: normal;
   }
   .view:has(.measure-bar.measuring:not([hidden])) .toasts {
-    bottom: 112px;
+    bottom: max(112px, var(--toast-over-bar, 0px));
   }
 }
 @media (max-width: 479.98px) {

@@ -306,9 +306,9 @@ const CELLS: Cell[] = [
   { sels: ['.top-bars'], text: '분해·격리 띠 묶음', kind: 'over', why: '넓은 화면은 단면 막대 아래, 휴대폰은 흐름 안 굴림 칸(192차)' },
   {
     sels: ['.toasts'],
-    text: '알림(측정 띠 위 68·112px)',
+    text: '알림(측정 띠 위 — 바닥 68·112px, 239차부터 띠 위 끝 + 6px)',
     kind: 'over',
-    why: '측정 글 두 줄은 넓혀도 띠 위, 세 줄은 보통 간격부터 겹침 — 알림은 저절로 닫힘·✕(둠)',
+    why: '측정 글 두 줄은 넓혀도 띠 위, 세 줄·넓힌 간격은 239차부터 띠 위 끝을 따라 올라감(labelavoid.ts가 둔 변수 — 겹침 0) — 알림은 저절로 닫힘·✕',
     proof: [
       ['app.ts', /toast\(msg: string \| string\[\], kind: 'info' \| 'warn' \| 'error' = 'info', ms = 3500,/],
       ['dom.ts', /timer = setTimeout\(close, ms\);/],
@@ -409,7 +409,7 @@ describe('238차: 글 칸 표 — 스타일시트 셈(넓은 화면 1280 마우�
     expect(ENV_NAMES.filter((e) => flagsOf(RULES[e].get('.seg-btn')).includes('height'))).toEqual([]);
   });
 
-  it('위 칸: 단면 막대는 넓혀도 위 띠 묶음 위에서 끝나고, 측정 띠 글 두 줄은 알림 자리 밑 — 세 줄은 보통 간격부터 겹치나 알림은 저절로 닫힌다(둠)', () => {
+  it('위 칸: 단면 막대는 넓혀도 위 띠 묶음 위에서 끝나고, 측정 띠 글 두 줄은 알림 바닥 자리 밑 — 세 줄·넓힌 간격은 239차부터 알림이 띠 위 끝을 따라 올라가 겹치지 않는다', () => {
     const W = RULES.wide;
     const bar = px(W, '.section-bar', 'top') + padY(W, '.section-bar') + 2 + Math.max(px(W, '.seg-btn', 'min-height'), px(W, '.icon-btn', 'height'), px(W, '.section-num', 'height'), size(W, '.section-bar', 13) * 1.5 + padY(W, '.section-face'));
     expect(bar).toBe(46);
@@ -418,10 +418,16 @@ describe('238차: 글 칸 표 — 스타일시트 셈(넓은 화면 1280 마우�
     const value = size(W, '.mb-value', 13);
     const sub = size(W, '.mb-sub', 13);
     const top = (lines: number[], k: number) => px(W, '.measure-bar', 'bottom') + padY(W, '.measure-bar') + 2 + Math.max(px(W, '.mb-btn', 'height'), lines.reduce((a, f) => a + f * k, 0));
-    const toastAt = px(W, '.view:has(.measure-bar.measuring:not([hidden])) .toasts', 'bottom');
+    // 239차: 알림 칸 bottom은 max(바닥, 띠 위 끝 + 6px — labelavoid.ts가 띠 크기를 지켜봐 둔 변수)라 띠가 높아지면 따라 올라간다
+    // (238차까지는 바닥에 못 박혀 세 줄이 보통 간격에서 8·넓히면 16px 띠 위 끝을 덮었다 — 변수를 두는 길은 tests/app/hover239.test.ts)
+    const floor = (R: Rules, sel: string): number => Number(/^max\((\d+)px, var\(--toast-over-bar, 0px\)\)$/.exec(bare(R.get(sel)?.bottom))?.[1]);
+    const toastAt = floor(W, '.view:has(.measure-bar.measuring:not([hidden])) .toasts');
+    const placed = (barTop: number): number => Math.max(toastAt, barTop + 6);
     expect([top([value, sub], 1.3), top([value, sub], 1.5), toastAt]).toEqual([62, 66, 68]);
-    expect([top([value, sub, sub], 1.3), top([value, sub, sub], 1.5)].map((y) => Math.round((y - toastAt) * 100) / 100)).toEqual([8, 16]);
-    expect(px(RULES.phone, '.view:has(.measure-bar.measuring:not([hidden])) .toasts', 'bottom')).toBe(112);
+    const tops = [top([value, sub], 1.3), top([value, sub], 1.5), top([value, sub, sub], 1.3), top([value, sub, sub], 1.5)];
+    expect(tops.map((y) => Math.round(y * 100) / 100)).toEqual([62, 66, 76, 84]);
+    expect(tops.map((y) => Math.round((placed(y) - y) * 100) / 100)).toEqual([6, 6, 6, 6]);
+    expect(floor(RULES.phone, '.view:has(.measure-bar.measuring:not([hidden])) .toasts')).toBe(112);
     expect(proofs(CELLS.filter((c) => mainKind(c) === 'over'), SRC)).toEqual([]);
   });
 
