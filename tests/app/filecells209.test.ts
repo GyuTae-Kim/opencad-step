@@ -24,7 +24,8 @@ import { Panel, pmiTypeLabel, semanticLabel, type PanelHost } from '../../src/ap
 import * as TV from '../../src/app/treeview';
 import { infoView } from '../../src/app/infoview';
 import { pmiView } from '../../src/app/pmiview';
-import * as PHYS from '../../src/app/physics';
+// 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
+import * as PHYS from '../../src/app/propsview';
 import { Fmt } from '../../src/app/display';
 import { h, icon } from '../../src/app/dom';
 import { isolateText } from '../../src/app/ftext';

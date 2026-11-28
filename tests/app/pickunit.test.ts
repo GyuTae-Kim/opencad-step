@@ -7,7 +7,8 @@ import { multiHint } from '../../src/app/measure';
 import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 // 물리 속성 계산도 뷰어 조각에 들어 있어(53차) 앱이 뷰어를 만들 때 패널에 넣는다
-import * as PHYS from '../../src/app/physics';
+// 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
+import * as PHYS from '../../src/app/propsview';
 import { Fmt } from '../../src/app/display';
 import { StepText, cube } from '../stepText';
 import { translate } from '../../site/i18n.mjs';

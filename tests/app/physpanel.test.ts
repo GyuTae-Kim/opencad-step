@@ -10,7 +10,8 @@ import { stepToScene, stepToSceneDeferred, type StepMeta } from '../../src/scene
 import { infoView } from '../../src/app/infoview';
 import { applyDocProps, createDoc, type StepDoc } from '../../src/app/doc';
 import { Panel, type PanelHost } from '../../src/app/panel';
-import * as PHYS from '../../src/app/physics';
+// 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
+import * as PHYS from '../../src/app/propsview';
 import { Fmt } from '../../src/app/display';
 import { cube, cylinder, StepText } from '../stepText';
 import { translate } from '../../site/i18n.mjs';
@@ -31,7 +32,7 @@ function host(d: StepDoc): PanelHost {
   }) as unknown as PanelHost;
 }
 
-/** 물리 속성 계산은 뷰어 조각에 들어 있어(53차) 앱이 뷰어를 만들 때 패널에 넣는다 — 시험은 모듈을 바로 넣는다 */
+/** 물리 속성 계산(53차)과 속성 탭 본문(222차)은 뷰어 조각에 들어 있어 앱이 뷰어를 만들 때 패널에 넣는다 — 시험은 모듈을 바로 넣는다 */
 const panelOf = (h: PanelHost): Panel => Object.assign(new Panel(h), { phys: PHYS });
 
 const rows = (el: HTMLElement) => Object.fromEntries([...el.querySelectorAll('.prop-row')].map((r) => [r.querySelector('.k')?.textContent, r.querySelector('.v')?.textContent]));
