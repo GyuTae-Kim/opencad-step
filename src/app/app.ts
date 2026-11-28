@@ -2331,12 +2331,18 @@ export class StepApp {
 
   /** 두 점 측정 중 화살표(→·←·↑ X·Y·Z축, ↓ 지금 방향 — 같은 키로 풀기). 패널·메뉴에 초점이 있으면 그쪽 키. 처리했으면 true */
   private arrowMeasureLock(ev: KeyboardEvent): boolean {
-    const v = this.viewer;
-    if (!v?.measureMode || this.entMeasuring || ev.shiftKey || !ev.key.startsWith('Arrow')) return false;
+    if (ev.shiftKey || !ev.key.startsWith('Arrow')) return false;
     const t = ev.target;
     if (t instanceof Element && t !== document.body && t !== document.documentElement && !this.hostEl.contains(t)) return false;
-    const want = arrowLock(ev.key, v.measurePointCount, v.measureInferenceLock);
-    if (want === null) return false;
+    return this.lockArrow(ev.key);
+  }
+
+  /** 두 점 측정 방향 잠금 키 하나(화살표 이름 — 216차: 가상 커서가 켜진 동안의 X·Y·Z·L도 뷰어 조각 keysnap.ts lockKey가 그 화살표로). 받으면 true, hold(되풀이)면 받는지만 */
+  lockArrow(key: string, hold = false): boolean {
+    const v = this.viewer;
+    if (!v?.measureMode || this.entMeasuring) return false;
+    const want = arrowLock(key, v.measurePointCount, v.measureInferenceLock);
+    if (want === null || hold) return want !== null;
     if (want === false) this.unlockMeasure(v);
     else if (want === true) {
       if (!this.lockNow(v)) this.lockFailed();
@@ -2914,7 +2920,9 @@ export class StepApp {
         if (
           this.tweakTool?.key(ev.key, ev.target) ||
           // 62차: 3D 보기가 받은 화살표는 코어 가상 커서가 쓴다 — 두 점 측정에서 가상 커서가 꺼져 있고 마우스·펜이 3D 보기 위면 방향 잠금이 먼저(코어보다 앞, keys.ts arrowOwner)
-          (ev.target === this.viewer?.canvas && arrowOwner(!!this.viewer.keyboardCursor, this.pointerIn) === 'lock' && this.arrowMeasureLock(ev))
+          (ev.target === this.viewer?.canvas && arrowOwner(!!this.viewer.keyboardCursor, this.pointerIn) === 'lock' && this.arrowMeasureLock(ev)) ||
+          // 216차: 가상 커서가 켜진 동안은 X·Y·Z·L이 그 방향 잠금(커서가 꺼졌을 때의 → · ← · ↑ · ↓ — 받는 조건·되풀이·알림은 뷰어 조각 keysnap.ts lockKey)
+          this.keySnap?.lockKey(ev)
         ) {
           ev.preventDefault();
           ev.stopPropagation();

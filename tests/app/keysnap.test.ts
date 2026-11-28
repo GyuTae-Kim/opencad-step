@@ -4,7 +4,7 @@
 // - 앱 키(H·I·Home·F7·Ctrl/⌘+O·Z·Y·Delete와 뷰어 F·1~7)는 가상 커서 키와 겹치지 않는다. 두 점 측정 화살표: 커서가 꺼져 있고 마우스가 3D 보기 위면 앱 잠금이 먼저
 //   (창 캡처에서 막으면 코어는 커서를 켜지 않는다), 아니면 코어가 받아 앱(창 버블)에 가지 않는다
 // - 실제 코어 뷰어(jsdom): aria-keyshortcuts, 알림이 화면 밖 aria-live 영역에 화면 언어로, Enter 고르기는 pointerType 'keyboard', pickCycle은 앱 반투명 너머 고르기와 같다
-// - 도움말 키 표(코어 keyLabel)
+// - 도움말 키 표(코어 keyLabel) — 216차: 가상 커서가 켜진 동안 방향 잠금 글쇠 X·Y·Z·L 줄과 aria-keyshortcuts(받는 길은 tests/app/cursorlock216.test.ts)
 // - 117차: 알림 글의 스냅 이름(keySnapAnnounceText) — 첫 점에서 모서리에 수직인 방향 위 후보(코어 0.115.0 perpendicularDir)만 코어 틀 「수직점」을
 //   상태 막대와 같은 「모서리에 수직」으로(화면 언어 틀, 코어 candidateText로 만든 글). 수직 발·잠근 값·끌어온 점 선·찍기·고르기 알림은 그대로
 // - 118차: 마우스 Tab 돌리기 차례·수(hoverCycleLabel — 코어 0.118.0 cycle): 가상 커서 알림과 같은 틀 'order'로 「끝점 2/4」, 이름 마디는 한국어 그대로
@@ -211,15 +211,18 @@ describe('installKeySnap(실제 코어 뷰어)', () => {
   });
 
   it('키 표 글(aria-keyshortcuts)과 도움말 키 표(keyLabel — 기본 걸음 5·50화소)', () => {
-    expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'F', '1', '2', '3', '4', '5', '6', '7']);
+    // 216차: 가상 커서가 켜진 동안 두 점 측정 방향 잠금 글쇠 X·Y·Z·L(앱 키 — 키 표와 따로)
+    expect(keyShortcuts(KEY_SNAP_KEYS).split(' ')).toEqual(['ArrowLeft', 'Shift+ArrowLeft', 'ArrowRight', 'Shift+ArrowRight', 'ArrowUp', 'Shift+ArrowUp', 'ArrowDown', 'Shift+ArrowDown', 'Tab', 'Shift+Tab', 'Enter', 'Escape', 'X', 'Y', 'Z', 'L', 'F', '1', '2', '3', '4', '5', '6', '7']);
     // 116차: 마우스 미리 보기 Tab 돌리기(코어 0.116.0 tabCycle)는 가상 커서 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 키 표를 바꿔도 남는다
     const custom = keyShortcuts({ ...KEY_SNAP_KEYS, next: ['n'], prev: ['p'], exit: ['q'] }).split(' ');
-    for (const k of ['Tab', 'Shift+Tab', 'Escape']) expect(custom, k).toContain(k);
+    for (const k of ['Tab', 'Shift+Tab', 'Escape', 'X', 'L']) expect(custom, k).toContain(k);
     const rows = keyHelpRows({ step: 5, bigStep: 50, keys: KEY_SNAP_KEYS });
-    expect(rows.map((r) => r[0])).toEqual(['←→↑↓', 'Shift+←→↑↓', 'Tab · Shift+Tab', 'Enter', 'Esc', 'Shift+F10', 'F · 1~7']);
+    expect(rows.map((r) => r[0])).toEqual(['←→↑↓', 'Shift+←→↑↓', 'Tab · Shift+Tab', 'Enter', 'Esc', 'X · Y · Z · L', 'Shift+F10', 'F · 1~7']);
     expect(rows[0]![1]).toBe('가상 커서 켜기·옮기기(5화소)');
+    // 216차: 방향 잠금 글쇠 줄(커서가 꺼졌을 때의 화살표 안내 줄과 같은 차례 — X축 · Y축 · Z축 · 지금 방향)
+    expect(rows[5]![1]).toBe('두 점 측정 방향 잠금(X축 · Y축 · Z축 · 지금 방향 — 다시 누르면 풀기)');
     // 65차: 커서 자리 작업 메뉴와 겹친 것 목록 줄 미리 강조 안내(네 언어)
-    expect(rows[5]![1]).toBe('커서 자리 작업 메뉴(겹친 것 고르기… — 목록 줄에 초점을 두면 3D에 미리 강조)');
+    expect(rows[6]![1]).toBe('커서 자리 작업 메뉴(겹친 것 고르기… — 목록 줄에 초점을 두면 3D에 미리 강조)');
     for (const [, what] of rows) for (const code of CODES) expect(translate(what, code), `${code} ${what}`).not.toMatch(hangul);
     const { viewer: v } = cubeViewer();
     installKeySnap(v, { tr: (ko) => ko, pickThrough: () => false });
