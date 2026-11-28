@@ -12,6 +12,12 @@
  * (라) 셈이 헛돌지 않음: 펼침 18×18(SKP 235차 고치기 전 꼴)·이름 버튼 최소 폭 없음(162차 꼴)·표 밖 새 버튼·새 원문 자리는 잡힌다.
  * 163차 a11ymedia 2.5.8 절(보통 규칙 24px·이름 버튼 최소 폭)과 touch.test(손가락 44px)는 그대로다.
  * src/app의 모든 .ts·styles.css·index.html·코어 viewer.ts(뷰 큐브 클래스)를 소스 글로 읽는다(ci-guard 12번 — 누를 마디를 만드는 줄·크기 규칙을 바꾸면 이 시험도).
+ *
+ * 236차(WCAG 2.1.1 키보드·2.4.7 초점 보임·2.5.7 끌기 움직임 — 재발 막기, NC 223차와 같은 일): 같은 42꼴 표의 꼴마다 키보드 길(아래 KBD — README 개발 절 236차 문단).
+ * (가) 닿는 길(Tab 멈춤·화살표 무리·감싼 입력 칸·같은 일을 하는 다른 칸과 키 근거)·(나) 키로 누르기(브라우저 기본·앱 keydown 자리와 받는 키·굴림)·(다) 초점 보임(전역 바깥선·안쪽·
+ *     바깥선을 끈 세 자리의 대신 표시 — 스타일시트 글)을 그린 DOM 두 꼴의 마디마다 견주고, 원문에서 Tab 멈춤을 빼는 자리·tabindex를 쓰는 파일이 표와 같은지 본다 — 표에 새 줄을 더하면 KBD에도 적어야 통과.
+ * (라) 포인터 끌기(DRAGS): src/app에서 pointermove·포인터 붙잡기를 쓰는 파일마다 그 일과 키보드 길·한 점 대안 근거가 있는지, 3D 임의 돌리기·이동·확대는 키가 없다(고르지 않음 — 키를 더하면 표를 고친다).
+ * 코어 viewer.ts·theme.ts(캔버스 초점·키)도 소스 글로 읽는다.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -736,5 +742,407 @@ describe('234차: 셈이 헛돌지 않는다', () => {
         .map((s) => s.key)
         .filter((k) => !keys.has(k)),
     ).toEqual(['button.new-target', 'input[type=range]']);
+  });
+});
+
+// ───────────────────────── 236차: 누를 자리마다 키보드 길(WCAG 2.1.1·2.4.7·2.5.7) ─────────────────────────
+
+/**
+ * (가) 닿는 길 — tab: 제 칸이 Tab 멈춤, rove: 화살표로 도는 무리 안(탭·라디오·도구 막대·나무·메뉴 — 멈춤 하나), label: 감싼 입력 칸이 Tab 멈춤,
+ * alt: 제 칸은 키를 받지 않고 같은 일을 하는 다른 칸·키(via·viaEv), none: 누를 일 없음(숨은 파일 칸·내려받기·속성·정보 밖 탭 본문)
+ */
+type Reach = 'tab' | 'rove' | 'label' | 'alt' | 'none';
+/** (나) 누르기 — native: 브라우저 기본 조작(button·a[href]·input·select), keys: 앱 keydown(keys), scroll: 브라우저 굴림 키(keys.ts controlOf가 앱 키로 보내지 않음), label: 감싼 칸, none: 키를 받지 않는 칸 */
+type Press = 'native' | 'keys' | 'scroll' | 'label' | 'none';
+/** (다) 초점 — global: 전역 :focus-visible 바깥선, inset: 그 칸 :focus-visible 안쪽(outline-offset 음수), replace: 바깥선을 끄고 다른 표시(REPLACED), inner: 라벨 안 입력 칸, core: 코어 캔버스, none: 초점을 받지 않음 */
+type Focus = 'global' | 'inset' | 'replace' | 'inner' | 'core' | 'none';
+interface Kbd {
+  reach: Reach[];
+  press: Press;
+  focus: Focus;
+  /** press keys: 처리 자리(파일·그 자리 글)와 받는 키(그 뒤 2,000자 안에 따옴표 리터럴로) */
+  keys?: { file: string; at: string; keys: string[] };
+  /** reach alt: 같은 일을 하는 표 줄(선택자 — Tab·무리로 닿는 줄)과 키 근거(파일·정규식) */
+  via?: string[];
+  viaEv?: [file: string, re: RegExp][];
+  /** (라) 이 칸에서 받는 포인터 끌기(DRAGS 이름) */
+  drag?: string;
+}
+const kb = (reach: Reach | Reach[], press: Press, focus: Focus, more: Partial<Kbd> = {}): Kbd => ({ reach: typeof reach === 'string' ? [reach] : reach, press, focus, ...more });
+const TAB = kb('tab', 'native', 'global');
+const ROVE = kb('rove', 'native', 'global');
+const LABEL = kb('label', 'label', 'inner');
+const CORE_VIEWER = 'node_modules/opencad-viewer3d/src/viewer.ts';
+/** 근거 글(src/app 파일 이름 또는 저장소 경로) */
+const textOf = (file: string): string => (file.includes('/') ? read(file) : srcOf(file));
+
+/** 감사 표 42꼴의 키보드 길(.runtime/r236 표 — README 개발 절 236차 문단). 열쇠는 TARGETS 번호 — 표에 새 줄을 더하면 여기에도 적어야 통과한다 */
+const KBD: Record<string, Kbd> = {
+  '#1': TAB,
+  '#2': ROVE,
+  '#3': TAB,
+  '#4': TAB,
+  '#5': TAB,
+  '#6': TAB,
+  '#7': TAB,
+  // 단면 축·분해 방식·방향은 라디오 무리, 옮기기·스냅·손질 파일·되돌리기는 낱 단추 — 초점은 갈래 묶음 안쪽(55차)
+  '#8': kb(['tab', 'rove'], 'native', 'inset'),
+  '#9': kb('rove', 'native', 'inset'),
+  '#10': kb('rove', 'native', 'inset'),
+  '#11': kb('rove', 'native', 'replace'),
+  '#12': TAB,
+  '#13': kb('rove', 'native', 'inset'),
+  '#14': kb('rove', 'keys', 'inset', { keys: { file: 'treeview.ts', at: "item.addEventListener('keydown'", keys: ['Enter', ' ', 'ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'] } }),
+  // 펼침은 Tab 멈춤이 아니다(aria-hidden) — 줄의 →·←가 펼치고 접는다
+  '#15': kb('alt', 'none', 'none', {
+    via: ['.tree-row'],
+    viaEv: [
+      ['treeview.ts', /k === 'ArrowRight' && r\.hasChildren\) \(r\.open \? focusAt\(i \+ 1\) : toggle\(r\)\)/],
+      ['treeview.ts', /k === 'ArrowLeft' && \(r\.open \|\| parent\[i\]! >= 0\)\) \(r\.open \? toggle\(r\)/],
+    ],
+  }),
+  // 눈은 줄과 같은 tabindex(treeview.ts setActive — 멈춤 줄에서 Tab 한 번)
+  '#16': ROVE,
+  '#17': TAB,
+  '#18': TAB,
+  '#19': TAB,
+  '#20': TAB,
+  '#21': LABEL,
+  '#22': kb('tab', 'native', 'replace'),
+  '#23': TAB,
+  '#24': TAB,
+  '#25': LABEL,
+  '#26': TAB,
+  '#27': LABEL,
+  // 단면 손잡이는 꾸밈(187차 — aria-hidden), 같은 값을 밀대(#35)·숫자 칸(#23 — Enter 바로 적용)이 나른다
+  '#28': kb('alt', 'none', 'none', {
+    via: ['.section-slider', '.section-num'],
+    viaEv: [['sectionbar.ts', /this\.num\.addEventListener\('keydown', \(e\) => \{\s*if \(e\.key === 'Enter'\)/]],
+    drag: '단면 손잡이 끌기',
+  }),
+  // 끌어다 놓기 칸(div — 누르기만)은 안의 「파일 열기」(#4)·Ctrl·⌘+O가 같은 일
+  '#29': kb('alt', 'none', 'none', {
+    via: ['.btn.large'],
+    viaEv: [
+      ['keys.ts', /\(k\.key === 'o' \|\| k\.key === 'O'\)\) return 'open'/],
+      ['app.ts', /class: 'btn primary large', 'aria-keyshortcuts': 'Control\+O Meta\+O'/],
+    ],
+    drag: '파일 끌어다 놓기',
+  }),
+  '#30': LABEL,
+  '#31': TAB,
+  '#32': LABEL,
+  '#33': LABEL,
+  // Enter·Space는 강조 켜고 끄기(detail 0) — 두 번 누르기(맞춰 보기)는 키로 강조한 뒤 고른 부품 카드 「맞춰 보기」·도구 막대 「고른 부품 보기」
+  '#34': TAB,
+  '#35': kb('tab', 'native', 'global', { drag: '밀대 손잡이 끌기' }),
+  '#36': kb('tab', 'native', 'global', { drag: '밀대 손잡이 끌기' }),
+  '#37': kb('tab', 'keys', 'replace', { keys: { file: 'resize.ts', at: 'private key(e: KeyboardEvent)', keys: ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'Home'] }, drag: '패널 크기 끌기' }),
+  // 속성·정보 탭은 본문이 Tab 멈춤(굴림 칸), 다른 탭은 본문 안 칸이 멈춤
+  '#38': kb(['tab', 'none'], 'scroll', 'inset'),
+  '#39': kb('none', 'none', 'none'),
+  '#40': kb('none', 'none', 'none'),
+  '#41': TAB,
+  // 뷰 큐브(코어 캔버스): 정해진 방향은 1~7(코어)·Home 홈 뷰·「표준 뷰」 메뉴 — 캔버스 초점은 코어 테마(안쪽 2px)
+  '#42': kb('alt', 'none', 'core', {
+    via: ['.toolbar .btn'],
+    viaEv: [
+      [CORE_VIEWER, /else if \(VIEW_KEYS\[e\.key\]\) this\.setView/],
+      ['toolbar.ts', /label: '홈 뷰', hint: 'Home'/],
+      ['toolbar.ts', /\.\.\.VIEW_MENU\.map\(/],
+      ['node_modules/opencad-viewer3d/src/theme.ts', /':where\(canvas\.v3d-gl\):focus-visible\{outline:2px solid/],
+      [CORE_VIEWER, /canvas\.tabIndex = 0;/],
+    ],
+    drag: '3D 돌리기',
+  }),
+};
+const kbdOf = (t: Target): Kbd | undefined => KBD[t.name.split(' ')[0]!];
+
+/** (라) 포인터 끌기·누르고 있기와 키보드 길·한 점 포인터 대안(2.5.7). verdict design = 키가 없다(새 키 배정 — 고르지 않음, README 남은 일 236차 줄) */
+interface Drag {
+  name: string;
+  /** 받는 자리(파일 — src/app 이름 또는 저장소 경로, 정규식) */
+  at: [file: string, re: RegExp];
+  key: string;
+  keyEv: [file: string, re: RegExp][];
+  tap: string;
+  verdict: 'alt' | 'design';
+}
+const DRAGS: Drag[] = [
+  { name: '패널 크기 끌기', at: ['resize.ts', /addEventListener\('pointermove', \(e\) => this\.move\(e\)\)/], key: '화살표 ±16·Home', keyEv: [['resize.ts', /const grow = n \? 'ArrowUp' : 'ArrowLeft';/]], tap: '한 번 누르기 기본 ↔ 가장 큼(173차)·두 번 누르기 기본', verdict: 'alt' },
+  {
+    name: '단면 손잡이 끌기',
+    at: ['sectionbar.ts', /this\.handle\.addEventListener\('pointermove'/],
+    key: '단면 밀대 화살표·숫자 칸 Enter',
+    keyEv: [
+      ['sectionbar.ts', /type: 'range', class: 'section-slider'/],
+      ['sectionbar.ts', /type: 'number', class: 'section-num'/],
+    ],
+    tap: '밀대 트랙 누르기·숫자 칸',
+    verdict: 'alt',
+  },
+  {
+    name: '밀대 손잡이 끌기',
+    at: ['app.ts', /type: 'range', class: 'explode-slider'/],
+    key: '화살표·Home·End·Page(브라우저 기본 — 앱 키로 보내지 않음)',
+    keyEv: [['keys.ts', /\(k\.control === 'range' \|\| k\.control === 'scroll'\) && RANGE_KEYS\.has\(k\.key\)\) return null/]],
+    tap: '트랙 누르기(브라우저 기본)',
+    verdict: 'alt',
+  },
+  {
+    name: '분해 손질 옮기기',
+    at: ['explodedrag.ts', /t\.addEventListener\('pointermove', move, true\)/],
+    key: '작업 메뉴 「거리로 옮기기…」(Enter) → 거리 칸, Ctrl·⌘+Z',
+    keyEv: [['explodetool.ts', /label: '거리로 옮기기…', hint: 'Enter'/]],
+    tap: '같은 작업 메뉴(오른쪽 누르기·길게 누르기·고른 부품 카드 「작업」)',
+    verdict: 'alt',
+  },
+  { name: '정밀 조준', at: ['aim.ts', /this\.listen\('pointermove'/], key: '가상 커서(화살표·Enter)', keyEv: [['keysnap.ts', /v\.setKeyboardSnap\(\{/]], tap: '그냥 누르기', verdict: 'alt' },
+  { name: '파일 끌어다 놓기', at: ['app.ts', /window\.addEventListener\('drop'/], key: 'Ctrl·⌘+O', keyEv: [['keys.ts', /\(k\.key === 'o' \|\| k\.key === 'O'\)\) return 'open'/]], tap: '「파일 열기」', verdict: 'alt' },
+  {
+    name: '나무 줄 길게 누르기 메뉴',
+    at: ['treeview.ts', /item\.addEventListener\('pointerdown', \(ev\) => holdStart\(ev, menu\)\)/],
+    key: 'Shift+F10·메뉴 키(줄 contextmenu), 고른 부품 카드 「작업」(같은 메뉴)',
+    keyEv: [
+      ['treeview.ts', /item\.addEventListener\('contextmenu'/],
+      ['app.ts', /'aria-label': '작업 메뉴', 'aria-haspopup': 'menu'/],
+    ],
+    tap: '오른쪽 누르기·「작업」',
+    verdict: 'alt',
+  },
+  { name: '겹친 것 목록 올림 미리 강조', at: ['ctxmenu.ts', /el\.addEventListener\('pointermove'/], key: '목록 줄 초점(같은 미리 강조)', keyEv: [['ctxmenu.ts', /el\.addEventListener\('focusin', \(e\) => show\(e\.target as Element\)\)/]], tap: '— (끌기 아님)', verdict: 'alt' },
+  { name: '3D 보기 스냅 미리 보기·화살표 임자', at: ['app.ts', /this\.hostEl\.addEventListener\('pointermove'/], key: '가상 커서', keyEv: [['keysnap.ts', /v\.setKeyboardSnap\(\{/]], tap: '— (끌기 아님)', verdict: 'alt' },
+  { name: '접선 잠금 버림', at: ['tangent.ts', /canvas\.addEventListener\('pointermove'/], key: 'Shift 뗌(shiftUp)', keyEv: [['tangent.ts', /shiftUp\(v: TangentViewer\): boolean/]], tap: '— (끌기 아님)', verdict: 'alt' },
+  {
+    name: '측정 점 찍기·고르기',
+    at: [CORE_VIEWER, /clickCount/],
+    key: '가상 커서 Enter·Tab 후보·X·Y·Z·L 잠금(「키보드로 3D 보기 다루기」 창)',
+    keyEv: [
+      ['keysnap.ts', /rows\.push\(\['X · Y · Z · L'/],
+      ['app.ts', /openDialog\('키보드로 3D 보기 다루기'/],
+    ],
+    tap: '누르기',
+    verdict: 'alt',
+  },
+  {
+    name: '3D 돌리기',
+    at: [CORE_VIEWER, /'orbit'/],
+    key: '정해진 방향만 — 1~7·「표준 뷰」 메뉴·Home 홈 뷰·면 「정면으로 보기」(임의 각 키 없음)',
+    keyEv: [
+      [CORE_VIEWER, /else if \(VIEW_KEYS\[e\.key\]\) this\.setView/],
+      ['toolbar.ts', /label: '홈 뷰', hint: 'Home'/],
+    ],
+    tap: '뷰 큐브 누르기 26방향·「표준 뷰」 메뉴',
+    verdict: 'design',
+  },
+  { name: '3D 이동', at: [CORE_VIEWER, /'pan'/], key: '정해진 자리만 — F 전체 보기·「고른 부품 보기」·면 정면(임의 이동 키 없음)', keyEv: [[CORE_VIEWER, /if \(e\.key === 'f' \|\| e\.key === 'F'\) this\.fit\(\)/]], tap: '같은 정해진 자리', verdict: 'design' },
+  { name: '3D 확대', at: [CORE_VIEWER, /onWheel/], key: '정해진 배율만 — F·「고른 부품 보기」(임의 배율 키 없음)', keyEv: [[CORE_VIEWER, /if \(e\.key === 'f' \|\| e\.key === 'F'\) this\.fit\(\)/]], tap: '마우스 휠(끌지 않음)', verdict: 'design' },
+];
+/** pointermove·포인터 붙잡기를 쓰는 파일(끌기·누르고 있기·올림 미리 보기를 받는 자리 — 새 파일이 생기면 DRAGS에 적어야 통과) */
+const pointerFiles = (src: [string, string][]): string[] => src.filter(([, t]) => /'pointermove'|setPointerCapture\(|setPointerClaim\(/.test(t)).map(([f]) => f);
+
+/** 스타일시트 규칙 글(주석 뺌 — 감싼 @media 머리·선택자·본문). 초점 규칙은 var() 값을 jsdom이 버릴 수 있어 글로 본다 */
+function blocksOf(css: string): { media: string | null; sels: string[]; body: string }[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const out: { media: string | null; sels: string[]; body: string }[] = [];
+  const stack: { head: string; from: number }[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/[{}]/g)) {
+    const i = m.index ?? 0;
+    if (m[0] === '{') stack.push({ head: text.slice(last, i).trim(), from: i + 1 });
+    else {
+      const b = stack.pop();
+      if (b && !b.head.startsWith('@'))
+        out.push({ media: stack.find((s) => s.head.startsWith('@media'))?.head ?? null, sels: b.head.split(',').map((s) => s.replace(/\s+/g, ' ').trim()), body: text.slice(b.from, i) });
+    }
+    last = i + 1;
+  }
+  return out;
+}
+type Block = ReturnType<typeof blocksOf>[number];
+const BLOCKS = blocksOf(CSS);
+const OUTLINE_OFF = /(^|;)\s*outline:\s*(none|0)\s*(;|$)/;
+/** 바깥선을 끄는 규칙의 선택자(미디어 안이면 머리와 함께) */
+const offRules = (bs: Block[]): string[] => bs.filter((b) => OUTLINE_OFF.test(b.body)).flatMap((b) => b.sels.map((s) => `${b.media ? `${b.media} ` : ''}${s}`));
+/** 상태 가짜 클래스를 뺀 바탕 선택자(그 마디에 맞춰 본다) */
+const baseOf = (s: string): string => s.replace(/:(focus-visible|focus-within|focus|hover)/g, '').trim();
+/** 미디어 밖에서 바깥선을 끄는 자리, :focus-visible 바깥선을 안쪽으로 그리는 자리 */
+const OFF_BASES = [...new Set(BLOCKS.filter((b) => b.media === null && OUTLINE_OFF.test(b.body)).flatMap((b) => b.sels.map(baseOf)))];
+const INSET_BASES = [...new Set(BLOCKS.filter((b) => b.media === null && /outline-offset:\s*-\d/.test(b.body) && b.sels.every((s) => s.endsWith(':focus-visible'))).flatMap((b) => b.sels.map(baseOf)))];
+/** 그 선택자를 품은 규칙 본문(media를 주면 그 글을 품은 미디어 안, 없으면 미디어 밖) */
+const ruleBody = (sel: string, media: string | null = null): string =>
+  BLOCKS.filter((b) => b.sels.includes(sel) && (media === null ? b.media === null : !!b.media?.includes(media)))
+    .map((b) => b.body)
+    .join(';');
+/** 바깥선을 끈 자리마다 대신 보이는 표시(164차 감사 — 메뉴 항목 안쪽 그림자, 거르기 칸 감싼 테두리, 넓은 화면 손잡이 막대·좁은 창 안쪽 바깥선) */
+const REPLACED: Record<string, () => string[]> = {
+  '.panel-resizer': () => [
+    ...(/background:\s*var\(--accent\)/.test(ruleBody('.panel-resizer:focus-visible::after')) ? [] : ['막대 강조색 없음']),
+    ...(/outline:\s*2px solid var\(--accent\)/.test(ruleBody('.panel-resizer:focus-visible', 'max-width: 759.98px')) ? [] : ['좁은 창 바깥선 없음']),
+  ],
+  '.tree-filter': () => {
+    const b = ruleBody('.tree-search:focus-within');
+    return /border-color:\s*var\(--accent\)/.test(b) && /box-shadow:\s*0 0 0 1px var\(--accent\)/.test(b) ? [] : ['감싼 칸 강조색 테두리 없음'];
+  },
+  '.menu-item': () => (/box-shadow:\s*inset 0 0 0 2px var\(--accent\)/.test(ruleBody('.menu-item:focus-visible')) ? [] : ['안쪽 강조색 그림자 없음']),
+};
+
+const isNative = (el: Element): boolean => /^(button|input|select|textarea|summary)$/.test(el.localName) || (el.localName === 'a' && el.hasAttribute('href'));
+/** 라벨이 맡은 입력 칸 */
+const labelled = (el: Element): HTMLElement | null => (el as HTMLLabelElement).control ?? el.querySelector<HTMLElement>('input, select, textarea, button');
+
+/** 마디가 실제로 닿는 길(표의 (가)와 견준다) */
+function reachOf(el: Element): Reach {
+  if (el.localName === 'label') {
+    const c = labelled(el);
+    return c && c.tabIndex >= 0 ? 'label' : 'alt';
+  }
+  const role = el.getAttribute('role') ?? '';
+  if (/^(tab|radio|treeitem|menuitem|menuitemradio|menuitemcheckbox)$/.test(role) && el.parentElement?.closest('[role=tablist], [role=radiogroup], [role=tree], [role=menu]')) return 'rove';
+  if (el.localName === 'button' && el.parentElement?.getAttribute('role') === 'toolbar') return 'rove';
+  // 나무 줄의 눈은 줄과 같은 tabindex(treeview.ts setActive)
+  if (el.matches('.eye') && el.closest('[role=treeitem]')) return 'rove';
+  return (el as HTMLElement).tabIndex >= 0 && el.getAttribute('aria-hidden') !== 'true' ? 'tab' : 'alt';
+}
+
+/** 마디마다 맞는 표 줄의 (가)(나)(다)와 어긋난 것 */
+function kbdIssues(els: Element[]): string[] {
+  const out: string[] = [];
+  for (const el of els)
+    for (const t of TARGETS.filter((x) => el.matches(x.sel))) {
+      const k = kbdOf(t);
+      const at = `${tagOf(el)} ${t.name}`;
+      if (!k) {
+        out.push(`${at}: 키보드 판정 없음`);
+        continue;
+      }
+      const r = reachOf(el);
+      if (!(k.reach.includes(r) || (r === 'alt' && k.reach.includes('none')))) out.push(`${at}: 닿는 길 ${r}`);
+      const press = { native: isNative(el), label: el.localName === 'label', keys: !isNative(el) && el.hasAttribute('role'), scroll: el.getAttribute('role') === 'tabpanel', none: r === 'alt' }[k.press];
+      if (!press) out.push(`${at}: 누르기 ${k.press}`);
+      const off = OFF_BASES.some((b) => el.matches(b));
+      const inset = INSET_BASES.some((b) => el.matches(b));
+      const focus = { global: !off && !inset, inset: inset && !off, replace: off, inner: (labelled(el)?.tabIndex ?? -1) >= 0, core: true, none: r === 'alt' }[k.focus];
+      if (!focus) out.push(`${at}: 초점 ${k.focus}`);
+    }
+  return out;
+}
+
+describe('236차: 누를 자리 42꼴의 키보드 길 — 그린 DOM(넓은 화면·휴대폰 꼴)', () => {
+  it('표 줄마다 키보드 판정이 있고, 그린 마디마다 닿는 길·키로 누르기·초점 꼴이 판정과 같다', () => {
+    expect(TARGETS.filter((t) => !kbdOf(t)).map((t) => t.name)).toEqual([]);
+    expect(Object.keys(KBD)).toEqual(TARGETS.map((t) => t.name.split(' ')[0]));
+    const els = [...screens(false), ...screens(true)];
+    expect(kbdIssues(els)).toEqual([]);
+    // 그린 것에 닿는 길 넷(Tab·무리·라벨·대신 — 펼침·단면 손잡이)이 모두 들었다
+    expect([...new Set(els.map(reachOf))].sort()).toEqual(['alt', 'label', 'rove', 'tab']);
+    expect(els.filter((el) => reachOf(el) === 'alt').map(tagOf).sort()).toContain('div.section-handle');
+  });
+
+  it('원문: Tab 멈춤을 빼거나 옮기는 자리(tabindex·aria-hidden)는 무리·대신·없음 줄뿐이고, tabindex를 쓰는 파일은 일곱, 링크는 모두 href·download가 있다', () => {
+    const odd = SITES.filter((s) => /\btabindex:|'aria-hidden': 'true'/.test(s.attrs));
+    // 나무 눈·패널 탭(roving tabindex)·메뉴 항목(tabindex −1 — 화살표로 옮김)·나무 펼침(줄의 →·←)·숨은 파일 칸 둘
+    expect(odd.map((s) => s.key).sort()).toEqual(['button.eye', 'button.menu-item', 'button.tab', 'button.twisty', 'input.explode-file', 'input[type=file]']);
+    for (const s of odd) {
+      const rows = TARGETS.filter((t) => t.keys.includes(s.key));
+      expect(rows.length, s.at).toBeGreaterThan(0);
+      for (const t of rows) expect(kbdOf(t)!.reach.some((r) => r !== 'tab'), `${s.at} ${t.name}`).toBe(true);
+    }
+    // 그 밖의 칸은 기본 Tab 멈춤(무리 칸은 keynav.ts·treeview.ts·panel.ts가 tabIndex를 옮긴다 — resize.ts 손잡이·panel.ts 탭 본문은 0)
+    expect(SRC.filter(([, t]) => /\btabindex\b|\btabIndex\b/.test(t)).map(([f]) => f)).toEqual(['app.ts', 'explodetool.ts', 'keynav.ts', 'menu.ts', 'panel.ts', 'resize.ts', 'treeview.ts']);
+    expect(SITES.filter((s) => s.key === 'a' || s.key.startsWith('a.')).every((s) => /\b(href|download):/.test(s.attrs))).toBe(true);
+  });
+
+  it('앱 keydown 칸(나무 줄·패널 크기 손잡이)은 그 자리에서 받는 키를 모두 처리하고, 대신 줄은 Tab·무리로 닿는 줄과 키 근거가 원문에 있다', () => {
+    for (const [n, k] of Object.entries(KBD)) {
+      if (k.press === 'keys') {
+        const text = srcOf(k.keys!.file);
+        const i = text.indexOf(k.keys!.at);
+        expect(i, n).toBeGreaterThan(-1);
+        expect(text, n).toContain("addEventListener('keydown'");
+        const body = text.slice(i, i + 2000);
+        for (const key of k.keys!.keys) expect(body, `${n} ${key}`).toContain(`'${key}'`);
+      }
+      if (k.reach.includes('alt')) {
+        expect(k.via?.length, n).toBeGreaterThan(0);
+        for (const sel of k.via!) {
+          const row = TARGETS.find((t) => t.sel === sel);
+          expect(row, `${n} ${sel}`).toBeDefined();
+          expect(kbdOf(row!)!.reach.some((r) => r === 'tab' || r === 'rove'), `${n} ${sel}`).toBe(true);
+        }
+        for (const [file, re] of k.viaEv ?? []) expect(textOf(file), `${n} ${file}`).toMatch(re);
+      }
+    }
+  });
+
+  it('패널 크기 손잡이는 Tab 멈춤 separator — 넓은 화면 ←·→·좁은 화면 ↑·↓ 16px, Home 기본, End는 받지 않는다(고르지 않음 — README 남은 일 236차 줄)', () => {
+    for (const narrowOn of [false, true]) {
+      const root = h('div');
+      const panel = h('div');
+      document.body.append(root, panel);
+      const r = new PanelResizer(root, panel, h('div'), { matches: narrowOn, addEventListener: noop } as unknown as MediaQueryList, null);
+      panel.prepend(r.el);
+      const prop = narrowOn ? '--sheet-h' : '--panel-w';
+      const key = (k: string): boolean => r.el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+      expect([r.el.tabIndex, r.el.getAttribute('role'), r.el.getAttribute('aria-valuenow')]).toEqual([0, 'separator', '0']);
+      // jsdom은 배치를 하지 않아 지금 크기 0 — 한 칸 키우면 가장 작은 크기(넓은 화면 240·시트 120)
+      expect(key(narrowOn ? 'ArrowUp' : 'ArrowLeft')).toBe(false);
+      expect(root.style.getPropertyValue(prop)).toBe(narrowOn ? '120px' : '240px');
+      expect(key('End')).toBe(true);
+      expect(root.style.getPropertyValue(prop)).toBe(narrowOn ? '120px' : '240px');
+      expect(key('Home')).toBe(false);
+      expect(root.style.getPropertyValue(prop)).toBe('');
+    }
+  });
+});
+
+describe('236차: 초점 보임(스타일시트 글 — 164차 감사)', () => {
+  it('전역 바깥선 2px 강조색, 바깥선을 끈 자리는 셋(넓은 화면 손잡이·거르기 칸·메뉴 항목)이고 모두 대신 보이는 표시가 있다, 안쪽 바깥선 자리는 다섯', () => {
+    expect(ruleBody(':focus-visible')).toMatch(/outline:\s*2px solid var\(--accent\);\s*outline-offset:\s*1px/);
+    expect(offRules(BLOCKS)).toEqual(['.panel-resizer:focus-visible', '.tree-filter', '.menu-item:hover', '.menu-item:focus-visible']);
+    expect(OFF_BASES).toEqual(Object.keys(REPLACED));
+    for (const [sel, f] of Object.entries(REPLACED)) expect(f(), sel).toEqual([]);
+    expect(INSET_BASES).toEqual(['.seg-btn', '.tab', '.panel-body', '.tree-row', '.language-list button']);
+  });
+});
+
+describe('236차: 포인터 끌기(WCAG 2.5.7)와 키보드 길', () => {
+  it('pointermove·포인터 붙잡기를 쓰는 src/app 파일 여덟이 모두 DRAGS에 있고, 일마다 받는 자리·키 근거가 원문에 있다', () => {
+    expect(pointerFiles(SRC)).toEqual([...new Set(DRAGS.map((d) => d.at[0]).filter((f) => !f.includes('/')))].sort());
+    expect(pointerFiles(SRC)).toHaveLength(8);
+    for (const d of DRAGS) {
+      expect(textOf(d.at[0]), d.name).toMatch(d.at[1]);
+      for (const [file, re] of d.keyEv) expect(textOf(file), `${d.name} ${file}`).toMatch(re);
+    }
+    // 표 줄의 끌기 이름은 DRAGS에 있다
+    for (const [n, k] of Object.entries(KBD)) if (k.drag) expect(DRAGS.map((d) => d.name), n).toContain(k.drag);
+  });
+
+  it('3D 임의 돌리기·이동·확대는 키가 없다(고르지 않음 — 새 키 배정, 코어 orbitBy·zoomBy는 있고 화면 이동 함수는 없음): 앱이 그 함수를 부르면 표를 고친다', () => {
+    expect(DRAGS.filter((d) => d.verdict === 'design').map((d) => d.name)).toEqual(['3D 돌리기', '3D 이동', '3D 확대']);
+    expect(SRC.filter(([, t]) => /\.(orbitBy|zoomBy|panBy)\(/.test(t)).map(([f]) => f)).toEqual([]);
+    const core = read(CORE_VIEWER);
+    expect([/\n {2}orbitBy\(dYaw: number, dPitch: number\): void/.test(core), /\n {2}zoomBy\(factor: number\): void/.test(core), /\bpanBy\(/.test(core)]).toEqual([true, true, false]);
+  });
+
+  it('표 요약: (가) Tab 21·무리 7·Tab 또는 무리 1·Tab 또는 없음 1·라벨 6·대신 4·없음 2 — 키보드 길 없는 누를 칸 0, (나) 기본 27·앱 키 2·굴림 1·라벨 6·키 없음 6, (다) 전역 21·안쪽 6·바꿈 3·안 칸 6·코어 1·초점 없음 5, (라) 끌기 6꼴', () => {
+    const count = (f: (k: Kbd) => string): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const k of Object.values(KBD)) out[f(k)] = (out[f(k)] ?? 0) + 1;
+      return out;
+    };
+    expect(count((k) => k.reach.join('|'))).toEqual({ tab: 21, rove: 7, 'tab|rove': 1, 'tab|none': 1, label: 6, alt: 4, none: 2 });
+    expect(count((k) => k.press)).toEqual({ native: 27, keys: 2, scroll: 1, label: 6, none: 6 });
+    expect(count((k) => k.focus)).toEqual({ global: 21, inset: 6, replace: 3, inner: 6, core: 1, none: 5 });
+    expect(Object.entries(KBD).filter(([, k]) => k.drag).map(([n]) => n)).toEqual(['#28', '#29', '#35', '#36', '#37', '#42']);
+  });
+});
+
+describe('236차: 키보드 셈이 헛돌지 않는다', () => {
+  it('Tab 멈춤을 잃은 단추·나무 밖 나무 줄·새 바깥선 끄기·새 pointermove 파일은 잡힌다', () => {
+    expect(kbdIssues([h('button', { type: 'button', class: 'recent-open', tabindex: '-1' })])).toEqual(['button.recent-open #19 최근 문서 줄: 닿는 길 alt']);
+    expect(kbdIssues([h('div', { class: 'tree-row', role: 'treeitem' })])).toEqual(['div.tree-row #14 나무 줄: 닿는 길 alt']);
+    expect(offRules(blocksOf(`${CSS}\n.recent-open:focus-visible { outline: none; }`))).toHaveLength(5);
+    expect(pointerFiles([...SRC, ['zz.ts', "el.addEventListener('pointermove', f)"]])).toContain('zz.ts');
   });
 });
