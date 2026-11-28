@@ -381,7 +381,7 @@ export class ExplodeTweakTool implements TweakHandlers {
     const vals = parseTypedLengths(text, { comma: (f.sep ?? ', ').startsWith(';'), factor: f.factor ?? 1, sceneMm: sceneMm(r.doc.scene.units) });
     const d = vals === 'unit' || !vals ? vals : typedDelta(r.axis, r.view, r.path, r.d, vals, r.limit);
     if (!d || typeof d === 'string') {
-      this.host.toast(
+      const msg =
         d === 'unit'
           ? '이 파일에는 길이 단위가 없어 단위를 붙인 거리는 받지 않습니다.'
           : d === 'dir'
@@ -390,10 +390,10 @@ export class ExplodeTweakTool implements TweakHandlers {
               ? '너무 멀어 옮기지 않았습니다 — 조립 대각선의 20배까지 옮깁니다.'
               : r.axis === 'sp' || r.axis === 'free'
                 ? (r === n ? FRESH_HELP : TYPED_HELP)[r.axis]
-                : TYPED_HELP.line,
-        'warn',
-        5000,
-      );
+                : TYPED_HELP.line;
+      this.host.toast(msg, 'warn', 5000);
+      // 242차(WCAG 3.3.1): 같은 글을 거리 칸에도(칸에 받지 못한 글이 남는 동안 막대가 aria-invalid·설명으로 잇는다)
+      this.field?.invalid?.(msg);
       return false;
     }
     const c = worldComps(r.axis, r.view, d);

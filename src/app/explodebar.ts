@@ -45,7 +45,12 @@ export interface DistField {
   show(s: DistState | null): void;
   seed(ch: string): boolean;
   focus(): boolean;
+  /** 242차: 받지 못한 글의 알림 글(손질 도구가 알림 칸에 낸 것과 같은 원문) — 그 글이 칸에 남는 동안 칸에도 잇는다 */
+  invalid?(msg: string): void;
 }
+
+/** 242차: 거리 칸 오류 설명 칸 id 셈 수(막대마다 하나 — 문서 안에서 하나뿐이게) */
+let distErrors = 0;
 
 /** 손질 칸 알림(옮기기 켜고 끄기·한 단계 되돌리기·다시 하기·모두 되돌리기, 손질 파일 내보내기·불러오기, 쳐 넣은 거리·거리 칸 달기) */
 export interface TweakHandlers {
@@ -150,6 +155,8 @@ export class ExplodeControls {
   private readonly distUnit: HTMLElement;
   /** 칸 이름표(206차)와 마지막으로 건 이름표 원문(distName 꼴 — 바뀔 때만 다시 건다) */
   private readonly distKey: HTMLElement;
+  /** 242차: 받지 못한 글의 오류 설명(숨은 글 — 보이는 글은 알림 칸, 번역층이 옮긴다) */
+  private readonly distError: HTMLElement;
   private distLabel: string = DIST_LABELS.drag;
   private distShown = '';
   private distSent: string | null = null;
@@ -258,16 +265,21 @@ export class ExplodeControls {
     });
     this.distUnit = h('span', { class: 'explode-unit' });
     this.distKey = h('span', { class: 'explode-distance-key' }, DIST_LABELS.drag);
-    this.distSeg = h('label', { class: 'explode-distance', hidden: true }, this.distKey, this.distInput, this.distUnit);
+    this.distError = h('span', { class: 'explode-error', id: `explode-error-${++distErrors}`, hidden: true });
+    this.distSeg = h('label', { class: 'explode-distance', hidden: true }, this.distKey, this.distInput, this.distUnit, this.distError);
     const send = (): void => {
       const text = this.distInput.value;
       if (text === this.distShown || text === this.distSent) return;
       this.distSent = text;
       if (tweak.typed?.(text)) {
+        this.valid();
         this.distInput.blur();
         this.distInput.value = this.distShown;
       } else if (document.activeElement === this.distInput) this.distInput.select();
-      else this.distInput.value = this.distShown;
+      else {
+        this.distInput.value = this.distShown;
+        this.valid();
+      }
     };
     this.distInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -286,11 +298,22 @@ export class ExplodeControls {
     // 칸을 떠나면 바뀐 글을 건다(손가락 기기의 숫자 자판에는 Enter가 없다). 걸지 못한 글은 떠난 뒤 보일 값으로 되돌린다
     this.distInput.addEventListener('change', send);
     this.distInput.addEventListener('focus', () => (this.distSent = null));
+    // 242차: 고쳐 쓰면 앞 글의 오류 표시를 뗀다(다시 Enter·떠남으로 건다)
+    this.distInput.addEventListener('input', () => this.valid());
     this.distInput.addEventListener('blur', () => {
       if (this.distInput.value !== this.distShown) this.distInput.value = this.distShown;
+      this.valid();
     });
     const field: DistField = {
       show: (s) => this.showDistance(s),
+      // 242차(WCAG 3.3.1): 받지 못한 글이 칸에 남는 동안(Enter — 다시 쳐 넣게 고름) 칸에도 오류를 잇는다 — aria-invalid와 그 알림 글을 설명으로
+      // (알림 칸 글은 5초 뒤 사라져 칸으로 돌아와도 무엇이 틀렸는지 다시 들을 길이 없었다). 칸을 떠나면 보일 값으로 되돌려 떼므로 남은 동안만
+      invalid: (msg) => {
+        if (this.distSeg.hidden) return;
+        this.distError.textContent = msg;
+        this.distInput.setAttribute('aria-invalid', 'true');
+        this.distInput.setAttribute('aria-describedby', this.distError.id);
+      },
       seed: (ch) => {
         if (this.distSeg.hidden) return false;
         this.distInput.value = ch;
@@ -333,15 +356,27 @@ export class ExplodeControls {
     if (to && was?.closest('[hidden]') && !to.closest('[hidden]')) to.focus({ preventScroll: true });
   }
 
+  /** 242차: 받지 못한 글의 오류 표시 떼기(고쳐 씀·떠남·Esc·맞는 값·칸을 숨기거나 값을 갈아 끼움) */
+  private valid(): void {
+    if (!this.distInput.hasAttribute('aria-invalid')) return;
+    this.distInput.removeAttribute('aria-invalid');
+    this.distInput.removeAttribute('aria-describedby');
+    this.distError.textContent = '';
+  }
+
   /** 거리 칸 맞추기(null = 숨기기). 쳐 넣는 중(칸에 초점)이면 글은 그대로 두고 보일 값만 기억한다 */
   private showDistance(s: DistState | null): void {
     this.distSeg.hidden = !s;
     if (!s) {
       this.distShown = '';
+      this.valid();
       return;
     }
     this.distShown = s.value;
-    if (document.activeElement !== this.distInput) this.distInput.value = s.value;
+    if (document.activeElement !== this.distInput) {
+      this.distInput.value = s.value;
+      this.valid();
+    }
     this.distUnit.textContent = s.unit;
     this.distUnit.hidden = !s.unit;
     const kind = s.axis === 'sp' || s.axis === 'free' ? s.axis : 'line';
