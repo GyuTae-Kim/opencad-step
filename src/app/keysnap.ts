@@ -136,9 +136,16 @@ export function lockKeyOf(e: Pick<KeyboardEvent, 'key' | 'code'>): 'x' | 'y' | '
 }
 
 /**
+ * 218차: 3D 보기에 초점이 있으면 앱 창 키(keys.ts routeKey — 3D 보기 안이라 172차 설정과 무관)가 받는 보기·고르기 키(Home 홈 뷰·H 숨기기·I 격리·F7 격자)와
+ * 커서 자리 작업 메뉴(아래 캔버스 keydown — 커서가 꺼졌으면 브라우저가 내는 contextmenu를 앱이 3D 보기 가운데 메뉴로)
+ */
+const APP_VIEW_KEYS = ['Home', 'H', 'I', 'F7', 'Shift+F10', 'ContextMenu'] as const;
+
+/**
  * 캔버스 aria-keyshortcuts 값(WAI-ARIA 꼴 — KeyboardEvent.key, 수정 키는 앞에 'Shift+'): 코어 키 표(옮기기는 Shift와 함께도 — 크게 옮기기),
  * 후보·찍기·끄기, 마우스 미리 보기 후보 돌리기(116차 — 코어 0.116.0 tabCycle은 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 기본 키 표에는 이미 있다),
- * 뷰어 키(F 전체 보기, 1~7 표준 뷰)
+ * 뷰어 키(F 전체 보기, 1~7 표준 뷰), 218차: 앱 보기 키·작업 메뉴(APP_VIEW_KEYS). 창 어디서나 같은 문서 명령(Ctrl·⌘+O 열기·Ctrl·⌘+Z 분해 손질 등)은 3D 보기의 키가 아니라 넣지 않는다
+ * (받는 키 대조 — tests/app/keyshortcuts218.test.ts)
  */
 export function keyShortcuts(keys: Readonly<Record<KeySnapAction, readonly string[]>>): string {
   const out = new Set<string>();
@@ -153,6 +160,7 @@ export function keyShortcuts(keys: Readonly<Record<KeySnapAction, readonly strin
   for (const k of Object.keys(LOCK_ARROWS)) out.add(k.toUpperCase());
   out.add('F');
   for (const k of Object.keys(VIEW_KEYS)) out.add(k);
+  for (const k of APP_VIEW_KEYS) out.add(k);
   return [...out].join(' ');
 }
 
@@ -216,8 +224,10 @@ export interface KeySnapHost {
    * 125차: tangents(app.ts의 곡선 접선 잠금 — 측정 접선 조각을 받기 전에는 null)도 읽는다 — 코어 잠금이 앱 접선 잠금이면 알림 이름을 상태 막대처럼 「접선 방향 · 잠금」으로
    * (첫 화면 조각을 늘리지 않으려고 새 칸을 주지 않고 앱이 이미 주는 자기 자신에서 읽는다). 없으면 접선 잠금이 없는 것으로
    * 216차: lockArrow(app.ts — 두 점 측정 화살표 잠금 몸통, 화살표 이름을 받는다. 받는 때면 true, hold면 받는지만)도 같은 꼴로 읽는다 — 없으면 lockKey는 받지 않는다
+   * 218차: cursorArrows(app.ts — 3D 보기가 받은 화살표가 가상 커서 몫인지: 커서가 켜졌거나, 3D 보기에 초점이 있고 마우스가 밖 — keys.ts arrowOwner)도 —
+   * 그동안 lockKey가 X·Y·Z·L을 받는다. 없으면 커서가 켜진 동안만(216차)
    */
-  pick?: PickRowHost & { doc: StepDoc | null; tangents?: Pick<TangentLock, 'locked'> | null; lockArrow?(key: string, hold?: boolean): boolean };
+  pick?: PickRowHost & { doc: StepDoc | null; tangents?: Pick<TangentLock, 'locked'> | null; lockArrow?(key: string, hold?: boolean): boolean; cursorArrows?(): boolean };
   /** 묶음 열쇠를 따로 줄 때(시험 — 주면 pick의 열쇠 대신) */
   group?: PickGroupKey;
 }
@@ -277,7 +287,9 @@ export function installKeySnap(
   /** 지금 잠근 방향 이름(앱 곡선 접선 잠금이면 'tangent' — snap.ts viewerLockName과 같은 규칙) */
   const lockNow = (): LockName | null => (P?.tangents?.locked(v) ? 'tangent' : lockName(v.measureInferenceLock));
   const lockKey = (e: KeyboardEvent): boolean => {
-    const k = e.target === v.canvas && v.keyboardCursor && !e.defaultPrevented && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) ? lockKeyOf(e) : null;
+    // 218차: 화살표가 가상 커서 몫인 동안(앱 고르기 호스트 cursorArrows — 커서가 꺼져 있어도 마우스가 3D 보기 밖이면 화살표는 커서 켜기), 없으면 커서가 켜진 동안
+    const on = P?.cursorArrows ? P.cursorArrows() : !!v.keyboardCursor;
+    const k = e.target === v.canvas && on && !e.defaultPrevented && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) ? lockKeyOf(e) : null;
     if (!k || !P?.lockArrow) return false;
     const before = lockNow();
     if (!P.lockArrow(LOCK_ARROWS[k], e.repeat)) return false;

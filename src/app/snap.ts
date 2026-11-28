@@ -524,9 +524,10 @@ export function viewerLockName(v: Pick<Viewer3d, 'measureInferenceLock'>, tangen
  * 지금 측정 잠금 안내(상태 막대·측정 띠): 무엇을 잠글지는 코어가 정한다 — Shift·↓·잠금 단추는 커서 아래 방향 추론(축·모서리와 나란히·수직)이나,
  * 첫 점을 지나는 모서리 위의 점 붙잡기(모서리 끝에서 그 모서리의 다른 끝·가운데 점을 가리킬 때 — 코어 0.12.0)면 그 모서리 방향을 잠근다.
  * 첫 점이 곡선 모서리 끝이고 커서가 그 곡선 위면 앱이 접선 방향으로 잠근다(tangent — 받기 전이면 null).
- * 그 방향이 있는지(measureHoverLock, 접선)로 Shift 안내를 보일지 고른다. 217차: 가상 커서가 켜져 있으면(keyboardCursor) X·Y·Z·L 안내
+ * 그 방향이 있는지(measureHoverLock, 접선)로 Shift 안내를 보일지 고른다. 217차: 가상 커서가 켜져 있으면(keyboardCursor) X·Y·Z·L 안내.
+ * 218차: cursor = 3D 보기가 받은 화살표가 가상 커서 몫인지(app.ts cursorArrows — 커서가 꺼져 있어도 3D 보기에 초점이 있고 마우스가 밖이면 화살표는 커서 켜기라 X·Y·Z·L), 주지 않으면 커서 켜짐
  */
-export function viewerLockHint(v: LockViewer, touch = false, tangent: TangentHint | null = null): string | null {
+export function viewerLockHint(v: LockViewer, touch = false, tangent: TangentHint | null = null, cursor = !!v.keyboardCursor): string | null {
   const lock = viewerLockName(v, tangent);
-  return lockHint(v.measurePointCount, lock, touch, !!v.measureHoverLock || (!lock && !!tangent?.now(v)), !!v.keyboardCursor);
+  return lockHint(v.measurePointCount, lock, touch, !!v.measureHoverLock || (!lock && !!tangent?.now(v)), cursor);
 }
