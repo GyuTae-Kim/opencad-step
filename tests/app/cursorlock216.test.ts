@@ -315,8 +315,13 @@ describe('도움말·사전·app.ts 길(216차)', () => {
       en: ['Direction unlocked', 'Two-point measurement direction lock (X axis · Y axis · Z axis · current direction — press again to unlock)'],
       ja: ['方向ロックを解除しました', '2点測定の方向ロック（X 軸 · Y 軸 · Z 軸 · 現在の方向 — もう一度押すと解除）'],
       'zh-CN': ['已解除方向锁定', '两点测量方向锁定（X 轴 · Y 轴 · Z 轴 · 当前方向 — 再按一次解锁）'],
-      de: ['Richtung entsperrt', 'Richtungssperre der Zwei-Punkt-Messung (X-Achse · Y-Achse · Z-Achse · aktuelle Richtung — erneut drücken zum Entsperren)'],
+      // 227차: 독일어 줄표는 같은 키 표 이웃 줄(「Messung löschen – wenn …」·「Aktionen an der Cursorposition (… – …)」)과 같은 「 – 」(Gedankenstrich)
+      de: ['Richtung entsperrt', 'Richtungssperre der Zwei-Punkt-Messung (X-Achse · Y-Achse · Z-Achse · aktuelle Richtung – erneut drücken zum Entsperren)'],
     };
+    // 227차: 도움말 키 표의 독일어 줄은 한 줄표 꼴(216차 줄만 「 — 」였다)
+    const rowsDe = keyHelpRows({ step: 5, bigStep: 50, keys: KEY_SNAP_KEYS }).map(([, what]) => translate(what, 'de'));
+    expect(rowsDe.filter((t) => t.includes(' – ')).length).toBeGreaterThanOrEqual(3);
+    expect(rowsDe.filter((t) => t.includes(' — '))).toEqual([]);
     for (const code of CODES) {
       const c = catalogs[code]!;
       expect([UNLOCKED, ROW].map((k) => c[k]), code).toEqual(want[code]);

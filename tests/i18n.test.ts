@@ -143,6 +143,9 @@ describe('language URLs and UI presentation', () => {
       ['그리기 모드', 'en', /Display mode/, /Drawing/],
       ['뷰 큐브', 'de', /Ansichtswürfel/, /Würfel anzeigen/],
       ['뷰 큐브', 'zh-CN', /视图立方体/, /查看立方体|立方体视图/],
+      // 227차: 부품이 주어인 글은 영어도 part(「부품」 든 열쇠 53의 영어 part 48 : component 4 — component는 기능·분류 이름 「Component colors」·「Fastening components」와
+      // 나무 ×n 칩 말풍선 「This component has been placed …」뿐이었다)
+      ['부품이', 'en', /\b[Pp]arts?\b/, /component/i],
     ];
     for (const [term, lang, need, ban] of rules)
       for (const code of lang === '*' ? codes : [lang])
@@ -249,6 +252,9 @@ describe('language URLs and UI presentation', () => {
     // 코드·STEP 낱말(ANNOTATION_TEXT·INVISIBILITY·createImageBitmap 등)은 옮기지 않는다(createImageBitmap을 "创建图像位图"으로, INVISIBILITY를 UNSICHTBAR로 옮긴 것)
     const identifier = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[A-Z]{6,}\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b|\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g;
     const depth = (text: string) => [...text].reduce((n, ch) => n + Number('(（'.includes(ch)) - Number(')）'.includes(ch)), 0);
+    // 227차: 원문이 마침표 없이 「다」로 끝나면(말풍선·알림 글) 값 끝에도 . 。 없이 — 같은 꼴 en·ja·de 45 : 3, zh-CN 47 : 1(나무 ×n 칩 말풍선이 마침표를 달았던 것).
+    // 아래 둘은 215차 앞 값(227차 대조 범위 밖 — README 남은 일 227차 줄에 보고 둠)
+    const tailDotKnown = new Set(['뷰 큐브: 면·모서리·구석을 누르면 그 방향으로 봅니다', '이 브라우저는 WebGL2를 지원하지 않아 3D 보기를 열 수 없습니다']);
     for (const code of ['en', 'ja', 'zh-CN', 'de'])
       for (const [key, value] of Object.entries(catalogs[code])) {
         expect(value, `${code}: ${key}`).not.toMatch(/[가-힣]/);
@@ -258,6 +264,7 @@ describe('language URLs and UI presentation', () => {
         if (tail) expect(value, `${code}: ${key}`).toMatch(new RegExp(`\\${tail[1].slice(0, -1)}\\}$`));
         // 괄호 짝(독일어 "Doppelklicken) Grundlagen)"·중국어 "双击“基本”）"처럼 깨진 글)
         if (depth(key) === 0) expect(depth(value), `${code}: ${key}`).toBe(0);
+        if (/다$/.test(key) && !tailDotKnown.has(key)) expect(value, `${code}: ${key}`).not.toMatch(/[.。]$/);
         // 원문의 수(60MB·4096·20배 등)는 그대로(검색 제목의 "3D"만 뺀다)
         if (key !== 'OpenCAD 무료 STEP 뷰어 | STP·STEP 3D 모델 열기')
           for (const n of key.replace(/\{\d+\}/g, '').match(/\d+/g) ?? []) expect(value.replace(/\{\d+\}/g, '').replace('三维', '3D'), `${code}: ${key}`).toContain(n);
