@@ -79,7 +79,9 @@ describe('간섭 검사: 겹친 부피', () => {
       for (const t of ['겹친 부피', '겹친 부피 계산 중…', '겹친 부피 ≈ 125 mm³ ± 0 mm³', hs.find((x) => x?.startsWith('겹친 부피(≈)는'))!, '시간 한도로 1쌍은 겹친 부피를 구하지 못했습니다.', '겹친 부피 계산을 멈췄습니다.'])
         expect(translate(t, code), `${code}: ${t}`).not.toMatch(/[가-힣]/);
     expect(translate('겹친 부피 ≈ 125 mm³ ± 0 mm³', 'en')).toBe('Overlap volume ≈ 125 mm³ ± 0 mm³');
-    expect(translate('시간 한도로 3쌍은 겹친 부피를 구하지 못했습니다.', 'de')).toBe('Wegen des Zeitlimits wurde für 3 Paare kein Überlappungsvolumen berechnet.');
+    // 215차: 위 줄처럼 남은 쌍이 1이면 「für 1 Paare」로 읽혀 수를 끝에 둔 꼴로(같은 묶음 「그 밖 {0}쌍」 Nicht in die Liste aufgenommene Paare: {0}. 꼴 — tests/i18n-plural215.test.ts)
+    expect(translate('시간 한도로 3쌍은 겹친 부피를 구하지 못했습니다.', 'de')).toBe('Paare, für die wegen des Zeitlimits kein Überlappungsvolumen berechnet wurde: 3.');
+    expect(translate('시간 한도로 1쌍은 겹친 부피를 구하지 못했습니다.', 'de')).toBe('Paare, für die wegen des Zeitlimits kein Überlappungsvolumen berechnet wurde: 1.');
   });
 
   it('진행·쌍·겹친 부피·멈춤으로 묶음을 갈아 끼워도 그 안 초점은 새 묶음의 같은 칸으로(멈추기·쌍 단추 — 139차)', () => {
