@@ -19,6 +19,9 @@
  * 231차(230차가 코드로만 본 둘과 수 꼴): 개체 측정 덧그림 글(캔버스 — showEntities)과 측정 띠 개체 측정 글(refreshBar 갈래 — 만든 글이 같으면 바꾸지 않음), 마우스 측정 말풍선
  * (상태 막대·측정 띠 스냅 이름 여섯 — showHoverSnap, Tab 돌리기 차례 포함)을 앱 원문을 잘라 그리고 230차 차례로 언어를 바꿔, 처음부터 그 언어로 그린 것과 견준다
  * (수 꼴 — 독일어 「1.234,5」 ↔ 영어 「1,234.5」 — 이 바뀌는 칸이 든다). 고치기 전에도 남는 칸 0(지금 0을 지킴).
+ * 232차(231차가 표에 둔 셈 수 꼴): format.ts fmtCount가 늘 ko-KR이라 독일어 화면에서도 천 단위가 「12,345」였다 — 이제 화면 언어 꼴(독일어 「12.345」, 나머지 그대로).
+ * 대표 칸(정보 탭 파일 크기 바이트·상태 막대 파일 크기 말풍선·간섭 결과 범위가 겹친 쌍·ms·쌍 칩)을 다섯 언어로 그려 꼴을 보고, 앱 언어 알림 처리기(refreshFmt →
+ * panel.redraw·updateStatus — app.ts 원문)로 바꾼 뒤 처음부터 그 언어로 그린 것과 견준다. 230차 껍데기의 panel.redraw도 그린 패널을 실제로 다시 그린다(앱과 같게).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,7 +30,7 @@ import { formatKeySnapMessage, KEY_SNAP_KEYS, keySnapMessages, type GroupInfo, t
 import { CUBE_FACES } from 'opencad-viewer3d/viewcube';
 import { translate as translateCatalog } from '../../site/i18n-core.mjs';
 import { stepToScene, type StepMeta } from '../../src/scene';
-import { bodyTitle, createDoc, productAt, selectionItemIds, type PanelTab, type StepDoc } from '../../src/app/doc';
+import { bodyTitle, createDoc, docStatus, productAt, selectionItemIds, type PanelTab, type StepDoc } from '../../src/app/doc';
 import { errorText, friendlyError, type ParseResult } from '../../src/app/protocol';
 import { nodeLabel } from '../../src/app/tree';
 import { Panel, type PanelHost } from '../../src/app/panel';
@@ -146,8 +149,11 @@ function host(d: StepDoc): PanelHost {
   return new Proxy(t, { get: (o, k) => (k in o ? o[k as string] : () => {}) }) as unknown as PanelHost;
 }
 
-/** 패널 하나(앱처럼 뷰어 조각의 나무·속성 탭 본문을 넣고 — 번역층을 건 뒤 그린다). 이름 없는 부품을 고르고 뿌리와 그 부품을 펼친 채 */
-function panel(tab: PanelTab, setup: (d: StepDoc) => void = () => {}): HTMLElement {
+/**
+ * 패널 하나(앱처럼 뷰어 조각의 나무·속성 탭 본문을 넣고 — 번역층을 건 뒤 그린다). 이름 없는 부품을 고르고 뿌리와 그 부품을 펼친 채.
+ * keep에 패널을 모으면 언어 알림 처리기(refreshFmt → panel.redraw — app.ts)가 그 패널들을 다시 그린다(232차 — 셈 수 꼴이 화면 언어를 따름)
+ */
+function panel(tab: PanelTab, setup: (d: StepDoc) => void = () => {}, keep?: Panel[]): HTMLElement {
   const d = newDoc();
   d.selKey = bareKey;
   d.expanded = new Set(['0', bareKey]);
@@ -155,6 +161,7 @@ function panel(tab: PanelTab, setup: (d: StepDoc) => void = () => {}): HTMLEleme
   const p = Object.assign(new Panel(host(d)), { phys: PHYS, kit: { ...TV, ...PV, infoView } });
   p.show(d);
   p.setTab(tab);
+  keep?.push(p);
   return p.el;
 }
 
@@ -415,8 +422,12 @@ interface Shell {
   /** 뷰어를 만든 뒤(app.ts ensureViewer 차례 — 뷰 큐브 면 글·측정 글 꼴·가상 커서 붙잡기) */
   ready(): void;
 }
-/** 앱 껍데기: 생성자처럼 번역층보다 먼저 언어 알림 처리기를 달고(app.ts 원문), 뷰어를 만든 뒤 캔버스 글·가상 커서 붙잡기를 건다 */
-function shell(root: HTMLElement, host: HTMLElement): Shell {
+/**
+ * 앱 껍데기: 생성자처럼 번역층보다 먼저 언어 알림 처리기를 달고(app.ts 원문), 뷰어를 만든 뒤 캔버스 글·가상 커서 붙잡기를 건다.
+ * 232차: refreshFmt가 부르는 panel.redraw는 그린 패널들을 실제로 다시 그린다(앱의 패널 하나 — 지금 탭 본문·아래 띠를 새로). 전에는 아무것도 하지 않는 가짜였는데,
+ * 셈 수(format.ts fmtCount — 정보 탭 파일 크기 바이트 등)가 화면 언어 꼴(독일어 「12.345」)이 되자 다시 그리지 않는 가짜 패널은 앞 언어 꼴을 남겨 앱과 달라졌다
+ */
+function shell(root: HTMLElement, host: HTMLElement, panels: Panel[] = []): Shell {
   const fv: FakeViewer & Record<string, unknown> = {
     canvas: h('canvas'),
     ks: null,
@@ -431,7 +442,7 @@ function shell(root: HTMLElement, host: HTMLElement): Shell {
     setViewCubeSize: () => {},
   };
   host.append(h('div', { class: 'viewer-host' }, fv.canvas));
-  const self: Record<string, unknown> = { viewer: null, cube: null, keySnap: null, doc: null, display: undefined, entMeasuring: false, panel: { redraw: () => {} }, updateStatus: () => {}, syncSection: () => {}, refreshRecent: async () => {} };
+  const self: Record<string, unknown> = { viewer: null, cube: null, keySnap: null, doc: null, display: undefined, entMeasuring: false, panel: { redraw: () => panels.forEach((p) => p.redraw()) }, updateStatus: () => {}, syncSection: () => {}, refreshRecent: async () => {} };
   self.makeFmt = new Function('Fmt', 'numberLocale', MAKE_FMT).bind(self, Fmt, numberLocale);
   self.refreshFmt = new Function('measureLabelLines', 'translateUi', REFRESH_FMT).bind(self, measureLabelLines, translateUi);
   self.relabelCube = new Function('translateUi', RELABEL).bind(self, translateUi);
@@ -737,13 +748,14 @@ async function switchable(code: string): Promise<Drawn> {
   const views = h('div');
   const root = h('div', {}, views);
   document.body.append(root);
-  const sh = shell(root, views);
+  const panels: Panel[] = [];
+  const sh = shell(root, views, panels);
   views.append(new Toolbar(toolHost(true)).el);
   const dispose = await installLocalization(root);
   sh.ready();
   views.append(busy(stageLabel('삼각화')));
-  for (const tab of ['props', 'layers', 'info'] as const) views.append(panel(tab));
-  views.append(panel('tree', (d) => (d.interference = CHECKS[0])));
+  for (const tab of ['props', 'layers', 'info'] as const) views.append(panel(tab, undefined, panels));
+  views.append(panel('tree', (d) => (d.interference = CHECKS[0]), panels));
   const bar = new SectionBar({ viewerRef: null, fmt: new Fmt('mm'), hasDoc: true, setSectionAxis: () => {}, toast: () => {} });
   views.append(bar.el, bar.handle);
   bar.sync(SECTIONS[0]!);
@@ -1037,6 +1049,125 @@ describe('231차: 개체 측정 덧그림 글·측정 띠 개체 측정 글·마
             if (now[k].length !== b[k].length) left.push(`${start}→${code} ${k}: ${now[k].length} ≠ ${b[k].length}칸`);
             now[k].forEach((t, i) => t !== b[k][i] && left.push(`${start}→${code} ${k}: ${t} ≠ ${b[k][i]}`));
           }
+        }
+      } finally {
+        s.done();
+      }
+    }
+    expect(left).toEqual([]);
+  });
+});
+
+// ───────────────────────── 232차 ─────────────────────────
+// 231차가 표에 둔 셈 수 꼴(format.ts fmtCount — 59자리, 늘 ko-KR이었다): 대표 칸을 다섯 언어로 그려 천 단위 묶음 글자가 화면 언어 꼴인지(독일어 「.」, 나머지 「,」) 보고,
+// 앱 언어 알림 처리기(app.ts 원문 — refreshFmt가 panel.redraw·updateStatus)로 다시 그린 칸이 바꾼 뒤 새 꼴인지 230차 차례(switchTo)로 견준다
+// updateStatus의 문서 칸(상태 막대 왼쪽 — doc.ts docStatus: 파일 크기 말풍선·삼각형·부품 수)
+const STATUS_DOC = cut(/\n(\s*for \(const it of docStatus\(d\)\) this\.statusDoc\.append\([^\n]*\);)\n/);
+/** 큰 간섭 결과(패널 제품 탭 — panelview.ts interferenceView): 범위가 겹친 쌍 12,345·쌍 칩(교차 삼각형 쌍) 2,345·시간 1,500 ms */
+const BIG: NonNullable<StepDoc['interference']> = { running: false, done: 0, total: 0, result: { pairs: [{ ...P1, count: 2345 }, P2], tested: 12345, ms: 1500 } };
+/** 천 단위 묶음 글자 sep로 쓴 수(Intl을 거치지 않은 기대 — 「12,345」·「12.345」) */
+const grouped = (n: number, sep: string): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, sep);
+/** 글 안에 그 꼴의 수가 따로 있는가(앞뒤가 수·「.」·「,」가 아님 — 「9.64 KB」 같은 소수와 갈린다) */
+const hasNum = (all: string, n: number, sep: string): boolean => new RegExp(`(?:^|[^\\d.,])${grouped(n, sep).replace(/\./g, '\\.')}(?:[^\\d.,]|$)`).test(all);
+/** 화면 언어의 천 단위 묶음 글자(Intl 로캘 꼴 — display.ts numberLocale과 같은 언어) */
+const GROUP: Record<string, string> = { ko: ',', en: ',', ja: ',', 'zh-CN': ',', de: '.' };
+
+interface Drawn232 {
+  /** 상태 막대 문서 칸·정보 탭 패널·제품 탭 패널(간섭 결과) 차례 */
+  views: HTMLElement;
+  done(): void;
+}
+/** 앱 차례: 생성자처럼 언어 알림 처리기를 먼저(번역층보다 앞) 달고 상태 막대 문서 칸을 두고, 번역층을 건 뒤 정보 탭·제품 탭(큰 간섭 결과) 패널을 그린다 */
+async function draw232(code: string): Promise<Drawn232> {
+  history.replaceState(null, '', `/?lang=${code}`);
+  const statusDoc = h('div', { class: 'status-doc' });
+  const views = h('div', {}, statusDoc);
+  const root = h('div', {}, views);
+  document.body.append(root);
+  const panels: Panel[] = [];
+  const self: Record<string, unknown> = { viewer: null, cube: null, keySnap: null, doc: newDoc(), display: undefined, entMeasuring: false, statusDoc, panel: { redraw: () => panels.forEach((p) => p.redraw()) }, syncSection: () => {}, refreshRecent: async () => {} };
+  self.makeFmt = new Function('Fmt', 'numberLocale', MAKE_FMT).bind(self, Fmt, numberLocale);
+  self.refreshFmt = new Function('measureLabelLines', 'translateUi', REFRESH_FMT).bind(self, measureLabelLines, translateUi);
+  self.relabelCube = new Function('translateUi', RELABEL).bind(self, translateUi);
+  self.updateStatus = new Function('h', 'docStatus', `const d = this.doc;\nthis.statusDoc.innerHTML = '';\n${STATUS_DOC}`).bind(self, h, docStatus);
+  root.addEventListener('languagechange', new Function(ON_LANG).bind(self) as () => void);
+  const dispose = await installLocalization(root);
+  views.append(panel('info', undefined, panels), panel('tree', (d) => (d.interference = BIG), panels));
+  await settle();
+  return {
+    views,
+    done: () => {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    },
+  };
+}
+
+describe('232차: 셈 수(fmtCount)의 천 단위 묶음은 화면 언어 꼴(독일어 「12.345」·나머지 「12,345」)이고, 언어를 바꾸면 다시 그린 칸이 새 꼴이다(앞 언어 꼴이 남지 않음 — WCAG 3.1.2)', () => {
+  beforeAll(async () => {
+    // 언어 메뉴가 기다리지 않고 받는 사전 조각을 미리(ci-guard 5번 — JSON이라 곁효과 없음)
+    await Promise.all([import('../../site/locales/en.json'), import('../../site/locales/ja.json'), import('../../site/locales/zh-CN.json'), import('../../site/locales/de.json')]);
+  });
+
+  it('다섯 언어로 처음 그린 대표 칸(상태 막대 파일 크기 말풍선·정보 탭 파일 크기 바이트·간섭 결과 셋)이 그 언어의 묶음 글자만 쓴다, 파일 글 밖 한글 0', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 견줄 수가 천 단위 묶음을 탄다(모형 STEP 글이 1,000바이트를 넘음)
+    expect(bytes.length).toBeGreaterThan(999);
+    const bad: string[] = [];
+    for (const code of LANGS) {
+      const s = await draw232(code);
+      try {
+        expect(leaks(s.views, code), code).toEqual([]);
+        const [status, info, tree] = [...s.views.children];
+        const sep = GROUP[code]!;
+        const other = sep === '.' ? ',' : '.';
+        const scopes: [string, Element | undefined, number[]][] = [
+          ['상태 막대', status, [bytes.length]],
+          ['정보 탭', info, [bytes.length]],
+          ['간섭 결과', tree, [12345, 2345, 1500]],
+        ];
+        for (const [where, el, nums] of scopes) {
+          const all = texts(el ?? null).join('\n');
+          for (const n of nums) if (!hasNum(all, n, sep) || hasNum(all, n, other)) bad.push(`${code} ${where}: ${grouped(n, sep)} 꼴이어야 함(${hasNum(all, n, other) ? `${grouped(n, other)} 꼴` : '없음'})`);
+        }
+      } finally {
+        s.done();
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('한국어·영어에서 시작해 다섯 번 바꾼 화면 = 처음부터 그 언어로 그린 화면(상태 막대 문서 칸·정보 탭·간섭 결과 — 셈 수 꼴 포함)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base: Record<string, string[]> = {};
+    for (const code of LANGS) {
+      const s = await draw232(code);
+      try {
+        base[code] = texts(s.views);
+      } finally {
+        s.done();
+      }
+    }
+    for (const code of LANGS) expect(base[code]!.length, code).toBe(base.ko!.length);
+    // 견줄 것이 비지 않았다: 영어와 독일어는 같은 셈 수를 다른 묶음 글자로 쓴 칸이 있다(「12,345」 ↔ 「12.345」 — 독일어로·독일어에서 바꿀 때 다시 그려야 하는 칸)
+    const nums = (t: string, sep: string): string[] => (t.match(sep === ',' ? /\d{1,3}(?:,\d{3})+(?![\d,])/g : /\d{1,3}(?:\.\d{3})+(?![\d.])/g) ?? []).map((x) => x.replace(/[,.]/g, ''));
+    const flip = base.en!.filter((t, i) => nums(t, ',').length > 0 && nums(t, ',').join() === nums(base.de![i]!, '.').join());
+    expect(flip.length).toBeGreaterThan(2);
+    const left: string[] = [];
+    const chains: [string, string[]][] = [
+      ['ko', ['en', 'ja', 'zh-CN', 'de', 'ko']],
+      ['en', ['ja', 'zh-CN', 'de', 'ko', 'en']],
+    ];
+    for (const [start, order] of chains) {
+      const s = await draw232(start);
+      try {
+        for (const code of order) {
+          await switchTo(code);
+          const now = texts(s.views);
+          const b = base[code]!;
+          if (now.length !== b.length) left.push(`${start}→${code}: ${now.length} ≠ ${b.length}칸`);
+          now.forEach((t, i) => t !== b[i] && left.push(`${start}→${code}: ${t} ≠ ${b[i]}`));
         }
       } finally {
         s.done();

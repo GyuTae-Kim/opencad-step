@@ -1,6 +1,29 @@
 /**
  * 화면 글 만들기(순수 함수): 크기·시간·수·좌표·진행 단계.
  */
+import { numberLocale } from './display';
+
+/**
+ * 232차(WCAG 3.1.2): 셈 수(fmtCount)·수(fmtNum)는 부를 때마다 화면 언어(`<html lang>` — 번역층 metadata()가 languagechange 알림 전에 바꾼다)의 꼴로 쓴다.
+ * 천 단위 묶음은 독일어 「12.345」, 한국어·영어·일본어·중국어 「12,345」(전에는 늘 ko-KR이라 독일어 화면에서도 「12,345」).
+ * 소수점도 같은 꼴: 측정 값·패널 수의 Fmt(display.ts)가 같은 numberLocale로 언어 꼴(독일어 「1.234,5」 — measure.test 「거리 1.234,568 mm」)이라 한 꼴로 맞춘다.
+ * 문서가 없는 곳(node 시험)은 한국어 꼴. 언어가 바뀌면 다시 그리는 칸(언어 알림 → refreshFmt — 패널·상태 막대)은 새 꼴, 떠 있는 알림은 만든 때 꼴(232차 표)
+ */
+let nfKey = '';
+let nf: Intl.NumberFormat | null = null;
+function numberFormat(digits: number): Intl.NumberFormat {
+  const locale = numberLocale(typeof document === 'undefined' ? undefined : document.documentElement.lang);
+  const key = `${locale} ${digits}`;
+  if (!nf || key !== nfKey) {
+    try {
+      nf = new Intl.NumberFormat(locale, { maximumFractionDigits: digits });
+    } catch {
+      nf = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: digits });
+    }
+    nfKey = key;
+  }
+  return nf;
+}
 
 /** 바이트 수 → "12.3 KB"(1024 단위) */
 export function formatBytes(n: number): string {
@@ -28,23 +51,24 @@ export function formatMs(ms: number): string {
   return rest ? `${m}분 ${rest}초` : `${m}분`;
 }
 
-/** 수 → 글(소수 digits 자리까지, 끝 0 없이, 천 단위 쉼표) */
+/** 수 → 글(소수 digits 자리까지, 끝 0 없이, 천 단위 묶음 — 화면 언어 꼴) */
 export function fmtNum(v: number | undefined | null, digits = 3): string {
   if (v === undefined || v === null || !Number.isFinite(v)) return '—';
   const r = Number(v.toFixed(digits));
-  return Object.is(r, -0) || r === 0 ? '0' : r.toLocaleString('ko-KR', { maximumFractionDigits: digits });
+  return Object.is(r, -0) || r === 0 ? '0' : numberFormat(digits).format(r);
 }
 
-/** 정수 개수 → "1,234" */
+/** 정수 개수 → "1,234"(독일어 화면 "1.234") */
 export function fmtCount(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—';
-  return Math.round(n).toLocaleString('ko-KR');
+  return numberFormat(0).format(Math.round(n));
 }
 
-/** 좌표 → "x, y, z" */
+/** 좌표 → "x, y, z"(소수점이 쉼표인 언어는 "x; y; z" — Fmt.pt와 같게) */
 export function fmtPt(p: readonly number[] | undefined | null, digits = 3): string {
   if (!p || p.length < 3) return '—';
-  return `${fmtNum(p[0], digits)}, ${fmtNum(p[1], digits)}, ${fmtNum(p[2], digits)}`;
+  const sep = numberFormat(1).format(1.5).includes(',') ? '; ' : ', ';
+  return [0, 1, 2].map((k) => fmtNum(p[k], digits)).join(sep);
 }
 
 /** 0~1 → "42%" */
