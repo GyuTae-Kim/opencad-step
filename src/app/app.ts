@@ -40,7 +40,7 @@ import { EMBED_ACCEPT, SAMPLE_NAME, baseName, isOpenableName, isStepName, OPEN_A
 import { canUseServiceWorker, consumeLaunchFiles, registerServiceWorker, whenVisible, type SwContainer } from 'opencad-site-kit/pwa/client';
 import { acceptEmbeddedFiles, isFramed } from 'opencad-site-kit/embed/app';
 import { formatBytes, fmtCount, fmtPercent, imageFileName, stageLabel } from './format';
-import { arrowOwner, controlOf, isTextTarget, readLetterKeys, routeKey, writeLetterKeys } from './keys';
+import { arrowOwner, controlOf, isTextTarget, markKeys, readLetterKeys, routeKey, writeLetterKeys } from './keys';
 import { edgeSummary, edgeTitle, faceHint, faceSummary, lineValue, measureHint, measureLabelLines, measureLines, multiHint, selectionSize } from './measure';
 import { closeMenu, openMenu, openMenuAt, type MenuItem } from './menu';
 import { interferenceLabel, Panel, pmiTypeLabel, semanticLabel } from './panel';
@@ -280,6 +280,8 @@ export class StepApp {
   private readonly isoBar: HTMLElement;
   private readonly isoText: HTMLElement;
   private readonly isoLabel: HTMLElement;
+  /** 격리 띠 「격리 풀기」(220차 — 172차 설정을 바꾸면 단축키 값을 다시 단다) */
+  private readonly isoOff: HTMLElement;
   // ── 부품 겉모습(불투명도·흐리게·부품 색·분해) ──
   /** 부품 색 구분(같은 제품은 같은 색) — 문서를 바꿔도 켜 둔다 */
   partColors = false;
@@ -359,7 +361,8 @@ export class StepApp {
       this.fileInput.value = '';
       if (f) void this.openFile(f);
     });
-    const openBtn = iconButton('open', '열기', { title: 'STEP 파일 열기 (Ctrl+O)', cls: 'primary' });
+    // 220차: 말풍선 키 글을 단축키 값과 같게(⌘ — 앱 말풍선 다수 꼴 「Ctrl·⌘+」)
+    const openBtn = iconButton('open', '열기', { title: 'STEP 파일 열기 (Ctrl·⌘+O)', cls: 'primary' });
     // 219차(WCAG 4.1.2): 같은 일을 하는 앱 키(keys.ts open — Ctrl·⌘ 둘)를 단축키로 알린다(218차 캔버스 값과 같은 꼴)
     openBtn.setAttribute('aria-keyshortcuts', 'Control+O Meta+O');
     openBtn.addEventListener('click', () => this.pickFile());
@@ -372,7 +375,7 @@ export class StepApp {
       { label: this.theme === 'dark' ? '밝은 테마로 바꾸기' : '어두운 테마로 바꾸기', run: () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark') },
       { label: '표시 설정…', run: () => this.showDisplaySettings() },
       // 172차(WCAG 2.1.4 문자 키 단축키): 끄면 수식 글쇠 없는 한 글자 키는 3D 보기에 초점이 있을 때만 듣는다(onKey — 음성 입력이 친 글자가 명령으로 돌지 않게)
-      { label: '3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)', toggle: true, checked: this.letterKeys, run: () => (this.letterKeys = writeLetterKeys(safeLocalStorage(), !this.letterKeys)) },
+      { label: '3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)', toggle: true, checked: this.letterKeys, run: () => this.setLetterKeys(!this.letterKeys) },
       // 다른 웹페이지에 넣은 화면(iframe)에서는 방문 통계를 켜지 않으므로 설정 항목도 뺀다
       ...(isFramed() ? [] : [{ label: '방문 통계 설정', run: showAnalyticsSettings }]),
     ], '앱 설정'));
@@ -495,11 +498,13 @@ export class StepApp {
     // 격리 띠(3D 보기 위 가운데): 무엇만 보이는지와 격리 풀기.
     // 알림은 바뀌는 글 칸(이름표·이름)만(145차 — 전에는 띠 전체가 status라 「격리 풀기」 버튼 이름까지 읽혔다, 53차 측정 띠와 같은 꼴)
     this.isoText = h('span', { class: 'iso-text', role: 'status', 'data-i18n-ui': '' });
-    // 219차: 격리 띠는 격리 중에만 보이고 그동안 I(keys.ts isolate)는 격리를 푼다 — 같은 일을 하는 앱 키를 단축키로 알린다
-    const isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)', 'aria-keyshortcuts': 'I' }, icon('eye', 16), h('span', {}, '격리 풀기'));
-    isoOff.addEventListener('click', () => this.unisolate());
+    // 219차: 격리 띠는 격리 중에만 보이고 그동안 I(keys.ts isolate)는 격리를 푼다 — 같은 일을 하는 앱 키를 단축키로 알린다(값은 아래 markKeys)
+    this.isoOff = h('button', { type: 'button', class: 'mb-btn', title: '격리 풀기 (I)' }, icon('eye', 16), h('span', {}, '격리 풀기'));
+    this.isoOff.addEventListener('click', () => this.unisolate());
     this.isoLabel = h('span', { class: 'iso-label', role: 'status' }, '이것만 보기');
-    this.isoBar = h('div', { class: 'iso-bar', hidden: true }, this.isoLabel, this.isoText, isoOff);
+    this.isoBar = h('div', { class: 'iso-bar', hidden: true }, this.isoLabel, this.isoText, this.isoOff);
+    // 220차: 격리 띠는 3D 보기 밖이라 172차 설정을 끄면 I가 듣지 않아 값에서 뺀다(setLetterKeys가 다시 단다)
+    markKeys(this.isoOff, 'I', this.letterKeys);
     // 분해 막대(3D 보기 위 가운데): 분해 정도 0~100%와 닫기(제자리로)
     this.explodeSlider = h('input', { type: 'range', class: 'explode-slider', min: '0', max: '100', step: '1', value: '0', 'aria-label': '분해 정도' });
     this.explodeSlider.addEventListener('input', () => this.setExplode(Number(this.explodeSlider.value) / 100));
@@ -542,7 +547,8 @@ export class StepApp {
   // ───────────────────────── 시작 화면 ─────────────────────────
 
   private buildStart(): HTMLElement {
-    const open = h('button', { type: 'button', class: 'btn primary large' }, icon('open'), h('span', {}, '파일 열기'));
+    // 220차(WCAG 4.1.2): 같은 일을 하는 앱 키(keys.ts open → pickFile — 머리 줄 열기와 같은 값)
+    const open = h('button', { type: 'button', class: 'btn primary large', 'aria-keyshortcuts': 'Control+O Meta+O' }, icon('open'), h('span', {}, '파일 열기'));
     open.addEventListener('click', () => this.pickFile());
     this.startOpen = open;
     const sample = h('button', { type: 'button', class: 'btn large' }, icon('sample'), h('span', {}, '예제 열기'));
@@ -2063,6 +2069,21 @@ export class StepApp {
   /** 손가락이 주인 기기인지: 안내에서 키(Esc) 설명을 빼고 길게 누르기(정밀 조준)를 알린다 */
   get touch(): boolean {
     return !!this.coarse?.matches;
+  }
+
+  /** 172차 설정 「3D 보기 밖에서도 한 글자 단축키」(220차 — 도구 막대·작업 메뉴가 3D 보기 밖 값에서 한 글자 키를 뺄지) */
+  get lettersOutside(): boolean {
+    return this.letterKeys;
+  }
+
+  /**
+   * 172차 설정을 켜고 끈다(이 브라우저에 기억). 220차(WAI-ARIA — 값은 그 버튼이 받는 키만): 3D 보기 밖 버튼(격리 풀기·도구 막대 전체 보기)의 단축키 값을 다시 단다
+   * (메뉴 항목은 열 때 그 설정으로 단다)
+   */
+  private setLetterKeys(on: boolean): void {
+    this.letterKeys = writeLetterKeys(safeLocalStorage(), on);
+    markKeys(this.isoOff, 'I', on);
+    this.toolbar.refresh();
   }
 
   fit(): void {

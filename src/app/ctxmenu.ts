@@ -17,6 +17,7 @@ import type { StepApp } from './app';
 import { selectionItemIds, unitItemIds } from './doc';
 import type { FacePick } from './faces';
 import { paintHi } from './hipaint';
+import { outsideKeys } from './keys';
 import { OPACITY_STEPS } from './looks';
 import { openMenuAt, type MenuItem } from './menu';
 import { PICK_LIST_MAX, pickGroup, pickItems, pickRows, rowEvent, rowHi, type PickRow } from './picklist';
@@ -24,7 +25,7 @@ import { PICK_LIST_MAX, pickGroup, pickItems, pickRows, rowEvent, rowHi, type Pi
 /** 작업 메뉴가 부르는 앱 */
 export type CtxHost = Pick<
   StepApp,
-  | 'doc' | 'touch' | 'faceMode' | 'multiPick' | 'explodeOpen' | 'explodeAxis' | 'tweakTool' | 'groups'
+  | 'doc' | 'touch' | 'faceMode' | 'multiPick' | 'explodeOpen' | 'explodeAxis' | 'tweakTool' | 'groups' | 'lettersOutside'
   | 'fit' | 'fitSelection' | 'hideSelection' | 'isolateSelection' | 'unisolate' | 'showProps' | 'lookAtFace' | 'sectionByFace'
   | 'toggleMultiPick' | 'showAll' | 'resetOpacity' | 'clearSelection' | 'setSelectionOpacity'
 >;
@@ -98,13 +99,15 @@ export function contextItems(H: CtxHost, face: FacePick | null, at: { x: number;
   if (!d) return [];
   const has = selectionItemIds(d).length > 0;
   const iso = !!d.vis.isolated || !!d.dim;
+  // 220차(WAI-ARIA): 키 글 항목에 같은 일을 하는 앱 키(H hide·I isolate — 격리 중이면 풂·F 코어 fit). 메뉴 밖(3D 보기 밖 초점)에서 그 일을 하는 키라 172차 설정을 끄면 뺀다
+  const k = (key: string) => outsideKeys(key, H.lettersOutside !== false);
   let items: MenuItem[] = [];
   if (has) {
     items.push({ label: '맞춰 보기', more: true, run: () => H.fitSelection() });
-    items.push({ label: '숨기기', hint: 'H', run: () => H.hideSelection() });
-    if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => H.unisolate() });
+    items.push({ label: '숨기기', hint: 'H', keys: k('H'), run: () => H.hideSelection() });
+    if (iso) items.push({ label: '격리 풀기', hint: 'I', keys: k('I'), run: () => H.unisolate() });
     else {
-      items.push({ label: '이것만 보기', hint: 'I', run: () => H.isolateSelection('hide') });
+      items.push({ label: '이것만 보기', hint: 'I', keys: k('I'), run: () => H.isolateSelection('hide') });
       items.push({ label: '나머지 흐리게', more: true, run: () => H.isolateSelection('dim') });
     }
     items.push({ label: '불투명도…', run: () => opacityMenu(H, at) });
@@ -115,8 +118,8 @@ export function contextItems(H: CtxHost, face: FacePick | null, at: { x: number;
       items.push({ label: f.normal ? '이 면으로 자르기' : '축을 지나게 자르기', run: () => H.sectionByFace(f) });
     }
   } else {
-    items.push({ label: '전체 보기', hint: 'F', run: () => H.fit() });
-    if (iso) items.push({ label: '격리 풀기', hint: 'I', run: () => H.unisolate() });
+    items.push({ label: '전체 보기', hint: 'F', keys: k('F'), run: () => H.fit() });
+    if (iso) items.push({ label: '격리 풀기', hint: 'I', keys: k('I'), run: () => H.unisolate() });
   }
   // 손가락 기기에서 여러 개 고르기를 켜는 길(길게 누르기 → 메뉴). 켜 있으면 끄기
   if (!H.faceMode) items.push({ label: '여러 개 고르기', checked: H.multiPick, toggle: true, sep: true, more: true, run: () => H.toggleMultiPick() });

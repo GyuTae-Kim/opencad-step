@@ -60,7 +60,9 @@ describe('172차: 한 글자 단축키 끄기(WCAG 2.1.4)', () => {
     // 앱(원문): 설정을 기억에서 읽고, 앱 설정 메뉴에 켜고 끄는 항목, 창 bubble onKey 판정에 「끄고 초점이 3D 보기 감싸개 밖」을 넘긴다
     const app = readFileSync(join(__dirname, '../../src/app/app.ts'), 'utf8');
     expect(app).toContain('private letterKeys = readLetterKeys(safeLocalStorage());');
-    expect(app).toContain(`{ label: '${LABEL}', toggle: true, checked: this.letterKeys, run: () => (this.letterKeys = writeLetterKeys(safeLocalStorage(), !this.letterKeys)) },`);
+    // 220차: 항목은 setLetterKeys(기억한 뒤 3D 보기 밖 버튼의 aria-keyshortcuts 한 글자 키를 다시 단다 — tests/app/keyshortcuts218.test.ts 220차 (ㄷ))
+    expect(app).toContain(`{ label: '${LABEL}', toggle: true, checked: this.letterKeys, run: () => this.setLetterKeys(!this.letterKeys) },`);
+    expect(app).toContain('this.letterKeys = writeLetterKeys(safeLocalStorage(), on);');
     expect(app).toMatch(/const action = routeKey\(\{ [^\n]*, viewOnly: !this\.letterKeys && !this\.hostEl\.contains\(ev\.target as Node\), modal: dialogOpen\(\) \}\);/);
 
     let on = true;

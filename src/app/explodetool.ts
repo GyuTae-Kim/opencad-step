@@ -307,8 +307,9 @@ export class ExplodeTweakTool implements TweakHandlers {
     const st = this.state(d, axis);
     return st.undo || st.redo
       ? [
-          { label: '손질 되돌리기', hint: 'Ctrl+Z', sep: true, disabled: !st.undo, run: () => this.undo() },
-          { label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', disabled: !st.redo, run: () => this.redo() },
+          // 220차(WAI-ARIA): 같은 일을 하는 앱 키(keys.ts undo·redo — 같은 손질 도구 함수, 분해 막대 버튼과 같은 값)
+          { label: '손질 되돌리기', hint: 'Ctrl+Z', keys: 'Control+Z Meta+Z', sep: true, disabled: !st.undo, run: () => this.undo() },
+          { label: '손질 다시 하기', hint: 'Ctrl+Shift+Z', keys: 'Control+Shift+Z Meta+Shift+Z Control+Y', disabled: !st.redo, run: () => this.redo() },
         ]
       : [];
   }
