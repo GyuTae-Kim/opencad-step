@@ -304,6 +304,60 @@ describe('language URLs and UI presentation', () => {
           for (const n of key.replace(/\{\d+\}/g, '').match(/\d+/g) ?? []) expect(value.replace(/\{\d+\}/g, '').replace('三维', '3D'), `${code}: ${key}`).toContain(n);
       }
   });
+  it('keeps one colon, comma and key-text bracket form per UI bundle in Chinese and Japanese (235th)', () => {
+    // 235차: 사전 문장부호를 묶음(값이 쓰이는 화면 칸 — 상태 막대·말풍선·알림·측정 띠·시작 화면·화면 읽기 알림 등)마다 세어, 묶음 다수가 3분의 2 이상이고
+    // 사전 전체 다수와 같은 꼴일 때만 그 꼴로 맞췄다(NC 220차·SKP 231·232차와 같은 기준 — README 개발 절 235차 문단).
+    const noUrl = (v: string) => v.replace(/https:\/\//g, '');
+    // (ㄱ) 중국어 쌍점은 모든 묶음에서 「：」(사전 64 : 반각 3 — 반각이던 셋이 든 알림 묶음도 13 : 3): 열기 오류 알림 「{0}: 读取文件失败。」·잠글 방향 없음 알림 둘 「…方向:…」
+    const zhColon = Object.entries(catalogs['zh-CN']).filter(([, v]) => noUrl(v).includes(':')).map(([k]) => k);
+    // (ㄴ) 중국어 쉼표는 「，」(사전 100 : 반각 3 — 잠글 방향 없음 알림·물리 속성 계산 중 말풍선·곡면 적분 멈춤 안내의 한자 사이 반각 쉼표)
+    const zhComma = Object.entries(catalogs['zh-CN']).filter(([, v]) => /\p{Script=Han},|,\s*\p{Script=Han}/u.test(v)).map(([k]) => k);
+    // (ㄷ) 일본어 쌍점은 반각 「: 」(사전 56 : 「：」 14). 묶음마다 측정 띠 안내 16 : 0, 상태 막대 4 : 1(고른 PMI — 같은 칸의 이름 없는 PMI는 코드 조각 「: 」), 말풍선 17 : 5
+    // (도구 막대 3 : 3 · 분해 막대 11 : 2 · 그 밖 3 : 0), 시작 화면 2 : 0, 화면 읽기 알림 3 : 0, 코어 개발 화면 글 3 : 1 → 「: 」로 맞췄다. 아래 일곱만 「：」로 둔다 —
+    // 알림 묶음(떠 있는 알림 6 : 0 · 열기 오류 알림 5 : 2 · 해석기 경고와 코어 셰이더 오류 0 : 4 — 칸 전체 11 : 6, 3분의 2 아래)의 여섯과
+    // 정적 소개(index.html 링크 글 하나 — 묶음 꼴 「：」 1 : 0이 사전 다수와 반대)
+    const jaFullColonKnown = [
+      '3D 셰이더 연결 실패: {0}',
+      '3D 셰이더 컴파일 실패: {0}',
+      'ZIP 안 STEP 파일 {0}개 가운데 가장 큰 {1}을(를) 열었습니다(나머지: {2}{3}).',
+      '{0}: STEP 파일(.stp·.step·.p21, 압축 .stp.gz·.stpZ·.zip)만 열 수 있습니다.',
+      '{0}: 파일을 열지 못했습니다.',
+      '문법 오류로 건너뛴 문장 {0}개',
+      '무료 온라인 뷰어로 STEP·STP 파일 열고 치수 재기',
+    ];
+    const jaFull = Object.entries(catalogs.ja).filter(([, v]) => v.includes('：')).map(([k]) => k);
+    // 반각 쌍점 뒤에는 빈칸(값 끝 「チェックできませんでした:」 — 뒤에 오류 글 조각이 붙음 — 만 끝)
+    const jaHalf = Object.entries(catalogs.ja).filter(([, v]) => /:(?! |$)/.test(noUrl(v))).map(([k]) => k);
+    // 전각 쌍점·쉼표 앞뒤에는 빈칸 없음(ja·zh-CN 0)
+    const spaced = ['ja', 'zh-CN'].flatMap((code) => Object.entries(catalogs[code]).filter(([, v]) => /\s[：，]|[：，]\s/.test(v)).map(([k]) => `${code}: ${k}`));
+    // (ㄹ) 키 글 괄호(안이 키 이름뿐 — Ctrl·⌘·Shift·Esc = …·F7·한 글자. 축 글자 X·Y·Z만인 「（X・Y・Z）」는 키가 아님)는 네 언어 모두 227·228차 꼴 「 (…)」(반각 + 빈칸).
+    // 앱 설정 메뉴 항목 「3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)」의 일본어·중국어 전각 하나는 둔다 — 메뉴 묶음의 키 글 괄호가 이것 하나(전각 1 : 0)라 묶음 꼴이
+    // 사전 키 글 다수(9 : 1)와 반대이고, 원문도 빈칸 없는 풀이 괄호 꼴(말풍선 끝 키 글 「 (F)」과 다름)·안이 라틴 글만(228차가 둔 괄호 종류)
+    const keyName = /^(?:Ctrl|Strg|⌘|Shift|Umschalt|Alt|⌥|Esc|Tab|Enter|Delete|Entf|F\d{0,2}|[A-Z]|\d+(?:~\d+)?)$/;
+    const keyText = (inner: string) => {
+      if (/^Esc = [^()（）]+$/.test(inner)) return true;
+      const parts = inner.split(/\s*[+/·・]\s*|\s+(?:或|or|oder)\s+/);
+      return parts.every((t) => keyName.test(t)) && parts.some((t) => !/^[XYZ]$/.test(t));
+    };
+    const menuKeyList = '3D 보기 밖에서도 한 글자 단축키(H·I·F·1~7)';
+    const keyBad: string[] = [];
+    let keyFound = 0;
+    for (const code of ['en', 'ja', 'zh-CN', 'de'])
+      for (const [key, value] of Object.entries(catalogs[code]))
+        for (const m of value.matchAll(/(^|.)([(（])([^()（）]+)[)）]/gu)) {
+          if (!keyText(m[3]!) || (key === menuKeyList && (code === 'ja' || code === 'zh-CN'))) continue;
+          keyFound++;
+          if (m[1] !== ' ' || m[2] !== '(') keyBad.push(`${code}: ${key}`);
+        }
+    expect.soft(zhColon, 'zh-CN 반각 쌍점').toEqual([]);
+    expect.soft(zhComma, 'zh-CN 한자 옆 반각 쉼표').toEqual([]);
+    expect.soft(jaFull.sort(), 'ja 「：」 — 알림·정적 소개 묶음만').toEqual([...jaFullColonKnown].sort());
+    expect.soft(jaHalf, 'ja 반각 쌍점 뒤 빈칸').toEqual([]);
+    expect.soft(spaced, '전각 쌍점·쉼표 앞뒤 빈칸').toEqual([]);
+    expect.soft(keyBad, '키 글 괄호 「 (…)」').toEqual([]);
+    // 거르개가 키 글 괄호를 잡는지(en·de 8 — 메뉴 키 목록 포함, ja·zh-CN 7)
+    expect(keyFound).toBeGreaterThanOrEqual(30);
+  });
   it('leaves no Korean in messages the app builds from Korean pieces, and uses singular forms for one', () => {
     const hangul = /[가-힣]/;
     // 상태 막대 "읽기 1.25초", 말풍선 "해석 … · 워커 전체 …"(초·분이 틀 자리에 잡혀 한국어로 남던 것), ZIP 설명 꼬리, 내보내기 알림, 정보 탭
