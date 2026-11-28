@@ -13,6 +13,9 @@
  *   (65차 — 61~64차는 앱이 3D 보기 pointerup·keyup 뒤 viewCubeExpanded를 다시 읽어 syncCube를 불렀다)
  * - 정밀 조준(aim.ts)의 십자선 둘레·손가락 자리와 합쳐 알린다
  * - 알림(토스트)은 잠깐 나왔다 사라지므로 넣지 않는다(글상자가 따라 뛰지 않게)
+ * - 239차: 같은 지켜보기로 측정 띠(고른 부품 카드·여러 개 고르기 띠) 위 끝 + TOAST_GAP_PX를 3D 보기의 CSS 변수(TOAST_VAR)에 둔다 — 스타일시트 알림 칸 bottom이
+ *   max(못 박은 자리 68·112px, 이 변수)라 띠가 높으면(측정 결과 세 줄·잠금 안내, 휴대폰 두 줄 이름 카드) 알림이 띠 위로 올라간다. 전에는 못 박은 자리라 띠 위 끝을 8~13px 덮었다(238차).
+ *   띠가 숨으면 지운다(못 박은 자리). 알림 칸은 지켜보지 않는다(변수를 바꿔도 지켜보는 칸의 크기는 그대로 — 고리 없음)
  * 코어 0.23.0부터 앱 측정 덧그림(개체 측정 — 코어 setAnnotations)의 글상자도 같은 사각형을 비켜 그린다(코어가 한다 — 앱 코드는 그대로).
  * 0.24.0부터는 덧그림 글상자끼리(최소 거리 ≈와 부품 사이 최소 거리 ≈처럼 같은 자리에 겹치던 것)도 뒤에 놓는 것이 비킨다(코어 — 그림 저장은 기본 자리).
  */
@@ -21,6 +24,10 @@ import type { AimLabelAvoid } from './aim';
 
 /** 글상자가 비킬 앱 요소: 3D 보기(.view)의 측정 띠·위 띠(분해·격리)·단면 막대(뷰 큐브는 코어 viewCubeRect) */
 export const LABEL_AVOID_SELECTOR = ':scope > .measure-bar, :scope > .top-bars, :scope > .section-bar';
+
+/** 239차: 알림 칸이 측정 띠 위 끝에서 띄울 틈(px — 두 줄 띠 위 끝 62와 못 박은 알림 자리 68의 틈)과 그 자리를 두는 3D 보기 CSS 변수(styles.css .toasts bottom의 max) */
+export const TOAST_GAP_PX = 6;
+export const TOAST_VAR = '--toast-over-bar';
 
 /** 화면 상자(getBoundingClientRect 꼴) */
 export type ScreenBox = Pick<DOMRectReadOnly, 'left' | 'top' | 'width' | 'height'>;
@@ -92,5 +99,10 @@ export class LabelAvoid {
     const cube = canvasBox(canvas, cubeRect);
     const boxes = [...(cube ? [cube] : []), ...this.els().map((e) => e.getBoundingClientRect())];
     this.v.setMeasureLabelAvoid(mergeLabelAvoid(overlayRects(canvas, boxes), this.aimAt));
+    // 239차: 알림 칸 자리 — 3D 보기 아래 끝(캔버스가 3D 보기를 채운다)에서 띠 위 끝까지 + 틈
+    const bar = this.view.querySelector(':scope > .measure-bar')?.getBoundingClientRect();
+    const st = (this.view as unknown as { style?: CSSStyleDeclaration }).style;
+    if (bar && bar.height > 0) st?.setProperty(TOAST_VAR, `${Math.ceil(canvas.top + canvas.height - bar.top) + TOAST_GAP_PX}px`);
+    else st?.removeProperty(TOAST_VAR);
   }
 }
