@@ -56,6 +56,18 @@ export function iconButton(name: IconName, label: string, opts: { title?: string
 const cameFrom = new WeakMap<Element, HTMLElement | null>();
 
 /**
+ * 240차(WCAG 2.4.11): 알림 칸(box)이 담는 칸(3D 보기) 아래에서 덮는 높이(담는 칸 아래 끝 − 알림 칸 위 끝)를 담는 칸의 --toast-band로 — 알림이 없으면 지운다.
+ * 시작 화면(굴림 칸)이 그만큼 scroll-padding-bottom을 두어 Tab이 간 칸을 알림 위로 굴린다(styles.css .start — 좁은 화면은 알림이 시작 카드보다 넓어 최근 문서 줄을 통째로 덮었다)
+ */
+function markBand(box: Element): void {
+  const view = box.parentElement;
+  if (!view) return;
+  const band = box.children.length ? view.getBoundingClientRect().bottom - box.getBoundingClientRect().top : 0;
+  if (band > 0) view.style.setProperty('--toast-band', `${Math.ceil(band)}px`);
+  else view.style.removeProperty('--toast-band');
+}
+
+/**
  * 알림 칸에 알림 t를 넣고, max개를 넘으면 하나씩 뺀다 — 닫을 때까지 남기는 안내(data-keep: 그래픽 문맥 잃음 — 되찾을 때까지)는
  * 건너뛰고(144차 — 잃은 동안 저장 오류 알림이 쌓여 그 안내가 먼저 빠졌다), 가장 오래된 안내(class info)부터, 안내가 없으면 가장 오래된 것부터 뺀다
  * (152차 — 다시 볼 곳 없는 오류·경고가 뒤이은 안내에 밀려 제 시간 전에 빠졌다). 모두 남길 것이면 맨 앞을 빼 한도는 늘 지킨다.
@@ -72,6 +84,7 @@ export function pushToast(box: Element, t: Element, max: number, ms?: number, ho
     const a = document.activeElement;
     const had = !!a && x.contains(a);
     x.remove();
+    markBand(box);
     if (!had) return;
     const to = cameFrom.get(box);
     if (to?.isConnected && !(pressed && to.matches('input, textarea, select, [contenteditable]'))) to.focus({ preventScroll: true });
@@ -91,6 +104,7 @@ export function pushToast(box: Element, t: Element, max: number, ms?: number, ho
     const free = [...box.children].filter((c) => !c.hasAttribute('data-keep'));
     drop(free.find((c) => /\binfo\b/.test(c.className)) ?? free[0] ?? box.children[0]!);
   }
+  markBand(box);
   if (ms === undefined) return close;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let over = false;

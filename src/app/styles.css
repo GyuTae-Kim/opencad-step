@@ -383,6 +383,8 @@ input::placeholder {
   overflow: auto;
   padding: 24px 16px;
   background: var(--bg-app);
+  /* 240차(WCAG 2.4.11): 알림이 떠 있으면 그 높이만큼(dom.ts가 3D 보기에 둠 — 없으면 0) — Tab이 간 줄을 알림 위로 굴린다(좁은 화면은 알림이 최근 문서 줄을 통째로 덮었다) */
+  scroll-padding-bottom: var(--toast-band, 0px);
 }
 .start-card {
   width: 100%;
@@ -2313,6 +2315,12 @@ html:lang(zh-CN) { --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans
    키보드 초점이 든 띠만 위 띠 묶음 위로(자리 그대로, 알림 칸은 뒤에 놓여 그 위, 포인터로 누른 버튼은 초점 표시가 없어 그대로) */
 .measure-bar:has(:focus-visible) {
   z-index: 7;
+}
+/* 240차(WCAG 2.4.11): 키보드 초점이 든 단면 막대·위 띠 묶음은 알림 칸(7) 위로 — 작은 3D 보기(휴대폰)에서 알림이 단면 밀대 줄·분해 띠 한 줄을 통째로 덮었다
+   (단면 막대는 굴림 칸이 아니고 띠 묶음은 굴릴 자리가 없을 수 있음). 초점이 없으면 지금 차례, 조준 층(8)보다 DOM 뒤라 그 위 */
+.section-bar:has(:focus-visible),
+.top-bars:has(:focus-visible) {
+  z-index: 8;
 }
 .explode-bar {
   display: flex;

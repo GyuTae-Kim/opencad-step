@@ -619,8 +619,10 @@ describe('초점 가려지지 않음·위 띠 쌓기·굴림(190~192차 — WCAG
     expect(z(sel)).toBeLessThan(z('.aim-layer'));
     // 자리·크기는 그대로(z만), 미디어 조건 없이 모든 폭
     expect(Object.keys(PLAIN.get(sel) ?? {})).toEqual(['z-index']);
-    // 191차: 휴대폰은 흐름 쌓기로 단면 막대를 덮는 띠가 없고, 태블릿 손가락 한 줄 막대는 위 띠 묶음과 아래 12px만 겹쳐(일부 — 2.4.11 최소) 190차의 단면 막대 초점 z를 뺐다
-    expect([...PLAIN.keys()].some((s) => /^\.section-bar:has\(/.test(s))).toBe(false);
+    // 191차: 휴대폰은 흐름 쌓기로 단면 막대를 덮는 띠가 없고, 태블릿 손가락 한 줄 막대는 위 띠 묶음과 아래 12px만 겹쳐(일부 — 2.4.11 최소) 190차의 단면 막대 초점 z를 뺐다.
+    // 240차: 작은 휴대폰에서는 알림 칸(z 7)이 단면 밀대 줄·분해 띠 한 줄을 통째로 덮어, 초점 든 단면 막대·위 띠 묶음을 알림 위(z 8)로 다시 둔다 — 측정 띠 7은 그대로(focusobscured240)
+    expect([...PLAIN.keys()].filter((s) => /^\.(section-bar|top-bars):has\(/.test(s))).toEqual(['.section-bar:has(:focus-visible)', '.top-bars:has(:focus-visible)']);
+    for (const s of ['.section-bar:has(:focus-visible)', '.top-bars:has(:focus-visible)']) expect(z(s), s).toBeGreaterThan(z('.toasts'));
     // 초점이 든 때만(:focus-within은 쓰지 않음 — 손가락·마우스로 누른 버튼에는 초점 표시가 없어 지금처럼)
     expect([...PLAIN.keys()].some((s) => /^\.(section|measure)-bar:focus-within$/.test(s))).toBe(false);
     expect([z('.section-bar'), z('.top-bars'), z('.measure-bar')]).toEqual([6, 6, 4]);
