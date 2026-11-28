@@ -195,8 +195,11 @@ const BLOCKS = blocksOf(CSS);
 const PSEUDO = /:(hover|focus|focus-visible|focus-within)\b/;
 /** 그 칸 자신의 꼴만 바꾸는 선언 */
 const STATE_PROPS = new Set(['background', 'background-color', 'color', 'border-color', 'box-shadow', 'outline', 'outline-offset', 'outline-color', 'filter']);
-/** 올림·초점 규칙인데 그 칸 꼴 밖을 바꾸는 것(표 S3 — 쌓임 차례) */
-const CSS_STACK: [sel: string, props: string[]][] = [['.measure-bar:has(:focus-visible)', ['z-index']]];
+/** 올림·초점 규칙인데 그 칸 꼴 밖을 바꾸는 것(표 S3 — 쌓임 차례, 240차: 초점 든 단면 막대·위 띠 묶음을 알림 칸 위로 — 2.4.11, focusobscured240) */
+const CSS_STACK: [sel: string, props: string[]][] = [
+  ['.measure-bar:has(:focus-visible)', ['z-index']],
+  ['.section-bar:has(:focus-visible), .top-bars:has(:focus-visible)', ['z-index']],
+];
 
 /** 알림 칸 bottom 규칙(239차 — 미디어 조건·선택자 → 값) */
 const TOAST_RULES: [media: string | null, sel: string, value: string][] = [
@@ -247,7 +250,7 @@ describe('239차: 올림·초점으로 뜨는 내용 감사 표(WCAG 1.4.13)', (
     expect(dom).toMatch(/on\('focusin', \(\) => \(inside = true\)\);/);
   });
 
-  it('스타일시트 올림·초점 규칙은 그 칸 자신의 꼴만(바탕·글 색·테두리·윤곽·그림자·밝기) — 다른 선언은 쌓임 하나(S3), 보이게 하는 선언(display·visibility·opacity·content·위치·크기) 0', () => {
+  it('스타일시트 올림·초점 규칙은 그 칸 자신의 꼴만(바탕·글 색·테두리·윤곽·그림자·밝기) — 다른 선언은 쌓임 둘(S3·240차 2.4.11), 보이게 하는 선언(display·visibility·opacity·content·위치·크기) 0', () => {
     const rules = BLOCKS.filter((b) => b.sels.some((s) => PSEUDO.test(s)));
     const other: [string, string[]][] = [];
     for (const b of rules) {
@@ -255,7 +258,8 @@ describe('239차: 올림·초점으로 뜨는 내용 감사 표(WCAG 1.4.13)', (
       if (props.length) other.push([b.sels.join(', '), props]);
     }
     expect(other).toEqual(CSS_STACK);
-    expect([rules.length, rules.flatMap((b) => b.sels).filter((s) => PSEUDO.test(s)).length]).toEqual([35, 45]);
+    // 240차: 초점 든 단면 막대·위 띠 묶음 쌓임 규칙 하나(선택자 둘)를 더해 35·45 → 36·47
+    expect([rules.length, rules.flatMap((b) => b.sels).filter((s) => PSEUDO.test(s)).length]).toEqual([36, 47]);
   });
 
   it('Esc 차례: 끌기 취소 → 대화 상자 → 메뉴 → 여는 중 → 개체 측정 → 두 점 측정(코어: Tab 돌리기 풀기 → 편 큐브 접기 → 점·미리 보기 지움) → 측정 끝 → 여러 개 고르기 → 고르기 풀기', () => {
