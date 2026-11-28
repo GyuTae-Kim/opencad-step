@@ -293,7 +293,8 @@ describe('코어 나눠 받기', () => {
       const t = readFileSync(f, 'utf8');
       for (const gone of ['PMI_TYPE', 'SEMANTIC_TYPE', "'곡선 주석'", "'크기 치수'", 'function pmiTypeLabel(', 'function semanticLabel(']) expect(t, `${relative(ROOT, f)}: ${gone}`).not.toContain(gone);
     }
-    expect(app).toContain("h('span', {}, this.ent!.pmiTypeLabel(pm.type))");
+    // 237차: 상태 막대 이름 없는 PMI는 조각(span)이 아니라 틀 「고른 PMI: {0}」 한 글로 잇는다(joins237 — 사이 쌍점이 사전 밖이던 것) — 종류 이름은 그대로 조각의 함수
+    expect(app).toContain('this.ent!.pmiTypeLabel(pm.type)');
     expect(app).toContain('translateUi(this.ent!.semanticLabel(x.type))');
     const kit = readFileSync(join(ROOT, 'src/app/viewerkit.ts'), 'utf8');
     expect(kit).toMatch(/^export \{ SectionBar \} from '\.\/sectionbar';$/m);

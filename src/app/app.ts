@@ -3431,6 +3431,8 @@ export class StepApp {
   /**
    * 상태 막대 오른쪽: 거리·측정 안내 또는 고른 것(이름) — 고른 면·모서리는 조각마다 따로 번역되게 덧붙인다.
    * 묶음(레이어·PMI·간섭 쌍·여러 개)의 이름표는 화면 글("레이어"·"부품 3개")을 품어 "고른 것"과 따로 옮긴다(틀이 이름표를 통째로 잡아 "레이어"가 남았다)
+   * 237차(WCAG 3.1.2): 이 칸은 앱 글 칸(211차 data-i18n-ui)이라 틀이 잡은 이름표·PMI 종류도 옮긴다. 「고른 것」 + 「: 」 + 이름표 조각은 사이 쌍점이 사전 밖이라
+   * 중국어 화면에서 같은 칸의 「已选：…」·막대 말풍선(통째 글 — 틀 값)과 꼴이 갈렸다(「已选: …」) — 있는 틀 「고른 것: {0}」·「고른 PMI: {0}」 하나로 잇는다(한국어 글 그대로)
    */
   private selectionText(d: StepDoc): (Node | string)[] {
     const fm = this.fmt;
@@ -3442,9 +3444,10 @@ export class StepApp {
       const pm = d.pmi.presentations.find((x) => x.id === d.pick!.id);
       // 210차: 이름 없는 PMI의 종류(화면 글)는 따로 옮기는 조각으로 — 한 글이면 틀 「고른 PMI: {0}」이 종류를 그대로 끼워 다른 언어에서 한국어로 남았다(아래 띠 꼴)
       // 226차: 종류 이름 표는 뷰어 조각(pmiview.ts — d는 보인 문서, 문서는 뷰어를 만든 뒤에만 있다)
-      if (pm) return pm.name ? [`고른 PMI: ${isolateText(pm.name)}`] : [h('span', {}, '고른 PMI'), ': ', h('span', {}, this.ent!.pmiTypeLabel(pm.type))];
+      // 237차: 211차 앱 글 칸이라 한 글로도 틀이 종류를 옮긴다 — 조각 사이 쌍점(사전 밖)을 틀 값 꼴로
+      if (pm) return [`고른 PMI: ${pm.name ? isolateText(pm.name) : this.ent!.pmiTypeLabel(pm.type)}`];
     }
-    if (d.items) return [h('span', {}, '고른 것'), ': ', h('span', {}, d.items.label)];
+    if (d.items) return [`고른 것: ${d.items.label}`];
     return d.pick || d.body ? [`고른 것: ${this.selectionName(d)}`] : [];
   }
 
