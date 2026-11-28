@@ -15,7 +15,8 @@ const ROOT = join(__dirname, '..');
 const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8');
 const HANGUL = /[가-힣]/;
 
-/** 속성 탭 안내 — 지금 원문(panel.ts)과 #19 앞 옛 원문 */
+/** 속성 탭 안내 — 지금 원문과 #19 앞 옛 원문. 222차: 속성 탭 본문을 panel.ts renderProps에서 뷰어 조각의 propsview.ts로 옮겨 원문도 그 파일에 */
+const PROPS_SRC = 'src/app/propsview.ts';
 const HINT = '부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 "여러 개 고르기"를 켜면 여러 개를 고릅니다.';
 const OLD_HINT = '부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르면 여러 개를 고릅니다.';
 
@@ -40,7 +41,7 @@ function staticIntroTexts(html: string): string[] {
 
 describe('원문이 바뀐 뒤 새 열쇠가 없던 화면 글(202차)', () => {
   it('속성 탭 안내의 지금 원문은 네 사전에 열쇠가 있어 한글이 남지 않고, 같은 사전의 「여러 개 고르기」·모델 트리 낱말을 쓴다', () => {
-    expect(read('src/app/panel.ts')).toContain(`'${HINT}'`);
+    expect(read(PROPS_SRC)).toContain(`'${HINT}'`);
     for (const lang of LANGS) {
       const catalog = catalogs[lang]!;
       const value = catalog[HINT];
@@ -52,7 +53,7 @@ describe('원문이 바뀐 뒤 새 열쇠가 없던 화면 글(202차)', () => {
   });
 
   it('옛 원문 열쇠는 네 사전과 앱 원문에서 빠지고, 새 값은 같은 언어의 다른 값과 겹치지 않아 거꾸로 찾으면 제 원문이다', () => {
-    expect(read('src/app/panel.ts')).not.toContain(OLD_HINT);
+    for (const f of ['src/app/panel.ts', PROPS_SRC]) expect(read(f), f).not.toContain(OLD_HINT);
     for (const lang of LANGS) {
       const catalog = catalogs[lang]!;
       expect(catalog[OLD_HINT], lang).toBeUndefined();

@@ -10,10 +10,7 @@ import { fileSpan, isolateText } from './ftext';
 import type { StepSavedView } from '../scene';
 import type { InterferencePair } from './interference';
 import type { Fmt } from './display';
-import { bodyName, bodyTitle, hasBodies, instanceCounts, itemById, meshById, nodeItems, productAt, productCountKey, productKeyOf, propsPendingFor, selectedBody, subtreeMeshIds, type PanelTab, type ProductNode, type StepDoc, TREE_LIMIT } from './doc';
-import { nodePath, partRows, type PropRow } from './partinfo';
-import { sceneMm } from './display';
-import { selectRow } from './dialog';
+import { bodyName, bodyTitle, itemById, meshById, nodeItems, productAt, type PanelTab, type ProductNode, type StepDoc, TREE_LIMIT } from './doc';
 import { isFullCircle, type EdgePick } from './edges';
 import { faceKindLabel, type FacePick } from './faces';
 import { fmtCount } from './format';
@@ -22,6 +19,7 @@ import { snapPair } from './snap';
 import { allExpandableKeys, filterRows, nodeLabel, visibleRows } from './tree';
 import type { TreeView, VList } from './treeview';
 import type { PmiView } from './pmiview';
+import type { PhysView } from './propsview';
 import { NO_LAYER } from './visibility';
 
 /**
@@ -32,10 +30,10 @@ import { NO_LAYER } from './visibility';
 export type TreeKit = Pick<typeof import('./treeview'), 'treeView' | 'groupGrid'> & Partial<Pick<typeof import('./pmiview'), 'pmiView'> & Pick<typeof import('./infoview'), 'infoView'>>;
 
 /**
- * 물리 속성 계산(physics.ts — 부피·질량·무게중심·관성, 재질 표): 53차에 첫 화면 JS에서 뷰어 조각으로 옮겼다(속성 탭은 문서가 있어야 그린다).
- * 앱이 뷰어를 만들 때 나무 조각과 함께 넣는다
+ * 속성 탭 본문(propsview.ts — 부품 속성 줄과 물리 속성 묶음): 53차에 물리 속성 계산(physics.ts — 부피·질량·무게중심·관성, 재질 표)을, 222차에 본문 그리기
+ * (renderProps·physSection과 부품 속성 줄 partinfo.ts)를 첫 화면 JS에서 뷰어 조각으로 옮겼다(속성 탭은 문서가 있어야 그린다). 앱이 뷰어를 만들 때 나무 조각과 함께 넣는다
  */
-export type PhysKit = Pick<typeof import('./physics'), 'accuracyText' | 'inertiaText' | 'MATERIALS' | 'massText' | 'meshNodes' | 'physProps'>;
+export type PhysKit = Pick<typeof import('./propsview'), 'propsView'>;
 
 /** 패널이 부르는 앱 쪽 기능 */
 export interface PanelHost {
@@ -144,13 +142,6 @@ export function pmiTypeLabel(type: string): string {
   return PMI_TYPE[type] ?? type;
 }
 
-/**
- * 속성 줄(파일 글은 번역하지 않는다 — 59차: 방향 가둠·길이 한도도). 167차: 이름 dt·값 dd — 묶음마다 줄들을 dl 하나에 넣어 화면 읽기가 이름과 값을
- * 짝으로 읽는다(WCAG 1.3.1, H40 — 전에는 span 둘이라 짝 없는 두 글). 줄 칸 div.prop-row·클래스는 그대로(dl 안 div 묶음은 HTML이 허용)
- */
-const propRow = (r: PropRow): HTMLElement =>
-  h('div', { class: 'prop-row' }, r.kData ? fileSpan(r.k, 'k', undefined, 'dt') : h('dt', { class: 'k' }, r.k), r.vData ? fileSpan(r.v, 'v', r.v, 'dd') : h('dd', { class: 'v', title: r.v }, r.v));
-
 /** 본문을 다시 그린 뒤 초점을 돌려줄 칸 */
 const FOCUSABLE = 'button, input, select, a[href]';
 
@@ -182,7 +173,7 @@ export class Panel {
   private doc: StepDoc | null = null;
   /** 나무 조각(문서를 보이기 전에 앱이 넣는다 — 없으면 나무 줄·부품별 보이기 표를 그리지 않는다) */
   kit: TreeKit | null = null;
-  /** 물리 속성 계산(문서를 보이기 전에 앱이 넣는다 — 없으면 속성 탭의 물리 속성 묶음을 비운다) */
+  /** 속성 탭 본문(문서를 보이기 전에 앱이 넣는다 — 없으면 속성 탭을 비운다) */
   phys: PhysKit | null = null;
   /** 지금 그린 나무의 펼침(같으면 고르기만 바꿀 때 줄 표시만 고친다) */
   private drawnExpanded: Set<string> | null = null;
@@ -196,11 +187,8 @@ export class Panel {
   private interferenceEl: HTMLElement | null = null;
   /** 제품 탭 나무 도구 줄의 「간섭 검사」(결과 지우기로 묶음째 빠지면 그 안 초점을 받는다 — 142차) */
   private checkBtn: HTMLElement | null = null;
-  /** 속성 탭의 물리 속성 묶음(질량 속성 적분 진행에 따라 그것만 고친다 — onProps), 그 고른 것, "계산 중"을 보였는지, 다시 만들기 */
-  private physEl: HTMLElement | null = null;
-  private physSel: ReadonlySet<string> | null = null;
-  private physWaiting = false;
-  private physRebuild: (() => HTMLElement) | null = null;
+  /** 속성 탭의 물리 속성 묶음(질량 속성 적분 진행에 따라 그것만 고친다 — onProps). 고른 것·"계산 중"을 보였는지·다시 만들기는 묶음이 쥔다(propsview.ts) */
+  private physView: PhysView | null = null;
 
   constructor(private readonly host: PanelHost) {
     this.tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': '패널 탭' });
@@ -568,154 +556,28 @@ export class Panel {
 
   // ───────────────────────── 속성 탭 ─────────────────────────
 
-  /** 속성을 보일 나무 마디 열쇠: 나무에서 고른 마디, 아니면 3D에서 고른 그물(나무에서 고른 몸체)의 마디 */
-  private propsKey(d: StepDoc): string | null {
-    if (d.selKey) return d.selKey;
-    const id = d.pick?.id ?? (d.items ? null : d.body);
-    return id ? productKeyOf(d.products, id) : null;
-  }
-
+  /**
+   * 속성 탭 본문(부품 속성 줄·물리 속성 묶음)은 뷰어 조각(propsview.ts — 222차에 첫 화면 JS에서 옮김)이 그린다. 조각이 아직 없으면 비운다(나무·PMI·정보 탭과 같다 —
+   * 앱은 조각을 받은 뒤에만 문서를 보인다)
+   */
   private renderProps(d: StepDoc): void {
-    const key = this.propsKey(d);
-    const path = key ? nodePath(d.products, key) : [];
-    const node = path[path.length - 1];
-    if (!node && !d.items) this.body.append(section('속성', h('p', { class: 'hint' }, '부품을 고르면(3D에서 누르거나 모델 트리에서) 그 부품의 속성을 보입니다. Ctrl·⌘·Shift를 누른 채 누르거나 "여러 개 고르기"를 켜면 여러 개를 고릅니다.')));
-    else if (!node) this.body.append(section('속성', h('p', { class: 'hint' }, '여러 개를 골랐습니다 — 아래 물리 속성은 고른 것의 합입니다.')));
-    else {
-      const count = instanceCounts(d.info).get(productCountKey(node.name, node.productId)) ?? 1;
-      this.body.append(section('부품 속성', h('dl', {}, ...partRows(path, this.host.fmt, count, isolateText).map(propRow))));
-    }
-    // 몸체 단위로 고른 몸체(나무 마디 대신 그물 하나): 부품 속성은 그 부품, 물리 속성은 그 몸체만. 선 형상 몸체는 물리 속성이 없다
-    const pid = selectedBody(d);
-    const all = node ? subtreeMeshIds(node) : null;
-    const body = pid && all && all.length > 1 && all.includes(pid) ? meshById(d.scene, pid) : undefined;
-    if (body) this.body.append(this.physSection(d, [body.id], bodyTitle(d.products, d.scene, body.id, isolateText)));
-    else if (pid && node?.lineIds?.includes(pid) && hasBodies(node))
-      this.body.append(section('물리 속성', h('p', { class: 'hint' }, '선 형상에는 부피·질량이 없습니다 — 부품 줄을 고르면 부품의 물리 속성을 봅니다.')));
-    else this.body.append(this.physSection(d, all ?? (d.items ? d.items.ids : null), d.items && !node ? d.items.label : undefined));
-  }
-
-  /** 물리 속성 묶음: 고른 부품(없으면 모형 전체)의 부피·겉넓이·질량·무게중심·외형 크기와 재질 고르기 */
-  private physSection(d: StepDoc, ids: string[] | null, multi?: string): HTMLElement {
-    const P = this.phys;
-    if (!P) return section('물리 속성');
-    const { accuracyText, inertiaText, MATERIALS, massText, meshNodes, physProps } = P;
-    const f = this.host.fmt;
-    const owner = meshNodes(d.products);
-    const sel = ids ? new Set(ids) : null;
-    // 질량 속성(곡면 적분)을 워커가 아직 구하는 중인 입체가 있으면 부피·질량·무게중심·관성은 "계산 중"
-    const missing = propsPendingFor(d, sel);
-    const waiting = missing && d.props.state === 'running';
-    this.physWaiting = waiting;
-    const pp = physProps(d.scene.meshes, sel, {
-      faces: d.faces,
-      sceneMm: sceneMm(d.scene.units),
-      densityOf: (id) => owner.get(id)?.props?.density,
-      picked: d.density,
-    });
-    const u = f.unit ? ` ${f.unit}` : '';
-    const rows: HTMLElement[] = [];
-    // 이름 dt·값 dd(167차 — 줄들은 묶음의 dl 하나에, propRow와 같은 꼴). 209차: 앱 말풍선(title)이 있는 값 칸은 번역하는 칸(값은 숫자·단위라 번역층이 바꾸지 않는다 —
-    // translate=no면 사전에 있는 말풍선도 한국어로 남았다)
-    const r = (k: string, v: string, title?: string) => rows.push(h('div', { class: 'prop-row' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v', title: title ?? v, translate: title ? null : 'no' }, v)));
-    // 계산 중인 값(번역되는 글이라 값 칸을 번역층에 맡긴다)
-    const busy = (k: string) => rows.push(h('div', { class: 'prop-row pending' }, h('dt', { class: 'k' }, k), h('dd', { class: 'v' }, '계산 중…')));
-    // 부피·질량·관성: B-rep 곡면 적분이 정확하면 그대로, 아니면 ≈(정확도 줄에 어림 오차)
-    const ax = pp.exact ? '' : '≈ ';
-    if (pp.closed) {
-      if (waiting) busy('부피');
-      else r('부피', `${ax}${f.vol(pp.volume)}`);
-    }
-    r('겉넓이', `${pp.areaExact ? '' : '≈ '}${f.area(pp.area)}`);
-    if (pp.mass !== null) {
-      if (waiting) busy('질량');
-      else r('질량', `${ax}${massText(pp.mass, (v, dg) => f.num(v, dg))}`);
-    }
-    if (pp.centroid) {
-      if (waiting) busy('무게중심');
-      else r('무게중심', `${f.pt(pp.centroid)}${u}`);
-    }
-    // 관성 모멘트(무게중심 기준, 질량을 알 때만): 주 관성 모멘트 셋과 장면 축 대각 성분
-    const it = waiting ? null : pp.inertia;
-    if (waiting && pp.inertia) busy('주 관성 모멘트');
-    if (it) {
-      const t = (v: number) => inertiaText(v, (x, dg) => f.num(x, dg));
-      r('주 관성 모멘트', `${ax}${it.principal.map(t).join(' · ')}`, `I1 · I2 · I3 (무게중심 기준, 작은 것부터)`);
-      r('관성 Ixx · Iyy · Izz', `${ax}${it.tensor.slice(0, 3).map(t).join(' · ')}`);
-    }
-    // 정확도(번역되는 글이라 값 칸을 번역층에 맡긴다). 계산 중이면 끝낸 입체 수
-    if (pp.closed) {
-      const acc = waiting
-        ? { text: `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`, title: '문서를 연 뒤 닫힌 입체의 부피·모멘트를 B-rep 곡면과 모서리 곡선에서 따로 적분하고 있습니다.' }
-        : accuracyText(pp, (v, dg) => f.num(v, dg));
-      rows.push(h('div', { class: `prop-row${waiting ? ' pending acc' : ''}` }, h('dt', { class: 'k' }, '정확도'), h('dd', { class: 'v', title: acc.title }, acc.text)));
-    }
-    const b = pp.bounds;
-    if (b) r('외형 크기', `≈ ${f.lenNum(b.max[0] - b.min[0])} × ${f.lenNum(b.max[1] - b.min[1])} × ${f.lenNum(b.max[2] - b.min[2])}${u}`);
-    r('닫힌 입체 · 열린 메시', `${fmtCount(pp.closed)} · ${fmtCount(pp.open)}`);
-    const notes: (HTMLElement | null)[] = [];
-    if (!pp.closed) notes.push(h('p', { class: 'hint' }, '닫힌 입체가 없어 부피·질량·무게중심을 구하지 못했습니다(열린 면·얇은 판).'));
-    else if (pp.open) notes.push(h('p', { class: 'hint' }, '열린 메시(닫히지 않은 면)는 부피·질량에서 뺐습니다.'));
-    if (pp.closed && pp.mass === null) notes.push(h('p', { class: 'hint' }, '파일에 밀도가 없습니다 — 아래에서 재질을 고르면 질량과 관성 모멘트를 보입니다.'));
-    else if (pp.noDensity) notes.push(h('p', { class: 'hint' }, '밀도를 모르는 입체가 있어 질량에서 뺐습니다 — 재질을 고르면 함께 더합니다.'));
-    if (pp.timedOut) notes.push(h('p', { class: 'hint' }, '파일이 커서 시간 한도를 넘은 입체는 곡면 적분 대신 화면용 삼각형으로 구했습니다.'));
-    if (missing && d.props.state === 'stopped') notes.push(h('p', { class: 'hint' }, '다른 파일을 여느라 곡면 적분을 멈췄습니다 — 적분하지 못한 입체는 화면용 삼각형으로 잰 근삿값입니다. 이 파일을 다시 열면 다시 구합니다.'));
-    // 재질 고르기(파일에 밀도가 없는 부품에 쓴다)
-    const opts: [string, string][] = [['', '고르지 않음'], ...MATERIALS.map(([name, rho]): [string, string] => [String(rho), `${name} · ${f.num(rho / 1000, 2)} g/cm³`])];
-    const cur = d.density === null ? '' : MATERIALS.some(([, rho]) => rho === d.density) ? String(d.density) : 'custom';
-    if (cur === 'custom') opts.push(['custom', `${f.num(d.density! / 1000, 3)} g/cm³`]);
-    const pick = selectRow('재질(밀도가 없는 부품)', opts, cur, (v) => {
-      if (v !== 'custom') this.host.setDensity(v ? Number(v) : null);
-    });
-    // 밀도 직접 넣기(g/cm³)
-    const inp = h('input', { type: 'number', class: 'dlg-input', min: '0', step: '0.01', inputmode: 'decimal', 'aria-label': '밀도 직접 입력(g/cm³)', placeholder: 'g/cm³' }) as HTMLInputElement;
-    const shown = d.density === null ? '' : String(Number((d.density / 1000).toPrecision(6)));
-    inp.value = shown;
-    // 빈 칸은 밀도 지우기. 155차: 0·음수·읽지 못한 글(브라우저가 빈 글로 돌리고 badInput)은 전처럼 골라 둔 밀도를 말없이 지우지 않고 칸을 되돌려 알림 칸에 까닭(분해 거리 칸 꼴)
-    inp.addEventListener('change', () => {
-      const s = inp.value.replace(',', '.');
-      const g = Number(s);
-      if (inp.validity.badInput || (s && !(Number.isFinite(g) && g > 0))) {
-        inp.value = shown;
-        this.host.toast?.('밀도를 바꾸지 않았습니다 — 0보다 큰 수를 쳐 넣으십시오(g/cm³).', 'warn', 5000);
-      } else this.host.setDensity(s ? g * 1000 : null);
-    });
-    const custom = h('label', { class: 'dlg-row' }, h('span', { class: 'dlg-label' }, '밀도 직접 입력(g/cm³)'), inp);
-    const el = section(
-      // 몸체 이름·묶음 이름표 안의 파일 글은 FSI…PDI로 갇혀(ftext.ts) 번역층이 그대로 둔다 — 화면 글("몸체 2"·"부품 3개")만 옮긴다
-      multi ? [h('span', {}, '물리 속성'), ' · ', h('span', { 'data-i18n-ui': '' }, multi)] : ids ? '물리 속성' : '모형 전체 물리 속성',
-      h('dl', {}, ...rows),
-      ...notes,
-      pick,
-      custom,
-      h(
-        'p',
-        { class: 'hint' },
-        '부피·질량·무게중심·관성 모멘트는 B-rep 곡면과 모서리 곡선을 적분해 구합니다. 평면·원기둥·원뿔·구·원환과 회전·밀기·B-스플라인 곡면으로 된 입체는 정확합니다. 모서리 곡선이 곡면에서 조금 떨어져 있거나, 가중치가 있는 B-스플라인 곡면이나 적분하지 않는 곡면(오프셋 곡면 등)이 섞이면 그만큼 어림 오차를 ±로 보입니다. 외형 크기는 화면용 삼각형으로 잰 값(≈)입니다. 겉넓이는 B-rep 면 넓이의 합이며 근삿값이 섞이면 ≈를 붙입니다.',
-      ),
-    );
-    this.physEl = el;
-    this.physSel = sel;
-    this.physRebuild = () => this.physSection(d, ids, multi);
-    return el;
+    const v = this.phys?.propsView(d, this.host);
+    this.physView = v?.phys ?? null;
+    if (v) this.body.append(...v.els);
   }
 
   /**
    * 질량 속성 적분 진행이 바뀜(워커): 속성 탭의 물리 속성 묶음만 고친다. 계산 중이던 고른 것이 그대로 계산 중이면 끝낸 입체 수 글만,
-   * 값이 다 왔거나 멈췄으면 묶음을 다시 그린다(재질 고르기 칸 등 나머지는 그대로)
+   * 값이 다 왔거나 멈췄으면 묶음을 다시 그린다(재질 고르기 칸 등 나머지는 그대로). 고칠지 다시 그릴지는 묶음이 정한다(propsview.ts refresh — 222차)
    */
   onProps(): void {
     const d = this.doc;
-    const el = this.physEl;
-    if (!d || d.panelTab !== 'props' || !el?.isConnected || !this.physRebuild) return;
-    const still = propsPendingFor(d, this.physSel) && d.props.state === 'running';
-    if (still && this.physWaiting) {
-      const v = el.querySelector('.prop-row.pending.acc .v');
-      if (v) v.textContent = `곡면 적분 계산 중(입체 ${fmtCount(d.props.done)}/${fmtCount(d.props.total)})`;
-      return;
-    }
-    if (!still && !this.physWaiting) return;
-    this.swap(el, this.physRebuild());
+    const p = this.physView;
+    if (!d || d.panelTab !== 'props' || !p?.el.isConnected) return;
+    const next = p.refresh();
+    if (!next) return;
+    this.swap(p.el, next.el);
+    this.physView = next;
   }
 
   /**

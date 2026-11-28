@@ -91,7 +91,8 @@ describe('코어 나눠 받기', () => {
     const kit = join(ROOT, 'src/app/viewerkit.ts');
     expect(files.has(kit)).toBe(false);
     // 74차: upload.ts는 다시 내보내기와 조각 미리 받기(warmMerging) 가져오기 두 문이라 모듈마다 한 번 센다
-    expect([...new Set(importsOf(readFileSync(kit, 'utf8')).values)].sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './physics', './picklist', './pmiview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
+    // 222차: 물리 속성 계산(physics.ts)은 속성 탭 본문(propsview.ts — panel.ts에서 옮김)이 가져가, 조각은 propsview 하나를 내보낸다
+    expect([...new Set(importsOf(readFileSync(kit, 'utf8')).values)].sort()).toEqual(['./aim', './ctxmenu', './entpick', './gpucontext', './hipaint', './imagedlg', './infoview', './keynav', './keysnap', './looks', './opennotice', './picklist', './pmiview', './propsview', './trackdir', './treeview', './upload', './viewhelp', 'opencad-viewer3d', 'opencad-viewer3d/camera', 'opencad-viewer3d/viewcube']);
     // 66차: 부품 겉모습 걸기(looks.ts LookSync)도 그 조각에만 — 앱은 뷰어를 만든 뒤 조각에서 만들고, 반투명 보기 판정(translucentView)은 doc.ts에서
     expect(files.has(join(ROOT, 'src/app/looks.ts'))).toBe(false);
     expect(readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8')).toMatch(/\(this\.lookSync \?\?= new this\.ent!\.LookSync\(\)\)\.apply\(v, \{/);
@@ -218,7 +219,25 @@ describe('코어 나눠 받기', () => {
     const ctx = await import('../../src/app/ctxmenu');
     expect(m.contextAt).toBe(ctx.contextAt);
     expect(m.contextItems).toBe(ctx.contextItems);
-    const phys = await import('../../src/app/physics');
-    for (const k of ['accuracyText', 'inertiaText', 'MATERIALS', 'massText', 'meshNodes', 'physProps'] as const) expect(m[k], k).toBe(phys[k]);
+    // 222차: 속성 탭 본문(앱이 뷰어를 만들 때 패널에 넣는다 — 물리 속성 계산 physics.ts는 이 모듈이 가져간다)
+    expect(m.propsView).toBe((await import('../../src/app/propsview')).propsView);
+  });
+
+  it('222차: 속성 탭 본문(propsview.ts)·부품 속성 줄(partinfo.ts)·물리 속성 계산(physics.ts)은 뷰어 조각에만 — 첫 화면 조각에 다시 들어오면 실패', () => {
+    const { files, dynamic } = staticGraph(ENTRY);
+    // 시험이 헛돌지 않게: 패널(첫 화면 — 껍데기만)에는 닿는다
+    expect(files.has(join(ROOT, 'src/app/panel.ts'))).toBe(true);
+    for (const m of ['src/app/propsview.ts', 'src/app/partinfo.ts', 'src/app/physics.ts']) expect(files.has(join(ROOT, m)), m).toBe(false);
+    expect(dynamic.filter((d) => /\/(propsview|partinfo|physics)$/.test(d.spec))).toEqual([]);
+    // 패널은 타입만 가져오고(값 가져오기 0), 문서를 보이기 전에 앱이 조각을 넣는다(ensureViewer — 받은 뒤에만 그리므로 「받는 중」 길이 없다)
+    const panel = readFileSync(join(ROOT, 'src/app/panel.ts'), 'utf8');
+    expect(importsOf(panel).values.filter((s) => /\/(propsview|partinfo|physics)$/.test(s))).toEqual([]);
+    expect(panel).toMatch(/export type PhysKit = Pick<typeof import\('\.\/propsview'\), 'propsView'>;/);
+    const app = readFileSync(join(ROOT, 'src/app/app.ts'), 'utf8');
+    const ensure = app.indexOf('core = await loadViewerCore();');
+    expect(ensure).toBeGreaterThan(0);
+    expect(app.indexOf('this.panel.phys = core;', ensure)).toBeGreaterThan(ensure);
+    // 조각이 내보내는 이름(옮긴 모듈을 첫 화면이 값으로 다시 가져오면 위 그래프가, 조각에서 빠지면 아래가 잡는다)
+    expect(readFileSync(join(ROOT, 'src/app/viewerkit.ts'), 'utf8')).toMatch(/^export \{ propsView \} from '\.\/propsview';$/m);
   });
 });

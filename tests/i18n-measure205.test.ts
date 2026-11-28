@@ -258,7 +258,8 @@ describe('측정 묶음 화면 글의 네 언어 번역(205차)', () => {
     const app = read('app.ts');
     expect(app).toContain("h('span', {}, '외형 크기'), ` ≈ ${fm.lenNum(size[0])} × ");
     expect(app).not.toContain("h('span', {}, '크기')");
-    expect(read('panel.ts')).toContain("r('외형 크기', `≈ ${f.lenNum(");
+    // 222차: 패널 물리 속성 줄은 속성 탭 본문째 panel.ts에서 뷰어 조각의 propsview.ts로 옮겼다(글·열쇠 그대로)
+    expect(read('propsview.ts')).toContain("r('외형 크기', `≈ ${f.lenNum(");
     expect(read('imagedlg.ts')).toMatch(/selectRow\(\s*'크기',/);
     expect(read('infoview.ts')).toContain("row('크기', `${formatBytes(d.size)}");
     for (const lang of LANGS) {
