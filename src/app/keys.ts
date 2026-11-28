@@ -100,11 +100,16 @@ export function outsideKeys(keys: string, letters: boolean): string | null {
   return (letters ? keys : keys.split(' ').filter((k) => !/^(Shift\+)?.$/.test(k)).join(' ')) || null;
 }
 
-/** 3D 보기 밖 버튼에 outsideKeys 값을 단다(없으면 뗀다 — 172차 설정을 바꾸면 다시 부른다) */
-export function markKeys(el: Element, keys: string, letters: boolean): void {
+/**
+ * 3D 보기 밖 버튼에 outsideKeys 값을 단다(없으면 뗀다 — 172차 설정을 바꾸면 다시 부른다).
+ * 221차: name(키가 한 글자 하나인 버튼)을 주면 말풍선도 값을 따라 「name (키)」, 값이 없으면 name만(WAI-ARIA 1.2 §6.7 — 말풍선은 그 요소의 단축키를 드러내는 자리.
+ * 끈 동안 그 버튼에서 듣지 않는 F·I를 말하지 않는다 — 키는 그 키가 듣는 3D 보기의 값·설정 항목 이름에 그대로)
+ */
+export function markKeys(el: Element, keys: string, letters: boolean, name?: string): void {
   const v = outsideKeys(keys, letters);
   if (v) el.setAttribute('aria-keyshortcuts', v);
   else el.removeAttribute('aria-keyshortcuts');
+  if (name) el.setAttribute('title', v ? `${name} (${v})` : name);
 }
 
 /**

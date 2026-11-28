@@ -137,14 +137,15 @@ export class Toolbar {
 
     // 219차(WCAG 4.1.2): 말풍선이 말하는 키 가운데 이 버튼과 같은 일을 하는 앱 키를 단축키로 알린다(218차 캔버스 값과 같은 꼴 — F는 코어 handleKey의 fit, 격자 F7은 keys.ts grid).
     // 표준 뷰(1~7 — 메뉴 항목의 일)·측정(Esc — 지우기)·고르기(누르기 수정 키)는 같은 일이 아니라 달지 않는다.
-    // 220차: 172차 설정을 끄면 F는 3D 보기 안에서만 들어 값에서 뺀다(다시 그릴 때마다 — 앱이 설정을 바꾸면 다시 그린다)
-    const fit = this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit(), () => markKeys(fit.el, 'F', H.lettersOutside !== false));
+    // 220차: 172차 설정을 끄면 F는 3D 보기 안에서만 들어 값에서 뺀다(다시 그릴 때마다 — 앱이 설정을 바꾸면 다시 그린다). 221차: 말풍선도 「(F)」 없이
+    const fit = this.add('fit', '전체 보기', '전체 보기 (F)', () => H.fit(), () => markKeys(fit.el, 'F', H.lettersOutside !== false, '전체 보기'));
     const focus = this.add('focus', '고른 부품 보기', '고른 부품으로 맞춰 보기 (모델 트리에서 마디를 두 번 눌러도 됩니다)', () => H.fitSelection(), () => {
       focus.el.disabled = !H.hasDoc || !H.hasSelection;
     }, 'wide-only');
     const keyHelp = Object.entries(VIEW_KEYS)
       .map(([k, v]) => `${k} ${VIEW_LABELS[v]}`)
       .join(' · ');
+    // 221차: 말풍선의 뷰 키 1~7도 172차 설정을 끄면 뺀다(메뉴 키 글·값과 같이 — 그동안 3D 보기 밖에서는 듣지 않음)
     const views = this.add('views', '표준 뷰', `표준 뷰 (${keyHelp})`, () =>
       openMenu(
         views.el,
@@ -160,6 +161,7 @@ export class Toolbar {
         ],
         '표준 뷰',
       ),
+      () => views.el.setAttribute('title', H.lettersOutside !== false ? `표준 뷰 (${keyHelp})` : '표준 뷰'),
     );
     views.el.setAttribute('aria-haspopup', 'menu');
     views.el.setAttribute('aria-expanded', 'false');

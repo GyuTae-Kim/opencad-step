@@ -7,6 +7,8 @@
  * (나) 값이 그 자리 바로 뒤에 낱말을 두지 않는다(「Pairs not listed: {0}.」 — 수를 끝에 두어 단·복수가 갈리지 않는 꼴; 215차에 열일곱 틀을 이 꼴로),
  * (다) ONE_OK에 까닭이 있다(코드가 1을 넣지 않음 — 한도·상한·둘 이상일 때만, 코드 글로 확인 — 또는 뒤 낱말이 단·복수 같음).
  * 새 수 틀이 셋 어디에도 들지 않으면 실패한다. 일본어·중국어는 수 꼴이 없어 보지 않는다.
+ * 221차: 영어 괄호 s 꼴(「{0} type(s) of product」·「{0} time(s)」·「{0} semantic PMI(s)」 — 215차에 보고 둔 것)을 같은 꼴로(수 끝·1이 들지 않으니 복수 꼴만·형제 머리의 약어 꼴),
+ * 영어·독일어 값에 괄호 복수 꼴이 다시 생기면 실패한다.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,10 +48,9 @@ function countSlots(key: string): string[] {
 const ONE_OK: Record<string, { why: string; src?: [string, string]; only?: Lang }> = {
   'PMI {0}개': { why: '약어 PMI — 「{0} PMI」는 단·복수 같음' },
   '표현 PMI {0}개': { why: '약어 PMI — 「{0} presentation PMI」·「{0} Darstellungs-PMI」' },
-  '의미 PMI {0}개': { why: '영어 PMI(s)·독일어 「semantische PMI」 — 단·복수 같음' },
+  '의미 PMI {0}개': { why: '약어 PMI — 「{0} semantic PMI」(221차 — 같은 탭 형제 머리 「{0} presentation PMI」 꼴, 전에는 PMI(s))·「{0} semantische PMI」' },
   'ZIP 안에 STEP 파일(.stp·.step·.p21)이 없습니다. 들어 있는 파일: {0} 외 {1}개': { why: '「and {1} more」·「und {1} weitere」 — 단·복수 같음' },
   '외 {0}개': { why: '「Plus {0} more」·「und {0} weitere」 — 단·복수 같음' },
-  '제품 {0}종, 놓인 형상 {1}개': { why: '영어 type(s)·instance(s) 꼴 — 1도 맞음(독일어는 215차에 수 끝 꼴)', only: 'en' },
   'ZIP 안 STEP 파일 {0}개 가운데 가장 큰 {1}을(를) 열었습니다(나머지: {2}{3}).': { why: '후보가 둘 이상일 때만', src: ['src/archive.ts', 'if (cands.length > 1) {'] },
   '{0} ({1} 바이트)': { why: '정보 탭의 연 STEP 파일 크기 — 머리만으로도 1바이트를 넘음', src: ['src/app/infoview.ts', '(${fmtCount(d.size)} 바이트)'] },
   '파일 크기 {0} 바이트': { why: '상태 막대 말풍선의 연 STEP 파일 크기(위와 같음)', src: ['src/app/doc.ts', 'title: `파일 크기 ${fmtCount(d.size)} 바이트`'] },
@@ -61,7 +62,7 @@ const ONE_OK: Record<string, { why: string; src?: [string, string]; only?: Lang 
     why: '담은 수 < 고른 수일 때만 — {1}은 1,500자 안에 든 나무 자리 낱말(깊이마다 두세 자)이 가리키는 수라 1이려면 나무 깊이가 수백 단계',
     src: ['src/app/selink.ts', 'export const SEL_MAX_CHARS = 1500;'],
   },
-  '이 부품이 모형에 {0}번 놓였습니다': { why: '두 번 이상 놓인 부품의 ×n 칩에만', src: ['src/app/treeview.ts', "n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }"] },
+  '이 부품이 모형에 {0}번 놓였습니다': { why: '두 번 이상 놓인 부품의 ×n 칩에만(221차 — 그래서 영어는 복수 꼴 times만, 전에는 time(s))', src: ['src/app/treeview.ts', "n > 1 ? h('span', { class: 'chip', title: `이 부품이 모형에 ${n}번 놓였습니다` }"] },
   '조립 자리가 {0}개를 넘어 나머지는 놓지 않았다(같은 하위 조립을 층마다 거듭 쓴 파일일 수 있음)': { why: '상수 MAX_PLACEMENTS', src: ['src/scene.ts', 'export const MAX_PLACEMENTS = 250_000;'] },
   '조립 자리가 {0}개를 넘어 앞부분만 보입니다 — 같은 하위 조립을 층마다 거듭 쓴 파일일 수 있습니다(패널의 "정보" 탭).': {
     why: '경고 글에서 읽은 MAX_PLACEMENTS',
@@ -70,7 +71,7 @@ const ONE_OK: Record<string, { why: string; src?: [string, string]; only?: Lang 
   '처음 {0}개만 보입니다.': { why: '상수 LIMIT 300', src: ['src/app/infoview.ts', 'const LIMIT = 300;'] },
 };
 
-/** 215차에 값만 바꿔 수를 끝에 둔 틀(영어 15·독일어 17 — 제품 틀은 독일어만, 형상 틀은 독일어만) */
+/** 215차에 값만 바꿔 수를 끝에 둔 틀(영어 15·독일어 17 — 제품 틀은 독일어만, 형상 틀은 독일어만). 221차: 제품 틀 영어도 수 끝 꼴(전에는 type(s)·instance(s) — ONE_OK에서 뺌) */
 const FIXED = [
   'PMI 글자(ANNOTATION_TEXT 등) {0}개는 그리지 못했다(글이 비었거나 배치가 없음)',
   '간섭 {0}쌍을 찾았습니다(안에 든 것 {1}쌍 포함).',
@@ -124,7 +125,7 @@ describe('수 틀의 1 — 영어·독일어 단·복수(215차)', () => {
     }
     for (const key of FIXED) {
       expect(EN[key], key).toBeTruthy();
-      expect(unhandled(key, false), key).toEqual(key === '제품 {0}종, 놓인 형상 {1}개' ? ['en {0}', 'en {1}'] : []);
+      expect(unhandled(key, false), key).toEqual([]);
     }
   });
 
@@ -151,7 +152,7 @@ describe('수 틀의 1 — 영어·독일어 단·복수(215차)', () => {
       '· #12 · Segmente 1',
     ]);
     expect(translate('시간 한도로 1쌍은 겹친 부피를 구하지 못했습니다.', 'en')).toBe('Pairs whose overlap volume was not computed because of the time limit: 1.');
-    expect(translate('제품 1종, 놓인 형상 1개', 'de')).toBe('Produkte: 1, platzierte Formen: 1');
+    expect([translate('제품 1종, 놓인 형상 1개', 'en'), translate('제품 1종, 놓인 형상 1개', 'de')]).toEqual(['Product types: 1, placed instances: 1', 'Produkte: 1, platzierte Formen: 1']);
     expect([translate('형상 1개', 'de'), translate('형상 3개', 'de')]).toEqual(['Geometrien: 1', 'Geometrien: 3']);
     expect(translate('문법 오류로 건너뛴 문장 1개', 'en')).toBe('Statements skipped due to syntax errors: 1');
   });
@@ -188,5 +189,21 @@ describe('수 틀의 1 — 영어·독일어 단·복수(215차)', () => {
         expect(translate(key.replace(/\{\d+\}/, '1'), lang), `${lang}: ${key}`).toBe(catalog[key.replace(/\{\d+\}/, '1')]);
         expect(translate(key.replace(/\{\d+\}/, '2'), lang), `${lang}: ${key}`).toBe(catalog[key]!.replace(/\{\d+\}/, '2'));
       }
+  });
+
+  it('221차: 영어·독일어 값에 괄호 복수 꼴(「type(s)」·「time(s)」·「PMI(s)」, 독일어 「Teil(e)」·「Datei(en)」 꼴)이 없다 — 215차 꼴(수 끝·1이 들지 않으면 복수 꼴·약어 그대로)로', () => {
+    const PAREN: Record<Lang, RegExp> = { en: /[A-Za-z]\((?:s|es)\)/, de: /[A-Za-zÄÖÜäöüß]\((?:n|e|en|s|er|nen|es)\)/ };
+    for (const lang of LANGS) expect(Object.entries(catalogs[lang]!).filter(([, v]) => PAREN[lang].test(v)).map(([k]) => k), lang).toEqual([]);
+    // 221차에 고친 영어 셋(220차까지 괄호 s 꼴): 1·2를 넣은 번역
+    expect(['의미 PMI 1개', '의미 PMI 2개', '이 부품이 모형에 2번 놓였습니다', '제품 1종, 놓인 형상 1개', '제품 2종, 놓인 형상 3개'].map((ko) => translate(ko, 'en'))).toEqual([
+      '1 semantic PMI',
+      '2 semantic PMI',
+      'This component has been placed 2 times in the model.',
+      'Product types: 1, placed instances: 1',
+      'Product types: 2, placed instances: 3',
+    ]);
+    // 같은 PMI 탭의 형제 머리(표현 PMI·의미 PMI)는 같은 꼴 — 영어·독일어
+    expect(EN['의미 PMI {0}개']!.replace('semantic', 'presentation')).toBe(EN['표현 PMI {0}개']);
+    expect([EN['의미 PMI {0}개'], DE['의미 PMI {0}개']].map((v) => v!.indexOf('{0}'))).toEqual([0, 0]);
   });
 });

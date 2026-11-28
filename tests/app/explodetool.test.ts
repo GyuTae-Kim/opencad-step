@@ -807,17 +807,18 @@ describe('분해 손질 도구(jsdom 끌기)', () => {
     expect(f.focused).toBe(1);
     expect(f.shown.at(-1)).toMatchObject({ value: '', fresh: true, axis: 'free' });
     expect(tool.typed('0; 0; 6')).toBe(true);
+    // 221차: 손질 키 글은 분해 막대 말풍선 꼴(「Ctrl·⌘+Z」·「Ctrl·⌘+Shift+Z·Ctrl+Y」 — 값과 같은 키, 전에는 Ctrl+Z·Ctrl+Shift+Z)
     expect(labels()).toEqual([
       ['거리로 옮기기…', 'Enter', false, false],
-      ['손질 되돌리기', 'Ctrl+Z', true, false],
-      ['손질 다시 하기', 'Ctrl+Shift+Z', false, true],
+      ['손질 되돌리기', 'Ctrl·⌘+Z', true, false],
+      ['손질 다시 하기', 'Ctrl·⌘+Shift+Z·Ctrl+Y', false, true],
     ]);
     tool.undo();
     // 고른 것이 없어도 다시 할 손질이 있으면 그 항목만
     doc.selKey = null;
     expect(labels()).toEqual([
-      ['손질 되돌리기', 'Ctrl+Z', true, true],
-      ['손질 다시 하기', 'Ctrl+Shift+Z', false, false],
+      ['손질 되돌리기', 'Ctrl·⌘+Z', true, true],
+      ['손질 다시 하기', 'Ctrl·⌘+Shift+Z·Ctrl+Y', false, false],
     ]);
   });
 
