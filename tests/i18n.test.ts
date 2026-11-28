@@ -207,10 +207,10 @@ describe('language URLs and UI presentation', () => {
     expect(translate('레이어 (레이어 없음)', 'de')).toBe('Layer (keine Layer)');
   });
   it('names PMI types in the singular and in the same case as the other type names of the same table (208th)', () => {
-    // 208차: PMI 종류 이름(panel.ts PMI_TYPE — 이름 없는 PMI의 표현 PMI 표 줄 이름·평면 칸·말풍선·상태 막대·아래 띠)과 표 머리 칸 「주석」은 한 줄에 하나라
+    // 208차: PMI 종류 이름(pmiview.ts PMI_TYPE — 226차에 panel.ts에서 옮김, 이름 없는 PMI의 표현 PMI 표 줄 이름·평면 칸·말풍선·상태 막대·아래 띠)과 표 머리 칸 「주석」은 한 줄에 하나라
     // 독일어도 단수(같은 표 Kurvenanmerkung·Textanmerkung·머리 칸 Ebene · Typ 꼴 — Anmerkungen·Zeichnungsbeschriftungen이던 것),
     // 영어는 같은 표의 다른 종류 이름(Curve annotation·Text annotation …) 꼴로 뒤 낱말 소문자(Triangle Annotation·Drafting Annotation이던 것)
-    const src = readFileSync(join(process.cwd(), 'src/app/panel.ts'), 'utf8');
+    const src = readFileSync(join(process.cwd(), 'src/app/pmiview.ts'), 'utf8');
     const names = [...(/const PMI_TYPE: Record<string, string> = \{([\s\S]*?)\n\};/.exec(src)?.[1] ?? '').matchAll(/: '([^']+)',/g)].map((m) => m[1]!);
     expect(names).toHaveLength(9);
     expect(readFileSync(join(process.cwd(), 'src/app/pmiview.ts'), 'utf8')).toContain("['주석', '평면·종류']");

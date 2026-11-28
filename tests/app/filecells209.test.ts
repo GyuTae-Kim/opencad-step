@@ -20,10 +20,11 @@ import { stepToScene, type StepMeta } from '../../src/scene';
 import { bodyTitle, createDoc, multiLabel, productAt, type PanelTab, type StepDoc } from '../../src/app/doc';
 import type { ParseResult } from '../../src/app/protocol';
 import { nodeLabel } from '../../src/app/tree';
-import { Panel, pmiTypeLabel, semanticLabel, type PanelHost } from '../../src/app/panel';
+import { Panel, type PanelHost } from '../../src/app/panel';
 import * as TV from '../../src/app/treeview';
 import { infoView } from '../../src/app/infoview';
-import { pmiView } from '../../src/app/pmiview';
+// 226차: PMI 종류 이름 표·이름 함수는 PMI 탭 본문(pmiview.ts — 뷰어 조각)으로 옮겼다(panel.ts에서 글자 그대로)
+import { pmiTypeLabel, pmiView, semanticLabel } from '../../src/app/pmiview';
 // 223차: 레이어 탭 본문·아래 띠·간섭 검사 묶음은 나무 조각(panelview.ts — panel.ts에서 옮김)이 그린다 — 앱처럼 나무와 함께 넣는다
 import * as PV from '../../src/app/panelview';
 // 222차: 패널 phys에 넣는 것은 속성 탭 본문(propsview.ts — panel.ts에서 옮김, 물리 속성 계산 physics.ts를 가져간다)
@@ -262,8 +263,9 @@ const STATUS_MAKE = cut(/\n\s*(this\.statusSel = h\('div', [^\n]*\);)\n/);
 const SEL_TEXT = cut(/\n {2}private selectionText\(d: StepDoc\): \(Node \| string\)\[\] \{\n([\s\S]*?)\n {2}\}\n/).replace(/(\w)!\./g, '$1.');
 const STATUS_TITLE = cut(/\n\s*(this\.statusSel\.title = this\.statusSel\.textContent \?\? '';)\n/);
 function status(d: object): HTMLElement {
-  const self = { fmt: new Fmt('mm'), entMeasuring: false, measuring: false, selectionName: (x: object) => selectionName(x, productAt, nodeLabel, isolateText, bodyTitle) };
-  const sel = new Function('d', 'h', 'productAt', 'isolateText', 'pmiTypeLabel', SEL_TEXT).call(self, d, h, productAt, isolateText, pmiTypeLabel) as (Node | string)[];
+  // 226차: 이름 없는 PMI의 종류 이름은 앱이 뷰어 조각에서 부른다(this.ent!.pmiTypeLabel — 문서가 있으면 조각도 있다) — 앱처럼 조각 칸(ent)에 넣는다
+  const self = { fmt: new Fmt('mm'), entMeasuring: false, measuring: false, ent: { pmiTypeLabel }, selectionName: (x: object) => selectionName(x, productAt, nodeLabel, isolateText, bodyTitle) };
+  const sel = new Function('d', 'h', 'productAt', 'isolateText', SEL_TEXT).call(self, d, h, productAt, isolateText) as (Node | string)[];
   const bar: { statusSel?: HTMLElement } = {};
   new Function('h', STATUS_MAKE).call(bar, h);
   const statusSel = bar.statusSel!;
@@ -327,7 +329,7 @@ describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — �
 
 // ───────────────────────── 211차 ─────────────────────────
 
-/** 의미 PMI 개체 25종(panel.ts SEMANTIC_TYPE 차례) — 이름 없는 줄을 누르면 넘기는 묶음 이름표는 「PMI {종류}」(pmiview.ts labelOf) */
+/** 의미 PMI 개체 25종(pmiview.ts SEMANTIC_TYPE 차례 — 226차에 panel.ts에서 옮김) — 이름 없는 줄을 누르면 넘기는 묶음 이름표는 「PMI {종류}」(pmiview.ts labelOf) */
 const SEM_TYPES = [
   'DIMENSIONAL_SIZE', 'DIMENSIONAL_LOCATION', 'ANGULAR_SIZE', 'ANGULAR_LOCATION', 'DIMENSIONAL_SIZE_WITH_PATH', 'DIMENSIONAL_LOCATION_WITH_PATH', 'DIRECTED_DIMENSIONAL_LOCATION',
   'FLATNESS_TOLERANCE', 'STRAIGHTNESS_TOLERANCE', 'ROUNDNESS_TOLERANCE', 'CYLINDRICITY_TOLERANCE', 'LINE_PROFILE_TOLERANCE', 'SURFACE_PROFILE_TOLERANCE', 'ANGULARITY_TOLERANCE',

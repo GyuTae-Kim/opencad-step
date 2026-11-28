@@ -88,60 +88,12 @@ export interface PanelHost {
   showInterference(p: InterferencePair): void;
 }
 
-const PMI_TYPE: Record<string, string> = {
-  ANNOTATION_CURVE_OCCURRENCE: '곡선 주석',
-  ANNOTATION_OCCURRENCE: '주석',
-  ANNOTATION_FILL_AREA_OCCURRENCE: '채운 영역 주석',
-  DRAUGHTING_ANNOTATION_OCCURRENCE: '제도 주석',
-  TESSELLATED_ANNOTATION_OCCURRENCE: '삼각형 주석',
-  ANNOTATION_PLACEHOLDER_OCCURRENCE: '자리 주석',
-  ANNOTATION_SYMBOL_OCCURRENCE: '기호 주석',
-  ANNOTATION_TEXT_OCCURRENCE: '글 주석',
-  ANNOTATION_POINT_OCCURRENCE: '점 주석',
-};
-
-const SEMANTIC_TYPE: Record<string, string> = {
-  DIMENSIONAL_SIZE: '크기 치수',
-  DIMENSIONAL_LOCATION: '위치 치수',
-  ANGULAR_SIZE: '각도 크기',
-  ANGULAR_LOCATION: '각도 위치',
-  DIMENSIONAL_SIZE_WITH_PATH: '경로 크기 치수',
-  DIMENSIONAL_LOCATION_WITH_PATH: '경로 위치 치수',
-  DIRECTED_DIMENSIONAL_LOCATION: '방향 위치 치수',
-  FLATNESS_TOLERANCE: '평면도 ⏥',
-  STRAIGHTNESS_TOLERANCE: '진직도 ⏤',
-  ROUNDNESS_TOLERANCE: '진원도 ○',
-  CYLINDRICITY_TOLERANCE: '원통도 ⌭',
-  LINE_PROFILE_TOLERANCE: '선의 윤곽도 ⌒',
-  SURFACE_PROFILE_TOLERANCE: '면의 윤곽도 ⌓',
-  ANGULARITY_TOLERANCE: '경사도 ∠',
-  PARALLELISM_TOLERANCE: '평행도 ∥',
-  PERPENDICULARITY_TOLERANCE: '직각도 ⟂',
-  POSITION_TOLERANCE: '위치도 ⌖',
-  CONCENTRICITY_TOLERANCE: '동심도 ◎',
-  COAXIALITY_TOLERANCE: '동축도 ◎',
-  SYMMETRY_TOLERANCE: '대칭도 ⌯',
-  CIRCULAR_RUNOUT_TOLERANCE: '원주 흔들림 ↗',
-  TOTAL_RUNOUT_TOLERANCE: '온 흔들림 ⌰',
-  GEOMETRIC_TOLERANCE: '기하 공차',
-  DATUM: '데이텀',
-  COMMON_DATUM: '공통 데이텀',
-};
+// 226차: 표현·의미 PMI 종류 이름 표와 이름 함수(pmiTypeLabel·semanticLabel)는 PMI 탭 본문(pmiview.ts — 뷰어 조각)으로 옮겼다(문서가 있어야 쓴다 — 첫 화면 JS 밖)
 
 /** 간섭 한 쌍의 이름표(고른 묶음 이름과 같다): "A ↔ B" — 안에 든 쌍은 앞이 안쪽 부품. 이름은 파일 글이라 방향을 가둔다(ftext.ts) */
 export function interferenceLabel(d: StepDoc, p: InterferencePair): string {
   const name = (id: string) => isolateText(meshById(d.scene, id)?.name ?? id);
   return `${name(p.a)} ↔ ${name(p.b)}`;
-}
-
-/** 의미 PMI 개체 이름 → 한국어 */
-export function semanticLabel(type: string): string {
-  return SEMANTIC_TYPE[type] ?? type;
-}
-
-/** 표현 PMI 개체 이름 → 한국어 */
-export function pmiTypeLabel(type: string): string {
-  return PMI_TYPE[type] ?? type;
 }
 
 /** 본문을 다시 그린 뒤 초점을 돌려줄 칸 */
