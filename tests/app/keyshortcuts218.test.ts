@@ -14,16 +14,25 @@
  *   도구 막대 전체 보기 F·격자 F7, 머리 줄 열기 Ctrl·⌘+O, 격리 띠 격리 풀기 I, 분해 막대 되돌리기 Ctrl·⌘+Z·다시 하기 Ctrl·⌘+Shift+Z·Ctrl+Y. 218차까지 값이 없었다.
  *   누르기가 부르는 함수와 키 갈래가 부르는 함수가 같은지도 본다(jsdom 버튼 누르기·app.ts 원문). 말풍선이 키를 말해도 같은 일이 아닌 버튼(표준 뷰 — 메뉴를 엶, 측정 — 켜고 끔,
  *   고르기 — 누르기 수정 키)에는 달지 않는다. 새 키를 그 버튼과 같은 일로 더하고 값에 넣지 않으면 실패
+ * - 220차: (ㄱ) 말풍선 끝 괄호의 키(「Ctrl·⌘+」는 Ctrl·⌘ 둘, 「·」는 갈래) = 값 — 219차까지 열기 「(Ctrl+O)」·분해 막대 되돌리기 「(Ctrl+Z)」·다시 하기 「(Ctrl+Shift+Z)」에 ⌘·Ctrl+Y가 없었다.
+ *   (ㄴ) 시작 화면 「파일 열기」와 키 글(kbd)이 보이는 메뉴 항목(표준 뷰 메뉴 Home·1~7, 작업 메뉴 H·I·F, 분해 손질 Ctrl·⌘+Z·Ctrl·⌘+Shift+Z)에 같은 일을 하는 앱 키(그 함수를 routeKey → onKey가
+ *   부를 때만 — 「거리로 옮기기…」 Enter는 routeKey 밖이라 없음). 메뉴 항목은 열린 동안만 있고 그동안 수정 키 없는 키는 메뉴 것(158차)이라, 값은 메뉴 밖(3D 보기 밖 초점)에서 그 항목의 일을 하는 키.
+ *   (ㄷ) 172차 설정을 끄면 3D 보기 밖 값(도구 막대 전체 보기·격리 띠 격리 풀기·메뉴 항목)에서 수정 키 없는 한 글자 키를 뺀다(3D 보기 밖 초점의 routeKey viewOnly가 받는 키 = 값 — 켜면 다시)
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { keySnapAction } from 'opencad-viewer3d';
+import { VIEW_LABELS } from 'opencad-viewer3d/viewkeys';
+import { translate } from '../../site/i18n.mjs';
 import { stepToScene } from '../../src/index';
-import { stepEdgeIndex } from '../../src/app/doc';
+import { contextItems, type CtxHost } from '../../src/app/ctxmenu';
+import { createDoc, stepEdgeIndex } from '../../src/app/doc';
 import { ExplodeControls } from '../../src/app/explodebar';
-import { routeKey } from '../../src/app/keys';
+import { markKeys, outsideKeys, routeKey, VIEW_MENU } from '../../src/app/keys';
 import { installKeySnap } from '../../src/app/keysnap';
+import { closeMenu, openMenu, type MenuItem } from '../../src/app/menu';
+import type { ParseResult } from '../../src/app/protocol';
 import { arrowLock, circleCenters, lockName, measureSnapOptions, viewerLockHint, type LockViewer } from '../../src/app/snap';
 import { Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import { findToFilter } from '../../src/app/treeview';
@@ -185,7 +194,7 @@ describe('모델 트리 거르기 칸 aria-keyshortcuts = 받는 키(218차)', (
     }
   });
 
-  it('src에서 aria-keyshortcuts를 다는 곳은 3D 보기 캔버스(keysnap.ts)·거르기 칸(treeview.ts)과 219차 버튼 자리(app.ts 열기·격리 풀기, toolbar.ts 전체 보기·격자, explodebar.ts 되돌리기·다시 하기)뿐이고 index.html에는 없다 — 새 자리면 그 칸의 받는 키 대조를 이 파일에', () => {
+  it('src에서 aria-keyshortcuts를 다는 곳은 3D 보기 캔버스(keysnap.ts)·거르기 칸(treeview.ts)과 219차 버튼 자리(app.ts 열기·격리 풀기, toolbar.ts 전체 보기·격자, explodebar.ts 되돌리기·다시 하기), 220차 시작 화면 파일 열기(app.ts)·메뉴 항목(menu.ts)·설정 따라 다는 길(keys.ts markKeys)뿐이고 index.html에는 없다 — 새 자리면 그 칸의 받는 키 대조를 이 파일에', () => {
     const root = join(__dirname, '../../src');
     const files: string[] = [];
     const walk = (d: string): void => {
@@ -197,7 +206,7 @@ describe('모델 트리 거르기 칸 aria-keyshortcuts = 받는 키(218차)', (
     };
     walk(root);
     const sites = files.filter((p) => /setAttribute\('aria-keyshortcuts'|['"]aria-keyshortcuts['"]\s*:/.test(readFileSync(p, 'utf8'))).map((p) => p.slice(root.length + 1));
-    expect(sites.sort()).toEqual(['app/app.ts', 'app/explodebar.ts', 'app/keysnap.ts', 'app/toolbar.ts', 'app/treeview.ts']);
+    expect(sites.sort()).toEqual(['app/app.ts', 'app/explodebar.ts', 'app/keys.ts', 'app/keysnap.ts', 'app/menu.ts', 'app/toolbar.ts', 'app/treeview.ts']);
     expect(readFileSync(join(__dirname, '../../index.html'), 'utf8')).not.toContain('aria-keyshortcuts');
   });
 });
@@ -441,7 +450,8 @@ describe('말풍선이 단축키를 말하는 버튼의 aria-keyshortcuts = 같�
     expect(routeNames('open')).toEqual(['Control+O', 'Meta+O']);
     expect(routeNames('isolate')).toEqual(['I']);
     expect(lit(/openBtn\.setAttribute\('aria-keyshortcuts', '([^']+)'\);/)).toEqual(routeNames('open').sort());
-    expect(lit(/const isoOff = h\('button', \{[^}]*'aria-keyshortcuts': '([^']+)'/)).toEqual(routeNames('isolate'));
+    // 220차: 격리 풀기 값은 만들 때와 172차 설정을 바꿀 때 keys.ts markKeys로(설정을 끄면 한 글자 키를 뺀다 — 아래 220차 (ㄷ))
+    expect(lit(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys\);/)).toEqual(routeNames('isolate'));
     expect(APP).toContain("openBtn.addEventListener('click', () => this.pickFile());");
     expect(appBetween("case 'open':", 'return;')).toContain('this.pickFile();');
     expect(APP).toContain("isoOff.addEventListener('click', () => this.unisolate());");
@@ -450,3 +460,266 @@ describe('말풍선이 단축키를 말하는 버튼의 aria-keyshortcuts = 같�
     expect(appBetween('  private syncIsolate(): void {', '\n  }\n')).toContain('this.isoBar.hidden = !on;');
   });
 });
+
+const LANGS = ['en', 'ja', 'zh-CN', 'de'] as const;
+/** 3D 보기 밖 초점(도구 막대·격리 띠·시작 화면·메뉴 — app.ts hostEl 밖, 글 칸·메뉴·모달 아님)에서 앱 창 키의 할 일 — 172차 설정을 끄면(letters false) viewOnly */
+const outsideRoute = (base: string, m: Mods, letters: boolean) =>
+  routeKey({ key: keyOf(base, m), ctrl: m.ctrlKey, meta: m.metaKey, alt: m.altKey, shift: m.shiftKey, inText: false, control: null, hasDoc: true, modal: false, viewOnly: !letters });
+/** 3D 보기 밖 초점에서 그 할 일을 고르는 키 이름 */
+const outsideNames = (want: string, letters: boolean): string[] => receivedNames((base, m) => [outsideRoute(base, m, letters) === want ? want : null]).sort();
+/** (할 일, 설정) → 그 일을 하는 키 이름 */
+type Core = (want: string, letters: boolean) => string[];
+
+/** 실제 코어(jsdom 뷰어): 3D 보기 밖 초점에서 앱이 코어에 넘긴 키(routeKey viewer)로 코어 handleKey가 부르는 일 — 'fit' 또는 setView의 뷰 이름 */
+function coreRig(): Core {
+  const j = jsdomViewer({ keyboard: true });
+  restore = j.restore;
+  const v = j.viewer;
+  v.setScene(scene());
+  let did: string | null = null;
+  const o = v as unknown as { fit: () => void; setView: (n: string) => void };
+  o.fit = () => void (did = 'fit');
+  o.setView = (n) => void (did = n);
+  const memo = new Map<string, string | null>();
+  const call = (base: string, m: Mods, letters: boolean): string | null => {
+    const t = `${tag(base, m)}|${+letters}`;
+    if (!memo.has(t)) {
+      did = null;
+      if (outsideRoute(base, m, letters) === 'viewer') v.handleKey(new KeyboardEvent('keydown', { key: keyOf(base, m), cancelable: true, ...m }));
+      memo.set(t, did);
+    }
+    return memo.get(t)!;
+  };
+  return (want, letters) => receivedNames((base, m) => [call(base, m, letters) === want ? want : null]).sort();
+}
+
+/** 말풍선 끝 괄호의 키 글 → WAI-ARIA 이름(「Ctrl·⌘+」는 Control·Meta 둘, 「·」는 갈래, Ctrl → Control) */
+const titleKeys = (title: string): string[] => {
+  const m = /\(([^()]+)\)$/.exec(title);
+  expect(m, title).not.toBeNull();
+  return m![1]!
+    .replace(/Ctrl·⌘\+/g, 'Ctrl/⌘+')
+    .split('·')
+    .flatMap((k) => (k.startsWith('Ctrl/⌘+') ? [`Control+${k.slice(7)}`, `Meta+${k.slice(7)}`] : [k.replace(/^Ctrl\+/, 'Control+')]))
+    .sort();
+};
+const valueOf = (el: Element): string[] => (el.getAttribute('aria-keyshortcuts') ?? '').split(' ').filter(Boolean).sort();
+
+/** 표준 뷰 메뉴를 열어 줄마다 이름·키 글·값(닫기는 부르는 쪽) */
+function viewsMenu(tb: Toolbar) {
+  tb.el.querySelector<HTMLButtonElement>('button[data-tool="views"]')!.click();
+  return [...document.querySelectorAll<HTMLButtonElement>('.menu .menu-item')].map((el) => ({
+    el,
+    label: el.querySelector('.menu-label')!.textContent!,
+    hint: el.querySelector('kbd')?.textContent ?? null,
+    keys: valueOf(el),
+  }));
+}
+/** 표준 뷰 메뉴 줄의 같은 일 키: 홈 뷰 = routeKey home, 뷰 = 코어 handleKey가 그 뷰로 setView를 부르는 키, 나머지 없음 */
+const viewWant = (label: string, letters: boolean, core: Core): string[] => {
+  if (label === '홈 뷰') return outsideNames('home', letters);
+  const v = VIEW_MENU.find((x) => VIEW_LABELS[x] === label);
+  return v ? core(v, letters) : [];
+};
+
+/** 작업 메뉴 호스트(ctxmenu.test 꼴 — 부른 것을 calls에, 고른 것·격리·172차 설정은 인자) */
+function ctxHost(calls: string[], o: { select: boolean; iso: boolean; letters: boolean }): CtxHost {
+  const d = createDoc('a.stp', 1, { scene: { meshes: [], lines: [], meta: { products: [] } }, ms: 1 } as unknown as ParseResult);
+  if (o.select) d.items = { ids: ['m1'], label: '부품' };
+  if (o.iso) d.vis.isolated = new Set(['m1']);
+  const t: Record<string, unknown> = { doc: d, touch: false, faceMode: false, multiPick: false, explodeOpen: false, explodeAxis: 'free', tweakTool: null, groups: () => [], lettersOutside: o.letters };
+  return new Proxy(t, {
+    get: (x, k) => (k in x ? x[k as string] : (...a: unknown[]) => calls.push(`${String(k)}${a.length ? ` ${a.map((y) => JSON.stringify(y)).join(' ')}` : ''}`)),
+  }) as unknown as CtxHost;
+}
+const CTX_CASES = [
+  { select: true, iso: false },
+  { select: true, iso: true },
+  { select: false, iso: false },
+  { select: false, iso: true },
+];
+/** 작업 메뉴 키 글 항목의 할 일(전체 보기는 코어 fit) */
+const CTX_ACTION: Record<string, string> = { 숨기기: 'hide', '이것만 보기': 'isolate', '격리 풀기': 'isolate', '전체 보기': 'fit' };
+function checkCtx(items: MenuItem[], letters: boolean, core: Core): void {
+  for (const it of items) {
+    const a = it.hint ? CTX_ACTION[it.label] : undefined;
+    if (it.hint) expect(a, `${it.label}: 키 글이 있는 새 항목이면 할 일을 정한다`).toBeDefined();
+    const want = !a ? [] : a === 'fit' ? core('fit', letters) : outsideNames(a, letters);
+    expect((it.keys ?? '').split(' ').filter(Boolean).sort(), `${it.label} ${letters}`).toEqual(want);
+  }
+}
+const EXT = readFileSync(join(__dirname, '../../src/app/explodetool.ts'), 'utf8');
+
+describe('220차: 말풍선 키 글·시작 화면 파일 열기·메뉴 항목·172차 설정의 aria-keyshortcuts', () => {
+  it('(ㄱ) 말풍선 끝 괄호의 키(「Ctrl·⌘+」는 Ctrl·⌘ 둘)가 값과 같다 — 219차까지 열기·되돌리기·다시 하기 말풍선에 ⌘·Ctrl+Y가 없었다. 새 원문은 네 사전에 한글 없이(⌘ 꼴은 같은 사전 「Ctrl/⌘+」, de 「Strg/⌘+」)', () => {
+    const pairs: [string, string][] = [];
+    const tb = new Toolbar(toolHost([]));
+    for (const n of ['fit', 'grid']) {
+      const b = tb.el.querySelector<HTMLButtonElement>(`button[data-tool="${n}"]`)!;
+      pairs.push([b.title, b.getAttribute('aria-keyshortcuts')!]);
+    }
+    const c = new ExplodeControls(
+      () => {},
+      () => {},
+      { undo: () => {}, redo: () => {} },
+    );
+    for (const b of c.els.flatMap((e) => [...e.querySelectorAll<HTMLButtonElement>('button[aria-keyshortcuts]')])) pairs.push([b.title, b.getAttribute('aria-keyshortcuts')!]);
+    const found = (re: RegExp): string => {
+      const m = re.exec(APP);
+      expect(m, String(re)).not.toBeNull();
+      return m![1]!;
+    };
+    pairs.push(
+      [found(/const openBtn = iconButton\('open', '열기', \{ title: '([^']+)'/), found(/openBtn\.setAttribute\('aria-keyshortcuts', '([^']+)'\);/)],
+      [found(/this\.isoOff = h\('button', \{[^}]*title: '([^']+)'/), found(/markKeys\(this\.isoOff, '([^']+)', this\.letterKeys\);/)],
+    );
+    for (const [t, v] of pairs) expect(titleKeys(t), t).toEqual(v.split(' ').sort());
+    // 손셈: 여섯 버튼의 말풍선
+    expect(pairs.map(([t]) => t)).toEqual([
+      '전체 보기 (F)',
+      '바닥 격자 (F7)',
+      '손질 한 단계 되돌리기 (Ctrl·⌘+Z)',
+      '되돌린 손질 한 단계 다시 하기 (Ctrl·⌘+Shift+Z·Ctrl+Y)',
+      'STEP 파일 열기 (Ctrl·⌘+O)',
+      '격리 풀기 (I)',
+    ]);
+    for (const [t] of pairs)
+      for (const lang of LANGS) {
+        const v = translate(t, lang);
+        expect(v, `${lang}: ${t}`).not.toMatch(/[가-힣]/);
+        if (t.includes('⌘')) expect(v, `${lang}: ${t}`).toContain(lang === 'de' ? 'Strg/⌘+' : 'Ctrl/⌘+');
+      }
+  });
+
+  it('(ㄴ) 시작 화면 「파일 열기」(app.ts 원문)·표준 뷰 메뉴(jsdom 도구 막대 메뉴): 값 = 같은 일을 하는 앱 키 — 홈 뷰 Home(routeKey home → goHome), 뷰 1~7(코어 handleKey → setView), 키 글 없는 줄엔 없음', () => {
+    expect(found220(/const open = h\('button', \{[^}]*'aria-keyshortcuts': '([^']+)' \}, icon\('open'\), h\('span', \{\}, '파일 열기'\)\);/).split(' ').sort()).toEqual(outsideNames('open', true));
+    expect(outsideNames('open', true)).toEqual(['Control+O', 'Meta+O']);
+    expect(appBetween('  private buildStart(): HTMLElement {', 'this.startOpen = open;')).toContain("open.addEventListener('click', () => this.pickFile());");
+    const core = coreRig();
+    const calls: string[] = [];
+    const tb = new Toolbar({ ...toolHost(calls), lettersOutside: true });
+    const rows = viewsMenu(tb);
+    try {
+      for (const r of rows) expect(r.keys, r.label).toEqual(viewWant(r.label, true, core));
+      // 키 글이 보이는 줄 = 값이 있는 줄, 값은 그 키 글
+      expect(rows.filter((r) => r.hint).map((r) => [r.label, r.hint])).toEqual(rows.filter((r) => r.keys.length).map((r) => [r.label, r.keys.join(' ')]));
+      expect(rows.filter((r) => r.keys.length).map((r) => r.keys.join(' '))).toEqual(['Home', '1', '2', '3', '4', '5', '6', '7']);
+    } finally {
+      closeMenu();
+    }
+    viewsMenu(tb).find((r) => r.label === '홈 뷰')!.el.click();
+    viewsMenu(tb).find((r) => r.label === VIEW_LABELS.front)!.el.click();
+    expect(calls).toEqual(['home', 'setView']);
+    expect(document.querySelector('.menu')).toBeNull();
+    // 앱: 키 갈래도 같은 함수(home → goHome, 뷰 키는 코어 setView — 앱 setView도 코어 setView)
+    expect(appBetween("case 'home':", 'break;')).toContain('this.goHome();');
+    expect(appBetween('  setView(v: ViewName): void {', '\n  }')).toContain('this.viewer?.setView(v);');
+  });
+
+  it('(ㄴ) 작업 메뉴(jsdom contextItems·openMenu): 키 글 항목 값 = 같은 일 키(숨기기 H·이것만 보기·격리 풀기 I·전체 보기 F), 분해 손질 Ctrl·⌘+Z·Ctrl·⌘+Shift+Z·Ctrl+Y(explodetool.ts 원문), 「거리로 옮기기…」 Enter는 없음', () => {
+    const core = coreRig();
+    const calls: string[] = [];
+    const hinted: string[] = [];
+    for (const c of CTX_CASES) {
+      const items = contextItems(ctxHost(calls, { ...c, letters: true }), null, { x: 0, y: 0 });
+      checkCtx(items, true, core);
+      for (const it of items.filter((x) => x.hint)) {
+        hinted.push(`${it.label} ${it.keys}`);
+        it.run();
+      }
+      // 메뉴 DOM: 항목의 값 그대로(키 글 없는 항목엔 없음)
+      const anchor = document.createElement('button');
+      document.body.append(anchor);
+      try {
+        openMenu(anchor, items, '작업 메뉴');
+        const rows = [...document.querySelectorAll('.menu .menu-item')];
+        expect(rows.map((r) => [r.querySelector('.menu-label')!.textContent, r.querySelector('kbd')?.textContent ?? null, r.getAttribute('aria-keyshortcuts')])).toEqual(
+          items.map((it) => [it.label, it.hint ?? null, it.keys ?? null]),
+        );
+      } finally {
+        closeMenu();
+        anchor.remove();
+      }
+    }
+    expect(hinted).toEqual(['숨기기 H', '이것만 보기 I', '숨기기 H', '격리 풀기 I', '전체 보기 F', '전체 보기 F', '격리 풀기 I']);
+    // 누르기가 부른 일 — 키 갈래(app.ts onKey)와 같은 함수
+    expect(calls).toEqual(['hideSelection', 'isolateSelection "hide"', 'hideSelection', 'unisolate', 'fit', 'fit', 'unisolate']);
+    expect(appBetween("case 'hide':", 'break;')).toContain('this.hideSelection()');
+    expect(appBetween("case 'isolate':", 'break;')).toContain('this.isolateSelection()');
+    expect(APP).toContain("isolateSelection(mode: 'hide' | 'dim' = 'hide'): boolean {");
+    // 분해 손질 항목(explodetool.ts menuItems — 키 갈래 undo·redo와 같은 손질 도구 함수)
+    const tw = (re: RegExp): string[] => {
+      const m = re.exec(EXT);
+      expect(m, String(re)).not.toBeNull();
+      return m![1]!.split(' ').sort();
+    };
+    expect(tw(/\{ label: '손질 되돌리기', hint: 'Ctrl\+Z', keys: '([^']+)', [^}]*run: \(\) => this\.undo\(\) \}/)).toEqual(outsideNames('undo', true));
+    expect(tw(/\{ label: '손질 다시 하기', hint: 'Ctrl\+Shift\+Z', keys: '([^']+)', [^}]*run: \(\) => this\.redo\(\) \}/)).toEqual(outsideNames('redo', true));
+    // Enter는 routeKey 밖(창 캡처 tweakTool.key — 메뉴 항목의 Enter는 그 항목 누르기)이라 달지 않는다
+    expect(EXT).toMatch(/\{ label: '거리로 옮기기…', hint: 'Enter', run: /);
+    expect(outsideNames('viewer', true)).toContain('Enter');
+  });
+
+  it('(ㄷ) 172차 설정을 끄면 3D 보기 밖 값에서 수정 키 없는 한 글자 키를 뺀다(그 칸 초점의 routeKey viewOnly가 받는 키 = 값) — 도구 막대 전체 보기·표준 뷰·작업 메뉴, 켜면 다시. Home·F7·Ctrl·⌘ 명령은 그대로', () => {
+    // keys.ts 규칙(routeKey viewOnly와 같은 가름 — Shift만 붙은 글자도)
+    expect(['F', 'Shift+F', '1', 'Home', 'F7', 'Control+O Meta+O', 'H F7'].map((k) => [outsideKeys(k, true), outsideKeys(k, false)])).toEqual([
+      ['F', null],
+      ['Shift+F', null],
+      ['1', null],
+      ['Home', 'Home'],
+      ['F7', 'F7'],
+      ['Control+O Meta+O', 'Control+O Meta+O'],
+      ['H F7', 'F7'],
+    ]);
+    const el = document.createElement('button');
+    markKeys(el, 'I', true);
+    expect(el.getAttribute('aria-keyshortcuts')).toBe('I');
+    markKeys(el, 'I', false);
+    expect(el.hasAttribute('aria-keyshortcuts')).toBe(false);
+    // 끈 뒤 3D 보기 밖에서 받는 키: 한 글자 할 일은 없고 Home·F7·Ctrl·⌘ 명령은 그대로
+    for (const a of ['home', 'grid', 'open', 'undo', 'redo']) expect(outsideNames(a, false), a).toEqual(outsideNames(a, true));
+    for (const a of ['hide', 'isolate']) expect([outsideNames(a, true).length, outsideNames(a, false)], a).toEqual([1, []]);
+    const core = coreRig();
+    expect([core('fit', true), core('fit', false), core('front', true), core('front', false)]).toEqual([['F'], [], ['1'], []]);
+    // 도구 막대: 설정을 바꾸고 다시 그리면 전체 보기 값이 따라간다(격자 F7은 그대로)
+    let letters = false;
+    const tb = new Toolbar({ ...toolHost([]), get lettersOutside() { return letters; } });
+    const tool = (n: string) => tb.el.querySelector<HTMLButtonElement>(`button[data-tool="${n}"]`)!;
+    for (const L of [false, true, false]) {
+      letters = L;
+      tb.refresh();
+      expect([valueOf(tool('fit')), valueOf(tool('grid'))], String(L)).toEqual([core('fit', L), outsideNames('grid', L)]);
+    }
+    expect(tool('fit').hasAttribute('aria-keyshortcuts')).toBe(false);
+    // 표준 뷰 메뉴(열 때 그 설정으로): 끄면 홈 뷰 Home만
+    try {
+      const rows = viewsMenu(tb);
+      for (const r of rows) expect(r.keys, r.label).toEqual(viewWant(r.label, false, core));
+      expect(rows.filter((r) => r.keys.length).map((r) => [r.label, r.keys.join(' ')])).toEqual([['홈 뷰', 'Home']]);
+    } finally {
+      closeMenu();
+    }
+    // 작업 메뉴: 끄면 H·I·F 항목에 값 없음(키 글은 그대로 — 3D 보기에서는 그 키가 듣는다)
+    for (const c of CTX_CASES) {
+      const items = contextItems(ctxHost([], { ...c, letters: false }), null, { x: 0, y: 0 });
+      checkCtx(items, false, core);
+      expect(items.filter((it) => it.keys).map((it) => it.label), JSON.stringify(c)).toEqual([]);
+      expect(items.filter((it) => it.hint).length, JSON.stringify(c)).toBeGreaterThan(0);
+    }
+    // 앱(원문): 격리 풀기는 만들 때 그 설정으로, 설정 메뉴 항목은 setLetterKeys(기억 → 격리 풀기 → 도구 막대 다시 그리기), 도구 막대·작업 메뉴 호스트는 앱의 lettersOutside
+    expect(APP).toContain("markKeys(this.isoOff, 'I', this.letterKeys);");
+    expect(APP).toContain('run: () => this.setLetterKeys(!this.letterKeys) },');
+    const set = appBetween('  private setLetterKeys(on: boolean): void {', '\n  }\n');
+    expect(set).toContain('this.letterKeys = writeLetterKeys(safeLocalStorage(), on);');
+    expect(set).toContain("markKeys(this.isoOff, 'I', on);");
+    expect(set).toContain('this.toolbar.refresh();');
+    expect(appBetween('  get lettersOutside(): boolean {', '\n  }')).toContain('return this.letterKeys;');
+  });
+});
+
+/** app.ts 원문에서 정규식 첫 묶음 */
+function found220(re: RegExp): string {
+  const m = re.exec(APP);
+  expect(m, String(re)).not.toBeNull();
+  return m![1]!;
+}

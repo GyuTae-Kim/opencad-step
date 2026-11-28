@@ -10,6 +10,8 @@ export interface MenuItem {
   label: string;
   /** 오른쪽에 보일 단축키 */
   hint?: string;
+  /** 220차: 같은 일을 하는 앱 키(aria-keyshortcuts 값 — 부르는 쪽이 172차 설정대로 고른 값, keys.ts outsideKeys). 없으면 달지 않는다 */
+  keys?: string | null;
   /** 고른 상태(라디오, toggle이면 켜짐) — undefined면 표시 없는 명령 */
   checked?: boolean;
   /** 켜고 끄는 항목(menuitemcheckbox) — 아니면 하나 고르기(menuitemradio) */
@@ -91,7 +93,7 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[], label: string):
     const role = it.checked === undefined ? 'menuitem' : it.toggle ? 'menuitemcheckbox' : 'menuitemradio';
     const b = h(
       'button',
-      { type: 'button', class: `menu-item${it.checked ? ' checked' : ''}`, role, 'aria-checked': it.checked === undefined ? null : String(it.checked), disabled: !!it.disabled, tabindex: '-1' },
+      { type: 'button', class: `menu-item${it.checked ? ' checked' : ''}`, role, 'aria-checked': it.checked === undefined ? null : String(it.checked), 'aria-keyshortcuts': it.keys, disabled: !!it.disabled, tabindex: '-1' },
       h('span', { class: `menu-check${it.toggle ? ' tick' : ''}`, 'aria-hidden': 'true' }, it.checked ? (it.toggle ? '✓' : '●') : ''),
       h('span', { class: 'menu-label' }, it.label),
       it.file ? fileSpan(it.file, 'menu-file') : null,

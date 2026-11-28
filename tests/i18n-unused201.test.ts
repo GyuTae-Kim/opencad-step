@@ -13,6 +13,7 @@
  * index.html 「OpenCAD STEP 뷰어 사용법·지원 범위」, 사이트 정보 「김규태 · Sean Kim」), 처음 사전(#8)에 함께 들어와 앱·코어·키트 코드에 없는 낱말(코어·키트는 주석뿐),
  * 원문을 바꾼 뒤 남은 옛 틀(59차 물리 속성 머리 나눔·PMI 글자 경고 글), 예제 레이어 이름 「본체」(파일 글 칸이라 번역하지 않는데 「바디」와 같은 값이라 거꾸로 찾기에서 이겼다 — 213차 겹침).
  * 예제 STEP 글(sample.ts `s('…')` — 파일 글)은 앱 원문 대조에서 뺀다(사전을 쓰지 않는 파일 자료).
+ * 220차: 열기·분해 손질 되돌리기·다시 하기 말풍선의 키 글을 단축키 값(Ctrl·⌘ 둘, 다시 하기는 Ctrl+Y도)과 맞추며 남은 옛 원문 셋(앞·끝 조각을 이어 만드는 곳도 없음).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ import { catalogs, sourceMessage } from '../site/i18n.mjs';
 const LANGS = ['en', 'ja', 'zh-CN', 'de'] as const;
 const ROOT = join(__dirname, '..');
 
-/** 201차(36)·210차(2)·214차(18)에 네 사전에서 뺀 열쇠(56) */
+/** 201차(36)·210차(2)·214차(18)·220차(3)에 네 사전에서 뺀 열쇠(59) */
 const REMOVED = [
   // 187차 단면 손잡이 이름
   '단면 손잡이 — 끌어 옮기기',
@@ -47,6 +48,8 @@ const REMOVED = [
   '물리 속성 · {0}', 'PMI 글자(글꼴로 쓰는 ANNOTATION_TEXT 등) {0}개는 그리지 않았다',
   // 214차: 예제 레이어 이름(파일 글 — 「바디」와 같은 값이라 거꾸로 찾기에서 이겼다)
   '본체',
+  // 220차: 말풍선 키 글을 단축키 값과 맞춘 옛 원문(지금 「… (Ctrl·⌘+O)」·「… (Ctrl·⌘+Z)」·「… (Ctrl·⌘+Shift+Z·Ctrl+Y)」 — keyshortcuts218 220차 (ㄱ))
+  'STEP 파일 열기 (Ctrl+O)', '손질 한 단계 되돌리기 (Ctrl+Z)', '되돌린 손질 한 단계 다시 하기 (Ctrl+Shift+Z)',
 ];
 
 /** 남긴 열쇠: 바뀐 원문의 지금 열쇠, 사이트 정보의 작성자 이름, 원문에 그대로 없어도 쓰는 꼴(숫자만 다름·이어 붙인 조각) */
@@ -78,7 +81,7 @@ function appSources(): string[] {
 
 describe('쓰는 곳이 없는 사전 항목(201차)', () => {
   it('뺀 열쇠는 네 사전 어디에도 없고, 언어끼리 열쇠 집합이 같으며, 남긴 열쇠는 그대로 있다', () => {
-    expect(REMOVED).toHaveLength(56);
+    expect(REMOVED).toHaveLength(59);
     expect(new Set(REMOVED).size).toBe(REMOVED.length);
     const keys = Object.keys(catalogs.en!).sort();
     for (const code of LANGS) {
