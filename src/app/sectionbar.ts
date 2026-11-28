@@ -44,11 +44,12 @@ export class SectionBar {
     this.faceTag = h('span', { class: 'section-face', title: '고른 면(또는 축)으로 자른 단면', hidden: true }, '면');
     this.slider = h('input', { type: 'range', class: 'section-slider', min: '0', max: '1000', step: '1', 'aria-label': '단면 위치' });
     this.slider.addEventListener('input', () => host.viewerRef?.setSectionPosition(Number(this.slider.value) / 1000));
-    this.label = h('span', { class: 'section-lbl' });
+    this.label = h('span', { class: 'section-lbl', id: 'section-lbl' });
     // 위치 숫자 칸(표시 단위): 바꾸면 그 위치로(Enter·초점 잃기). 123차: 원점을 걸친 장면은 음수 위치를 쳐 넣어야 해 inputmode="decimal"을 두지 않는다
     // (소수 자판은 음수 기호를 약속하지 않음 — 휴대폰·태블릿 자판은 type="number"에 맞춰 브라우저가 고른다)
     // 174차: 옆에 보이는 단위 글(mm·in·m)을 설명으로 잇는다(WCAG 3.3.2 — 이름 뒤에 단위가 들림, 단면 막대는 하나뿐이라 고정 id)
-    this.num = h('input', { type: 'number', class: 'section-num', step: 'any', 'aria-label': '단면 위치(숫자)', 'aria-describedby': 'section-unit' });
+    // 241차: 이름표·숫자 칸 id도 고정(축 단면이면 이름이 이름표를 품게 — sync)
+    this.num = h('input', { type: 'number', class: 'section-num', id: 'section-pos', step: 'any', 'aria-label': '단면 위치(숫자)', 'aria-describedby': 'section-unit' });
     this.num.addEventListener('change', () => this.applyNumber());
     this.num.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -135,6 +136,10 @@ export class SectionBar {
       if (document.activeElement !== this.slider) this.slider.value = String(Math.round(Math.max(0, Math.min(1, st.t)) * 1000));
       const f = this.host.fmt;
       this.label.textContent = st.axis ? `${st.axis.toUpperCase()} =` : '위치';
+      // 241차(WCAG 2.5.3): 축 단면의 보이는 이름표 「X =」를 이름 앞에 — 이름표 + 제 aria-label(새 글 없음). 전에는 다섯 언어 모두 이름이 「단면 위치(숫자)」뿐이라
+      // 보이는 글로 부를 수 없었다(168·193차가 둔 줄). 면 단면 이름표 「위치」는 이름이 이미 품어 aria-label만
+      if (st.axis) this.num.setAttribute('aria-labelledby', 'section-lbl section-pos');
+      else this.num.removeAttribute('aria-labelledby');
       // 숫자 칸은 언어와 상관없이 점 소수(input type=number)
       const n = (this.shown = String(Number((st.position * f.factor).toFixed(f.decimals))));
       if (document.activeElement !== this.num) this.num.value = n;
