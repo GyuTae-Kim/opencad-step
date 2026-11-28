@@ -1341,9 +1341,9 @@ const { bytes: step } = await unpackStep(fileBytes);
 | `site/i18n-core.mjs`, `site/i18n.mjs`, `site/locales/`, `site/metadata.json`, `site/content-history.json` | 공용 번역기에 이 앱의 사이트 정보(`site/metadata.json` — 검색·공유 정보의 원본)를 넘기고 사전을 넣는다, 콘텐츠 수정일 기록(아래 「검색·공유 메타데이터와 콘텐츠 수정일」) |
 | `src/app/main.ts`, `src/app/app.ts`, `src/app/core.ts`, `src/app/viewerkit.ts`, `src/app/gpucontext.ts` | 앱 진입점과 화면 골격(제목 막대·보기 도구 막대·3D 보기·패널·상태 막대), 열기·고르기·면 고르기·보이기·키, 3D 뷰어 코어·곡선 접선 잠금 나눠 받기, 코어와 함께 받는 조각, 그래픽 문맥 잃음·되찾음 안내 |
 | `src/app/i18n.ts`, `src/app/ftext.ts`, `src/app/measure.ts`, `src/app/recent.ts` | 첫 화면 조각에 드는 것: 화면 번역층(공용 언어 메뉴를 제목 막대에 달고, 고른 언어 사전만 `import()`로 받아 문서 변화 관찰자로 화면 글·말풍선·화면 읽기 이름·검색 정보를 옮김 — 파일 글·입력 칸·`translate="no"`는 건너뜀), 파일 글 넣기 도우미(길이 한도·방향 가두기·번역 막기), 측정 띠·패널 측정의 안내와 결과 글(거리·dx·dy·dz, 고른 면·모서리 주요 치수 — 손가락 기기는 Esc 대신 길게 누르기 안내), 최근 문서(이 브라우저 IndexedDB에만 — 목록과 파일 바이트를 따로, 새것부터 8개·60MB까지, 지운 뒤 초점 자리) |
-| `src/app/aim.ts`, `src/app/ctxmenu.ts`, `src/app/picklist.ts`, `src/app/hipaint.ts`, `src/app/keynav.ts`, `src/app/keysnap.ts`, `src/app/infoview.ts`, `src/app/propsview.ts`, `src/app/panelview.ts`, `src/app/imagedlg.ts`, `src/app/opennotice.ts`, `src/app/upload.ts` | 뷰어를 만든 뒤에만 쓰는 것(모두 뷰어 조각 `viewerkit.ts`로 받음): 정밀 조준(손가락 길게 누르기 십자선·작업 메뉴), 작업 메뉴 항목·불투명도 메뉴, 겹친 것 고르기 목록, 3D 강조 그리기(항목·구간·선 세 길을 함께), 키보드 길잡이(탭·라디오·도구 막대 화살표와 초점 되찾기), 키보드로 3D 붙잡기·고르기(가상 커서 알림 글·키 도움말), 정보 탭 본문, 속성 탭 본문(부품 속성 줄·물리 속성 묶음·재질 고르기 — 222차에 `panel.ts`에서 옮김), 레이어 탭 본문·제품 탭의 간섭 검사 묶음·패널 아래 띠 줄(고른 것·측정 결과 — 223차에 `panel.ts`에서 옮김), 큰 그림 저장 대화 상자 본문, 연 뒤 알림 한 줄(끊긴 파일·조립 자리 상한·경고 수·장면 고침), 큰 장면 GPU 나눠 올리기 몫 |
+| `src/app/aim.ts`, `src/app/ctxmenu.ts`, `src/app/picklist.ts`, `src/app/hipaint.ts`, `src/app/keynav.ts`, `src/app/keysnap.ts`, `src/app/infoview.ts`, `src/app/propsview.ts`, `src/app/panelview.ts`, `src/app/sectionbar.ts`, `src/app/imagedlg.ts`, `src/app/opennotice.ts`, `src/app/upload.ts` | 뷰어를 만든 뒤에만 쓰는 것(모두 뷰어 조각 `viewerkit.ts`로 받음): 정밀 조준(손가락 길게 누르기 십자선·작업 메뉴), 작업 메뉴 항목·불투명도 메뉴, 겹친 것 고르기 목록, 3D 강조 그리기(항목·구간·선 세 길을 함께), 키보드 길잡이(탭·라디오·도구 막대 화살표와 초점 되찾기), 키보드로 3D 붙잡기·고르기(가상 커서 알림 글·키 도움말), 정보 탭 본문, 속성 탭 본문(부품 속성 줄·물리 속성 묶음·재질 고르기 — 222차에 `panel.ts`에서 옮김), 레이어 탭 본문·제품 탭의 간섭 검사 묶음·패널 아래 띠 줄(고른 것·측정 결과 — 223차에 `panel.ts`에서 옮김), 단면 막대·3D 보기 위 단면 손잡이(226차에 앱 입구에서 옮김 — 뷰어를 만들 때 3D 보기의 같은 자리에 끼움), 큰 그림 저장 대화 상자 본문, 연 뒤 알림 한 줄(끊긴 파일·조립 자리 상한·경고 수·장면 고침), 큰 장면 GPU 나눠 올리기 몫 |
 | `src/app/labelavoid.ts` | 측정 거리 글상자가 3D 보기 위 앱 요소(측정 띠·분해·격리 띠·단면 막대·뷰 큐브)를 비켜 그리게 그 화면 사각형을 코어에 알리기(측정 접선 조각으로 받음) |
-| `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/treeview.ts`, `src/app/pmiview.ts`, `src/app/sectionbar.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 나무 조각(제품 나무 줄·부품별 보이기 표·PMI 표의 가상 목록 — 뷰어 조각에 든다), 단면 막대·손잡이, 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
+| `src/app/toolbar.ts`, `src/app/panel.ts`, `src/app/treeview.ts`, `src/app/pmiview.ts`, `src/app/dialog.ts`, `src/app/resize.ts`, `src/app/menu.ts`, `src/app/dom.ts`, `src/app/icons.ts`, `src/app/styles.css` | 보기 도구 막대, 제품·속성·레이어·PMI·정보 패널, 나무 조각(제품 나무 줄·부품별 보이기 표·PMI 표의 가상 목록과 PMI 종류 이름 표(226차에 `panel.ts`에서 옮김) — 뷰어 조각에 든다), 대화 상자, 패널 크기 손잡이, 메뉴(단추 아래·화면 점), DOM 도우미, 아이콘, 스타일 |
 | `src/app/edges.ts`, `src/app/entmeasure.ts`, `src/app/entpick.ts`, `src/app/looks.ts`, `src/app/explode.ts`, `src/app/explodebar.ts`, `src/app/explodetweak.ts`, `src/app/explodedrag.ts`, `src/app/explodetool.ts`, `src/app/explodefile.ts`, `src/app/explodesnap.ts`, `src/app/snap.ts`, `src/app/trackdir.ts`, `src/app/tangent.ts`, `src/app/curvesnap.ts`, `src/app/facesnap.ts`, `src/app/exactdist.ts`, `src/app/exactbound.ts`, `src/app/edgecross.ts` | 순수 로직: 모서리 찾기·길이·원 중심·붙잡기, 두 개체 사이 해석적 거리·각, 누른 것 → 개체·최소 거리·덧그림(이 둘은 코어 조각으로 받음), 부품 겉모습(불투명도·흐리게·부품 색·분해 이동 걸기, 반투명 보기 판정, 문서 보이기 걸기(106차)), 분해 계획(조립 단계별·한꺼번에, 사방·X·Y·Z축 하나·화면 가로·세로·평면, 축 하나일 때 같은 자리에 겹친 부품 떼기 — 방식·방향 단추·단계 글과 함께 문서를 열 때 받음), 분해 손질(끌어 옮긴 덧이동·방향마다 되돌리기·다시 하기·보기 링크 꼴·끄는 길과 끌 단위·끄는 동안 거리 글과 그 자리, 코어를 고치지 않고 캔버스 부모에서 먼저 받는 끌기 손짓, 끌기·링크·최근 문서에 남기기·손질 파일 내보내기·불러오기를 묶은 도구, 손질 파일 꼴과 다른 문서에서 맞는 부품 고르기, 끄는 축 위에서 다른 부품 평면에 닿거나 같은 높이가 되는 자리 붙잡기(47차) — 다섯 다 분해 조각으로 받음), 두 점 측정 붙잡기 선택(원·원호 중심, 모서리 가운데 점, 추론 붙잡기)과 붙잡은 종류 이름, 끌어온 점 나란함·수직의 기준 선분 거르기(곧은 모서리만 — 코어 조각으로 받음), 곡선 모서리 위(끝·가운데)의 접선 잠금과 측정 붙잡기 점을 B-rep 곡선 위로 다듬기(수직 발·모서리 위 점·두 곡선의 교차점·축과 곡선의 교차)·곡선 길이 가운데 점, 축이 면을 뚫는 점과 붙잡지 않은 면 위 점을 B-rep 곡면 위로 다듬기, 모서리 곡선이 다른 면을 뚫는 교차점, 개체 측정 최소 거리를 B-rep 곡면·곡선 정의로 다듬기와 오목한 자리 받기(시간 조각으로 나눠 돌림 — 모두 문서를 열 때 받는 접선 조각) |
 | `src/app/doc.ts`, `src/app/tree.ts`, `src/app/faces.ts`, `src/app/visibility.ts`, `src/app/format.ts`, `src/app/display.ts`, `src/app/files.ts`, `src/app/keys.ts`, `src/app/theme.ts` | 순수 로직: 문서 모델·meta 읽기·다시 삼각화 때 상태 잇기·고르기 단위(부품·몸체)와 여러 개 고르기, 제품 나무 펼침·고르기·이름 거르기, 면 찾기·경계·넓이·PMI 면 범위, 보이기(눈 단추·레이어·PMI·격리), 글 만들기, 표시 설정(단위·소수 자리·곡면 품질·수 꼴), 파일 이름·주소 인자, 키 규칙, 테마 |
 | `src/app/partinfo.ts`, `src/app/physics.ts`, `src/app/viewhelp.ts`, `src/app/export.ts`, `src/app/viewlink.ts`, `src/app/selink.ts`, `src/app/interference.ts`, `src/app/overlap.ts` | 순수 로직: 부품 속성 줄·놓인 자리, 물리 속성(부피·겉넓이·무게중심·질량·관성 모멘트 — 이 둘은 속성 탭 본문과 함께 뷰어 조각, 물리 속성은 53차·부품 속성 줄은 222차부터), 면 기준 보기·자르기·카메라 옮기기(63차부터 뷰어 조각), STL·OBJ·CSV(문서를 열 때 받음), 보기 링크 글과 그 고른 것 ↔ 나무 자리 낱말(문서를 열 때 받음), 간섭 검사(교차·안에 듦)와 닫힌 입체 쌍의 겹친 부피(광선 표본 — 검사 워커) |
@@ -1794,6 +1794,10 @@ src에서 `aria-keyshortcuts`를 다는 곳이 다섯 파일뿐인지를 봅니�
 `restoreTweaks` 원문으로 최근 문서 손질 되살리기가 조각을 받지 못하면 그 항목에 손질이 있을 때만 분해 알림과 다시 시도(받으면 되살려 다시 그림)인지,
 `applyViewLink`·`applyLooks` 원문으로 받은 보기 링크가 고른 것·분해 조각을 받지 못하면 「다 걸었음」(주소의 보기 안내)을 돌려주지 않고, 손질 링크는 받기 한 번·분해 알림 하나에 다시 시도가 그 링크인지 봅니다
 (224차 코드로 돌리면 함께 고친 `loadfail224`(예제 catch 줄)·`viewlink`(applyViewLink 머리)와 세 파일 25개 중 12가 실패).
+226차에는 `tests/app/core-split.test.ts`에 하나를 더해, 단면 막대·손잡이(`src/app/sectionbar.ts`)가 앱 입구의 정적 가져오기 그래프에 없고(다시 첫 화면 조각에 들어오면 실패) 동적 가져오기도 없으며,
+앱은 그것을 타입으로만 가져와 뷰어 조각을 받은 뒤·뷰어를 만들기 전에 조각에서 만들고(`new core.SectionBar(this)`), PMI 종류 이름 표(`PMI_TYPE`·`SEMANTIC_TYPE`과 이름 함수)가 첫 화면 원문 어디에도 없이
+앱이 조각의 함수(`this.ent!.pmiTypeLabel`·`semanticLabel`)를 부르며, 조각이 그 모듈의 것을 그대로 내보내는지 봅니다(조각 가져오기 목록에도 `./sectionbar` — 225차 코드로 돌리면 둘이 실패).
+`tests/app/a11ymedia.test.ts`의 3D 보기 자식 차례는 시작 화면 차례(단면 두 칸 없음)와 원문의 두 끼우기 줄(조준 층 뒤·끌어 놓기 안내 뒤)로 만든 뷰어 뒤 차례(225차까지와 같음)를 함께 봅니다.
 색 대비 시험(`tests/app/contrast.test.ts` — 54차)은 스타일시트의 두 테마 색 토큰으로 글(본문·흐린·옅은·강조색) × 바탕(앱 바탕·막대·도구·패널·입력 칸·카드·3D 보기,
 마우스 올린 바탕과 옅은 강조 바탕은 섞은 색) 4.5:1, 채움 위 글(올린 상태 포함)과 채움·입력 칸 경계·초점 테두리의 3:1, 좌표축 글자 4.5:1을 셈하고, 강조색 글·채움·입력 칸·
 눌린 단추·숨긴 줄 규칙이 그 토큰을 쓰는지, 부품별 보이기·PMI 표 첫 칸 여백이 초점 테두리를 담는지, 좁은 창 시트 손잡이가 탭을 덮지 않는지를 봅니다
@@ -5225,6 +5229,22 @@ SwiftShader 헤드리스(렌더러 이름 확인)로 main(0.67.0) 빌드와 올�
     tsc 통과. 수정일 갱신 뒤 다시 빌드한 dist로 `check:seo`·`check:i18n` 통과. 실제 오프라인 판 엇갈림·화면 읽기 프로그램은 재지 않았고, 전체 시험·휴대폰 검사(Lighthouse)는 PR CI가 합니다.
   - 크기(다시 빌드한 vite 출력): 첫 화면 조각 199,922 → 200,592 B(+670, vite gzip 70.91 → 71.14 kB, `gzip -9` 70,705 → 70,937 B — `app.ts`·`dom.ts`; 고치기 전 어림 raw +672·`gzip -9` +272),
     첫 화면 소스 44·모듈 144·내보내기 120·`import(` 12·JS 조각 17 같음, 첫 화면 JS 예산 jsBytes 90,112 B 여유 어림 18.0 → 17.8 kB. 사전·뷰어 조각·스타일시트 그대로, 다른 조각은 이름 지문만.
+- 226차(코어 0.121.0 그대로 — 성능, 동작 그대로): 223차가 남긴 다음 후보부터 첫 화면 조각을 한 번 더 줄였습니다(224·225차의 조각 받기 실패 알림으로 70.80 → 71.14 kB로 늘었던 것) —
+  처음 그림·첫 상호 작용에 쓰지 않는 단면 막대·손잡이와 PMI 종류 이름 표를 문서를 열 때 받는 뷰어 조각으로 옮겼습니다.
+  - 표 요약: 223차 「둠」 후보를 지금 빌드의 소스 맵(jq — 이번에는 고른 칸을 뺀 조각을 다시 눌러 덜기를 어림)으로 다시 셈 — 단면 막대(`sectionbar.ts` 4.7 kB raw, 덜기 어림 `gzip -9` 1,430 B)는 시작 때 만들어 3D 보기에 숨겨 두기만 하고
+    막대·손잡이를 읽는 길(단면 알림 맞추기·카메라 바뀜 자리 잡기)이 모두 뷰어 뒤라, PMI 종류 이름 표(1.5 kB, 725 B)는 값으로 쓰는 곳(PMI 표·아래 띠·상태 막대의 고른 PMI·PMI 표 CSV)이 모두 문서가 있을 때라(문서는 뷰어를 만든 뒤에만) 옮겼습니다.
+    남긴 것: 제품 탭 본문(2.8 kB, 1,032 B — 나무 목록·간섭 묶음 자리·거르기 칸 초점 되돌리기가 패널에 엮이고 나무 조각 없이 거르기 칸·도구 줄을 그리는 시험이 많음 — 두 옮김으로 목표를 채워 다음 후보),
+    패널 크기 손잡이(4.0 kB — 시작 때 저장된 크기를 뿌리 style에 되살림, 223차 까닭 그대로).
+  - 옮긴 길: `sectionbar.ts`는 파일 그대로 뷰어 조각(`viewerkit.ts`)이 내보내고, 앱은 타입만 가져와 `ensureViewer`에서 조각을 받은 뒤·뷰어를 만들기 전에 만들어 3D 보기의 전과 같은 자리(손잡이는 조준 층 뒤, 막대는 끌어 놓기 안내 뒤 —
+    휴대폰 흐름 쌓기·같은 z의 그리는 차례가 이 차례에 기댐)에 끼웁니다(뷰어 만들기가 실패해 다시 와도 한 번만). PMI 종류 이름 표와 이름 함수는 이미 조각에 든 PMI 탭 본문(`pmiview.ts`)으로 글자 그대로 옮기고
+    앱의 두 자리는 조각의 함수(`this.ent!` — 앞 차수 꼴)를 부릅니다. 새 조각·새 모듈은 없고 서비스 워커가 이미 미리 담는 조각입니다. 받기 전에 부르는 길이 없어 「받는 중」 표시는 두지 않고, 받기 실패는 지금처럼 `ensureViewer` 알림(문서를 보이지 않음 — 224·225차).
+  - 바뀐 기본 동작: 없습니다(화면 글·사전 열쇠 그대로). 시작 화면(문서를 열기 전) DOM에서 3D 보기 자식 둘(숨긴 단면 손잡이 — aria-hidden도 — 와 숨긴 단면 막대)이 빠지고 문서를 열면 같은 자리에 들어옵니다 —
+    둘 다 hidden이라 그려지지 않고 자리·초점 차례·화면 읽기 프로그램이 읽는 것은 같습니다.
+  - 시험: 위 시험 설명(226차 — `tests/app/core-split.test.ts`·`a11ymedia`). PMI 종류 이름을 쓰는 `filecells209`(상태 막대 원문 조각에 조각 칸을 넣음)·`i18n.test`(종류 이름 원문을 `pmiview.ts`에서 읽음)는 근거 주석과 함께 맞췄습니다.
+    옮기기 전 `app.ts`·`panel.ts`·옮긴 모듈을 원문으로 읽거나 쓰는 42파일 430개 중 새 가름 시험 둘만 실패, 옮긴 뒤 430개 모두 통과(처음 한 번에), tsc 통과. 수정일 갱신 뒤 다시 빌드한 dist로 `check:seo`·`check:i18n` 통과. 전체 시험·휴대폰 검사(Lighthouse)는 PR CI가 합니다.
+  - 크기(다시 빌드한 vite 출력): 첫 화면 조각 200,592 → 194,503 B(−6,089, vite gzip 71.14 → 69.05 kB, `gzip -9` 70,937 → 68,843 B), 첫 화면 소스 44 → 43(`sectionbar.ts` 4,706 B 빠짐, `panel.ts` 몫 10,397 → 8,935 B, `app.ts` 75,216 → 75,313 B),
+    내보내기 120 → 118(뷰어 조각이 첫 화면에서 가져가던 PMI 이름 함수 둘), `import(` 12·JS 조각 17·모듈 144 같음. 첫 화면 JS 예산 jsBytes 90,112 B 여유 어림 17.8 → 19.9 kB.
+    뷰어 조각 553,838 → 560,038 B(vite gzip 191.36 → 193.55 kB), 다른 조각은 이름 지문만·사전·스타일시트 그대로.
 
 **법선 놓기를 재 본 것(코어 0.25.0 `release: { normals: true }`)**: 로컬 표본에서 가장 큰 조립 다섯 개(그물 94~161개, 그리는 삼각형 12만~61만 개 —
 같은 부품의 자리는 배열을 함께 씀)를 헤드리스 Chrome에서 열고 GPU 올리기·질량 속성이 끝난 뒤 GC를 두 번 하고 `Runtime.getHeapUsage`로 쟀습니다(두 번씩 번갈아, load average 16~22).
@@ -5541,8 +5561,8 @@ FSI…PDI로 가둡니다(아래 개발 절 212차 문단).
 기준 빌드 뒤 이 커밋으로 돌아와 `npm ci`를 다시 해 명령을 찾습니다).
 후보 중앙값이 `tools/performance-budget.json`의 예산을 넘으면 실패합니다(공용 도구의 `opencad-site check-performance-budget`). 지금 예산은 성능 90 이상, 접근성과 SEO 100,
 FCP 2초, LCP 2.2초, TBT 300ms, CLS 0.02, JS 88 KiB 이하입니다(코어를 나눠 받은 뒤 로컬 중앙값 82 KiB — 전에는 135 KiB). 예산을 바꿀 때는 그때 잰 중앙값을 같은 파일의 `note`에 적습니다.
-크기 기준: 223차 빌드의 첫 화면 조각은 vite gzip 70.80 kB(`gzip -9` 70,607 B — 222차 73.65 kB에서 패널 레이어 탭·간섭 검사 묶음·아래 띠를 뷰어 조각으로 옮김, 221차 76.79 kB)이고, CI가 재는 JS는 같은 빌드의 vite gzip보다 1.2 kB쯤 커
-JS 예산(90,112 B)에 어림 18.1 kB 여유입니다(Lighthouse 중앙값은 이번에 다시 재지 않았습니다 — PR CI가 잽니다).
+크기 기준: 226차 빌드의 첫 화면 조각은 vite gzip 69.05 kB(`gzip -9` 68,843 B — 225차 71.14 kB에서 단면 막대·손잡이와 PMI 종류 이름 표를 뷰어 조각으로 옮김, 223차 70.80 kB·222차 73.65 kB·221차 76.79 kB)이고, CI가 재는 JS는 같은 빌드의 vite gzip보다 1.2 kB쯤 커
+JS 예산(90,112 B)에 어림 19.9 kB 여유입니다(Lighthouse 중앙값은 이번에 다시 재지 않았습니다 — PR CI가 잽니다).
 
 이어서 playwright-cli로 휴대폰 화면(390×844, 손가락)에서 쓰는 흐름을 확인합니다(`tools/mobile-browser-check.js`, 판정은 `tools/check-browser-result.mjs`).
 파일 고르기로 합성 표본(`tools/mobile-sample.stp`)을 열고, 최근 문서 다시 열기, 예제 열기, 두 번 눌러 거리 재기, 끌어다 놓기, `?open=`과 `?sample`,
