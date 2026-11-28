@@ -11,6 +11,7 @@
  * 210차: 이름 없는 표현 PMI의 묶음 이름표·3D에서 누른 PMI의 상태 막대(아래 describe — 따로 만든 PMI 합성 STEP).
  * 211차: 상태 막대(글·말풍선 — 말풍선은 번역 전 글 통째라 「고른 것: {0}」 틀이 묶음 이름표를 그대로 끼웠다)도 그린다, 이름 없는 의미 PMI 25종, 앱 글 칸(data-i18n-ui)의 파일 글(211차 describe).
  * 212차: 표지 없는 칸에서 틀이 앱 글 값을 잡는 자리를 앱 전체에서 센 뒤 남은 열기 오류 글 칸(오류 알림·처음 화면 읽기 오류)과 그 칸의 ZIP 항목 이름, 의미 PMI 이름표 통째 열쇠(맨 아래 describe).
+ * 231차: 210차 PMI 표에서 이름 없는 줄의 보이기 상자 이름 = 「{그 줄 이름 버튼의 종류 이름} 보이기」(다섯 언어 — 전에는 STEP 형식 이름).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -319,6 +320,14 @@ describe('210차: 이름 없는 표현 PMI 묶음 이름표(다섯 언어 — �
       // 211차: 210차에 둔 말풍선 27(언어마다 — PMI 표 이름 버튼 「{종류} · #{번호} · 누르면 강조(…)」 9, 상태 막대 「고른 것: PMI {종류}」 9·「고른 PMI: {종류}」 9)은
       // 앱 글 칸(data-i18n-ui)이라 틀이 잡은 종류도 옮겨져 남지 않는다
       expect(leaks(views, code).sort()).toEqual([]);
+      // 231차(WCAG 2.4.6·4.1.2): 이름 없는 줄의 보이기 상자 이름은 같은 줄 이름 버튼의 보이는 글(종류 이름)을 품는다 — 168차 규칙(pmiview.test 168차는 이름 있는 줄로만 봄).
+      // 전에는 STEP 형식 이름(「ANNOTATION_CURVE_OCCURRENCE 보이기」 — 다섯 언어 모두)이었다. 틀 「{0} 보이기」가 잡은 종류는 앱 글 칸(data-i18n-ui)이라 옮겨진다
+      const rows = [...views.querySelectorAll<HTMLElement>('.pmi-grid [role=rowgroup] > [role=row]')];
+      expect(rows).toHaveLength(9);
+      expect(rows.map((r) => r.querySelector('.link-btn')!.textContent)).toEqual(PMI_KINDS.map(([, kind]) => (code === 'ko' ? kind : CAT[code]![kind])));
+      expect(rows.map((r) => r.querySelector('input[type=checkbox]')!.getAttribute('aria-label'))).toEqual(
+        rows.map((r) => (code === 'ko' ? `${r.querySelector('.link-btn')!.textContent} 보이기` : fill(CAT[code]!['{0} 보이기']!, r.querySelector('.link-btn')!.textContent!))),
+      );
     } finally {
       dispose();
       root.remove();

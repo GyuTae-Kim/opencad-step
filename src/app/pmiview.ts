@@ -153,7 +153,9 @@ export function pmiView(d: StepDoc, host: PmiHost, scroller: HTMLElement): PmiVi
         const p = pres[i]!;
         // 59차: 이름·평면·모형 이름은 파일 글(번역하지 않음·방향 가둠·길이 한도 — ftext.ts), 종류는 화면 글
         const label = p.name ? isolateText(p.name) : pmiTypeLabel(p.type);
-        const cb = h('input', { type: 'checkbox', 'aria-label': `${p.name ? label : p.type} 보이기` });
+        // 231차(WCAG 2.4.6·4.1.2): 상자 이름은 이름 있는 줄처럼 같은 줄 이름 버튼의 보이는 글을 품는다(168차 규칙) — 이름 없는 줄도 종류 이름(전에는 STEP 형식 이름
+        // 「ANNOTATION_CURVE_OCCURRENCE 보이기」가 다섯 언어 모두에 남았다). 앱 글 칸이라 틀 「{0} 보이기」가 잡은 종류도 옮기고, 갇힌 파일 이름은 그대로
+        const cb = h('input', { type: 'checkbox', 'aria-label': `${label} 보이기`, 'data-i18n-ui': '' });
         cb.addEventListener('change', () => host.setPmiVisible(p.id, cb.checked));
         // 211차: 앱 글 칸(i18n.ts uiTranslate) — 말풍선 틀이 잡은 종류도 옮긴다(갇힌 모형 이름은 그대로)
         const nameBtn = h('button', { type: 'button', class: 'link-btn', title: `${pmiTypeLabel(p.type)} · #${p.stepId}${p.model ? ` · ${isolateText(p.model)}` : ''} · 누르면 강조(두 번 누르면 맞춰 보기)`, 'data-i18n-ui': '' }, p.name ? fileSpan(p.name) : label);

@@ -16,6 +16,9 @@
  * 단면 보기·고르기 메뉴, 복사 알림 넷·그림 저장 실패 알림을 같은 다섯 언어 셈에 더하고(남는 글 0), 둘째 describe가 언어를 바꾼 뒤 다시 옮기는 차례를 본다 —
  * 한국어·영어에서 시작해 다섯 번 바꾼 화면이 처음부터 그 언어로 그린 화면과 같은지(고치기 전: 복사 알림이 미리 옮긴 낱말·그림 저장 실패가 미리 옮긴 까닭을 앞 언어로 남김,
  * 가상 커서 알림 영역이 앞 언어 글을 남김 — 언어마다 4~5칸과 영역 1).
+ * 231차(230차가 코드로만 본 둘과 수 꼴): 개체 측정 덧그림 글(캔버스 — showEntities)과 측정 띠 개체 측정 글(refreshBar 갈래 — 만든 글이 같으면 바꾸지 않음), 마우스 측정 말풍선
+ * (상태 막대·측정 띠 스냅 이름 여섯 — showHoverSnap, Tab 돌리기 차례 포함)을 앱 원문을 잘라 그리고 230차 차례로 언어를 바꿔, 처음부터 그 언어로 그린 것과 견준다
+ * (수 꼴 — 독일어 「1.234,5」 ↔ 영어 「1,234.5」 — 이 바뀌는 칸이 든다). 고치기 전에도 남는 칸 0(지금 0을 지킴).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,7 +53,9 @@ import { closeMenu, openMenu, type MenuItem } from '../../src/app/menu';
 import { Toolbar, type ToolbarHost } from '../../src/app/toolbar';
 import { openDialog } from '../../src/app/dialog';
 import { installKeySnap, keyHelpBody } from '../../src/app/keysnap';
-import { lockHint, type LockName } from '../../src/app/snap';
+import { hoverSnapLabel, lockHint, type LockName } from '../../src/app/snap';
+import { entityBar, pickedAnnotations, type Picked, type PickedMeasure } from '../../src/app/entpick';
+import { guideSnapLabel } from '../../src/app/trackdir';
 import type { FacePick } from '../../src/app/faces';
 import type { InterferencePair } from '../../src/app/interference';
 import { cube, stepString, StepText } from '../stepText';
@@ -841,6 +846,197 @@ describe('230차: 그려진 채 언어를 바꾸면 모든 칸이 새 언어로 
           }
           // 새 언어로 다음 알림(다음 바꿈에서 비울 글)
           s.sh.announce();
+        }
+      } finally {
+        s.done();
+      }
+    }
+    expect(left).toEqual([]);
+  });
+});
+
+// ───────────────────────── 231차 ─────────────────────────
+// 230차가 코드로만 본 둘(개체 측정 덧그림 글·마우스 측정 말풍선)과 수 꼴(Fmt — 소수점·자리 구분): 앱 원문을 잘라 그린 뒤 230차 차례(switchTo)로 언어를 바꾸고 처음부터 그 언어로 그린 것과 견준다
+const SHOW_ENTITIES = cut(/\n {2}private showEntities\(\): void \{\n([\s\S]*?)\n {2}\}\n/).replace(/new Map<[\s\S]*?>\(\)/, 'new Map()');
+// refreshBar의 개체 측정 갈래(띠 글 — entpick.ts entityBar)와 글 칸 넣기(만든 글이 같으면 바꾸지 않는다 — 53차)
+const ENT_BAR = cut(/\n\s*(if \(this\.ent\) t\.append\(\.\.\.this\.ent\.entityBar\(d\.ent, fm, this\.touch\)\);)\n/);
+const BAR_PUT = cut(/\n(\s*const src = t\.innerHTML;\n\s*if \(src !== this\.barSrc\) \{\n[\s\S]*?\n\s*\})\n/);
+const SHOW_HOVER = cut(/\n {2}private showHoverSnap\(\): void \{\n([\s\S]*?)\n {2}\}\n/).replace(/(\w)!\./g, '$1.');
+// 생성자의 두 칸(상태 막대 status-snap·측정 띠 mb-hover — 커서 아래 스냅할 점)
+const SNAP_MAKE = cut(/\n\s*(this\.statusSnap = h\('div', [^\n]*\);)\n/);
+const HOVER_MAKE = cut(/\n\s*(this\.measureHoverEl = h\('span', [^\n]*\);)\n/);
+
+const picked = (o: object): Picked => o as unknown as Picked;
+/** 개체 측정 셋(앱 하나마다): 원 모서리 하나(덧그림 중심 점·Ø), 직선 모서리 하나(길이), 두 개체 결과(≈ 거리·각 — 띠 첫 줄 굵게·나머지 줄·두 개체 이름) */
+const ENT_STATES: { picks: Picked[]; result: PickedMeasure | null }[] = [
+  {
+    picks: [
+      picked({ meshId: 'm1', what: 'edge', title: '원 모서리', point: [617.25, 0, 0], entity: { type: 'circle', center: [0, 0, 0], radius: 617.25, normal: [0, 0, 1] }, edge: { meshId: 'm1', kind: 'circle', segStart: 0, segCount: 8, length: 3878.25, radius: 617.25, sweepDeg: 360, ends: [[617.25, 0, 0], [617.25, 0, 0]] } }),
+    ],
+    result: null,
+  },
+  {
+    picks: [picked({ meshId: 'm1', what: 'edge', title: '직선 모서리', point: [0, 0, 0], entity: { type: 'line', a: [0, 0, 0], b: [2345.678, 0, 0] }, edge: { meshId: 'm1', kind: 'line', segStart: 8, segCount: 1, length: 2345.678, ends: [[0, 0, 0], [2345.678, 0, 0]] } })],
+    result: null,
+  },
+  {
+    picks: [
+      picked({ meshId: 'm1', what: 'vertex', title: '평면', point: [0, 0, 0], entity: { type: 'point', point: [0, 0, 0] } }),
+      picked({ meshId: 'm2', what: 'vertex', title: '원 모서리', point: [0, 1234.5678, 0], entity: { type: 'point', point: [0, 1234.5678, 0] } }),
+    ],
+    result: {
+      lines: [
+        { label: '평행 면 거리', unit: 'length', value: 1234.5678, approx: true },
+        { label: '면 사이 각', unit: 'angle', value: 12.5 },
+      ],
+      annotations: [
+        { kind: 'distance', a: [0, 0, 0], b: [0, 1234.5678, 0], line: 0 },
+        { kind: 'angle', a: [0, 0, 0], b: [1, 0, 0], c: [0, 1, 0], line: 1 },
+      ],
+      approx: true,
+    } as unknown as PickedMeasure,
+  },
+];
+/** 마우스 측정 미리 보기 스냅(코어 measureHoverSnap 꼴)과 한국어 화면 이름 — 끝점·잠근 중간점·잠근 축이 모서리와 만남·모서리에 수직(뷰어 조각 이름)·면 위 점·Tab 돌리기 차례 */
+const HOVERS: [snap: object, ko: string][] = [
+  [{ snap: 'endpoint' }, '끝점'],
+  [{ snap: 'midpoint', locked: true }, '중간점 · 잠금'],
+  [{ snap: 'axis', axis: 'x', locked: true, segment: {} }, '잠근 X축 · 모서리 위'],
+  [{ snap: 'perpendicular', perpendicularDir: true }, '모서리에 수직'],
+  [{ snap: null, face: {} }, '면 위 점'],
+  [{ snap: 'endpoint', cycle: { index: 1, count: 4 } }, '끝점 2/4'],
+];
+
+interface Drawn231 {
+  views: HTMLElement;
+  /** 가짜 뷰어 셋이 받은 덧그림 글(캔버스) */
+  annos(): string[];
+  /** 가상 커서 알림 영역(Tab 돌리기 차례의 화면 언어 글) */
+  live(): string;
+  done(): void;
+}
+/** 앱 차례: 생성자처럼 언어 알림 처리기를 먼저(번역층보다 앞), 번역층을 건 뒤 개체 측정(수 꼴·덧그림·띠)과 마우스 측정 말풍선을 그린다 */
+async function draw231(code: string): Promise<Drawn231> {
+  history.replaceState(null, '', `/?lang=${code}`);
+  const views = h('div');
+  const root = h('div', {}, views);
+  document.body.append(root);
+  type Fake = { annos: { label: string }[] | null; viewCubeSize: number; section: null; setMeasureFormat(): void; setViewCubeSize(): void; setAnnotations(a: { label: string }[] | null): void };
+  const fake = (): Fake => {
+    const f: Fake = { annos: null, viewCubeSize: 96, section: null, setMeasureFormat: () => {}, setViewCubeSize: () => {}, setAnnotations: (a) => (f.annos = a) };
+    return f;
+  };
+  const app = (viewer: object, doc: object): Record<string, unknown> => {
+    const self: Record<string, unknown> = { viewer, doc, cube: null, keySnap: null, display: undefined, panel: { redraw: () => {} }, syncSection: () => {}, refreshRecent: async () => {}, updateStatus: () => {} };
+    self.makeFmt = new Function('Fmt', 'numberLocale', MAKE_FMT).bind(self, Fmt, numberLocale);
+    self.refreshFmt = new Function('measureLabelLines', 'translateUi', REFRESH_FMT).bind(self, measureLabelLines, translateUi);
+    self.relabelCube = new Function('translateUi', RELABEL).bind(self, translateUi);
+    root.addEventListener('languagechange', new Function(ON_LANG).bind(self) as () => void);
+    return self;
+  };
+  const viewers: Fake[] = [];
+  const ents = ENT_STATES.map((ent) => {
+    const fv = fake();
+    viewers.push(fv);
+    const measureText = h('div', { class: 'mb-text' });
+    views.append(h('div', { class: 'measure-bar measuring' }, measureText));
+    const self = app(fv, { scene: { units: 'mm' }, ent });
+    Object.assign(self, { ent: { pickedAnnotations, entityBar }, entMeasuring: true, touch: false, barSrc: '', measureText, paint: () => {} });
+    self.showEntities = new Function(SHOW_ENTITIES).bind(self);
+    // updateStatus → refreshBar(개체 측정 갈래만 — 띠 글 칸)
+    self.updateStatus = new Function('h', `const d = this.doc;\nconst fm = this.fmt;\nconst t = h('div');\n${ENT_BAR}\n${BAR_PUT}`).bind(self, h);
+    return self;
+  });
+  const hv = {
+    ...fake(),
+    canvas: h('canvas'),
+    keyboardSnap: { step: 8, bigStep: 40, keys: KEY_SNAP_KEYS },
+    keyboardCursor: null,
+    measureMode: true,
+    measurePointCount: 1,
+    measureInferenceLock: null,
+    measureHoverSnap: null as object | null,
+    setKeyboardSnap: () => {},
+  };
+  views.append(h('div', { class: 'viewer-host' }, hv.canvas));
+  const hs = app(hv, { scene: { units: 'mm' } });
+  Object.assign(hs, { entMeasuring: false, tangents: null, guideLabelOf: guideSnapLabel, hoverSnapText: undefined, refreshLock: () => {} });
+  const dispose = await installLocalization(root);
+  for (const self of ents) (self.refreshFmt as () => void)();
+  const ks = installKeySnap(hv as unknown as Viewer3d, { tr: translateUi, pickThrough: () => false });
+  hs.keySnap = ks;
+  const show = new Function('hoverSnapLabel', SHOW_HOVER).bind(hs, hoverSnapLabel) as () => void;
+  for (const [snap] of HOVERS) {
+    // 상태마다 두 칸 한 벌(앱은 한 벌을 바꿔 쓴다 — 여섯 상태를 한 화면에 두려고)
+    new Function('h', `${SNAP_MAKE}\n${HOVER_MAKE}`).call(hs, h);
+    views.append(hs.statusSnap as HTMLElement, hs.measureHoverEl as HTMLElement);
+    hv.measureHoverSnap = snap;
+    hs.hoverSnapText = undefined;
+    show();
+  }
+  await settle();
+  return {
+    views,
+    annos: () => viewers.flatMap((v) => (v.annos ?? []).map((a) => a.label)),
+    live: () => ks.live.textContent ?? '',
+    done: () => {
+      dispose();
+      root.remove();
+      history.replaceState(null, '', '/');
+    },
+  };
+}
+
+describe('231차: 개체 측정 덧그림 글·측정 띠 개체 측정 글·마우스 측정 말풍선은 언어를 바꾼 뒤 새 언어·새 수 꼴로 다시 그려진다(앞 언어 글·꼴이 남지 않음 — WCAG 3.1.2)', () => {
+  beforeAll(async () => {
+    // 언어 메뉴가 기다리지 않고 받는 사전 조각을 미리(ci-guard 5번 — JSON이라 곁효과 없음)
+    await Promise.all([import('../../site/locales/en.json'), import('../../site/locales/ja.json'), import('../../site/locales/zh-CN.json'), import('../../site/locales/de.json')]);
+  });
+
+  it('한국어·영어에서 시작해 다섯 번 바꾼 화면 = 처음부터 그 언어로 그린 화면(띠 글·말풍선·이름·덧그림 글), 처음 그린 화면은 파일 글 밖 한글 0', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    type Shot231 = Record<'page' | 'canvas', string[]>;
+    const shot231 = (s: Drawn231): Shot231 => ({ page: texts(s.views), canvas: s.annos() });
+    const base: Record<string, Shot231> = {};
+    for (const code of LANGS) {
+      const s = await draw231(code);
+      try {
+        base[code] = shot231(s);
+        expect(leaks(s.views, code), code).toEqual([]);
+        // 그린 것이 비지 않았다: 띠 글 셋, 말풍선 여섯 상태(두 칸씩), 덧그림 일곱(원 2·직선 1·결과 4)
+        expect(s.views.querySelectorAll('.mb-text b.mb-value').length, code).toBe(3);
+        if (code === 'ko') expect([...s.views.querySelectorAll('.status-snap')].map((e) => e.textContent)).toEqual(HOVERS.map(([, ko]) => ko));
+        expect(s.views.querySelectorAll('.mb-hover:not([hidden])').length, code).toBe(HOVERS.length);
+      } finally {
+        s.done();
+      }
+    }
+    for (const code of LANGS) expect(base[code]!.page.length, code).toBe(base.ko!.page.length);
+    expect(base.en!.page.filter((t, i) => t !== base.ko!.page[i]).length).toBeGreaterThan(15);
+    // 수 꼴: 덧그림 글은 수·단위·Ø·≈·°뿐이라 한국어·영어·일본어·중국어는 같고(「1,234.5」), 독일어만 넷이 다르다(「1.234,5」 — 빈 글 셋은 같음)
+    expect(base.ko!.canvas).toHaveLength(7);
+    for (const code of ['en', 'ja', 'zh-CN']) expect(base[code]!.canvas, code).toEqual(base.ko!.canvas);
+    expect(base.de!.canvas.filter((t, i) => t !== base.en!.canvas[i])).toHaveLength(4);
+    // 띠 글의 수도 독일어만 꼴이 다르다(그 칸이 다시 그려져야 하는 바꿈 — 중국어 → 독일어 → 한국어)
+    expect(base.de!.page.filter((t) => /\d\.\d{3},\d/.test(t)).length).toBeGreaterThan(0);
+    const left: string[] = [];
+    const chains: [string, string[]][] = [
+      ['ko', ['en', 'ja', 'zh-CN', 'de', 'ko']],
+      ['en', ['ja', 'zh-CN', 'de', 'ko', 'en']],
+    ];
+    for (const [start, order] of chains) {
+      const s = await draw231(start);
+      try {
+        for (const code of order) {
+          await switchTo(code);
+          const live = s.live();
+          if (live) left.push(`${start}→${code} live: ${live}`);
+          const now = shot231(s);
+          const b = base[code]!;
+          for (const k of ['page', 'canvas'] as const) {
+            if (now[k].length !== b[k].length) left.push(`${start}→${code} ${k}: ${now[k].length} ≠ ${b[k].length}칸`);
+            now[k].forEach((t, i) => t !== b[k][i] && left.push(`${start}→${code} ${k}: ${t} ≠ ${b[k][i]}`));
+          }
         }
       } finally {
         s.done();
