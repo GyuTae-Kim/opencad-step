@@ -311,7 +311,7 @@ describe('빠듯한 대비 짝(203차 — WCAG 1.4.3·1.4.11)', () => {
     const R = plainRules();
     const S = surfaces(T);
     const c = (k: string): Rgba => rgba(T[k]!);
-    // 처음 화면 읽기 오류(.start-error — 바탕 없이 .start 앱 바탕 위, role=alert 글): 밝게 4.53·어둡게 6.30
+    // 처음 화면 읽기 오류(.start-error — 바탕 없이 .start 앱 바탕 위 글, 244차부터 알림은 같은 글의 오류 알림이 함): 밝게 4.53·어둡게 6.30
     expect([R.get('.start-error')?.color, R.get('.start')?.background]).toEqual(['var(--danger)', 'var(--bg-app)']);
     expect(R.get('.start-error')?.border).toContain('var(--danger)');
     expect(contrast(c('--danger'), S.app!)).toBeGreaterThanOrEqual(4.5);

@@ -76,6 +76,8 @@ export interface PanelHost {
   setDensity(kgm3: number | null): void;
   /** 알림 칸(155차 — 밀도 칸이 받지 않는 값, 156차 — 보이지 않는 간섭 검사 오류) */
   toast?(msg: string | string[], kind: 'warn' | 'error', ms: number): void;
+  /** 244차(WCAG 4.1.3): 화면 읽기 프로그램에만 알리는 앱 칸(상태 막대 안 role=status — 53차 「열었습니다」 칸)에 글 하나 — 이름 거르기 결과 수 */
+  say?(text: string): void;
   /** 화면 점에 작업 메뉴(숨기기·이것만 보기 등) */
   openContextMenu(clientX: number, clientY: number): void;
   /** 의미 PMI가 가리키는 면 강조·맞춰 보기 */
@@ -128,6 +130,9 @@ export class Panel {
   /** 지금 그린 나무(가상 목록)와 부품별 보이기 표 */
   private tree: TreeView | null = null;
   private groupList: VList | null = null;
+  /** 244차: 지금 그린 이름 거르기 결과 글(거르지 않으면 빈 글 — 거르기 늦춤 뒤 앱 알림 칸에 같은 글)·아래 띠에 넣은 글(번역 전 — 같으면 다시 넣지 않는다) */
+  private filterNote = '';
+  private footSrc = '';
   /** 지금 그린 PMI 탭 본문(나무 조각 — 54차) */
   private pmi: PmiView | null = null;
   private filterTimer = 0;
@@ -367,9 +372,12 @@ export class Panel {
     input.addEventListener('input', () => {
       clearTimeout(this.filterTimer);
       this.filterTimer = window.setTimeout(() => {
+        const was = d.treeFilter;
         d.treeFilter = input.value;
         d.treeLimit = TREE_LIMIT;
         this.renderBody();
+        // 244차(WCAG 4.1.3): 결과 수 줄은 다시 그린 본문의 새 줄이라 알림 영역이 아니다 — 거르기 값이 바뀌었으면 같은 글을 앱 알림 칸으로 한 번(다시 그리기·Esc로 지움은 알리지 않음)
+        if (input.value.trim() !== was.trim() && this.doc === d && d.panelTab === 'tree' && this.filterNote) this.host.say?.(this.filterNote);
       }, 160);
     });
     // Esc는 거르기를 지운다(↓로 첫 줄, Ctrl·⌘+F로 이 칸에 오기는 나무 조각 — treeview.ts)
@@ -383,7 +391,8 @@ export class Panel {
       }
     });
     const search = h('label', { class: 'tree-search' }, icon('search', 15), input);
-    const filterInfo = filtering ? h('p', { class: 'hint filter-info' }, res.matches ? `맞는 마디 ${fmtCount(res.matches)}개 (조상 마디와 함께 보입니다)` : '맞는 마디가 없습니다.') : null;
+    this.filterNote = filtering ? (res.matches ? `맞는 마디 ${fmtCount(res.matches)}개 (조상 마디와 함께 보입니다)` : '맞는 마디가 없습니다.') : '';
+    const filterInfo = this.filterNote ? h('p', { class: 'hint filter-info' }, this.filterNote) : null;
 
     const tools = h('div', { class: 'tree-tools' });
     const mk = (label: string, title: string, run: () => void) => {
@@ -520,13 +529,12 @@ export class Panel {
   private renderFoot(): void {
     const d = this.doc;
     const f = this.foot;
-    f.innerHTML = '';
-    if (!d) {
-      f.hidden = true;
-      return;
-    }
-    const lines = this.kit?.footView?.(d, this.host) ?? [];
+    const lines = d ? (this.kit?.footView?.(d, this.host) ?? []) : [];
+    // 244차(WCAG 4.1.3): 띠는 알림 영역이라 만든 글(번역 전)이 그대로면 바꾸지 않는다(53차 측정 띠 글 칸 꼴 — 탭을 바꾸거나 다시 그릴 때마다 같은 고른 것을 다시 넣어 거듭 읽혔다)
+    const src = lines.map((l) => l.outerHTML).join('');
+    if (src === this.footSrc) return;
+    this.footSrc = src;
     f.hidden = !lines.length;
-    f.append(...lines);
+    f.replaceChildren(...lines);
   }
 }

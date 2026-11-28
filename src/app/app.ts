@@ -400,8 +400,9 @@ export class StepApp {
 
     // ── 3D 보기 ──
     this.hostEl = h('div', { class: 'viewer-host' });
-    // 212차: 앱 글 칸(오류 알림 글 칸과 같은 글 — 틀이 잡은 까닭도 옮긴다)
-    this.startError = h('div', { class: 'start-error', role: 'alert', hidden: true, 'data-i18n-ui': '' });
+    // 212차: 앱 글 칸(오류 알림 글 칸과 같은 글 — 틀이 잡은 까닭도 옮긴다).
+    // 244차(WCAG 4.1.3): 알림 영역이 아니다 — 같은 글을 같은 차례 오류 알림(role=alert)이 알려, 전에는 role=alert인 이 칸과 두 번 읽혔다(문서가 없는 동안 남아 보이는 칸)
+    this.startError = h('div', { class: 'start-error', hidden: true, 'data-i18n-ui': '' });
     this.startEl = this.buildStart();
     // 여는 파일 이름(파일 글 — 번역하지 않음, 방향은 styles.css .busy-name이 가둔다)
     this.busyName = h('div', { class: 'busy-name', translate: 'no' });
@@ -3269,6 +3270,14 @@ export class StepApp {
    */
   fail(msg: string, retry: () => unknown): (e: unknown) => undefined {
     return (e) => loadFailed(e, msg, retry, (m, a) => this.toast(m, 'warn', 8000, a));
+  }
+
+  /**
+   * 244차(WCAG 4.1.3): 화면 읽기 프로그램에만 알리는 칸(상태 막대 안 role=status — 53차 「열었습니다」)에 글 하나. 패널(PanelHost say)이 이름 거르기 결과 수를 넘긴다
+   * (다시 그린 본문의 새 줄은 알림 영역이 아니다). 번역층이 칸 글을 옮긴다
+   */
+  say(text: string): void {
+    this.sayEl.replaceChildren(text);
   }
 
   private updateAll(): void {

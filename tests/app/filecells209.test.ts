@@ -486,7 +486,8 @@ describe('212차: 열기 오류 글 칸(오류 알림·처음 화면 읽기 오�
     const dispose = await installLocalization(root);
     try {
       expect(views.querySelectorAll('.toast.error[role="alert"]').length).toBe(2);
-      expect(views.querySelectorAll('.start-error[role="alert"]').length).toBe(2);
+      // 244차(WCAG 4.1.3): 처음 화면 읽기 오류 칸은 알림 영역이 아니다 — 같은 글을 같은 차례 오류 알림(role=alert)이 알려 전에는 두 번 읽혔다(tests/app/status244.test.ts)
+      expect([views.querySelectorAll('.start-error').length, views.querySelectorAll('.start-error[role]').length]).toEqual([2, 0]);
       // 한국어 화면의 글은 원문 그대로
       if (code === 'ko') expect([...views.querySelectorAll('.start-error')].map((e) => e.textContent)).toEqual(msgs.map((m) => `${OPEN_FAIL} ${m}`));
       expect(leaks(views, code)).toEqual([]);
