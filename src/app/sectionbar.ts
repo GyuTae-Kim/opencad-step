@@ -141,7 +141,8 @@ export class SectionBar {
       this.num.step = String(10 ** -Math.min(3, f.decimals));
       this.unit.textContent = f.unit;
       // 146차: 0~1000 막대가 속 수 대신 옆 값 글(「X = 10 mm」)을 읽게(NC 140차 꼴). 번역층이 옮기지 않는 속성이라 낱말(면 단면 「위치」)은 빼고, 끄는 동안에도 지금 상태로
-      this.slider.setAttribute('aria-valuetext', `${st.axis ? `${st.axis.toUpperCase()} = ` : ''}${n}${f.unit ? ` ${f.unit}` : ''}`);
+      // 233차: 읽는 글이라 수는 화면 언어 꼴(Fmt — 독일어 「X = 12,5 mm」, 같은 반올림), 숫자 칸 값 n은 점 소수 그대로
+      this.slider.setAttribute('aria-valuetext', `${st.axis ? `${st.axis.toUpperCase()} = ` : ''}${f.lenNum(st.position)}${f.unit ? ` ${f.unit}` : ''}`);
       this.flipBtn.setAttribute('aria-pressed', String(st.flip));
       this.flipBtn.classList.toggle('on', st.flip);
       const ax = (st.axis ?? '').toUpperCase();

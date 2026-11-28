@@ -8,24 +8,31 @@ import { numberLocale } from './display';
  * 천 단위 묶음은 독일어 「12.345」, 한국어·영어·일본어·중국어 「12,345」(전에는 늘 ko-KR이라 독일어 화면에서도 「12,345」).
  * 소수점도 같은 꼴: 측정 값·패널 수의 Fmt(display.ts)가 같은 numberLocale로 언어 꼴(독일어 「1.234,5」 — measure.test 「거리 1.234,568 mm」)이라 한 꼴로 맞춘다.
  * 문서가 없는 곳(node 시험)은 한국어 꼴. 언어가 바뀌면 다시 그리는 칸(언어 알림 → refreshFmt — 패널·상태 막대)은 새 꼴, 떠 있는 알림은 만든 때 꼴(232차 표)
+ * 233차: 크기·시간(formatBytes·formatMs)의 소수점도 같은 꼴(전에는 toFixed라 독일어 화면에서도 「18.6 KB」·「1.25 s」) — 묶음은 전처럼 없음(「1023 B」, 다섯 언어 그대로)
  */
-let nfKey = '';
-let nf: Intl.NumberFormat | null = null;
-function numberFormat(digits: number): Intl.NumberFormat {
+const nfs = new Map<string, Intl.NumberFormat>();
+function numberFormat(digits: number, grouping = true): Intl.NumberFormat {
   const locale = numberLocale(typeof document === 'undefined' ? undefined : document.documentElement.lang);
-  const key = `${locale} ${digits}`;
-  if (!nf || key !== nfKey) {
+  const key = `${locale} ${digits} ${grouping}`;
+  let nf = nfs.get(key);
+  if (!nf) {
+    const o = { maximumFractionDigits: digits, useGrouping: grouping };
     try {
-      nf = new Intl.NumberFormat(locale, { maximumFractionDigits: digits });
+      nf = new Intl.NumberFormat(locale, o);
     } catch {
-      nf = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: digits });
+      nf = new Intl.NumberFormat('ko-KR', o);
     }
-    nfKey = key;
+    nfs.set(key, nf);
   }
   return nf;
 }
 
-/** 바이트 수 → "12.3 KB"(1024 단위) */
+/** 크기·시간 수(233차): 소수 digits 자리 반올림(toFixed — 전과 같은 값), 끝 0 없이, 소수점은 화면 언어 꼴, 묶음 없이 */
+function plainNum(v: number, digits: number): string {
+  return numberFormat(digits, false).format(Number(v.toFixed(digits)));
+}
+
+/** 바이트 수 → "12.3 KB"(1024 단위, 독일어 화면 "12,3 KB") */
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '—';
   if (n < 1024) return `${Math.round(n)} B`;
@@ -37,15 +44,15 @@ export function formatBytes(n: number): string {
     i++;
   }
   const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-  return `${trimZeros(v.toFixed(digits))} ${units[i]}`;
+  return `${plainNum(v, digits)} ${units[i]}`;
 }
 
-/** 밀리초 → "850 ms", "1.25초", "2분 5초" */
+/** 밀리초 → "850 ms", "1.25초"(독일어 화면 "1,25"), "2분 5초" */
 export function formatMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '—';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
-  if (s < 60) return `${trimZeros(s.toFixed(s < 10 ? 2 : 1))}초`;
+  if (s < 60) return `${plainNum(s, s < 10 ? 2 : 1)}초`;
   const m = Math.floor(s / 60);
   const rest = Math.round(s - m * 60);
   return rest ? `${m}분 ${rest}초` : `${m}분`;
@@ -100,8 +107,4 @@ export function imageSizeLabel(k: number, s: { width: number; height: number; sc
 /** 그림 파일 이름: 이름@2x-transparent.png */
 export function imageFileName(stem: string, o: { scale: number; transparent: boolean }): string {
   return `${stem}${o.scale > 1 ? `@${o.scale}x` : ''}${o.transparent ? '-transparent' : ''}.png`;
-}
-
-function trimZeros(s: string): string {
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
