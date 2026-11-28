@@ -15,6 +15,8 @@
  *   「잠근 X축 · 모서리 위」 — 앱 곡선 접선 잠금이면 「접선 방향 · 잠금」, 앱 고르기 호스트(pick — app.ts 자신)의 tangents로 안다)
  * - 118차: 마우스 미리 보기 Tab 돌리기로 돌린 동안(코어 0.118.0 MeasureHoverSnap.cycle) 상태 막대·측정 띠 스냅 이름 뒤에 차례·수 「끝점 2/4」 — 가상 커서 알림과
  *   같은 틀 'order'로 만들고(hoverCycleLabel — installKeySnap의 cycleLabel이 지금 틀·화면 언어로 부른다), 같은 글을 화면 언어로 이 알림 영역에도(app.ts showHoverSnap)
+ * - 216차: 가상 커서가 켜진 동안 두 점 측정 방향 잠금 글자 X·Y·Z·L(lockKeyOf·installKeySnap lockKey — 커서가 꺼졌을 때의 → · ← · ↑ · ↓와 같은 앱 lockArrow 길,
+ *   앱 창 keydown 캡처가 부른다). 잠근 축·푼 것은 이 알림 영역에 — 코어가 다음 그림에서 그 자리를 다시 알리면('refresh') 그 글 앞에, 아니면 다음 프레임에 홀로
  * - 고르기 후보는 앱 누르기 알림과 같은 선택이다(반투명 너머 고르기 — pickThrough가 바뀌면 sync)
  * - 66차: 지금 후보가 그물 면이면 그 B-rep 면을 3D 보기에 표식(코어 0.54.0 facePreview·faceRanges — 측정 모드에서는 코어가 그리지 않는다),
  *   면 고르기·여러 개 고르기·고르기 단위가 바뀌어도 sync(켜진 커서의 후보 묶음을 다시 만든다 — 65차까지는 커서를 옮길 때까지 앞 묶음 그대로였다)
@@ -37,6 +39,7 @@ import { VIEW_KEYS } from 'opencad-viewer3d/viewkeys';
 import type { StepDoc } from './doc';
 import { h } from './dom';
 import { pickFaceRanges, pickGroup, type PickRowHost } from './picklist';
+import { LOCK_HINTS, lockName, type LockName } from './snap';
 import type { TangentLock } from './tangent';
 import { snapNameOf } from './trackdir';
 
@@ -116,6 +119,22 @@ export function hoverCycleLabel(name: string, c: HoverCycle, msgs: Partial<Recor
 
 const MOVES: readonly KeySnapAction[] = ['left', 'right', 'up', 'down'];
 
+/** 216차: 방향 잠금 글자 → 커서가 꺼졌을 때 같은 일을 하는 화살표(→ X축 · ← Y축 · ↑ Z축 · ↓ 지금 방향 — snap.ts arrowLock) */
+const LOCK_ARROWS: Readonly<Record<'x' | 'y' | 'z' | 'l', string>> = { x: 'ArrowRight', y: 'ArrowLeft', z: 'ArrowUp', l: 'ArrowDown' };
+
+/** 216차: 푼 알림(잠근 알림은 상태 막대 잠금 안내와 같은 snap.ts LOCK_HINTS) */
+const UNLOCKED = '방향 잠금을 풀었습니다';
+
+/**
+ * 216차: 방향 잠금 글자(X·Y·Z·L) — 적힌 글자(key 한 글자, 대소문자 무시)가 라틴 글자면 그것(독일어 자판의 Y·Z 자리·AZERTY도 적힌 대로), 아니면(한글 입력기 ㅌ·ㅛ·ㅋ·ㅣ,
+ * 조합 중 'Process' 등) 물리 키(code KeyX·KeyY·KeyZ·KeyL). 그 밖은 null
+ */
+export function lockKeyOf(e: Pick<KeyboardEvent, 'key' | 'code'>): 'x' | 'y' | 'z' | 'l' | null {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : '';
+  const c = /^[a-z]$/.test(k) ? k : /^Key[XYZL]$/.test(e.code) ? e.code.slice(3).toLowerCase() : '';
+  return c === 'x' || c === 'y' || c === 'z' || c === 'l' ? c : null;
+}
+
 /**
  * 캔버스 aria-keyshortcuts 값(WAI-ARIA 꼴 — KeyboardEvent.key, 수정 키는 앞에 'Shift+'): 코어 키 표(옮기기는 Shift와 함께도 — 크게 옮기기),
  * 후보·찍기·끄기, 마우스 미리 보기 후보 돌리기(116차 — 코어 0.116.0 tabCycle은 키 표와 따로 Tab·Shift+Tab·Esc로 정해져 있다 — 기본 키 표에는 이미 있다),
@@ -130,6 +149,8 @@ export function keyShortcuts(keys: Readonly<Record<KeySnapAction, readonly strin
     }
   for (const a of ['next', 'prev', 'commit', 'exit'] as const) for (const k of keys[a]) out.add(k);
   for (const k of ['Tab', 'Shift+Tab', 'Escape']) out.add(k);
+  // 216차: 가상 커서가 켜진 동안 방향 잠금 글자(앱 키 — 키 표와 따로)
+  for (const k of Object.keys(LOCK_ARROWS)) out.add(k.toUpperCase());
   out.add('F');
   for (const k of Object.keys(VIEW_KEYS)) out.add(k);
   return [...out].join(' ');
@@ -147,6 +168,8 @@ export function keyHelpRows(ks: { step: number; bigStep: number; keys: Readonly<
   if (cyc.length) rows.push([cyc.join(' · '), '같은 자리의 다음·앞 후보(측정 점, 겹친 면·모서리)']);
   if (ks.keys.commit.length) rows.push([lab('commit').join(' · '), '찍기(측정)·고르기']);
   if (ks.keys.exit.length) rows.push([lab('exit').join(' · '), '측정 지우기 — 지울 것이 없으면 커서 끄기']);
+  // 216차: 커서가 켜진 동안 방향 잠금(커서가 꺼졌을 때의 → · ← · ↑ · ↓ — 아래 안내 줄)
+  rows.push(['X · Y · Z · L', '두 점 측정 방향 잠금(X축 · Y축 · Z축 · 지금 방향 — 다시 누르면 풀기)']);
   // 65차: 커서 자리 작업 메뉴(64차 menuAt)와 겹친 것 목록 줄 미리 강조 안내
   rows.push(['Shift+F10', '커서 자리 작업 메뉴(겹친 것 고르기… — 목록 줄에 초점을 두면 3D에 미리 강조)']);
   rows.push([`F · ${views[0]}~${views[views.length - 1]}`, '전체 보기 · 표준 뷰']);
@@ -192,8 +215,9 @@ export interface KeySnapHost {
    * 면 고르기·여러 개 고르기·고르기 단위를 바꾸면 앱이 sync()를 불러 켜진 커서의 후보를 새 묶음으로 다시 구한다. 없으면 기본 도형 단위·같은 평면 면 표식.
    * 125차: tangents(app.ts의 곡선 접선 잠금 — 측정 접선 조각을 받기 전에는 null)도 읽는다 — 코어 잠금이 앱 접선 잠금이면 알림 이름을 상태 막대처럼 「접선 방향 · 잠금」으로
    * (첫 화면 조각을 늘리지 않으려고 새 칸을 주지 않고 앱이 이미 주는 자기 자신에서 읽는다). 없으면 접선 잠금이 없는 것으로
+   * 216차: lockArrow(app.ts — 두 점 측정 화살표 잠금 몸통, 화살표 이름을 받는다. 받는 때면 true, hold면 받는지만)도 같은 꼴로 읽는다 — 없으면 lockKey는 받지 않는다
    */
-  pick?: PickRowHost & { doc: StepDoc | null; tangents?: Pick<TangentLock, 'locked'> | null };
+  pick?: PickRowHost & { doc: StepDoc | null; tangents?: Pick<TangentLock, 'locked'> | null; lockArrow?(key: string, hold?: boolean): boolean };
   /** 묶음 열쇠를 따로 줄 때(시험 — 주면 pick의 열쇠 대신) */
   group?: PickGroupKey;
 }
@@ -201,22 +225,38 @@ export interface KeySnapHost {
 /**
  * 뷰어에 키보드 붙잡기를 켜고 알림 영역·캔버스 aria-keyshortcuts를 단다. sync()는 화면 언어·반투명 너머 고르기·고르기 모드(면·여러 개·단위)가 바뀌면 다시 건다
  * (켜진 가상 커서는 그대로 — 고르기 모드면 새 선택·새 묶음으로 후보를 다시 구한다, 알리지는 않는다).
- * cycleLabel(118차)은 마우스 Tab 돌리기 차례·수를 붙인 이름(hoverCycleLabel)을 지금 글 틀·화면 언어로 만든다 — app.ts showHoverSnap이 부르고 said를 live에 넣는다
+ * cycleLabel(118차)은 마우스 Tab 돌리기 차례·수를 붙인 이름(hoverCycleLabel)을 지금 글 틀·화면 언어로 만든다 — app.ts showHoverSnap이 부르고 said를 live에 넣는다.
+ * lockKey(216차)는 앱 창 keydown 캡처가 부른다: 3D 보기 캔버스가 받은 X·Y·Z·L(Ctrl·⌘·Alt·Shift 없이, 막히지 않은 사건, 가상 커서가 켜진 동안 — lockKeyOf)을
+ * 앱 고르기 호스트의 lockArrow에 그 화살표로 넘기고(→ · ← · ↑ · ↓ — 두 점 측정 방향을 잡는 중일 때만 받는다), 받았으면 true(앱이 막고 멈춘다 — 누른 채 되풀이는 막기만).
+ * 잠근 방향(snap.ts LOCK_HINTS)·푼 것은 알림 영역에 — 다음 그림에서 코어가 그 자리를 다시 알리면('refresh') 그 글 앞에 켜기 틀의 이음 글로 붙여 한 글로
+ * (같은 프레임에 두 글을 차례로 넣으면 뒤 글만 읽힌다), 다시 알리지 않으면(그 자리에 후보가 없음) 다음 프레임에 홀로. 앞뒤 모두 잠금이 없으면(잠글 것이 없음 — 앱 알림 상자) 내지 않는다
  */
-export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; live: HTMLElement; cycleLabel(name: string, c: HoverCycle): HoverCycleLabel } {
+export function installKeySnap(
+  v: Viewer3d,
+  host: KeySnapHost,
+): { sync(): void; live: HTMLElement; cycleLabel(name: string, c: HoverCycle): HoverCycleLabel; lockKey(e: KeyboardEvent): boolean } {
   const live = h('div', { class: 'sr-only', 'aria-live': 'polite', 'data-i18n-skip': '' });
   (v.canvas.parentElement ?? document.body).append(live);
   const P = host.pick;
   const group: PickGroupKey | undefined = host.group ?? (P ? (p) => pickGroup(P, p) : undefined);
   const faceRanges = P ? (p: Pick3d) => pickFaceRanges(P.doc, p) : undefined;
   let messages: Partial<Record<KeySnapMessageKey, string>> = {};
+  // 216차: lockKey 알림(화면 언어 — 코어 다시 알림을 기다린다)과 이음 글(코어 켜기 틀 「…. {0}. {1}」의 {0}과 {1} 사이 — 한·영·독 「. 」, 일·중 「。」)
+  let lead = '';
+  let gap = ' ';
   const sync = (): void => {
     messages = keySnapMessagesFor(host.tr);
+    const st = keySnapMessages(messages).start;
+    const i = st.indexOf('{0}');
+    const j = st.indexOf('{1}');
+    gap = i >= 0 && j > i + 3 ? st.slice(i + 3, j) : ' ';
     v.setKeyboardSnap({
       announce: (a) => {
         // 117·124·125차: 측정 후보·찍은 첫 점의 이름은 상태 막대와 같은 이름(코어 글은 「수직점」·「나란한 선」·「X축」·「스냅하지 않은 점」·「잠근 선 위 …」),
         // 코어 잠금이 앱 곡선 접선 잠금이면 「접선 방향 · 잠금」(앱 고르기 호스트의 tangents)
-        live.textContent = keySnapAnnounceText(a, messages, host.tr, !!P?.tangents?.locked(v));
+        const t = keySnapAnnounceText(a, messages, host.tr, !!P?.tangents?.locked(v));
+        live.textContent = lead && a.reason === 'refresh' ? lead + gap + t : t;
+        lead = '';
         host.announced?.(a);
       },
       pickCycle: { throughTranslucent: host.pickThrough(), group, facePreview: true, faceRanges },
@@ -234,5 +274,24 @@ export function installKeySnap(v: Viewer3d, host: KeySnapHost): { sync(): void; 
     e.preventDefault();
     e.stopPropagation();
   });
-  return { sync, live, cycleLabel: (name, c) => hoverCycleLabel(name, c, messages, host.tr) };
+  /** 지금 잠근 방향 이름(앱 곡선 접선 잠금이면 'tangent' — snap.ts viewerLockName과 같은 규칙) */
+  const lockNow = (): LockName | null => (P?.tangents?.locked(v) ? 'tangent' : lockName(v.measureInferenceLock));
+  const lockKey = (e: KeyboardEvent): boolean => {
+    const k = e.target === v.canvas && v.keyboardCursor && !e.defaultPrevented && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) ? lockKeyOf(e) : null;
+    if (!k || !P?.lockArrow) return false;
+    const before = lockNow();
+    if (!P.lockArrow(LOCK_ARROWS[k], e.repeat)) return false;
+    if (e.repeat) return true;
+    const after = lockNow();
+    const s = after ? LOCK_HINTS[after] : before ? UNLOCKED : null;
+    if (s) {
+      lead = host.tr(s);
+      requestAnimationFrame(() => {
+        if (lead) live.textContent = lead;
+        lead = '';
+      });
+    }
+    return true;
+  };
+  return { sync, live, cycleLabel: (name, c) => hoverCycleLabel(name, c, messages, host.tr), lockKey };
 }
