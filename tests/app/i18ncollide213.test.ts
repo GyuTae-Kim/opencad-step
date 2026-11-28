@@ -155,11 +155,25 @@ describe('같은 언어 안 겹친 값 — 목록 고정(213차)', () => {
 
 /** 칸 글이 번역층을 지나도록 한 차례 넘기기 */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-/** 언어 메뉴로 바꾸고(app 꼴 — changeLanguage), 문서 언어가 바뀔 때까지 */
+/**
+ * 언어 메뉴로 바꾸고(app 꼴 — changeLanguage), 문서 언어가 바뀌고 번역층이 칸 글을 다 옮길 때까지.
+ * 218차: 기다림을 횟수(setTimeout 0 50번)가 아니라 시간으로 — 다른 시험 파일과 함께 도는 부하에서 사전 조각 받기가 50번을 넘겨
+ * 「expected 'ja' to be 'de'」, 언어가 바뀐 뒤 한 번만 넘겨 번역층이 아직 옮기는 중이라 「expected 'Ausgewählt: 7' to be '고른 것: 7'」가 났다
+ * (따로 돌리면 통과하는 불안정한 실패). 언어가 바뀐 뒤에는 DOM이 다섯 번 잇달아 조용할 때까지(최대 5초) 기다린다
+ */
 async function switchTo(code: string): Promise<void> {
   (document.querySelector(`.language-list [data-language="${code}"]`) as HTMLButtonElement).click();
-  for (let i = 0; i < 50 && document.documentElement.lang !== code; i++) await tick();
-  await tick();
+  const end = Date.now() + 5000;
+  while (document.documentElement.lang !== code && Date.now() < end) await tick();
+  let changed = false;
+  const watch = new MutationObserver(() => (changed = true));
+  watch.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+  for (let quiet = 0; quiet < 5 && Date.now() < end; ) {
+    changed = false;
+    await tick();
+    quiet = changed ? 0 : quiet + 1;
+  }
+  watch.disconnect();
   expect(document.documentElement.lang).toBe(code);
 }
 /** 틀 열쇠의 자리를 수로 채움(채운 원문) */
